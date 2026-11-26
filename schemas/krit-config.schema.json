@@ -3226,6 +3226,39 @@
             }
           }
         },
+        "ExperimentalAnnotationRetention": {
+          "description": "Detects opt-in marker annotations whose retention keeps them out of class files (Kotlin needs BINARY, Java CLASS). [precision: ast-backed] [noisiness: normal]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable ExperimentalAnnotationRetention (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "ExpiredTargetSdkVersion": {
           "description": "targetSdkVersion below enforced compliance floor [precision: policy] [noisiness: normal] [capabilities: gradle]",
           "type": "object",
@@ -13125,6 +13158,72 @@
             }
           }
         },
+        "UnsafeOptInUsageError": {
+          "description": "Detects uses of APIs marked with an error-level opt-in marker declared in the project, without opting in. [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]\nCaveat: Only opt-in markers declared in the project are known; APIs marked in libraries (CameraX, Media3, ...) need their class files, which source analysis does not read.\nCaveat: Usages are calls, constructor calls and member calls whose target resolves through imports, the file's package and same-file declarations; the lint.xml `opt-in` option is not read.\nCaveat: As in Lint, Kotlin code is only checked against androidx (Java) markers, since the Kotlin compiler enforces kotlin.RequiresOptIn markers itself.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable UnsafeOptInUsageError (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "UnsafeOptInUsageWarning": {
+          "description": "Detects uses of APIs marked with a warning-level opt-in marker declared in the project, without opting in. [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]\nCaveat: Only opt-in markers declared in the project are known; APIs marked in libraries (CameraX, Media3, ...) need their class files, which source analysis does not read.\nCaveat: Usages are calls, constructor calls and member calls whose target resolves through imports, the file's package and same-file declarations; the lint.xml `opt-in` option is not read.\nCaveat: As in Lint, Kotlin code is only checked against androidx (Java) markers, since the Kotlin compiler enforces kotlin.RequiresOptIn markers itself.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable UnsafeOptInUsageWarning (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "UnsafeProtectedBroadcastReceiverManifest": {
           "description": "Exported receiver for protected broadcast without permission [precision: project-structure-aware] [noisiness: normal] [capabilities: manifest]",
           "type": "object",
@@ -15807,6 +15906,39 @@
               "description": "Enable WrongRegionResource (default: false).",
               "type": "boolean",
               "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "WrongRequiresOptIn": {
+          "description": "Detects Kotlin opt-in markers declared with androidx.annotation.RequiresOptIn instead of kotlin.RequiresOptIn. [precision: ast-backed] [noisiness: normal]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable WrongRequiresOptIn (default: true).",
+              "type": "boolean",
+              "default": true
             },
             "excludes": {
               "description": "Glob patterns for paths to exclude from this rule.",
@@ -33100,6 +33232,46 @@
             }
           }
         },
+        "InclusiveNaming": {
+          "description": "Use inclusive naming. [precision: ast-backed] [noisiness: normal]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable InclusiveNaming (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "blockList": {
+              "description": "Words a name must not contain, matched against the lower-cased name (slack-lints `block-list`; comma-separated entries are split too). Empty, the default, reports nothing.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "MissingResourceImportAlias": {
           "description": "Missing import alias for R class. [precision: ast-backed] [noisiness: normal]",
           "type": "object",
@@ -34526,6 +34698,39 @@
             }
           }
         },
+        "MustUseNamedParams": {
+          "description": "Calls to @MustUseNamedParams-annotated methods must name all parameters. [precision: project-structure-aware] [noisiness: normal] [capabilities: cross-file, resolver]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable MustUseNamedParams (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "NullableConcurrentHashMap": {
           "description": "ConcurrentHashMap should not use nullable types [precision: ast-backed] [noisiness: normal]",
           "type": "object",
@@ -34599,6 +34804,39 @@
           "properties": {
             "active": {
               "description": "Enable ProvidesMustNotBeAbstract (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "RestrictCallsTo": {
+          "description": "Methods annotated with @RestrictedCallsTo should only be called from the specified scope. [precision: project-structure-aware] [noisiness: normal] [capabilities: cross-file, resolver]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable RestrictCallsTo (default: false).",
               "type": "boolean",
               "default": false
             },
@@ -34731,6 +34969,39 @@
           "properties": {
             "active": {
               "description": "Enable SubscribeOnMain (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "TestParameterSiteTarget": {
+          "description": "`TestParameter` annotation has the wrong site target [precision: ast-backed] [noisiness: normal]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable TestParameterSiteTarget (default: false).",
               "type": "boolean",
               "default": false
             },

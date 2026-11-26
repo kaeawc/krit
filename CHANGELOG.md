@@ -22,6 +22,15 @@ All notable changes to Krit will be documented in this file.
   its inputs' hashes in the model, and krit warns, naming the file, when the build no longer matches. A model restored under another checkout path or Gradle user home is rebased when
   loaded (new `gradleUserHome` model field). New `krit { exportTests = false }` exports and resolves only production
   source sets (#1663).
+- `ExperimentalAnnotationRetention` and `WrongRequiresOptIn`, ports of the declaration checks bundled with
+  `androidx.annotation:annotation-experimental` 1.6.0, under their Lint IDs. Their findings match the Lint CLI running
+  that release's `lint.jar` on the inputs under `internal/rules/testdata/androidx_annotation_experimental/` (#1317,
+  #1318).
+- `ExperimentalAnnotationRetention`, `WrongRequiresOptIn`, `UnsafeOptInUsageError` and `UnsafeOptInUsageWarning`,
+  ports of the checks bundled with `androidx.annotation:annotation-experimental` 1.6.0, under their Lint IDs; the usage
+  checks cover opt-in markers declared in the project. Their findings match the Lint CLI running
+  that release's `lint.jar` on the inputs under `internal/rules/testdata/androidx_annotation_experimental/` (#1315,
+  #1316, #1317, #1318).
 - `NullSafeMutableLiveData` and `UnsafeLifecycleWhenUsage`, ports of the Lint checks bundled with
   `androidx.lifecycle:lifecycle-livedata-core` and `lifecycle-runtime` 2.11.1, under their Lint IDs. Their findings
   match the Lint CLI running those releases' `lint.jar` on the inputs under
@@ -228,6 +237,11 @@ All notable changes to Krit will be documented in this file.
   set's `assets` folder, with Lint's separate messages for `.so` libraries and other executables. The resource cache
   fingerprint now also covers the files directly inside `assets`, so adding or editing one there invalidates cached
   resource findings (#1274, #1285).
+- `InclusiveNaming`, slack-lints 0.11.1's inclusive-naming check, in the opt-in `slack-lint` rule set for Kotlin and
+  Java: names (file, package, classes, functions, properties, parameters, locals, labels) containing a word of the
+  new `blockList` option. Findings match the Lint CLI on `internal/rules/testdata/slack_lint/inclusive/`, apart from
+  the module suffix of `internal` members' JVM names. `Deprecation` gains slack-lints' `DeprecatedCall` as a Lint
+  alias (#1367, #1368).
 - `JavascriptInterface` and `UnsanitizedFilenameFromContentProvider`, ported from Android Lint 32.4.1's
   `JavaScriptInterfaceDetector` and `UnsafeFilenameDetector` under their Lint IDs for Kotlin and Java, and checked
   against the Lint CLI on the same inputs. `JavascriptInterface` reports an object passed to
@@ -573,6 +587,11 @@ All notable changes to Krit will be documented in this file.
   cannot be classified from source (star imports, typealiases, unresolved annotations that may be qualifiers) are
   skipped. This completes the `MoshiUsageDetector` port except for Slack's package-specific
   `MoshiUsageNonMoshiClassInternal`/`External` (#1384, #1395, #1396, #1404, #1407, #1408, #1409).
+- `TestParameterSiteTarget`, `MustUseNamedParams` and `RestrictCallsTo`, slack-lints 0.11.1's annotation-driven
+  checks, in the opt-in `slack-lint` rule set. `MustUseNamedParams` and `RestrictCallsTo` resolve Kotlin calls to
+  project functions and constructors annotated with slack-lint-annotations' `@MustUseNamedParams`/`@RestrictCallsTo`
+  through imports, packages and receiver types (overrides included), and match the Lint CLI on
+  `internal/rules/testdata/slack_lint_crossfile/annotations/` (#1423, #1432, #1433).
 
 ### Fixed
 - `--no-cache` skips every cache that can change findings. A one-shot scan read the cross-file findings cache, so a

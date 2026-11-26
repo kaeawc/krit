@@ -105,8 +105,9 @@ func acrFunctionNameShadowed(file *scanner.File, node uint32, name string) bool 
 
 // Per-file fact slots for the Compose runtime ports.
 const (
-	slotAcrTopLevelNames = "acrTopLevelNames"
-	slotAcrFunctionDecls = "acrFunctionDecls"
+	slotAcrTopLevelNames   = "acrTopLevelNames"
+	slotAcrFunctionDecls   = "acrFunctionDecls"
+	slotAcrBlockProperties = "acrBlockProperties"
 )
 
 // acrFileDeclaresTopLevel reports whether the file declares a top-level class, object, function, property or

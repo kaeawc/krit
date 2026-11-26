@@ -1,0 +1,4 @@
+- src/main/java/com/example/masterpkg/Extra.kt:7:16: InclusiveNaming: Use inclusive naming. Matched string is 'master' in function name 'getMasterInternal$tmp_P9XcoOOwOe' # an internal member's JVM name carries a module suffix that depends on the Lint run's module (here a temp directory); krit reports the source name
++ src/main/java/com/example/masterpkg/Extra.kt:7:16: InclusiveNaming: Use inclusive naming. Matched string is 'master' in function name 'getMasterInternal' # as above
+- src/main/java/com/example/masterpkg/Extra.kt:8:16: InclusiveNaming: Use inclusive naming. Matched string is 'master' in function name 'masterInternalFun$tmp_P9XcoOOwOe' # an internal member's JVM name carries a module suffix that depends on the Lint run's module (here a temp directory); krit reports the source name
++ src/main/java/com/example/masterpkg/Extra.kt:8:16: InclusiveNaming: Use inclusive naming. Matched string is 'master' in function name 'masterInternalFun' # as above

@@ -120,6 +120,25 @@ They report only what the source proves:
 Not ported: `MoshiUsageNonMoshiClassInternal` and `MoshiUsageNonMoshiClassExternal`, which split on whether a type
 lives in Slack's own `slack.*` packages.
 
+Three checks read annotations:
+
+- `TestParameterSiteTarget` reports `@TestParameter` on a Kotlin constructor property (`val`/`var`) without the
+  `param:` site target. As in Lint, any annotation named `TestParameter` counts.
+- `MustUseNamedParams` reports a Kotlin call with a positional argument to a Kotlin function or constructor
+  annotated `@slack.lint.annotations.MustUseNamedParams`.
+- `RestrictCallsTo` reports a Kotlin call, from another file, to a function annotated
+  `@slack.lint.annotations.RestrictCallsTo`, including calls through an override.
+
+Both call checks match only what the source shows: a top-level function through its import, package or a star
+import; a constructor through its class; a member through the receiver's resolved or declared type (walking project
+supertypes as each declaring file names them), or through the enclosing class for an unqualified call. A local
+function or a member of an enclosing class (or of its project supertypes) with the same name wins over a top-level
+function, as in Kotlin. When the annotated declaration has same-named overloads in its file (or its class has other
+constructors), the call must fit its argument count and no overload's; otherwise krit abstains. Annotated
+declarations in libraries are not seen, and as in Lint 0.11.1, Java call sites are not checked. Known false
+negatives: a call through an import alias (`import com.example.f as g`), an unqualified member call from a nested,
+inner or anonymous class inside a subclass, and annotated extension functions.
+
 The R class import-alias checks (Kotlin only, as import aliases are a Kotlin feature) read the `importAliases` option,
 Lint's `import-aliases`: entries such as `slack.l10n.R as L10nR`.
 
@@ -219,6 +238,30 @@ Differences from Lint:
 - `DoNotMockAnything` reports alongside the other `DoNotMock*` rules. Lint runs it first, so when it is enabled the
   others stay silent;
 - `DoNotMockRecordClass` also reports Java records, which Lint 0.11.1's own tests leave out pending Lint support.
+
+`InclusiveNaming` ports `InclusiveNamingSourceCodeScanner` for Kotlin and Java. It reports nothing until its
+`blockList` option (Lint's `block-list`) lists words, for example:
+
+```yaml
+slack-lint:
+  InclusiveNaming:
+    active: true
+    blockList: [master, slave, whitelist, blacklist]
+```
+
+As in Lint, a name matches when its lower-cased text contains an entry as written, and the names checked are those of
+the file, its package and the declarations Lint's light classes have: classes, functions and methods, fields and
+Kotlin properties (as the backing field and the `getX` getter, so a `val` constructor parameter is reported twice),
+parameters, local variables and labels. A local function, a `for` loop variable and a destructured lambda parameter
+are not checked, matching Lint. Differences from Lint:
+
+- an `internal` Kotlin member is reported under its source name. Lint reports the JVM name, which carries a
+  module-dependent suffix;
+- the resource half of the detector (XML attribute names) is not ported.
+
+`Deprecation` also answers to slack-lints' `DeprecatedCall` ID, so `@SuppressLint("DeprecatedCall")` and `lint.xml`
+entries for it apply. `DeprecatedCall` reports calls to deprecated methods and constructors; `Deprecation` covers
+those and deprecated property and type references too, and uses the compiler's verdict when the type oracle runs.
 
 ## Compose lint checks (compose-lints)
 

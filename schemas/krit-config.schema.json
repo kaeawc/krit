@@ -22870,6 +22870,14 @@
             "description": "Rule ID whose Go findings remain authoritative after FIR checks.",
             "type": "string"
           }
+        },
+        "requireAuthoritativeRules": {
+          "description": "FIR-required rules: with --fir, their Go findings in files FIR could not compile are withheld (crashes, checker errors and a lost pass keep them). Defaults to the nullability and cast rules (CastNullableToNonNullableType, UnnecessaryNotNullOperator, UnnecessarySafeCall, UnsafeCast, UselessCallOnNotNull, UselessElvisOnNonNull); an empty list turns the policy off.",
+          "type": "array",
+          "items": {
+            "description": "Rule ID reported only where FIR's verdict is authoritative.",
+            "type": "string"
+          }
         }
       }
     },

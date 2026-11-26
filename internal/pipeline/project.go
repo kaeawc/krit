@@ -898,12 +898,13 @@ func RunProjectAnalysis(ctx context.Context, in ProjectInput) (ProjectAnalysisRe
 	perf.AddEntry(host.Tracker, "targetedResolution", time.Since(targetedStart))
 
 	fpStart := time.Now()
-	runFP, bundleEnabled := computeRunFingerprint(args, host, parseResult, indexResult)
+	sourceInputs := fingerprintSourceInputs(parseResult, indexResult)
+	runFP, bundleEnabled := computeRunFingerprint(args, host, sourceInputs, indexResult)
 	perf.AddEntry(host.Tracker, "computeRunFingerprint", time.Since(fpStart))
 
 	manifestStart := time.Now()
 	runTestHookBeforeManifestData()
-	manifestData := buildManifestData(args, host, parseResult, readBound, bundleEnabled)
+	manifestData := buildManifestData(args, host, sourceInputs, readBound, bundleEnabled)
 	perf.AddEntry(host.Tracker, "buildManifestData", time.Since(manifestStart))
 
 	var early *earlyAndroid
@@ -4138,6 +4139,21 @@ func runBackgroundSave(host ProjectHostState, fn func()) {
 		return
 	}
 	fn()
+}
+
+// fingerprintSourceInputs returns the parse result the findings bundle key
+// and its manifest hash. When no rule needs Java before dispatch the parse
+// phase carries none, and IndexPhase parses the Java files the cross-file
+// index reads on its own; those decide cross-file findings too, so a Java
+// edit must move the key. Without them a Java-only edit kept the key and
+// the daemon served the bundle of the pre-edit state (#1843).
+func fingerprintSourceInputs(parseResult ParseResult, indexResult IndexResult) ParseResult {
+	if len(parseResult.JavaFiles) > 0 || len(indexResult.JavaFiles) == 0 {
+		return parseResult
+	}
+	withJava := parseResult
+	withJava.JavaFiles = indexResult.JavaFiles
+	return withJava
 }
 
 func computeRunFingerprint(args ProjectArgs, host ProjectHostState, parseResult ParseResult, indexResult IndexResult) (scanner.RunFingerprint, bool) {

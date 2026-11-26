@@ -21,12 +21,12 @@ import, as it does in Kotlin.
 (Kotlin, and Java for the import check):
 
 - `UnusedMaterialScaffoldPaddingParameter` and `UnusedMaterial3ScaffoldPaddingParameter` report each parameter of a
-  `Scaffold` content lambda that the lambda never refers to, at the parameter, or at the lambda for an unused
-  implicit `it`: `Scaffold { Text("x") }` and `Scaffold { padding -> Text("x") }`. A name inside an inner lambda that
-  declares a parameter of the same name does not count, nor does `it` inside an inner lambda with its own `it`.
-  Krit knows an inner lambda has its own `it` when it is passed to a one-parameter lambda function such as
-  `forEach`, `let`, `map` or `LazyListScope.items`, or to a same-file function whose parameter type takes one value;
-  any other inner lambda is assumed not to rebind `it`, so krit stays quiet where Lint may report. Destructured
+  `Scaffold` content lambda that the lambda never refers to, at the parameter, or at the lambda for an unused implicit
+  `it`: `Scaffold { Text("x") }` and `Scaffold { padding -> Text("x") }`, also through an import alias. A name inside
+  an inner lambda that declares a parameter of the same name does not count, nor does `it` inside an inner lambda with
+  its own `it`. Krit knows an inner lambda has its own `it` when it is passed to a one-parameter lambda function such
+  as `forEach`, `let`, `map` or `LazyListScope.items`, or to a same-file function whose parameter type takes one
+  value; any other inner lambda is assumed not to rebind `it`, so krit stays quiet where Lint may report. Destructured
   parameters are skipped, as in Lint. The content must be the trailing lambda or `content = { }`.
 - `ConflictingOnColor` reports the 'on' colors of a `Colors(...)`, `lightColors(...)` or `darkColors(...)` call when
   background colors with the same value (`primary`, `primaryVariant`, `secondary`, `secondaryVariant`,
@@ -36,7 +36,9 @@ import, as it does in Kotlin.
   whose 'on' color is left to the library default conflicts with every explicit 'on' color in its group.
 - `UsingMaterialAndMaterial3Libraries` reports an `androidx.compose.material` import (a class, member, star or static
   import) outside the `icons`, `ripple` and `pullrefresh` packages and the `ExperimentalMaterialApi` import, once the
-  code uses material3: the same file imports from `androidx.compose.material3`, or the Gradle build declares
-  `androidx.compose.material3:material3`. Lint runs it only in modules that depend on material3, while krit reads the
-  dependency anywhere in the build, so a material-only module of a build that also uses material3 is reported.
+  code uses material3: the same file imports from `androidx.compose.material3`, or the file's module declares
+  `androidx.compose.material3:material3`. As in Lint, which runs the check only in modules that depend on material3,
+  a material-only module of a build whose other modules use material3 is not reported; the module is the deepest
+  directory of a build file that declares dependencies. A material3 dependency that only arrives through another
+  project module is not seen.
   Fully qualified references such as `androidx.compose.material.Button()` are not reported, as in Lint.

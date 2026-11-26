@@ -1,2 +1,0 @@
-s/Autobox.kt:69:25: AutoboxingStateCreation: Prefer `mutableIntStateOf` instead of `mutableStateOf` # T is inferred through a user inline generic helper (remember0 { ... }); only remember { } is followed
-s/Autobox.kt:71:9: AutoboxingStateCreation: Prefer `mutableIntStateOf` instead of `mutableStateOf` # passed as an argument, where T depends on the callee's parameter type

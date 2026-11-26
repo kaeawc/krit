@@ -235,9 +235,6 @@ type SplitResult struct {
 	Groups int
 	// Labels describes each group compiled on its own.
 	Labels []string
-	// TargetOnly is the number of groups that differ from the merged session
-	// only in JVM target and keep its verdicts (SplitJVMTargetEnv unset).
-	TargetOnly int
 }
 
 // SettingsSplitter returns the FIR pass's per-settings-group recheck for a scan
@@ -381,7 +378,6 @@ func planSettingsSessions(in Input, model *gradlemodel.Model, repoRoot string, c
 			targetOnly = append(targetOnly, g.label())
 		}
 	}
-	split.TargetOnly = len(targetOnly)
 	if len(targetOnly) > 0 {
 		mergedTarget := check.jvmTarget
 		if mergedTarget == "" {

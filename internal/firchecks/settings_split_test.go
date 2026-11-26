@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kaeawc/krit/internal/perf"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -115,5 +116,56 @@ func TestJvmTargetErrorRecognizesTargetDependentDiagnostics(t *testing.T) {
 		if got := jvmTargetError(reason); got != want {
 			t.Errorf("jvmTargetError(%q) = %v, want %v", reason, got, want)
 		}
+	}
+}
+
+// A group session that gates a file the merged session answered, on an error
+// at the source set's own JVM target, replaces the merged verdict: Go's
+// finding stands for the gated file. The perf entry and the verbose summary
+// count it (#1648).
+func TestPassCountsJvmTargetGatedFiles(t *testing.T) {
+	p := isolationProject(t)
+	merged := NewFakeFirChecker()
+	merged.Rules = []string{verdictRule}
+	splitter := func(_ context.Context, _ string, _ []string, request []byte) ([]byte, []string, error) {
+		var req struct {
+			ID int64 `json:"id"`
+		}
+		if err := json.Unmarshal(request, &req); err != nil {
+			t.Fatal(err)
+		}
+		resp, _ := json.Marshal(map[string]any{
+			"id": req.ID, "rules": []string{verdictRule}, "findings": []FirFinding{},
+			"errorFiles": map[string]string{
+				p.abs(isolateMainFile): "Using @JvmRecord is only allowed with -jvm-target 16 or later (or -jvm-target 15 with the -Xjvm-enable-preview flag enabled).",
+			},
+		})
+		return resp, []string{p.abs(isolateMainFile)}, nil
+	}
+	var verbose strings.Builder
+	opts := isolationOptions(p, merged, nil, &verbose)
+	opts.SettingsSplitter = splitter
+	tracker := perf.New(true)
+	opts.Tracker = tracker
+	got := describe(RunPass(opts, isolationGoFindings(p)))
+	if want := describe([]scanner.Finding{p.at(isolateMainFile, "Dispatchers.IO", verdictRule, "go: main")}); !reflect.DeepEqual(got, want) {
+		t.Fatalf("verdicts\ngot:  %v\nwant: %v", got, want)
+	}
+	if line := "0 now gated on a missing opt-in, 1 on their own JVM target, 0 kept the merged verdict"; !strings.Contains(verbose.String(), line) {
+		t.Fatalf("verbose output lacks %q:\n%s", line, verbose.String())
+	}
+	var entry *perf.TimingEntry
+	var find func([]perf.TimingEntry)
+	find = func(entries []perf.TimingEntry) {
+		for i := range entries {
+			if entries[i].Name == "firSettingsSplit" {
+				entry = &entries[i]
+			}
+			find(entries[i].Children)
+		}
+	}
+	find(tracker.GetTimings())
+	if entry == nil || entry.Metrics["targetGated"] != 1 || entry.Metrics["newlyGated"] != 0 {
+		t.Fatalf("firSettingsSplit perf entry %+v; want targetGated=1", entry)
 	}
 }

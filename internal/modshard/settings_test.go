@@ -233,8 +233,8 @@ func TestPlanSettingsSessionsSplitsOnJvmTargetOnlyWhenEnabled(t *testing.T) {
 
 	t.Setenv(SplitJVMTargetEnv, "")
 	units, split := planSettingsSessions(Input{ScanPaths: []string{root}}, model, root, check, logf)
-	if len(units) != 0 || split.TargetOnly != 1 {
-		t.Fatalf("units=%d split=%+v; want no session and one target-only group", len(units), split)
+	if len(units) != 0 || split.Sessions != 1 {
+		t.Fatalf("units=%d split=%+v; want no session of its own", len(units), split)
 	}
 	if want := "verbose: FIR settings: 1 settings groups differ from the merged session only in JVM target (merged: 17) and keep its verdicts; KRIT_FIR_SPLIT_JVM_TARGET=1 compiles each on its own: :b:main [(compiler defaults) jvm=11]"; !strings.Contains(log.String(), want) {
 		t.Fatalf("log lacks %q:\n%s", want, log.String())
@@ -242,7 +242,7 @@ func TestPlanSettingsSessionsSplitsOnJvmTargetOnlyWhenEnabled(t *testing.T) {
 
 	t.Setenv(SplitJVMTargetEnv, "1")
 	units, split = planSettingsSessions(Input{ScanPaths: []string{root}}, model, root, check, logf)
-	if len(units) != 1 || units[0].Spec.JVMTarget != "11" || split.Sessions != 2 || split.TargetOnly != 0 {
+	if len(units) != 1 || units[0].Spec.JVMTarget != "11" || split.Sessions != 2 {
 		t.Fatalf("units=%+v split=%+v; want one session for :b:main at JVM target 11", units, split)
 	}
 }

@@ -432,6 +432,8 @@ class IncrementalPlannerTest {
         val result = session.checkAll()
         assertEquals(FullReason.TIERED_RULES, session.plan.reason)
         assertTrue(session.plan.detail!!.contains("policy boom"))
+        // A bypass records nothing, so it says nothing about the snapshot the state still holds (#1599).
+        assertNull(result.plan?.snapshot)
         assertSameAsFull(result, fullCheck())
     }
 

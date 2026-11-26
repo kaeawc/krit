@@ -235,6 +235,13 @@ without 9 files with compiler errors`, or `incremental FIR off: full (cold);
 no snapshot: ...` with the reason (the bound and its counts, an error not
 tied to a file, or the snapshot build failing).
 
+Building the snapshot runs the compiler's JVM backend after the frontend, so
+the check that builds it costs more. In a one-module, 2,500-file project on
+4 cores, the cold check took 64–70s with the snapshot against 42–47s
+without, and the check after a one-line edit took 13s. A scan that cannot
+keep the snapshot (`--no-cache`, or no repository to keep it in) skips the
+backend. `KRIT_FIR_INCREMENTAL=0` turns incremental checking off.
+
 ## The allowlist
 
 Only settings that change how source is analyzed are applied: the language

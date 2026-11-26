@@ -261,12 +261,20 @@ private class SnapshotJvmPipeline(
  * therefore reports and flushes them itself, before the backend runs; the end-of-pipeline repeat is dropped.
  */
 internal class SnapshotBuild(
-    val snapshot: Snapshot, private val lookups: CompileLookups?, val maxLeftOut: Int = 0,
+    val snapshot: Snapshot, private val lookups: CompileLookups?, private val maxLeftOut: Int = 0,
 ) {
     private val outputMessages = ConcurrentLinkedQueue<String>()
 
     /** The frontend finished without a compiler error outside [leftOut], so the backend ran (or failed trying). */
     @Volatile var frontendClean = false
+        private set
+
+    /**
+     * Why the frontend's errors kept the backend from running, over every compiled file (not only the requested
+     * ones): an error not tied to a file, or more files with an error than [maxLeftOut]. Null when it ran, or did not
+     * get as far.
+     */
+    @Volatile var declined: String? = null
         private set
 
     /** The files with a compiler error that the backend left out, canonical paths: they have no binary in [snapshot]. */
@@ -322,7 +330,13 @@ internal class SnapshotBuild(
                 val inFiles = byFile.sumOf { (_, list) -> list.count { it.severity == Severity.ERROR } }
                 val untied = null in errored || configuration.messageCollector.hasErrors() ||
                     diagnostics.diagnostics.count { it.severity == Severity.ERROR } > inFiles
-                if (untied || errored.isEmpty() || errored.size > maxLeftOut) return@pipeline null
+                if (untied || errored.isEmpty() || errored.size > maxLeftOut) {
+                    val files = errored.filterNotNull().size
+                    val counted = "compile errors in $files file${if (files == 1) "" else "s"}"
+                    declined = if (untied || files == 0) "a compiler error not tied to a file"
+                        else "$counted, more than the $maxLeftOut a snapshot leaves out"
+                    return@pipeline null
+                }
             }
             // Without the buffer to flush the frontend's messages cannot be told from the backend's: fail closed,
             // no backend and no snapshot, instead of letting backend messages reach the verdict.

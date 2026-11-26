@@ -861,16 +861,10 @@ class AnalysisSession(
                         // plugin, say).
                         val erroneous = build != null && !build.built && !build.frontendClean && build.failure == null
                         if (erroneous) {
-                            val files = collector.errorFiles.size
                             // The backend runs without the files with errors up to the bound (SnapshotBuild): past it,
-                            // or with an error it cannot tie to a file, there is no snapshot. Say which, with counts.
-                            val detail = when {
-                                files > build.maxLeftOut ->
-                                    "compile errors in ${plural(files, "file")}, more than the ${build.maxLeftOut} a snapshot leaves out"
-                                files > 0 -> "a compiler error not tied to a file (and compile errors in ${plural(files, "file")})"
-                                else -> "a compiler error not tied to a file"
-                            }
-                            incrementalState.attachSnapshot(null, SliceFallback.COMPILE_ERRORS, detail)
+                            // or with an error it cannot tie to a file, there is no snapshot. SnapshotBuild says which,
+                            // counted over every compiled file, not only the requested ones.
+                            incrementalState.attachSnapshot(null, SliceFallback.COMPILE_ERRORS, build.declined ?: "a compiler error not tied to a file")
                         } else {
                             val failed = build?.failure?.let {
                                 "building it failed: ${it.javaClass.simpleName}: ${it.message?.lineSequence()?.firstOrNull()}"

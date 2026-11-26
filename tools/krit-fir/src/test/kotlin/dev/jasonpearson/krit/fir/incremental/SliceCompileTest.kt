@@ -190,6 +190,20 @@ class SliceCompileTest {
         }
     }
 
+    // The bound counts every compiled file with an error, so a request for some of the module's files reports the
+    // bound with the module's count, not the requested files' (#1599).
+    @Test fun aPartialRequestReportsTheBoundOverTheWholeModule() {
+        write("A.kt", "package p\n\nfun a() { missingA() }\n")
+        write("B.kt", "package p\n\nfun b() { missingB() }\n")
+        write("C.kt", "package p\n\nfun c() = 1\n")
+        val session = recording()
+        session.plannerLimits = PlannerLimits(staleFraction = 0.0, staleMinFiles = 2)
+        session.check(1, refs("A.kt", "C.kt"), rules)
+        assertNull(session.incrementalState.snapshot)
+        assertEquals("COMPILE_ERRORS: compile errors in 2 files, more than the 1 a snapshot leaves out", session.sliceFallbackDescription())
+        session.dispose()
+    }
+
     @Test fun aCompileWithAnErrorInEveryFileGetsNoSnapshot() {
         write("A.kt", "package p\n\nfun a() { missingA() }\n")
         write("B.kt", "package p\n\nfun b() { missingB() }\n")

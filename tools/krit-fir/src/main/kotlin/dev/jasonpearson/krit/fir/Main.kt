@@ -217,8 +217,19 @@ internal fun runOneShot(
     incremental: Boolean = incrementalRecordingFromEnv(),
     snapshotRoot: java.io.File? = null,
 ) {
+    // A check request rides on the oracle's compilation when both compile the
+    // same sources; otherwise --check-out is left empty and the caller checks
+    // on its own.
+    val checkRequest = if (checkRequestPath.isNullOrBlank() || checkOutPath.isNullOrBlank()) {
+        null
+    } else {
+        parseRequest(java.io.File(checkRequestPath).readText())
+    }
+    // This process exits after one compile: a check with nowhere to persist its incremental state (--no-cache, no
+    // repository) would build a snapshot only to drop it, so it records nothing, as the daemon's check does (#1599).
+    val keepIncremental = incremental && (checkRequest == null || checkRequest.incrementalDir != null)
     val session = AnalysisSession(
-        sources, classpath, jvmTarget, kotlinArgs, incrementalRecording = incremental, incrementalPlanning = incremental,
+        sources, classpath, jvmTarget, kotlinArgs, incrementalRecording = keepIncremental, incrementalPlanning = keepIncremental,
         compilerPlugins = compilerPlugins,
     ).also { it.snapshotRootOverride = snapshotRoot }
     (session.kotlinSettingsWarnings + session.compilerPluginWarnings).forEach { System.err.println(it) }
@@ -228,14 +239,6 @@ internal fun runOneShot(
         // `--files` is a newline-delimited list of absolute paths to
         // restrict analysis to.
         java.io.File(filesListPath).readLines().map { it.trim() }.filter { it.isNotEmpty() }
-    }
-    // A check request rides on the oracle's compilation when both compile the
-    // same sources; otherwise --check-out is left empty and the caller checks
-    // on its own.
-    val checkRequest = if (checkRequestPath.isNullOrBlank() || checkOutPath.isNullOrBlank()) {
-        null
-    } else {
-        parseRequest(java.io.File(checkRequestPath).readText())
     }
     val (outcome, checked) = if (checkRequest == null) {
         session.analyzeFull(files) to null

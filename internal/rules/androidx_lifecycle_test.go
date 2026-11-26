@@ -153,3 +153,57 @@ class F : Fragment() {
 		t.Fatalf("want 2 findings (onStart and this.helper()), got %v", got)
 	}
 }
+
+// #1759 second-pass review (P2): a simple name imported from another package is a lookalike, not the androidx
+// class.
+func TestLifecycleAncestryRejectsImportedLookalikes(t *testing.T) {
+	vm := `package com.example
+
+import androidx.compose.runtime.Composable
+import com.mycorp.mvvm.ViewModel
+
+class Presenter : ViewModel()
+
+@Composable
+fun Screen() {
+    val p = Presenter()
+}
+`
+	if got := runAxlRule(t, "ViewModelConstructorInComposable", "Vm.kt", vm, librarymodel.ProjectProfile{}); len(got) != 0 {
+		t.Errorf("imported com.mycorp ViewModel: want no findings, got %v", got)
+	}
+	frag := `package com.example
+
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
+import com.mycorp.ui.Fragment
+import kotlinx.coroutines.launch
+
+class Screen : Fragment() {
+    override fun onStart() {
+        lifecycleScope.launch { repeatOnLifecycle(Lifecycle.State.STARTED) {} }
+    }
+}
+`
+	if got := runAxlRule(t, "RepeatOnLifecycleWrongUsage", "Frag.kt", frag, librarymodel.ProjectProfile{}); len(got) != 0 {
+		t.Errorf("imported com.mycorp Fragment: want no findings, got %v", got)
+	}
+	star := `package com.example
+
+import androidx.fragment.app.*
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
+import kotlinx.coroutines.launch
+
+class Screen : Fragment() {
+    override fun onStart() {
+        lifecycleScope.launch { repeatOnLifecycle(Lifecycle.State.STARTED) {} }
+    }
+}
+`
+	if got := runAxlRule(t, "RepeatOnLifecycleWrongUsage", "Star.kt", star, librarymodel.ProjectProfile{}); len(got) != 1 {
+		t.Errorf("star-imported androidx Fragment: want 1 finding, got %v", got)
+	}
+}

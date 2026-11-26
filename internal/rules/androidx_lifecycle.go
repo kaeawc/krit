@@ -222,9 +222,6 @@ func axlClassLifecycleMember(file *scanner.File, class uint32) bool {
 	return false
 }
 
-// axlViewModelKnown are the ViewModel classes a supertype name can name.
-var axlViewModelKnown = map[string]struct{}{"ViewModel": {}, "AndroidViewModel": {}}
-
 // check mirrors ViewModelConstructorInComposableDetector: a constructor call of a ViewModel subclass within
 // composition, at the class name.
 func (r *ViewModelConstructorInComposableRule) check(ctx *api.Context) {
@@ -269,17 +266,60 @@ func axlClassReachesViewModel(ctx *api.Context, name, simple string) bool {
 		return false
 	}
 	local := lintSameFileClass(ctx.File, simple)
-	return local != 0 && lintClassExtends(axlFileOnlyContext(ctx), local, axlLifecyclePackage+".ViewModel", axlViewModelKnown)
+	return local != 0 && axlFileOnlyExtends(ctx.File, local, axlViewModelFQNs, 0)
 }
 
-// axlFileOnlyContext returns ctx without the type resolver, so class-hierarchy helpers only use the file itself.
-func axlFileOnlyContext(ctx *api.Context) *api.Context {
-	if ctx.Resolver == nil {
-		return ctx
+// axlViewModelFQNs are the library ViewModel classes.
+var axlViewModelFQNs = map[string]bool{
+	axlLifecyclePackage + ".ViewModel": true, axlLifecyclePackage + ".AndroidViewModel": true,
+}
+
+// axlLifecycleHostFQNs are the Fragment and ComponentActivity classes RepeatOnLifecycleDetector applies to (the
+// classes and their library subclasses).
+var axlLifecycleHostFQNs = map[string]bool{
+	"androidx.fragment.app.Fragment": true, "androidx.fragment.app.DialogFragment": true,
+	"androidx.appcompat.app.AppCompatDialogFragment":                    true,
+	"com.google.android.material.bottomsheet.BottomSheetDialogFragment": true,
+	"androidx.preference.PreferenceFragmentCompat":                      true, "androidx.core.app.ComponentActivity": true,
+	"androidx.activity.ComponentActivity": true, "androidx.fragment.app.FragmentActivity": true,
+	"androidx.appcompat.app.AppCompatActivity": true,
+}
+
+// axlFileOnlyExtends reports whether a class reaches one of targets through its written supertypes, using only the
+// file: a qualified name, an explicit import (aliases included) or a star import naming a target, or a same-file
+// class that does. A simple name the file imports from another package (a lookalike such as
+// com.mycorp.mvvm.ViewModel), or does not import at all, does not count.
+func axlFileOnlyExtends(file *scanner.File, cls uint32, targets map[string]bool, depth int) bool {
+	if depth > 6 {
+		return false
 	}
-	c := *ctx
-	c.Resolver = nil
-	return &c
+	facts := fileFactsCache().Imports(file)
+	for _, ref := range lintDirectSupertypeRefs(file, cls) {
+		if ref.qualified {
+			if targets[ref.name] {
+				return true
+			}
+			continue
+		}
+		if local := lintSameFileClass(file, ref.simple); local != 0 && local != cls {
+			if axlFileOnlyExtends(file, local, targets, depth+1) {
+				return true
+			}
+			continue
+		}
+		if target, ok := facts.Aliases[ref.simple]; ok {
+			if targets[target] {
+				return true
+			}
+			continue
+		}
+		for w := range facts.Wildcards {
+			if targets[strings.TrimSuffix(w, ".*")+"."+ref.simple] {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // axlLifecycleStates are the Lifecycle.State constants.
@@ -372,12 +412,6 @@ func axlRightmostName(file *scanner.File, expr uint32) string {
 	return last
 }
 
-// axlLifecycleHostKnown are the Fragment and Activity classes RepeatOnLifecycleDetector applies to.
-var axlLifecycleHostKnown = map[string]struct{}{
-	"Fragment": {}, "DialogFragment": {}, "AppCompatDialogFragment": {}, "BottomSheetDialogFragment": {},
-	"ComponentActivity": {}, "FragmentActivity": {}, "AppCompatActivity": {},
-}
-
 // check mirrors RepeatOnLifecycleDetector on a Kotlin class extending Fragment or androidx.core ComponentActivity:
 // repeatOnLifecycle calls reached from onStart or onResume, following calls into same-file functions once per
 // class.
@@ -464,11 +498,5 @@ func axlSameFileCallee(file *scanner.File, cls uint32, name string) uint32 {
 // androidx.core.app.ComponentActivity (which androidx.activity.ComponentActivity, FragmentActivity and
 // AppCompatActivity extend), proven from the file alone (see axlClassReachesViewModel).
 func axlClassIsLifecycleHost(ctx *api.Context, cls uint32) bool {
-	if ctx.File.FlatType(cls) != "class_declaration" {
-		return false
-	}
-	fileOnly := axlFileOnlyContext(ctx)
-	return lintClassExtends(fileOnly, cls, "androidx.fragment.app.Fragment", axlLifecycleHostKnown) ||
-		lintClassExtends(fileOnly, cls, "androidx.core.app.ComponentActivity", axlLifecycleHostKnown) ||
-		lintClassExtends(fileOnly, cls, "androidx.activity.ComponentActivity", axlLifecycleHostKnown)
+	return ctx.File.FlatType(cls) == "class_declaration" && axlFileOnlyExtends(ctx.File, cls, axlLifecycleHostFQNs, 0)
 }

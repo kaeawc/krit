@@ -22,6 +22,15 @@ All notable changes to Krit will be documented in this file.
   its inputs' hashes in the model, and krit warns, naming the file, when the build no longer matches. A model restored under another checkout path or Gradle user home is rebased when
   loaded (new `gradleUserHome` model field). New `krit { exportTests = false }` exports and resolves only production
   source sets (#1663).
+- `ExperimentalAnnotationRetention` and `WrongRequiresOptIn`, ports of the declaration checks bundled with
+  `androidx.annotation:annotation-experimental` 1.6.0, under their Lint IDs. Their findings match the Lint CLI running
+  that release's `lint.jar` on the inputs under `internal/rules/testdata/androidx_annotation_experimental/` (#1317,
+  #1318).
+- `ExperimentalAnnotationRetention`, `WrongRequiresOptIn`, `UnsafeOptInUsageError` and `UnsafeOptInUsageWarning`,
+  ports of the checks bundled with `androidx.annotation:annotation-experimental` 1.6.0, under their Lint IDs; the usage
+  checks cover opt-in markers declared in the project. Their findings match the Lint CLI running
+  that release's `lint.jar` on the inputs under `internal/rules/testdata/androidx_annotation_experimental/` (#1315,
+  #1316, #1317, #1318).
 - `NullSafeMutableLiveData` and `UnsafeLifecycleWhenUsage`, ports of the Lint checks bundled with
   `androidx.lifecycle:lifecycle-livedata-core` and `lifecycle-runtime` 2.11.1, under their Lint IDs. Their findings
   match the Lint CLI running those releases' `lint.jar` on the inputs under

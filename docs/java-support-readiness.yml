@@ -162,6 +162,18 @@ rules:
     status: supported
     fixtures:
       - internal/rules/androidx_compose_ui_parity_test.go
+  ExperimentalAnnotationRetention:
+    status: supported
+    fixtures:
+      - internal/rules/androidx_lint_parity_test.go
+  UnsafeOptInUsageError:
+    status: supported
+    fixtures:
+      - internal/rules/androidx_lint_parity_test.go
+  UnsafeOptInUsageWarning:
+    status: supported
+    fixtures:
+      - internal/rules/androidx_lint_parity_test.go
   EnsureInitializerNoArgConstr:
     status: supported
     fixtures:

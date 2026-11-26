@@ -231,6 +231,11 @@ type IndexResult struct {
 	// (populated when --daemon is set). Callers are responsible for
 	// Close()-ing it at program exit.
 	Daemon *oracle.Daemon
+	// ResolverInvalidated holds the cached files the #1778 pass dropped
+	// because a declaration they resolve through changed in another file
+	// (invalidateResolverDependents). The bundle replay paths must
+	// re-dispatch them rather than replay their prior findings.
+	ResolverInvalidated map[string]bool
 	// CodeIndex is the cross-file symbol/reference index. Nil when
 	// no active rule declares NeedsCrossFile.
 	CodeIndex *scanner.CodeIndex

@@ -2,6 +2,7 @@ package rules
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -96,14 +97,20 @@ func TestRunRulesUnknownSubcommand(t *testing.T) {
 
 // TestRunRulesCoverageJavaGolden snapshots the coverage table head so a
 // regression in registry ordering or status classification shows up loudly.
-// The snapshot only locks the first few rows + summary so adding new
-// classified rules doesn't churn the golden — only changes near the
-// alphabetic prefix matter. Set KRIT_UPDATE_GOLDEN=1 to refresh.
+// The snapshot locks only the header and first few rows, so adding new
+// classified rules doesn't churn the golden: only changes near the
+// alphabetic prefix matter. The summary counts change with every added rule
+// (parallel rule ports all conflicted on them), so instead of snapshotting
+// them, checkCoverageSummary verifies they agree with the rows. Set
+// KRIT_UPDATE_GOLDEN=1 to refresh.
 func TestRunRulesCoverageJavaGolden(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	code := run([]string{"coverage", "--language", "java"}, &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("exit code = %d, stderr=%q", code, stderr.String())
+	}
+	if err := checkCoverageSummary(stdout.String()); err != nil {
+		t.Fatal(err)
 	}
 	got := normalizeCoverageGolden(stdout.String())
 
@@ -149,17 +156,72 @@ func normalizeCoverageGolden(s string) string {
 		kept = append(kept, lines[idx])
 		dataCount++
 	}
-	// Walk forward to the blank line that separates rows from the summary.
-	for ; idx < len(lines); idx++ {
-		if strings.TrimSpace(lines[idx]) == "" {
-			kept = append(kept, "...")
-			kept = append(kept, lines[idx])
-			break
+	// The rows that follow and the summary block are left out; see
+	// checkCoverageSummary.
+	kept = append(kept, "...", "")
+	return strings.Join(kept, "\n")
+}
+
+// checkCoverageSummary verifies the coverage summary against the table it
+// summarizes: every status count equals the number of rows with that status,
+// the statuses add up to the total, and the total equals the row count.
+func checkCoverageSummary(out string) error {
+	rows, summary, ok := strings.Cut(out, "\n\nTotal: ")
+	if !ok {
+		return fmt.Errorf("coverage output has no \"Total:\" summary:\n%s", out)
+	}
+	rowLines := strings.Split(strings.TrimRight(rows, "\n"), "\n")[1:] // drop the header
+	byStatus := map[string]int{}
+	for _, line := range rowLines {
+		fields := strings.Fields(line)
+		if len(fields) < 3 {
+			return fmt.Errorf("malformed coverage row %q", line)
+		}
+		byStatus[fields[2]]++
+	}
+	summaryLines := strings.Split(strings.TrimSpace(summary), "\n")
+	var total int
+	if _, err := fmt.Sscanf(summaryLines[0], "%d rule(s)", &total); err != nil {
+		return fmt.Errorf("parse total %q: %w", summaryLines[0], err)
+	}
+	if total != len(rowLines) {
+		return fmt.Errorf("summary total %d, table has %d rows", total, len(rowLines))
+	}
+	sum := 0
+	for _, line := range summaryLines[1:] {
+		name, countText, ok := strings.Cut(strings.TrimSpace(line), ": ")
+		if !ok {
+			continue
+		}
+		var count int
+		if _, err := fmt.Sscanf(countText, "%d", &count); err != nil {
+			return fmt.Errorf("parse summary line %q: %w", line, err)
+		}
+		sum += count
+		if want := byStatus[name]; count != want {
+			return fmt.Errorf("summary %s = %d, table has %d rows with that status", name, count, want)
 		}
 	}
-	// Summary tail.
-	for idx++; idx < len(lines); idx++ {
-		kept = append(kept, lines[idx])
+	if sum != total {
+		return fmt.Errorf("summary statuses add up to %d, total is %d", sum, total)
 	}
-	return strings.Join(kept, "\n")
+	return nil
+}
+
+func TestCheckCoverageSummaryCatchesMismatches(t *testing.T) {
+	table := "RULE CATEGORY JAVA REASON\nA style supported x\nB style partial y\nC style partial z\n\n"
+	good := table + "Total: 3 rule(s)\n  supported: 1\n  partial: 2\n"
+	if err := checkCoverageSummary(good); err != nil {
+		t.Fatalf("consistent summary rejected: %v", err)
+	}
+	for name, bad := range map[string]string{
+		"wrong total":    table + "Total: 4 rule(s)\n  supported: 1\n  partial: 3\n",
+		"wrong status":   table + "Total: 3 rule(s)\n  supported: 2\n  partial: 1\n",
+		"missing status": table + "Total: 3 rule(s)\n  supported: 1\n",
+		"no summary":     table,
+	} {
+		if err := checkCoverageSummary(bad); err == nil {
+			t.Errorf("%s: inconsistent summary accepted", name)
+		}
+	}
 }

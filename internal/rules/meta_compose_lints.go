@@ -24,3 +24,48 @@ func (r *ComposeCompositionLocalGetterRule) Meta() api.RuleDescriptor {
 			"The compositionLocalOf/staticCompositionLocalOf callee must resolve to androidx.compose.runtime; Lint matches the name alone, so it also reports same-named local functions.",
 		}}
 }
+
+func (r *ComposeM2ApiRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "ComposeM2Api", RuleSet: composeLintsRuleSet, DefaultActive: false,
+		OptInReason: api.OptInReasonOpinionated,
+		KnownLimitations: []string{
+			"Names are resolved through imports, not types: a member read on a local variable of an M2 type (colors.primary) is not reported, and a qualified chain counts only as an M2 class or object member (ButtonDefaults.buttonColors()), a MaterialTheme.colors/typography/shapes member, or an extension imported from androidx.compose.material.",
+			"allowedM2Apis matches the source name; Lint matches the JVM name, which is mangled for functions with inline-class parameters unless enable-mangling-workaround is set.",
+		},
+		Options: []api.ConfigOption{
+			api.StringListOption(api.StringListOptionSpec[ComposeM2ApiRule]{
+				Name:        "allowedM2Apis",
+				Description: "androidx.compose.material API names that are not reported (compose-lints `allowed-m2-apis`).",
+				Apply:       func(r *ComposeM2ApiRule, v []string) { r.AllowedM2Apis = v },
+			}),
+		}}
+}
+
+func (r *ComposeItemKeyHashCodeRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "ComposeItemKeyHashCode", RuleSet: composeLintsRuleSet, DefaultActive: false,
+		OptInReason: api.OptInReasonOpinionated}
+}
+
+func (r *ComposeModifierComposedRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "ComposeModifierComposed", RuleSet: composeLintsRuleSet, DefaultActive: false,
+		OptInReason: api.OptInReasonOpinionated,
+		KnownLimitations: []string{
+			"The receiver must be provably a Modifier: Modifier, this or the implicit receiver in a Modifier extension, a parameter or local declared as Modifier, or a call chain rooted in one of those.",
+		}}
+}
+
+func (r *ComposePreviewPublicRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "ComposePreviewPublic", RuleSet: composeLintsRuleSet, DefaultActive: false,
+		OptInReason: api.OptInReasonOpinionated,
+		KnownLimitations: []string{
+			"Multipreview annotations resolve to top-level annotation classes in the analyzed sources or to the AndroidX and Wear tooling multipreviews; other library multipreviews are not recognized.",
+		}}
+}
+
+func (r *ComposePreviewNamingRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "ComposePreviewNaming", RuleSet: composeLintsRuleSet, DefaultActive: false,
+		OptInReason: api.OptInReasonOpinionated,
+		KnownLimitations: []string{
+			"Only top-level annotation classes are checked, and nested multipreviews resolve as for ComposePreviewPublic.",
+		}}
+}

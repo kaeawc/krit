@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<lint>
+    <issue id="ComposeM2Api">
+        <option name="allowed-m2-apis" value="TextButton,elevation" />
+    </issue>
+</lint>

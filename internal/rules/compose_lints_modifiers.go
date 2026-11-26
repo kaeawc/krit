@@ -292,8 +292,13 @@ func composeLintsCalleeName(file *scanner.File, call uint32) string {
 	return ""
 }
 
-// composeLintsHasNamedArgument reports whether a call passes `name = ...`.
+// composeLintsHasNamedArgument reports whether a call passes `name = ...` (including in the inner call tree-sitter
+// produces for `f(args) { }`).
 func composeLintsHasNamedArgument(file *scanner.File, call uint32, name string) bool {
+	if callee := file.FlatFirstChild(call); callee != 0 && file.FlatType(callee) == "call_expression" &&
+		composeLintsHasNamedArgument(file, callee, name) {
+		return true
+	}
 	suffix, ok := file.FlatFindChild(call, "call_suffix")
 	if !ok {
 		return false

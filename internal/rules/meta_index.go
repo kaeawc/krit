@@ -123,6 +123,8 @@ func AllMetaProviders() []api.MetaProvider {
 		(*ComposeUnstableReceiverRule)(nil),
 		(*ComposeRedundantComposableRule)(nil),
 		(*ComposeReadOnlyComposableRule)(nil),
+		(*SlotReusedRule)(nil),
+		(*ComposeModifierReusedRule)(nil),
 		(*ComposableLambdaParameterNamingRule)(nil),
 		(*ComposableLambdaParameterPositionRule)(nil),
 		(*CompositionLocalNamingRule)(nil),

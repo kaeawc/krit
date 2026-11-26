@@ -219,3 +219,22 @@ func (r *ComposeReadOnlyComposableRule) Meta() api.RuleDescriptor {
 			"compose-lints' autofix (add @ReadOnlyComposable) is not ported.",
 		}}
 }
+
+func (r *SlotReusedRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "SlotReused", RuleSet: composeLintsRuleSet, DefaultActive: false,
+		OptInReason: api.OptInReasonOpinionated,
+		KnownLimitations: []string{
+			"As in the Lint CLI, slot uses inside lambdas count only when the lambda is passed to a @Composable function-typed parameter of a project composable; lambdas of library calls (Column { }, run { }) are not followed.",
+			"Paths are modeled from source: branches of if/when are exclusive, return and throw end a path, and a use inside a loop body counts twice.",
+		}}
+}
+
+func (r *ComposeModifierReusedRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "ComposeModifierReused", RuleSet: composeLintsRuleSet, DefaultActive: false,
+		OptInReason: api.OptInReasonOpinionated,
+		KnownLimitations: []string{
+			"A call counts when it resolves to a project or scanned-library composable (or invokes a slot parameter); calls into unscanned libraries are not tracked.",
+			"Lambdas are followed when their owner call is composable or a known inline function (kotlin-stdlib higher-order functions, project inline functions).",
+			"For the branch-forwarding message, a library branch call must be in the generated table of composables taking exactly one Modifier.",
+		}}
+}

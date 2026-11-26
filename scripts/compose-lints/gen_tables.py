@@ -64,7 +64,7 @@ def parse(data):
                         p = skip_annotation(data, p)
                 pos += 6 + alen
             if kind == 1:
-                methods.append({'name': utf(mname), 'flags': mflags, 'annotations': manns})
+                methods.append({'name': utf(mname), 'flags': mflags, 'annotations': manns, 'desc': utf(_desc)})
     (na,) = struct.unpack_from('>H', data, pos); pos += 2
     anns = []
     for _ in range(na):
@@ -177,6 +177,32 @@ def composables(classes):
     return top, members, by_class, pkgs
 
 
+MODIFIERS = ('Landroidx/compose/ui/Modifier;', 'Landroidx/glance/GlanceModifier;')
+
+
+def modifier_composables(classes):
+    """Top-level Unit composables (not read-only) whose every overload takes exactly one Modifier."""
+    verdict = {}
+    for n, c in classes.items():
+        base = n.rsplit('/', 1)[-1]
+        if not base.endswith('Kt') or '$' in base:
+            continue
+        pkg = n.rsplit('/', 1)[0].replace('/', '.')
+        for m in c['methods']:
+            if COMPOSABLE not in m['annotations'] or not m['flags'] & 0x0008:
+                continue
+            name = plain(m['name'])
+            if '$' in name or not name[:1].isupper():
+                continue
+            desc = m['desc']
+            params = desc[1:desc.index(')')]
+            count = sum(params.count(t) for t in MODIFIERS)
+            ok = READ_ONLY not in m['annotations'] and desc.endswith(')V') and count == 1
+            key = pkg + '.' + name
+            verdict[key] = verdict.get(key, True) and ok
+    return {k for k, v in verdict.items() if v}
+
+
 def stability(classes):
     memo = {}
 
@@ -269,6 +295,10 @@ def main():
                 '// composeLintsLibraryComposableMembersByClass maps members by declaring class FQN and name, for\n'
                 '// receivers that resolve to a library class or object (MaterialTheme.shapes).\n'
                 'var composeLintsLibraryComposableMembersByClass = map[string]int8{\n' + fmt_map(by_class) + '}\n\n'
+                '// composeLintsLibraryModifierComposables are top-level Unit composables (not read-only) whose every\n'
+                '// overload takes exactly one Modifier, the branch calls ComposeModifierReused checks for forwarding.\n'
+                'var composeLintsLibraryModifierComposables = map[string]bool{\n' + fmt_set(modifier_composables(classes)) +
+                '}\n\n'
                 '// composeLintsScannedPackages are the packages those jars declare.\n'
                 'var composeLintsScannedPackages = map[string]bool{\n' + fmt_set(pkgs) + '}\n')
     st, un = stability(classes)

@@ -95,6 +95,14 @@ func registerComposeLintsRules() {
 	readOnly := &ComposeReadOnlyComposableRule{BaseRule: BaseRule{RuleName: "ComposeReadOnlyComposable",
 		RuleSetName: composeLintsRuleSet, Sev: "info", Desc: "Detects @Composable declarations whose composable uses are all @ReadOnlyComposable."}}
 	registerComposeLintsProjectRule(readOnly.BaseRule, readOnly, readOnly.check)
+
+	slot := &SlotReusedRule{BaseRule: BaseRule{RuleName: "SlotReused", RuleSetName: composeLintsRuleSet, Sev: "error",
+		Desc: "Detects composable slot parameters invoked more than once on an execution path."}}
+	registerComposeLintsProjectRule(slot.BaseRule, slot, slot.check)
+
+	modifierReused := &ComposeModifierReusedRule{BaseRule: BaseRule{RuleName: "ComposeModifierReused", RuleSetName: composeLintsRuleSet,
+		Sev: "error", Desc: "Detects a modifier parameter passed to more than one composable on an execution path, or not forwarded by every root branch."}}
+	registerComposeLintsProjectRule(modifierReused.BaseRule, modifierReused, modifierReused.check)
 }
 
 // registerComposeLintsRule registers a node-dispatched port; fix, when given, is its autofix safety level.

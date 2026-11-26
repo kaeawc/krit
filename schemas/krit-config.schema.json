@@ -18939,6 +18939,39 @@
             }
           }
         },
+        "ComposeModifierReused": {
+          "description": "Detects a modifier parameter passed to more than one composable on an execution path, or not forwarded by every root branch. [precision: project-structure-aware] [noisiness: normal] [capabilities: cross-file]\nCaveat: A call counts when it resolves to a project or scanned-library composable (or invokes a slot parameter); calls into unscanned libraries are not tracked.\nCaveat: Lambdas are followed when their owner call is composable or a known inline function (kotlin-stdlib higher-order functions, project inline functions).\nCaveat: For the branch-forwarding message, a library branch call must be in the generated table of composables taking exactly one Modifier.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable ComposeModifierReused (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "ComposeModifierWithoutDefault": {
           "description": "Detects Modifier parameters of @Composable functions without a default value. [fixable: idiomatic] [precision: ast-backed] [noisiness: normal]",
           "type": "object",
@@ -20954,6 +20987,39 @@
               "description": "Enable ReturnFromAwaitPointerEventScope (default: true).",
               "type": "boolean",
               "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "SlotReused": {
+          "description": "Detects composable slot parameters invoked more than once on an execution path. [precision: project-structure-aware] [noisiness: normal] [capabilities: cross-file]\nCaveat: As in the Lint CLI, slot uses inside lambdas count only when the lambda is passed to a @Composable function-typed parameter of a project composable; lambdas of library calls (Column { }, run { }) are not followed.\nCaveat: Paths are modeled from source: branches of if/when are exclusive, return and throw end a path, and a use inside a loop body counts twice.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable SlotReused (default: false).",
+              "type": "boolean",
+              "default": false
             },
             "excludes": {
               "description": "Glob patterns for paths to exclude from this rule.",

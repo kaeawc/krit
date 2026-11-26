@@ -122,7 +122,7 @@ func TestComposeLintsCrossFileFixtures(t *testing.T) {
 	for _, rule := range []string{"ComposePreviewPublic", "ComposePreviewNaming", "ComposeM2Api",
 		"ComposeModifierMissing", "ComposeParameterOrder", "ComposeViewModelForwarding",
 		"ComposeUnstableCollections", "ComposeNonRestartableComposable", "ComposeUnstableReceiver",
-		"ComposeRedundantComposable", "ComposeReadOnlyComposable"} {
+		"ComposeRedundantComposable", "ComposeReadOnlyComposable", "SlotReused", "ComposeModifierReused"} {
 		r := findComposeLintsRule(t, rule)
 		pos := parseFixture(t, "positive", rule)
 		if got := runCrossFileRuleOnFiles(r, pos); len(got) == 0 {

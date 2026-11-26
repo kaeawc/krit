@@ -30,6 +30,11 @@ All notable changes to Krit will be documented in this file.
   `androidx_uiautomator/`). As in Lint, each runs only when the project declares the artifact that ships it.
   `DontUseAccessibilityNodeInfoGetText` also matches the released `onElement*` names, which the shipped detector no
   longer recognizes (#1505, #1506, #1507).
+- `SubscribeOnMain`, `RxObservableDoesNotEmit` and `RxFlowableDoesNotEmit`, slack-lints' Rx checks, in the opt-in
+  `slack-lint` rule set. `SubscribeOnMain` (Kotlin and Java) matches the Lint CLI running slack-lint-checks 0.11.1 with
+  RxJava 3 on the classpath (`internal/rules/testdata/slack_lint/rx/`) and needs the file to import RxJava 3 and none of
+  RxJava 1/2 or Reactor. The two emit checks follow slack-lints main: 0.11.1 looks for a nonexistent
+  `kotlin.coroutines.ProducerScope` and so never reports on kotlinx-coroutines-rx code (#1371, #1372, #1373).
 - Gradle plugin: `kritCheck` with custom rule jars writes every enabled report from one krit run (one
   `--report FORMAT=PATH` each), like every other scan, instead of analyzing once per report (#1634).
 - `DoNotMockAnything`, `DoNotMockPlatformTypes`, `DoNotMockDataClass` and `DoNotMockObjectClass`, slack-lints 0.11.1's

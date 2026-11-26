@@ -120,6 +120,17 @@ They report only what the source proves:
 Not ported: `MoshiUsageNonMoshiClassInternal` and `MoshiUsageNonMoshiClassExternal`, which split on whether a type
 lives in Slack's own `slack.*` packages.
 
+`SubscribeOnMain` reports `subscribeOn(AndroidSchedulers.mainThread())`, or `immediateMainThread()`, on RxJava 3's
+`Observable`, `Flowable`, `Single`, `Maybe` and `Completable`. Lint resolves the receiver's type; krit requires the file
+to import from RxJava 3 and not from RxJava 1/2 or Reactor, which also declare `subscribeOn`. As in Lint, a scheduler
+variable counts when its initializer ends in `mainThread()`; a parameter does not, nor (in Java) a statically imported
+`mainThread()`.
+
+`RxObservableDoesNotEmit` and `RxFlowableDoesNotEmit` report a kotlinx-coroutines-rx `rxObservable`/`rxFlowable`
+whose lambda never calls `send()` or `trySend()` on its `ProducerScope`. A nested factory is checked on its own. They
+follow slack-lints main (c0e92cb): the 0.11.1 release looks for `kotlin.coroutines.ProducerScope`, which does not exist,
+so it never reports on real code.
+
 Five single-node checks resolve the names they need through the file's imports and stay silent when a same-file
 declaration could shadow them:
 

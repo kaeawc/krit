@@ -143,6 +143,7 @@ func init() {
 	registerThirdPartyMockingRules()
 	registerThirdPartyDaggerRules()
 	registerThirdPartyKotlinCheckRules()
+	registerThirdPartyRxRules()
 
 	applySecurityTaxonomy()
 }

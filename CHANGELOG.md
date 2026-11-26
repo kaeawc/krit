@@ -351,6 +351,9 @@ All notable changes to Krit will be documented in this file.
   instead of one per classpath: its scans share a krit-fir daemon pool slot, and the daemon rebuilds its session for
   each action's sources and classpath. On a 24-target benchmark the Krit actions of a full build went from 79.9 s to
   7.0 s (mean action 6.56 s to 0.54 s), with the same reports as one-shot JVMs (#1666).
+- The `--fir` duplicate-declaration recheck compiles only the source sets that hold a gated or crashed file and checks
+  only those files, the rest of each set compiling as context, instead of every scanned set of each owning project.
+  Its worker JVMs are balanced by the files each set compiles, unbuilt dependency sources included (#1661).
 - The Gradle plugins `dev.jasonpearson.krit` and `dev.jasonpearson.krit.settings` declare configuration-cache
   support on the Gradle Plugin Portal. `kritCheck`, `kritFormat` and `kritBaseline` now resolve (and download) the
   krit binary when they run instead of while Gradle builds the task graph, so `--dry-run` no longer downloads it and

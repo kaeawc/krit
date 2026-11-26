@@ -420,7 +420,7 @@ The job fails when head is slower than both thresholds of a gate:
 
 The **scaling check** times head on the synthetic project at two sizes, 6×
 apart. It fails when a leaf phase or a rule that costs >= 500ms grows more
-than 12× (2× worse than linear). That catches O(n²) work, such as #1658's
+than 12× (2× worse than linear). It times the base binary at both sizes too, and a metric the base already scales as badly (exponent within 0.15) is reported but doesn't fail. A PR fails only for scaling it made worse, not for a borderline phase already on main. That catches O(n²) work, such as #1658's
 per-call class map, independently of runner speed.
 `internal/devtools/perfguard/known-superlinear.txt` lists the phases already
 known to be super-linear, each with its issue. The list only shrinks: when

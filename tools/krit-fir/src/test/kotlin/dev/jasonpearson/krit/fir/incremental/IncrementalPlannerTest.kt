@@ -432,6 +432,8 @@ class IncrementalPlannerTest {
         val result = session.checkAll()
         assertEquals(FullReason.TIERED_RULES, session.plan.reason)
         assertTrue(session.plan.detail!!.contains("policy boom"))
+        // A bypass records nothing, so it says nothing about the snapshot the state still holds (#1599).
+        assertNull(result.plan?.snapshot)
         assertSameAsFull(result, fullCheck())
     }
 
@@ -444,8 +446,8 @@ class IncrementalPlannerTest {
         session.plannerLimits = session.plannerLimits.copy(staleFraction = 0.0, staleMinFiles = 1)
         session.checkAll()
         val result = session.checkAll()
-        with(session.plan) { assertEquals(PlanPath.FULL, path); assertEquals(FullReason.SLICE_UNAVAILABLE, reason); assertEquals("COMPILE_ERRORS: compile errors in 1 file", detail) }
-        assertEquals("COMPILE_ERRORS: compile errors in 1 file", result.plan?.detail, "the reason reaches the response")
+        with(session.plan) { assertEquals(PlanPath.FULL, path); assertEquals(FullReason.SLICE_UNAVAILABLE, reason); assertEquals("COMPILE_ERRORS: compile errors in 1 file, more than the 0 a snapshot leaves out", detail) }
+        assertEquals("COMPILE_ERRORS: compile errors in 1 file, more than the 0 a snapshot leaves out", result.plan?.detail, "the reason reaches the response")
         assertSameAsFull(result, fullCheck())
         // Once the module is clean, the full check that serves the next request builds the snapshot again.
         write("Broken.kt", "package p\n\nfun broken() {}\n")

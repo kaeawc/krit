@@ -33,9 +33,10 @@ fun main(args: Array<String>) {
         System.out.flush()
         exitProcess(0)
     }
-    // `--module-facts-file REQUEST --facts-dir DIR`: each module in the request is analyzed on its own against
-    // its (built) classpath and its oracle facts are written to DIR, one file per module. Modules do not
-    // depend on each other here, so a caller can split a request across processes.
+    // `--module-facts-file REQUEST --facts-dir DIR [--module-threads N]`: each module in the request is analyzed
+    // on its own against its (built) classpath and its oracle facts are written to DIR, one file per module.
+    // Modules do not depend on each other here, so a caller can split a request across processes, and N of them
+    // compile at a time in this one (runModuleFacts).
     extractCliValue(args, "--module-facts-file")?.let { path ->
         val request = requireNotNull(
             parseModuleRequest(JavaFile(path).readText(), oneShot = true),
@@ -43,28 +44,12 @@ fun main(args: Array<String>) {
         val factsDir = requireNotNull(extractCliValue(args, "--facts-dir")) { "--facts-dir is required" }
         val dir = JavaFile(factsDir).also { it.mkdirs() }
         val jvmTarget = request.jvmTarget.ifEmpty { extractCliValue(args, "--jvm-target").orEmpty() }
-        val session = AnalysisSession(emptyList(), emptyList(), jvmTarget)
         // An optional shared FIR check request: each module runs the checkers over its own requested files.
         val check = extractCliValue(args, "--check-request")?.let {
             AnalysisSession.ModuleCheckIndex(parseRequest(JavaFile(it).readText()))
         }
-        for (module in request.modules) {
-            val started = System.nanoTime()
-            val name = module.id.replace(Regex("[^A-Za-z0-9._-]"), "_")
-            // Compiler failures are not a closed set; one bad module must not stop the others.
-            @Suppress("TooGenericExceptionCaught")
-            val (outcome, checked) = try {
-                session.analyzeModuleFacts(module, check)
-            } catch (e: Exception) {
-                val reason = e.message?.lineSequence()?.firstOrNull()
-                System.err.println("FACTS\t${module.id}\tfailed\t$reason")
-                continue
-            }
-            if (checked != null) JavaFile(dir, "$name.check.json").writeText(buildCheckResponse(checked))
-            JavaFile(dir, "$name.json")
-                .writeText(dev.jasonpearson.krit.fir.oracle.OracleResponse.buildOneShot(outcome.result))
-            System.err.println("FACTS\t${module.id}\tok\t${(System.nanoTime() - started) / 1_000_000}")
-        }
+        val threads = extractCliValue(args, "--module-threads")?.toIntOrNull() ?: 1
+        runModuleFacts(request.modules, dir, jvmTarget, check, threads)
         exitProcess(0)
     }
     extractCliValue(args, "--modules-file")?.let { path ->
@@ -203,6 +188,87 @@ private fun printOneShotUsage() {
     )
 }
 
+/**
+ * Analyzes each of [modules] on its own and writes its oracle facts to [dir], one file per module, with its check
+ * response beside it when [check] is set. [threads] modules compile at a time (#1656): the modules do not depend on
+ * each other here (their dependencies are built jars or source context), each gets its own compiler session, and the
+ * per-compile registries (rule context, oracle collector, rule errors, recording) are thread-local, so a module
+ * compiles as it would alone, while the JVM's JIT-compiled compiler and heap are shared. One module's failure is
+ * reported as `FACTS id failed` and leaves the others. Each file is written whole or not at all, so a JVM that ends
+ * mid-request (see [runConcurrently]) leaves no torn facts for krit to cache.
+ */
+internal fun runModuleFacts(
+    modules: List<ModuleSpec>, dir: JavaFile, jvmTarget: String, check: AnalysisSession.ModuleCheckIndex?, threads: Int,
+) {
+    val session = AnalysisSession(emptyList(), emptyList(), jvmTarget)
+    fun analyze(module: ModuleSpec) {
+        val started = System.nanoTime()
+        val name = module.id.replace(Regex("[^A-Za-z0-9._-]"), "_")
+        // Compiler failures are not a closed set; one bad module must not stop the others.
+        @Suppress("TooGenericExceptionCaught")
+        val (outcome, checked) = try {
+            session.analyzeModuleFacts(module, check)
+        } catch (e: Exception) {
+            val reason = e.message?.lineSequence()?.firstOrNull()
+            System.err.println("FACTS\t${module.id}\tfailed\t$reason")
+            return
+        }
+        if (checked != null) writeWhole(JavaFile(dir, "$name.check.json"), buildCheckResponse(checked))
+        val facts = dev.jasonpearson.krit.fir.oracle.OracleResponse.buildOneShot(outcome.result)
+        writeWhole(JavaFile(dir, "$name.json"), facts)
+        System.err.println("FACTS\t${module.id}\tok\t${(System.nanoTime() - started) / 1_000_000}")
+    }
+    runConcurrently(modules, threads, ::analyze)
+}
+
+/** Writes [text] to a temporary file beside [file] and renames it into place. */
+private fun writeWhole(file: JavaFile, text: String) {
+    val tmp = JavaFile(file.parentFile, "${file.name}.tmp")
+    tmp.writeText(text)
+    java.nio.file.Files.move(tmp.toPath(), file.toPath(), java.nio.file.StandardCopyOption.ATOMIC_MOVE)
+}
+
+/**
+ * Runs [action] on each of [items], [threads] at a time. An error thrown by one (an OutOfMemoryError, say) ends the
+ * run as it would on one thread: the items not yet started never start, and it is rethrown at once. The threads are
+ * daemons, so items still running do not keep the JVM alive once the caller gives up.
+ */
+internal fun <T> runConcurrently(items: List<T>, threads: Int, action: (T) -> Unit) {
+    val workers = threads.coerceIn(1, items.size.coerceAtLeast(1))
+    if (workers == 1) {
+        items.forEach(action)
+        return
+    }
+    val pool = java.util.concurrent.Executors.newFixedThreadPool(workers) { task ->
+        Thread(task, "krit-module").apply { isDaemon = true }
+    }
+    // Set by the first item that throws, before the caller hears of it, so no thread starts another.
+    val stopped = java.util.concurrent.atomic.AtomicBoolean()
+    try {
+        val done = java.util.concurrent.ExecutorCompletionService<Unit>(pool)
+        items.forEach { item ->
+            done.submit {
+                if (stopped.get()) return@submit
+                var finished = false
+                try {
+                    action(item)
+                    finished = true
+                } finally {
+                    if (!finished) stopped.set(true)
+                }
+            }
+        }
+        repeat(items.size) {
+            try { done.take().get() } catch (e: java.util.concurrent.ExecutionException) {
+                pool.shutdownNow()
+                throw e.cause ?: e
+            }
+        }
+    } finally {
+        pool.shutdown()
+    }
+}
+
 internal fun runOneShot(
     sources: List<String>,
     outputPath: String,
@@ -217,8 +283,19 @@ internal fun runOneShot(
     incremental: Boolean = incrementalRecordingFromEnv(),
     snapshotRoot: java.io.File? = null,
 ) {
+    // A check request rides on the oracle's compilation when both compile the
+    // same sources; otherwise --check-out is left empty and the caller checks
+    // on its own.
+    val checkRequest = if (checkRequestPath.isNullOrBlank() || checkOutPath.isNullOrBlank()) {
+        null
+    } else {
+        parseRequest(java.io.File(checkRequestPath).readText())
+    }
+    // This process exits after one compile: a check with nowhere to persist its incremental state (--no-cache, no
+    // repository) would build a snapshot only to drop it, so it records nothing, as the daemon's check does (#1599).
+    val keepIncremental = incremental && (checkRequest == null || checkRequest.incrementalDir != null)
     val session = AnalysisSession(
-        sources, classpath, jvmTarget, kotlinArgs, incrementalRecording = incremental, incrementalPlanning = incremental,
+        sources, classpath, jvmTarget, kotlinArgs, incrementalRecording = keepIncremental, incrementalPlanning = keepIncremental,
         compilerPlugins = compilerPlugins,
     ).also { it.snapshotRootOverride = snapshotRoot }
     (session.kotlinSettingsWarnings + session.compilerPluginWarnings).forEach { System.err.println(it) }
@@ -228,14 +305,6 @@ internal fun runOneShot(
         // `--files` is a newline-delimited list of absolute paths to
         // restrict analysis to.
         java.io.File(filesListPath).readLines().map { it.trim() }.filter { it.isNotEmpty() }
-    }
-    // A check request rides on the oracle's compilation when both compile the
-    // same sources; otherwise --check-out is left empty and the caller checks
-    // on its own.
-    val checkRequest = if (checkRequestPath.isNullOrBlank() || checkOutPath.isNullOrBlank()) {
-        null
-    } else {
-        parseRequest(java.io.File(checkRequestPath).readText())
     }
     val (outcome, checked) = if (checkRequest == null) {
         session.analyzeFull(files) to null
@@ -836,7 +905,8 @@ fun buildCheckResponse(result: BatchResult): String {
     // How the incremental planner served the check, when it ran: "incremental", or "full" with the reason.
     val planJson = result.plan?.let { plan ->
         val reason = plan.reason?.let { ""","reason":${jsonStr(it)}""" }.orEmpty() +
-            plan.detail?.let { ""","detail":${jsonStr(it)}""" }.orEmpty()
+            plan.detail?.let { ""","detail":${jsonStr(it)}""" }.orEmpty() +
+            plan.snapshot?.let { ""","snapshot":${jsonStr(it)}""" }.orEmpty()
         ""","incremental":{"path":${jsonStr(plan.path)}$reason,"dirtyFiles":${plan.dirtyFiles},"totalMs":${plan.totalMillis}}"""
     }.orEmpty()
     return """{"id":${result.id},"succeeded":${result.succeeded},"skipped":${result.skipped},"findings":[$findingsJson],"rules":$rulesJson,"crashed":$crashedJson,"errorFiles":$errorFilesJson,"ruleErrors":$ruleErrorsJson$moduleJson$planJson}"""

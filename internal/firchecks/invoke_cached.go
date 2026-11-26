@@ -177,8 +177,9 @@ func invokeCachedWith(
 	}
 
 	sourceStats := captureSourceStats(checkCompilationSources(sourceDirs, files))
-	cacheFingerprint := CheckCacheFingerprint(sourceDirs, files, classpath, jarPath, rules, ruleConfigs, facts, target...)
-	hits, misses := ClassifyFilesForFingerprint(cacheDir, files, cacheFingerprint)
+	store := newFirCacheStore(cacheDir)
+	cacheFingerprint := checkCacheFingerprintAt(store.root, sourceDirs, files, classpath, jarPath, rules, ruleConfigs, facts, target...)
+	hits, misses := store.classifyFor(files, cacheFingerprint)
 	if verbose {
 		reporter().Verbosef("verbose: fir cache: %d hits, %d misses (%d files)\n",
 			len(hits), len(misses), len(files))
@@ -204,8 +205,8 @@ func invokeCachedWith(
 		if verbose {
 			reporter().Verbosef("verbose: fir cache: not caching %d files that crashed together\n", len(misses))
 		}
-	} else if CheckCacheFingerprint(sourceDirs, files, classpath, jarPath, rules, ruleConfigs, facts, target...) == cacheFingerprint && sourceStatsUnchanged(sourceStats) {
-		written = WriteFreshEntriesForFingerprint(cacheDir, misses, resp, cacheFingerprint)
+	} else if checkCacheFingerprintAt(store.root, sourceDirs, files, classpath, jarPath, rules, ruleConfigs, facts, target...) == cacheFingerprint && sourceStatsUnchanged(sourceStats) {
+		written = store.writeFresh(misses, resp, cacheFingerprint)
 	}
 	if verbose && written > 0 {
 		reporter().Verbosef("verbose: fir cache: wrote %d new entries\n", written)

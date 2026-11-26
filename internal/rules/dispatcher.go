@@ -532,12 +532,14 @@ func (d *Dispatcher) RunColumnsWithStats(file *scanner.File) (scanner.FindingCol
 
 	// Reuse the SuppressionFilter built in pipeline.Parse when present;
 	// otherwise (LSP/MCP ParseSingle path) build one lazily so single-
-	// file callers keep the same @Suppress semantics. Either way the
-	// annotation index walks the flat tree only once per file.
+	// file callers keep the same @Suppress semantics, with rule excludes
+	// matched against the path relative to the dispatcher's project root
+	// as pipeline.Parse matches them. Either way the annotation index walks
+	// the flat tree only once per file.
 	start := time.Now()
 	filter := file.Suppression
 	if filter == nil {
-		filter = scanner.BuildSuppressionFilter(file, nil, allRuleExcludes(), "").WithRuleAliases(AllSuppressionAliases()).WithExcludedRules(ScriptPolicyExcludes(file))
+		filter = scanner.BuildSuppressionFilterAt(file, nil, allRuleExcludes(), "", d.ProjectRoot()).WithRuleAliases(AllSuppressionAliases()).WithExcludedRules(ScriptPolicyExcludes(file))
 		file.Suppression = filter
 		file.SuppressionIdx = filter.Annotations()
 	}
@@ -1130,7 +1132,7 @@ func (d *Dispatcher) RunResourceSource(file *scanner.File, idx *android.Resource
 
 	filter := file.Suppression
 	if filter == nil {
-		filter = scanner.BuildSuppressionFilter(file, nil, allRuleExcludes(), "").WithRuleAliases(AllSuppressionAliases()).WithExcludedRules(ScriptPolicyExcludes(file))
+		filter = scanner.BuildSuppressionFilterAt(file, nil, allRuleExcludes(), "", d.ProjectRoot()).WithRuleAliases(AllSuppressionAliases()).WithExcludedRules(ScriptPolicyExcludes(file))
 		file.Suppression = filter
 		file.SuppressionIdx = filter.Annotations()
 	}

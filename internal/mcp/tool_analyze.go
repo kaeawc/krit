@@ -131,6 +131,9 @@ func (s *Server) analyzeProject(args analyzeArgs) ToolResult {
 	collector := scanner.NewFindingCollector(len(files) * 8)
 	var perFile []fileResult
 
+	// Rules read paths relative to the project's marked root, as a CLI scan
+	// of the same paths does.
+	pipeline.SetDispatcherProjectRoot(s.analyzer.Dispatcher, args.Paths)
 	s.analyzer.Dispatcher.BeginRequest()
 	for _, f := range files {
 		fileColumns, _ := s.analyzer.Dispatcher.RunColumnsWithStats(f)

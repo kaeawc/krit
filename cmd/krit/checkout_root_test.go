@@ -148,6 +148,45 @@ func TestFindingsIgnoreFoldersAboveTheProjectRoot(t *testing.T) {
 	}
 }
 
+// Adding a project marker makes rules read paths relative to it instead of
+// absolute ones, so a cache written before the marker existed must not serve
+// its verdicts afterwards, even from a --cache-dir that keeps its file name
+// (#1834). The checkout sits under a folder named test, which the absolute
+// paths of the unmarked scan expose to the test-path heuristics.
+func TestProjectMarkerChangeMissesAnalysisCache(t *testing.T) {
+	base := neutralTempDir(t)
+	root := filepath.Join(base, "test", "app")
+	files := map[string]string{
+		"src/main/kotlin/p/Main.kt": "package p\n\nfun report(e: Exception) {\n    e.printStackTrace()\n    println(\"done\")\n}\n\nobject Registry {\n    var count = 0\n}\n",
+	}
+	for name, content := range files {
+		p := filepath.Join(root, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cacheDir := filepath.Join(base, "cache")
+	unmarked, _ := relativeFindings(t, root, "--cache-dir", cacheDir)
+
+	// A VCS marker changes nothing else a cache key reads (a Gradle settings
+	// file would also change the project facts).
+	if err := os.Mkdir(filepath.Join(root, ".hg"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	fresh, _ := relativeFindings(t, root, "--no-cache")
+	if onlyUnmarked, onlyFresh := diffKeys(unmarked, fresh); len(onlyUnmarked)+len(onlyFresh) == 0 {
+		t.Fatal("the marker changed no finding; the project exercises nothing")
+	}
+	warm, _ := relativeFindings(t, root, "--cache-dir", cacheDir)
+	if onlyWarm, onlyFresh := diffKeys(warm, fresh); len(onlyWarm)+len(onlyFresh) > 0 {
+		t.Fatalf("a cache written before the project marker disagrees with a fresh scan:\nonly warm:\n  %s\nonly fresh:\n  %s",
+			strings.Join(onlyWarm, "\n  "), strings.Join(onlyFresh, "\n  "))
+	}
+}
+
 // neutralTempDir returns a temporary directory whose path holds no segment a
 // rule's path heuristic or a relocation marker reacts to. t.TempDir's path
 // names the test, and "test" is both.

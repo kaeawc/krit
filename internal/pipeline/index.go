@@ -753,7 +753,7 @@ func (IndexPhase) computeRuleHash(in IndexInput, result *IndexResult) {
 			}
 		}
 	}
-	result.RuleHash = indexAnalysisRuleHash(withOracleIdentity(cache.ComputeCacheKeyHash(ruleNames, in.CacheConfig, in.CacheEditorConfigEnabled), in.cacheIdentityPaths()), in, result)
+	result.RuleHash = indexAnalysisRuleHash(withProjectRootIdentity(withOracleIdentity(cache.ComputeCacheKeyHash(ruleNames, in.CacheConfig, in.CacheEditorConfigEnabled), in.cacheIdentityPaths()), in.cacheIdentityPaths()), in, result)
 }
 
 // beginIndexPhaseSpan buckets every IndexPhase-internal perf span under
@@ -1008,7 +1008,7 @@ func (p IndexPhase) runCacheLoad(in IndexInput, result *IndexResult) {
 			}
 		}
 	}
-	ruleHash := indexAnalysisRuleHash(withOracleIdentity(cache.ComputeCacheKeyHash(ruleNames, in.CacheConfig, in.CacheEditorConfigEnabled), in.cacheIdentityPaths()), in, result)
+	ruleHash := indexAnalysisRuleHash(withProjectRootIdentity(withOracleIdentity(cache.ComputeCacheKeyHash(ruleNames, in.CacheConfig, in.CacheEditorConfigEnabled), in.cacheIdentityPaths()), in.cacheIdentityPaths()), in, result)
 
 	var loadStart time.Time
 	var analysisCache *cache.Cache

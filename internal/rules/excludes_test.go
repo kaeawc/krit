@@ -210,3 +210,48 @@ func TestExcludes_ConfigIntegration(t *testing.T) {
 		t.Errorf("expected nil after clearing, got %v", got)
 	}
 }
+
+// A file dispatched without a prebuilt suppression filter (LSP/MCP) gets one
+// rooted at the dispatcher's project root, so an exclude glob cannot match a
+// folder above the checkout while the dispatcher's own exclude check, which
+// is rooted, keeps the rule running (#1834).
+func TestExcludes_FallbackFilterMatchesRootRelativePath(t *testing.T) {
+	code := "package test\nfun check(x: Boolean) {\n    if (x) {\n        foo()\n    } else { }\n}\n"
+	root := filepath.Join(t.TempDir(), "test", "repo")
+	write := func(rel string) *scanner.File {
+		t.Helper()
+		p := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(code), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		file, err := scanner.ParseFile(context.Background(), p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return file
+	}
+	var rule *api.Rule
+	for _, r := range api.Registry {
+		if r.ID == "EmptyElseBlock" {
+			rule = r
+			break
+		}
+	}
+	if rule == nil {
+		t.Fatal("EmptyElseBlock rule not found in registry")
+	}
+	rules.SetRuleExcludes("EmptyElseBlock", []string{"**/test/**"})
+	defer rules.SetRuleExcludes("EmptyElseBlock", nil)
+
+	d := rules.NewDispatcher([]*api.Rule{rule}, nil)
+	d.SetProjectRoot(root)
+	if findings := d.Run(write("app/src/main/kotlin/Foo.kt")); findings.Len() == 0 {
+		t.Error("a test/ folder above the project root excluded a production file")
+	}
+	if findings := d.Run(write("app/src/test/kotlin/Foo.kt")); findings.Len() != 0 {
+		t.Errorf("a test/ folder inside the project must still exclude, got %d findings", findings.Len())
+	}
+}

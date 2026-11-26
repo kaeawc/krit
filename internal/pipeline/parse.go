@@ -250,9 +250,11 @@ func installSourceSuppression(f *scanner.File, ruleExcludes map[string][]string,
 	// Resident-cache hits arrive with Suppression already built from a
 	// prior analyze. Rules-config changes invalidate the whole resident
 	// cache (via WorkspaceState.InvalidateAll), so a non-nil Suppression
-	// can be trusted for the current run — rebuilding it would walk the
-	// flat tree for every file, which adds up on a large corpus.
-	if f.Suppression != nil && f.SuppressionIdx != nil {
+	// built under the same project root can be trusted for the current
+	// run — rebuilding it would walk the flat tree for every file, which
+	// adds up on a large corpus. Exclude globs match root-relative paths,
+	// so a filter built under another root is rebuilt.
+	if f.Suppression != nil && f.SuppressionIdx != nil && f.Suppression.ProjectRoot() == projectRoot {
 		return
 	}
 	f.Suppression = scanner.BuildSuppressionFilterAt(f, nil, ruleExcludes, "", projectRoot).WithRuleAliases(ruleAliases).WithExcludedRules(rules.ScriptPolicyExcludes(f))

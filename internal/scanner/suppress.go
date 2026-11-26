@@ -29,11 +29,23 @@ type SuppressionFilter struct {
 	inline        map[int]map[string]bool // line (1-based) → suppressed rule IDs; "" key means all
 	baseline      *Baseline
 	basePath      string
+	// projectRoot is the root excludedRules matched root-relative paths
+	// against (BuildSuppressionFilterAt), "" for the path as given.
+	projectRoot string
 	// ruleAliases maps a canonical rule ID to its legacy/alternate IDs.
 	// Populated lazily by callers via WithRuleAliases. When set, an
 	// @Suppress / inline-ignore listing any alias silences findings
 	// emitted under the canonical ID. nil disables alias matching.
 	ruleAliases map[string][]string
+}
+
+// ProjectRoot returns the project root the filter's exclude globs were
+// matched under, "" for the path as given. A nil filter returns "".
+func (f *SuppressionFilter) ProjectRoot() string {
+	if f == nil {
+		return ""
+	}
+	return f.projectRoot
 }
 
 // WithRuleAliases attaches an alias index to the filter and returns it
@@ -97,9 +109,10 @@ func BuildSuppressionFilter(file *File, baseline *Baseline, excludes map[string]
 // matches the path as given.
 func BuildSuppressionFilterAt(file *File, baseline *Baseline, excludes map[string][]string, basePath, projectRoot string) *SuppressionFilter {
 	sf := &SuppressionFilter{
-		file:     file,
-		baseline: baseline,
-		basePath: basePath,
+		file:        file,
+		baseline:    baseline,
+		basePath:    basePath,
+		projectRoot: projectRoot,
 	}
 	if file == nil {
 		return sf

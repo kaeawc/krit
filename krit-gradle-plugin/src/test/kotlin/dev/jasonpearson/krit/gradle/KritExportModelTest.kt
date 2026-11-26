@@ -308,6 +308,14 @@ class KritExportModelTest {
         val check = runWithFakeAndroid(root, ":app:kritCheck", "-PfakeGeneratedSources", "-PdeferAndroidVariants", "--configuration-cache")
         assertEquals(TaskOutcome.SUCCESS, check.task(":app:generateDebugFakeSources")?.outcome, check.output)
         assertEquals(null, check.task(":app:compileDebugKotlin"), "generators only, never a compile")
+        // #1642: so does the per-variant kritCheckDebug, and not with its own fir off.
+        File(root, "app/build").deleteRecursively()
+        val variant = runWithFakeAndroid(root, ":app:kritCheckDebug", "-PfakeGeneratedSources", "-PdeferAndroidVariants", "--configuration-cache")
+        assertEquals(TaskOutcome.SUCCESS, variant.task(":app:generateDebugFakeSources")?.outcome, variant.output)
+        build.appendText("tasks.withType<dev.jasonpearson.krit.gradle.KritCheckTask>().matching { it.name == \"kritCheckDebug\" }.configureEach { fir = false }\n")
+        File(root, "app/build").deleteRecursively()
+        val variantNoFir = runWithFakeAndroid(root, ":app:kritCheckDebug", "-PfakeGeneratedSources", "-PdeferAndroidVariants", "--configuration-cache")
+        assertEquals(null, variantNoFir.task(":app:generateDebugFakeSources"), variantNoFir.output)
     }
 
     private fun fakeKrit(root: File): File = File(root, "fake-krit").apply {

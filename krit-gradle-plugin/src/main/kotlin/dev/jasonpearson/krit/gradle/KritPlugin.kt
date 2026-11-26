@@ -958,24 +958,38 @@ class KritPlugin : Plugin<Project> {
             rootDir.set(rootPath)
             outputFile.set(File(rootPath, ".krit/gradle-model/${fileName}.json"))
         }
+        val generators = generatorDependencies(project, specs, variantSources)
+        if (extension.exportGenerated.get()) export.configure { dependsOn(generators) }
         // Published for the root kritCheckAll (KritAggregatePlugin), which resolves
-        // every project's model through a project dependency.
+        // every project's model through a project dependency. With FIR on, the artifact is
+        // built by the generators too, so kritCheckAll runs them before FIR compiles the
+        // roots the model lists (#1686); the wiring stays inside this project.
         project.configurations.create(KRIT_MODEL_ELEMENTS) {
             isCanBeConsumed = true
             isCanBeResolved = false
             attributes.attribute(Category.CATEGORY_ATTRIBUTE,
                 project.objects.named(Category::class.java, KRIT_GRADLE_MODEL_CATEGORY))
-            outgoing.artifact(export.flatMap { it.outputFile })
+            // An artifact's builtBy resolves no task names, so names become task providers.
+            val generatorTasks = generators.map { if (it is String) project.tasks.named(it) else it }
+            outgoing.artifact(export.flatMap { it.outputFile }) {
+                builtBy(extension.fir.map { enabled -> if (enabled) generatorTasks else emptyList() })
+            }
         }
-        val generators = generatorDependencies(project, specs, variantSources)
-        if (extension.exportGenerated.get()) export.configure { dependsOn(generators) }
+        // FIR compiles the model's generated roots, so they must exist when it runs: with FIR on,
+        // every check task of this project (kritCheck, kritCheck<Variant>, kritCheck<SourceSet>,
+        // and the root's kritCheckAll) runs the generators, never a compile, whether or not
+        // exportGenerated is set. The list covers every exported production compilation, which
+        // is what FIR compiles as context for any of these tasks' sources (#1642).
+        project.tasks.withType(KritCheckTask::class.java).configureEach {
+            dependsOn(fir.map { enabled -> if (enabled) generators else emptyList() })
+        }
+        project.tasks.withType(KritCheckAllTask::class.java).configureEach {
+            dependsOn(fir.map { enabled -> if (enabled) generators else emptyList() })
+        }
         project.tasks.named("kritCheck") {
             dependsOn(extension.exportModel.map { enabled ->
                 if (enabled) listOf(export) else emptyList<Any>()
             })
-            // FIR compiles the model's generated roots, so they must exist when it runs: with FIR on,
-            // kritCheck runs the generators (never a compile), whether or not exportGenerated is set.
-            dependsOn(extension.fir.map { enabled -> if (enabled) generators else emptyList() })
             // A whole-directory input would read other projects' outputs and break
             // isolated configuration. Cache invalidation is project-local here;
             // export all models first when relying on cross-project model changes.

@@ -65,7 +65,12 @@ func (r *ComposeCompositionLocalGetterRule) check(ctx *api.Context) {
 	}
 	var expr uint32
 	if first := file.FlatFirstChild(body); first != 0 && file.FlatType(first) == "=" {
-		expr = file.FlatNextSib(first)
+		for next := file.FlatNextSib(first); next != 0; next = file.FlatNextSib(next) {
+			if file.FlatIsNamed(next) && !composeLintsIsComment(file, next) {
+				expr = next
+				break
+			}
+		}
 	} else if stmts, ok := file.FlatFindChild(body, "statements"); ok {
 		// Lint looks at the first statement of a block body only.
 		expr = file.FlatFirstChild(stmts)
@@ -79,7 +84,8 @@ func (r *ComposeCompositionLocalGetterRule) check(ctx *api.Context) {
 	if expr == 0 || !composeLintsIsCompositionLocalFactoryCall(file, composeLintsUnwrapParens(file, expr)) {
 		return
 	}
-	if kw := file.FlatFirstChild(getter); kw != 0 && file.FlatNodeTextEquals(kw, "get") {
+	// Annotations on the getter (`@Suppress(...) get() = ...`) come before the keyword.
+	if kw, ok := file.FlatFindChild(getter, "get"); ok {
 		ctx.EmitAtNode(kw, composeCompositionLocalGetterMessage)
 	}
 }

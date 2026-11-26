@@ -1,3 +1,5 @@
+src/com/example/GetterEdges.kt:5:20: ComposeCompositionLocalGetter: `CompositionLocal`s should be singletons and not use getters. Otherwise a new instance will be returned every call.
+src/com/example/GetterEdges.kt:8:25: ComposeCompositionLocalGetter: `CompositionLocal`s should be singletons and not use getters. Otherwise a new instance will be returned every call.
 src/com/example/Locals.kt:10:1: ComposeCompositionLocalUsage: `CompositionLocal`s are implicit dependencies and creating new ones should be avoided. See https://slackhq.github.io/compose-lints/rules/#compositionlocals for more information.
 src/com/example/Locals.kt:23:5: ComposeCompositionLocalUsage: `CompositionLocal`s are implicit dependencies and creating new ones should be avoided. See https://slackhq.github.io/compose-lints/rules/#compositionlocals for more information.
 src/com/example/Locals.kt:26:9: ComposeCompositionLocalGetter: `CompositionLocal`s should be singletons and not use getters. Otherwise a new instance will be returned every call.

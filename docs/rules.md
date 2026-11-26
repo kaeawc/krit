@@ -134,7 +134,7 @@ CLI running compose-lint-checks 1.6.1 on the inputs under `internal/rules/testda
 |------------|-----------|-------|
 | `ComposeNamingUppercase`, `ComposeNamingLowercase` | `ComposableNaming` | Lint aliases of the AndroidX port (on by default). Its `allowedComposableFunctionNames` option is compose-lints' `allowed-composable-function-names`. Unlike compose-lints it skips overrides, and it also reports lowercase Unit composables with a receiver and expression bodies with a provable return type. |
 | `ComposeCompositionLocalUsage` | same ID | `allowedCompositionLocals` is compose-lints' `allowed-composition-locals`. The factory must resolve to `androidx.compose.runtime`; Lint matches the name alone. |
-| `ComposeCompositionLocalGetter` | same ID | As above. |
+| `ComposeCompositionLocalGetter` | same ID | The factory must resolve to `androidx.compose.runtime`, as for `ComposeCompositionLocalUsage`. It has no allowlist. |
 
 ## Compose-aware defaults
 

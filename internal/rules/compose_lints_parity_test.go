@@ -68,6 +68,7 @@ func TestComposeLintsParity(t *testing.T) {
 				for i, line := range got {
 					got[i] = composeLintsLocation(line)
 				}
+				sortStrings(got)
 				for _, line := range parityLines(readOptionalParityFile(t, filepath.Join(dir, "krit-only.txt"))) {
 					loc, _, _ := strings.Cut(line, " # ")
 					want = append(want, strings.TrimSpace(loc))

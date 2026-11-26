@@ -58,9 +58,11 @@ func (idx *ProjectIndex) Projects() []string {
 	if idx == nil {
 		return nil
 	}
-	var out []string
+	seen := make(map[string]struct{}, len(idx.roots))
+	out := make([]string, 0)
 	for _, project := range idx.roots {
-		if !slices.Contains(out, project) {
+		if _, ok := seen[project]; !ok {
+			seen[project] = struct{}{}
 			out = append(out, project)
 		}
 	}

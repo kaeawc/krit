@@ -445,6 +445,17 @@ func BuildFindingsArrayCompact(columns *scanner.FindingColumns,
 	return []byte(buildJSONFindings(columns, fixLevels, efforts, byRuleSet, byRule, fixableCount, false, nil))
 }
 
+// BuildFindingsArrayCompactWithProjects is BuildFindingsArrayCompact with each
+// finding's Gradle project (#1635); a nil attribution adds none.
+func BuildFindingsArrayCompactWithProjects(columns *scanner.FindingColumns,
+	fixLevels, efforts map[string]string,
+	byRuleSet, byRule map[string]int,
+	fixableCount *int,
+	projects *ProjectAttribution,
+) []byte {
+	return []byte(buildJSONFindings(columns, fixLevels, efforts, byRuleSet, byRule, fixableCount, false, projects))
+}
+
 func buildJSONFindings(columns *scanner.FindingColumns, fixLevels, efforts map[string]string, byRuleSet, byRule map[string]int, fixableCount *int, indent bool, projects *ProjectAttribution) json.RawMessage {
 	cols := normalizedFindingColumns(columns)
 	if cols.Len() == 0 {

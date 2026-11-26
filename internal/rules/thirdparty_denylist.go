@@ -440,46 +440,10 @@ func denyMethodOwner(ctx *api.Context, fqn string) string {
 		}
 		return "io.reactivex.rxjava3.core.Observable"
 	}
-	if denyIsViewSubtype(ctx, fqn, map[string]bool{}) {
+	if slackClassExtends(ctx.Resolver, fqn, "android.view.View") {
 		return "android.view.View"
 	}
 	return fqn
-}
-
-// denyIsViewSubtype reports whether the class fqn is android.view.View or, by the resolver's class hierarchy, one of
-// its subtypes. Unlike androidTypeIsViewSubtype it matches by FQN only, so a local class named View does not count.
-// The resolver records a supertype by the name written in source, which is resolved through the current file's
-// imports when the class is declared there, or else to a source class.
-func denyIsViewSubtype(ctx *api.Context, fqn string, seen map[string]bool) bool {
-	if fqn == "android.view.View" {
-		return true
-	}
-	if ctx.Resolver == nil || fqn == "" || seen[fqn] {
-		return false
-	}
-	seen[fqn] = true
-	info := ctx.Resolver.ClassHierarchy(fqn)
-	if info == nil || info.FQN != fqn {
-		return false
-	}
-	for _, super := range info.Supertypes {
-		if i := strings.IndexByte(super, '<'); i >= 0 {
-			super = super[:i]
-		}
-		switch {
-		case strings.Contains(super, "."):
-		case info.File == ctx.File.Path:
-			super = denyAnyClassFQN(ctx.File, super)
-		default:
-			if source := ctx.Resolver.ClassHierarchy(super); source != nil {
-				super = source.FQN
-			}
-		}
-		if denyIsViewSubtype(ctx, super, seen) {
-			return true
-		}
-	}
-	return false
 }
 
 // denyReceiverType returns the FQN of a receiver's type: the source resolver's, the declared type of the variable a

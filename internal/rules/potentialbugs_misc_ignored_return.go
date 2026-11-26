@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/kaeawc/krit/internal/filefacts"
-	"github.com/kaeawc/krit/internal/lazyre"
 	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/typeinfer"
@@ -615,8 +614,6 @@ func ignoredReturnValueLambdaReturnsFromEnclosingFunction(file *scanner.File, id
 	return found
 }
 
-var ignoredReturnValueDetachedReturnPattern = lazyre.New(`(?:^|[^\w@.])return(?:@\w+)?[ \t]+$`)
-
 // ignoredReturnValueFollowsDetachedReturn reports a call that is the operand of a `return` or
 // `return@label` on the same line. The parser detaches it from the jump inside `if` and `?:`.
 func ignoredReturnValueFollowsDetachedReturn(file *scanner.File, idx uint32) bool {
@@ -628,7 +625,44 @@ func ignoredReturnValueFollowsDetachedReturn(file *scanner.File, idx uint32) boo
 	for lineStart > 0 && file.Content[lineStart-1] != '\n' {
 		lineStart--
 	}
-	return ignoredReturnValueDetachedReturnPattern.Match(file.Content[lineStart:start])
+	return endsWithDetachedReturn(file.Content[lineStart:start])
+}
+
+// endsWithDetachedReturn reports whether the text before a call ends with a `return` or `return@label` keyword and
+// blanks: the regex (?:^|[^\w@.])return(?:@\w+)?[ \t]+$, matched from the end. The rule checks every call, and the
+// unanchored regex was retried at each byte of the line (#1664).
+func endsWithDetachedReturn(prefix []byte) bool {
+	end := len(prefix)
+	for end > 0 && (prefix[end-1] == ' ' || prefix[end-1] == '\t') {
+		end--
+	}
+	if end == len(prefix) {
+		return false
+	}
+	s := prefix[:end]
+	if returnKeywordAtEnd(s) {
+		return true
+	}
+	// A label is the whole run of word characters after the `@`.
+	label := len(s)
+	for label > 0 && isIdentByte(s[label-1]) {
+		label--
+	}
+	return label < len(s) && label > 0 && s[label-1] == '@' && returnKeywordAtEnd(s[:label-1])
+}
+
+// returnKeywordAtEnd reports whether s ends with `return` that is not part of a longer name, an annotation or a
+// member access.
+func returnKeywordAtEnd(s []byte) bool {
+	if !bytes.HasSuffix(s, []byte("return")) {
+		return false
+	}
+	before := len(s) - len("return")
+	if before == 0 {
+		return true
+	}
+	c := s[before-1]
+	return !isIdentByte(c) && c != '@' && c != '.'
 }
 
 // ignoredReturnValueHasPlainArgument reports whether the call passes at least one argument.

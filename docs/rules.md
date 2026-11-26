@@ -179,6 +179,9 @@ them run only when the project declares the library (or one that brings it, such
 appcompat or Material for fragment); a library declared through buildSrc constants or a convention plugin, or that
 arrives only transitively, is not seen, so those checks stay silent there.
 
+The ports of the Compose material, animation, foundation and ConstraintLayout checks and of the activity, lifecycle,
+annotation, startup, webkit and UiAutomator checks are described in [AndroidX Lint ports](androidx-lint-ports.md).
+
 `androidx.appcompat:appcompat` 1.8.0:
 
 - `UseAndroidAlpha` reports `app:alpha` on a `<selector>` `<item>` that has `android:color` but no `android:alpha`,

@@ -363,12 +363,14 @@ func (r *runner) run(ctx context.Context) (int, error) {
 			r.pendingFIR.Cancel()
 		}
 	}()
-	if code, err := r.applySDKLevelFlags(); err != nil {
-		return code, err
+	levels, err := r.checkedSDKLevelFlags(os.Stderr)
+	if err != nil {
+		return 2, err
 	}
 	if code, err := r.collectFiles(); err != nil {
 		return code, err
 	}
+	r.applySDKLevelDefaults(levels)
 	if handled, code := r.filterRules(); handled {
 		return code, nil
 	}
@@ -716,9 +718,8 @@ func getChangedFiles(ref string, scanPaths []string) (map[string]bool, error) {
 	return result, nil
 }
 
-// applySDKLevelFlags makes --min-sdk / --target-sdk the SDK levels of files
-// whose directories declare none, for every rule and the FIR pass.
-func (r *runner) applySDKLevelFlags() (int, error) {
+// sdkLevelFlags returns --min-sdk / --target-sdk; a negative level is a usage error.
+func (r *runner) sdkLevelFlags() (android.SDKLevels, error) {
 	levels := android.SDKLevels{}
 	if r.f.MinSdk != nil {
 		levels.MinSdk = *r.f.MinSdk
@@ -727,8 +728,38 @@ func (r *runner) applySDKLevelFlags() (int, error) {
 		levels.TargetSdk = *r.f.TargetSdk
 	}
 	if levels.MinSdk < 0 || levels.TargetSdk < 0 {
-		return 2, fmt.Errorf("--min-sdk and --target-sdk must not be negative")
+		return android.SDKLevels{}, fmt.Errorf("--min-sdk and --target-sdk must not be negative (got %d, %d)", levels.MinSdk, levels.TargetSdk)
+	}
+	return levels, nil
+}
+
+// checkedSDKLevelFlags is sdkLevelFlags that reports a usage error on w, as
+// Run discards run's error.
+func (r *runner) checkedSDKLevelFlags(w io.Writer) (android.SDKLevels, error) {
+	levels, err := r.sdkLevelFlags()
+	if err != nil {
+		fmt.Fprintf(w, "error: %v\n", err)
+	}
+	return levels, err
+}
+
+// applySDKLevelDefaults makes the --min-sdk / --target-sdk levels the default
+// of files whose build declares none (android.SetDefaultSDKLevels), for the
+// Go rules and the FIR pass. A level the project's Gradle library profile
+// declares (a version catalog's minSdk) is the build's own, so the default
+// leaves it out and rules fall back to the profile as without the flag. It
+// always sets the default, so a run without the flags clears an earlier one.
+func (r *runner) applySDKLevelDefaults(levels android.SDKLevels) {
+	if !levels.IsZero() {
+		r.ensureProjectModel()
+		if facts := r.sess.LibraryFacts; facts != nil {
+			if facts.Profile.MinSdkVersion > 0 {
+				levels.MinSdk = 0
+			}
+			if facts.Profile.TargetSdkVersion > 0 {
+				levels.TargetSdk = 0
+			}
+		}
 	}
 	android.SetDefaultSDKLevels(levels)
-	return 0, nil
 }

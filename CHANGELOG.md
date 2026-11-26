@@ -13,8 +13,9 @@ All notable changes to Krit will be documented in this file.
   mocked class through imports and the cross-file index, and runs the detector's checkers in its order. Findings match
   slack-lints' own detector tests (`internal/rules/testdata/slack_lint_upstream/`); a `mock()` whose type Lint infers
   from an enclosing call's parameter is not reported (#1375, #1376, #1377, #1380).
-- `--min-sdk N` / `--target-sdk N` set the Android SDK levels of files whose own `build.gradle(.kts)` or manifest declares
-  none, for the Go rules and the FIR pass. The Bazel rules pass them from `--@krit//:min_sdk_version` /
+- `--min-sdk N` / `--target-sdk N` set the Android SDK levels of files whose own `build.gradle(.kts)`, manifest or Gradle
+  version catalog declares none, for the Go rules (per-file and project-wide minSdk alike) and the FIR pass. They are
+  part of the analysis cache key. The Bazel rules pass them from `--@krit//:min_sdk_version` /
   `--@krit//:target_sdk_version`, and an `android_binary`'s own `krit_aspect` action from its `manifest_values`, since
   Bazel builds often declare the levels only there (#1682).
 - `UnusedMaterialScaffoldPaddingParameter`, `UnusedMaterial3ScaffoldPaddingParameter`, `ConflictingOnColor` and

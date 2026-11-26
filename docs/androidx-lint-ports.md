@@ -60,3 +60,21 @@ results are cached on the whole source set.
   class literal in an `Initializer`'s `dependencies()` reaches, at the class. As in Lint, the `<meta-data>` name must
   be the fully qualified class name, and test-artifact (`androidTest`, `test`) and generated `build/` manifests are not
   read.
+## Compose animation
+
+`androidx.compose.animation:animation-android` and `animation-core-android` 1.13.0 (Kotlin). The unused-parameter
+checks share the Scaffold checks' reference and shadowing rules above, and resolve import aliases
+(`import androidx.compose.animation.Crossfade as Fade`) as Lint does.
+
+- `UnusedCrossfadeTargetStateParameter` reports an unused parameter of the first lambda passed to `Crossfade`, as
+  Lint does: the content lambda, or the `contentKey` lambda of `Transition.Crossfade` when it comes first.
+- `UnusedContentLambdaTargetStateParameter` and `UnusedTargetStateInContentKeyLambda` report an unused parameter of
+  `AnimatedContent`'s `content` lambda (trailing or `content = { }`) and of its `contentKey = { }` lambda.
+- `UnusedTransitionTargetStateParameter` reports an unused state parameter of a `Transition.animate*` call
+  (`animateFloat`, `animateDp`, `animateColor`, `animateValue` and the other library extensions) in the trailing or
+  `targetValueByState = { }` lambda, and of any one-parameter lambda of a same-file `animate*` extension. The
+  receiver must be proven to be an `androidx.compose.animation.core.Transition`: a variable declared as one or
+  initialized by `updateTransition`/`rememberTransition`, the receiver of a `Transition` extension (unless a
+  `with`/`apply`/`run` lambda in between brings a closer implicit receiver), or
+  `AnimatedVisibilityScope.transition` inside an `AnimatedVisibility` or `AnimatedContent` lambda. Lint checks
+  every `animate*` call on a resolved `Transition`.

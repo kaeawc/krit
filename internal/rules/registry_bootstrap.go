@@ -74,6 +74,7 @@ func init() {
 	registerAndroidxStartupRules()
 	registerAndroidxComposeMaterialRules()
 	registerComposeLintsRules()
+	registerAndroidxComposeAnimationRules()
 	registerCoroutinesRules()
 	registerDatabaseRules()
 	registerDeadcodeRules()

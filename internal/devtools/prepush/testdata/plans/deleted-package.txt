@@ -7,4 +7,5 @@ gofmt
 build
 vet
 lint
+gosec
 test 

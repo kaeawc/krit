@@ -339,9 +339,10 @@ keys are unchanged) is part of:
   miss names `compilerSettings` among the changed components.
 
 Notes, rejected arguments and opt-in order do not affect the identity.
-Compiler plugins add each jar's path, size and modification time and every
-option, so a plugin added, removed, upgraded or rebuilt in place is a
-settings change; settings without plugins keep their identity. Inside
+Compiler plugins add each jar's content (not its path, so the same jar under
+another `GRADLE_USER_HOME` is the same plugin) and every option, so a plugin
+added, removed, upgraded or rebuilt in place is a settings change; settings
+without plugins keep their identity. Inside
 `krit-fir`, the incremental compile key (and with it the persisted bundle in
 `.krit/fir-incremental`) also takes each loaded plugin jar's file identity,
 including its entries' CRCs, and every option.
@@ -364,15 +365,21 @@ in both test and androidTest as a redeclaration, which the real build never
 sees. With `--fir`, the default scan compiles the scanned source sets together
 and then rechecks only the projects with a file gated on `Redeclaration` or
 `Conflicting overloads`. The recheck compiles each of that project's scanned
-source sets on its own: a test or androidTest set sees its project's main (a
-built jar, or its sources as context) but never a sibling set. Its verdicts
-replace the merged compile's for that project's gated files; files the merged
-compile answered keep that answer. A project with one scanned set is rechecked
-too, since the merged compile also puts its files next to other projects'
-sets. A project keeps its merged verdicts when a set's unbuilt dependency
-sources exceed 3000 files or one of its source files belongs to another
-project too. A source set whose compile fails keeps its merged verdicts, while
-the project's other sets still take theirs.
+source sets that hold a gated file on its own: a test or androidTest set sees
+its project's main (a built jar, or its sources as context) but never a sibling
+set. Only the files the merged compile gated, for any reason, or crashed on
+are checked: the duplicates and what they gated in turn, such as an ambiguous
+call or an unresolved reference. The rest of their set compiles as context,
+and a set without such a file is not compiled again, since files the merged
+compile answered keep that answer (#1661). The rechecked verdicts replace the
+merged compile's for those files. A project with one scanned
+set is rechecked too, since the merged compile also puts its files next to
+other projects' sets. A project keeps its merged verdicts when a set's unbuilt
+dependency sources exceed 3000 files or one of its source files belongs to
+another project too. A source set whose compile fails keeps its merged
+verdicts, while the project's other sets still take theirs. The rechecked sets
+run on several worker JVMs, balanced by the files each compiles, its
+dependency context included.
 
 A gated file outside every exported source set is in a variant directory the
 model did not export, such as `src/release` next to an exported debug variant
@@ -421,7 +428,7 @@ uses a temporary directory instead.
 
 | Value | Compile |
 |---|---|
-| unset | Scanned source sets together; projects with a cross-source-set duplicate declaration are rechecked one source set at a time. |
+| unset | Scanned source sets together; the source sets holding a file gated on a cross-source-set duplicate declaration are rechecked one source set at a time. |
 | `merged` | Scanned source sets together, with no recheck. |
 | `isolate` | Every scanned source set on its own, when a project has several scanned sets and every set has its full dependency context; otherwise the default. |
 | a number or `auto` | Module sharding (see [module sharding](module-sharding.md)). |
@@ -434,7 +441,7 @@ sources again on one of several JVMs. On a large Android project it also used
 several times the CPU time, and the isolated run left more files without facts
 than the module-sharding coverage limit allows, so Krit discarded it and ran
 the merged compile as well. The recheck pays the isolated cost only for the
-projects that need it.
+source sets that need it.
 
 Missing projects or roots cannot be supplied from `projectDeps`
 alone; their source sets must be present in the exported model.

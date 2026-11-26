@@ -1,6 +1,7 @@
 package rules_test
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -174,5 +175,122 @@ class L {
 `
 	if got := runAndroidSecurityProjectRule(t, "MutableImplicitPendingIntent", "L.java", 21, 34, java); len(got) != 0 {
 		t.Fatalf("reported an intent of unknown origin: %v", got)
+	}
+}
+
+// #1622: getActivities intent arrays held in locals (arrayOf, arrayOfNulls with indexed writes) and let/run/with
+// blocks made only of Intent method calls are followed, as Lint 32.4.1 does. Lines marked `// report` are expected
+// findings; the rest abstain or are explicit.
+const mutableImplicitFollowSource = `package test.pkg
+
+import android.app.PendingIntent
+import android.app.PendingIntent.FLAG_MUTABLE
+import android.content.Context
+import android.content.Intent
+
+class Target
+
+class P(private val context: Context) {
+    fun arrays(n: Int) {
+        PendingIntent.getActivities(context, 0, listOf(Intent("a")).toTypedArray(), FLAG_MUTABLE)
+        PendingIntent.getActivities(context, 0, mutableListOf(Intent("a")).toTypedArray(), FLAG_MUTABLE)
+        PendingIntent.getActivities(context, 0, arrayListOf(Intent("a")).toTypedArray(), FLAG_MUTABLE)
+        val list = listOf(Intent("b"))
+        PendingIntent.getActivities(context, 0, list.toTypedArray(), FLAG_MUTABLE)
+        val arr = arrayOf(Intent("c"))
+        PendingIntent.getActivities(context, 0, arr, FLAG_MUTABLE) // report
+        val explicitArr = arrayOf(Intent(context, Target::class.java))
+        PendingIntent.getActivities(context, 0, explicitArr, FLAG_MUTABLE)
+        val nulls = arrayOfNulls<Intent>(2)
+        nulls[0] = Intent(context, Target::class.java)
+        nulls[1] = Intent("d")
+        PendingIntent.getActivities(context, 0, nulls, FLAG_MUTABLE) // report
+        val explicitNulls = arrayOfNulls<Intent>(1)
+        explicitNulls[0] = Intent(context, Target::class.java)
+        PendingIntent.getActivities(context, 0, explicitNulls, FLAG_MUTABLE)
+        val overwritten = arrayOfNulls<Intent>(1)
+        overwritten[0] = Intent("e")
+        overwritten[0] = Intent(context, Target::class.java)
+        PendingIntent.getActivities(context, 0, overwritten, FLAG_MUTABLE)
+        val outOfRange = arrayOfNulls<Intent>(1)
+        outOfRange[3] = Intent("f")
+        PendingIntent.getActivities(context, 0, outOfRange, FLAG_MUTABLE)
+        val sized = arrayOfNulls<Intent>(n)
+        sized[0] = Intent("g")
+        PendingIntent.getActivities(context, 0, sized, FLAG_MUTABLE)
+        val escaped = arrayOfNulls<Intent>(1)
+        escaped[0] = Intent("h")
+        consume(escaped)
+        PendingIntent.getActivities(context, 0, escaped, FLAG_MUTABLE)
+        val deferred = arrayOfNulls<Intent>(1)
+        val later = { deferred[0] = Intent("i") }
+        PendingIntent.getActivities(context, 0, deferred, FLAG_MUTABLE)
+    }
+    fun scopes() {
+        PendingIntent.getActivity(context, 0, Intent("a").let { it.putExtra("k", 1) }, FLAG_MUTABLE) // report
+        PendingIntent.getActivity(context, 0, Intent("a").let { it.setPackage("p") }, FLAG_MUTABLE)
+        PendingIntent.getActivity(context, 0, Intent("a").run { putExtra("k", 1) }, FLAG_MUTABLE) // report
+        PendingIntent.getActivity(context, 0, Intent("a").run { setPackage("p") }, FLAG_MUTABLE)
+        PendingIntent.getActivity(context, 0, with(Intent("a")) { setAction("b") }, FLAG_MUTABLE) // report
+        PendingIntent.getActivity(context, 0, with(Intent("a")) { setClassName("p", "c") }, FLAG_MUTABLE)
+        val viaLet = Intent("a").let { it.addFlags(1).putExtra("k", 2) }
+        PendingIntent.getActivity(context, 0, viaLet, FLAG_MUTABLE)
+        PendingIntent.getActivity(context, 0, Intent("a").let { it.addFlags(1); it.putExtra("k", 2) }, FLAG_MUTABLE) // report
+        PendingIntent.getActivity(context, 0, Intent("a").let { it.putExtra("k", 1); it }, FLAG_MUTABLE)
+        PendingIntent.getActivity(context, 0, Intent("a").let { i -> i.putExtra("k", 1) }, FLAG_MUTABLE)
+        PendingIntent.getActivity(context, 0, with(Intent("a")) { action = "b"; this }, FLAG_MUTABLE)
+        PendingIntent.getActivity(context, 0, Intent("a").let { other(it) }, FLAG_MUTABLE)
+    }
+    fun consume(any: Any?) {}
+    fun other(i: Intent): Intent = i
+}
+`
+
+const mutableImplicitFollowJavaSource = `package test.pkg;
+
+import android.app.PendingIntent;
+import android.content.Context;
+import android.content.Intent;
+
+class J {
+    void f(Context context) {
+        Intent[] arr = new Intent[2];
+        arr[0] = new Intent("x");
+        PendingIntent.getActivities(context, 0, arr, PendingIntent.FLAG_MUTABLE); // report
+        Intent[] a = new Intent[]{new Intent("y")};
+        PendingIntent.getActivities(context, 0, a, PendingIntent.FLAG_MUTABLE); // report
+        Intent[] explicit = new Intent[1];
+        explicit[0] = new Intent(context, J.class);
+        PendingIntent.getActivities(context, 0, explicit, PendingIntent.FLAG_MUTABLE);
+        Intent[] deferred = new Intent[1];
+        Runnable later = () -> { deferred[0] = new Intent("z"); };
+        PendingIntent.getActivities(context, 0, deferred, PendingIntent.FLAG_MUTABLE);
+        Intent[] overwritten = new Intent[1];
+        overwritten[0] = new Intent("w");
+        overwritten[0] = new Intent(context, J.class);
+        PendingIntent.getActivities(context, 0, overwritten, PendingIntent.FLAG_MUTABLE);
+        Intent[] lastWins = new Intent[1];
+        lastWins[0] = new Intent(context, J.class);
+        lastWins[0] = new Intent("v");
+        PendingIntent.getActivities(context, 0, lastWins, PendingIntent.FLAG_MUTABLE); // report
+    }
+}
+`
+
+func TestMutableImplicitPendingIntentFollowsListsArraysAndScopeBlocks(t *testing.T) {
+	for _, test := range []struct{ name, src string }{
+		{"P.kt", mutableImplicitFollowSource},
+		{"J.java", mutableImplicitFollowJavaSource},
+	} {
+		findings := runAndroidSecurityProjectRule(t, "MutableImplicitPendingIntent", test.name, 21, 34, test.src)
+		var want []string
+		for i, line := range strings.Split(test.src, "\n") {
+			if strings.HasSuffix(line, "// report") {
+				want = append(want, fmt.Sprintf("%d:9", i+1))
+			}
+		}
+		if got := findingPositions(findings); got != strings.Join(want, ",") {
+			t.Fatalf("%s: positions = %s, want %s", test.name, got, strings.Join(want, ","))
+		}
 	}
 }

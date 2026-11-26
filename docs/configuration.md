@@ -68,6 +68,9 @@ Source-file collection always skips built-in test data directories (`/test/data/
 `/compilerTests/`) and test source-set resource directories under
 `src/<set>/resources/` when `<set>` is `test`, `androidTest`, `testFixtures`,
 or ends in `Test` (for example, `src/commonTest/resources/`).
+These directory names are matched only below the scanned directory, so a
+project checked out under an ancestor such as `/home/runner/work/testdata/`
+is still analysed.
 Directory scans also skip documentation samples: a Kotlin or Java file under an
 `examples` or `references` directory (for example `docs/skill/references/examples/`)
 is not analysed when it is outside any `src` tree and no build file

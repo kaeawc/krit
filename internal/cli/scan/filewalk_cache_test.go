@@ -534,3 +534,66 @@ func TestFilewalkCache_RacyDirNotCached(t *testing.T) {
 		t.Errorf("directory modified just now was cached")
 	}
 }
+
+// Regression for #1549: the built-in test-data exclusion matched the
+// absolute path, so a project under an ancestor directory named testdata
+// scanned nothing, and an explicitly named file under testdata/ was dropped.
+func TestCollectFilesCached_TestDataMatchedBelowRootOnly(t *testing.T) {
+	setup := func(t *testing.T) (root, app, inner string) {
+		root = filepath.Join(t.TempDir(), "testdata", "proj")
+		app = filepath.Join(root, "src", "main", "kotlin", "App.kt")
+		inner = filepath.Join(root, "src", "test", "testdata", "Stub.kt")
+		writeFile(t, app, "")
+		writeFile(t, inner, "")
+		return root, app, inner
+	}
+	check := func(t *testing.T, files []string, want string) {
+		t.Helper()
+		if len(files) != 1 || files[0] != want {
+			t.Fatalf("collected %v, want only %q", files, want)
+		}
+	}
+
+	t.Run("walk", func(t *testing.T) {
+		root, app, _ := setup(t)
+		cache := t.TempDir()
+		for _, run := range []string{"cold", "warm"} {
+			files, err := CollectFilesCached([]string{root}, ktFilters, cache)
+			if err != nil {
+				t.Fatalf("%s walk: %v", run, err)
+			}
+			check(t, files, app)
+		}
+	})
+
+	t.Run("git", func(t *testing.T) {
+		if !gitAvailable(t) {
+			t.Skip("git not on PATH")
+		}
+		root, app, _ := setup(t)
+		gitInit(t, root)
+		files, err := CollectFilesCached([]string{root}, ktFilters, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		check(t, files, app)
+	})
+
+	t.Run("explicit file", func(t *testing.T) {
+		_, _, inner := setup(t)
+		files, err := CollectFilesCached([]string{inner}, ktFilters, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		check(t, files, inner)
+
+		excluded := FilewalkFilters{Extensions: ktFilters.Extensions, Excludes: []string{"Stub.kt"}}
+		files, err = CollectFilesCached([]string{inner}, excluded, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(files) != 0 {
+			t.Fatalf("user exclude should still drop an explicit file, got %v", files)
+		}
+	})
+}

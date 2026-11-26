@@ -13,6 +13,7 @@ var axlParityRoots = []string{
 	"androidx_compose_animation",
 	"androidx_compose_material",
 	"androidx_lifecycle_runtime",
+	"androidx_startup",
 	"androidx_uiautomator",
 	"androidx_webkit",
 }
@@ -71,7 +72,7 @@ func TestAndroidxLintParity(t *testing.T) {
 					wantLines = append(wantLines, line)
 				}
 				wantText := strings.Join(parityLines(strings.Join(wantLines, "\n")), "\n")
-				got := strings.Join(runParityChecks(t, caseDir, checks), "\n")
+				got := strings.Join(runWorkParityChecks(t, caseDir, checks), "\n")
 				if got != wantText {
 					t.Errorf("krit findings differ from Lint (with divergences.txt)\n--- want\n%s\n--- got\n%s", wantText, got)
 				}

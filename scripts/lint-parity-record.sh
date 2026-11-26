@@ -40,7 +40,7 @@ printf 'android.useAndroidX=true\norg.gradle.jvmargs=-Xmx3g\n' > "$work/gradle.p
 printf 'sdk.dir=%s\n' "$ANDROID_HOME" > "$work/local.properties"
 
 cp -r "$case_dir" "$work/app"
-rm -f "$work/app"/lint-*.txt "$work/app"/divergences.txt
+rm -f "$work/app"/lint-*.txt "$work/app"/divergences.txt "$work/app"/severity.txt
 cat >> "$work/app/build.gradle.kts" <<EOF
 
 android {

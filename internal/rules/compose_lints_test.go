@@ -119,7 +119,8 @@ class Shadow {
 // TestComposeLintsCrossFileFixtures runs the project-scope ports over their fixtures, which TestPositiveFixtures
 // and TestNegativeFixtures skip.
 func TestComposeLintsCrossFileFixtures(t *testing.T) {
-	for _, rule := range []string{"ComposePreviewPublic", "ComposePreviewNaming", "ComposeM2Api"} {
+	for _, rule := range []string{"ComposePreviewPublic", "ComposePreviewNaming", "ComposeM2Api",
+		"ComposeModifierMissing", "ComposeParameterOrder"} {
 		r := findComposeLintsRule(t, rule)
 		pos := parseFixture(t, "positive", rule)
 		if got := runCrossFileRuleOnFiles(r, pos); len(got) == 0 {
@@ -215,4 +216,34 @@ func parseFixture(t *testing.T, kind, rule string) *scanner.File {
 		t.Fatal(err)
 	}
 	return file
+}
+
+// TestComposeModifierWithoutDefaultFixSpelling pins the autofix's default: the parameter type as written when it
+// resolves to Modifier or GlanceModifier, and no fix for a lookalike type or a vararg parameter (the finding stays,
+// as in Lint, which matches the type's text).
+func TestComposeModifierWithoutDefaultFixSpelling(t *testing.T) {
+	for _, tc := range []struct {
+		name, imports, param, want string
+	}{
+		{"compose", "import androidx.compose.ui.Modifier", "modifier: Modifier", " = Modifier"},
+		{"nullable", "import androidx.compose.ui.Modifier", "modifier: Modifier?", " = Modifier"},
+		{"glance", "import androidx.glance.GlanceModifier", "modifier: GlanceModifier", " = GlanceModifier"},
+		{"qualified", "", "modifier: androidx.compose.ui.Modifier", " = androidx.compose.ui.Modifier"},
+		{"alias", "import androidx.compose.ui.Modifier as M", "m: M", " = M"},
+		{"vararg", "import androidx.compose.ui.Modifier", "vararg modifier: Modifier", ""},
+		{"reflect lookalike", "import java.lang.reflect.Modifier", "modifier: Modifier", ""},
+		{"same-file lookalike", "class GlanceModifier", "modifier: GlanceModifier", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			findings := assertFlags(t, "ComposeModifierWithoutDefault", "package test\n\nimport androidx.compose.runtime.Composable\n"+
+				tc.imports+"\n\n@Composable\nfun Widget("+tc.param+") {}\n")
+			got := ""
+			if fix := findings[0].Fix; fix != nil {
+				got = fix.Replacement
+			}
+			if got != tc.want {
+				t.Errorf("fix replacement = %q, want %q", got, tc.want)
+			}
+		})
+	}
 }

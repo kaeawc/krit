@@ -1,0 +1,35 @@
+src/main/java/com/example/Checks.kt:10:44: NullableConcurrentHashMap: ConcurrentHashMap should not use nullable key types
+src/main/java/com/example/Checks.kt:10:44: NullableConcurrentHashMap: ConcurrentHashMap should not use nullable key types
+src/main/java/com/example/Checks.kt:10:53: NullableConcurrentHashMap: ConcurrentHashMap should not use nullable value types
+src/main/java/com/example/Checks.kt:10:53: NullableConcurrentHashMap: ConcurrentHashMap should not use nullable value types
+src/main/java/com/example/Checks.kt:11:36: NullableConcurrentHashMap: ConcurrentHashMap should not use nullable value types
+src/main/java/com/example/Checks.kt:13:6: AvoidUsingNotNullOperator: Avoid using the `!!` operator
+src/main/java/com/example/Checks.kt:14:14: AvoidUsingNotNullOperator: Avoid using the `!!` operator
+src/main/java/com/example/Checks.kt:15:9: AvoidUsingNotNullOperator: Avoid using the `!!` operator
+src/main/java/com/example/Checks.kt:16:5: ExceptionMessage: Please specify a `lazyMessage` param for check
+src/main/java/com/example/Checks.kt:18:5: ExceptionMessage: Please specify a `lazyMessage` param for checkNotNull
+src/main/java/com/example/Checks.kt:19:5: ExceptionMessage: Please specify a `lazyMessage` param for require
+src/main/java/com/example/Checks.kt:22:12: ExceptionMessage: Please specify a `lazyMessage` param for check
+src/main/java/com/example/Checks.kt:23:19: GuavaPreconditionsUsedInKotlin: Kotlin precondition checks should use the Kotlin standard library checks
+src/main/java/com/example/Checks.kt:24:5: GuavaPreconditionsUsedInKotlin: Kotlin precondition checks should use the Kotlin standard library checks
+src/main/java/com/example/Checks.kt:25:19: GuavaPreconditionsUsedInKotlin: Kotlin precondition checks should use the Kotlin standard library checks
+src/main/java/com/example/Checks.kt:26:31: NullableConcurrentHashMap: ConcurrentHashMap should not use nullable key types
+src/main/java/com/example/Checks.kt:27:72: NullableConcurrentHashMap: ConcurrentHashMap should not use nullable value types
+src/main/java/com/example/Checks.kt:33:17: ParcelizeFunctionProperty: While technically (and surprisingly) supported by Parcelize, function types should not be used in Parcelize classes. There are only limited conditions where it will work and it's usually a sign that you're modeling your data wrong.
+src/main/java/com/example/Checks.kt:34:17: ParcelizeFunctionProperty: While technically (and surprisingly) supported by Parcelize, function types should not be used in Parcelize classes. There are only limited conditions where it will work and it's usually a sign that you're modeling your data wrong.
+src/main/java/com/example/Checks.kt:36:11: ParcelizeFunctionProperty: While technically (and surprisingly) supported by Parcelize, function types should not be used in Parcelize classes. There are only limited conditions where it will work and it's usually a sign that you're modeling your data wrong.
+src/main/java/com/example/Checks.kt:37:33: ParcelizeFunctionProperty: While technically (and surprisingly) supported by Parcelize, function types should not be used in Parcelize classes. There are only limited conditions where it will work and it's usually a sign that you're modeling your data wrong.
+src/main/java/com/example/Checks.kt:38:10: ParcelizeFunctionProperty: While technically (and surprisingly) supported by Parcelize, function types should not be used in Parcelize classes. There are only limited conditions where it will work and it's usually a sign that you're modeling your data wrong.
+src/main/java/com/example/Checks.kt:39:19: ParcelizeFunctionProperty: While technically (and surprisingly) supported by Parcelize, function types should not be used in Parcelize classes. There are only limited conditions where it will work and it's usually a sign that you're modeling your data wrong.
+src/main/java/com/example/Checks.kt:45:20: ParcelizeFunctionProperty: While technically (and surprisingly) supported by Parcelize, function types should not be used in Parcelize classes. There are only limited conditions where it will work and it's usually a sign that you're modeling your data wrong.
+src/main/java/com/example/Checks.kt:45:45: ParcelizeFunctionProperty: While technically (and surprisingly) supported by Parcelize, function types should not be used in Parcelize classes. There are only limited conditions where it will work and it's usually a sign that you're modeling your data wrong.
+src/main/java/com/example/Checks.kt:51:6: AvoidUsingNotNullOperator: Avoid using the `!!` operator
+src/main/java/com/example/Checks.kt:52:6: AvoidUsingNotNullOperator: Avoid using the `!!` operator
+src/main/java/com/example/Checks.kt:52:8: AvoidUsingNotNullOperator: Avoid using the `!!` operator
+src/main/java/com/example/Checks.kt:57:5: ExceptionMessage: Please specify a `lazyMessage` param for requireNotNull
+src/main/java/com/example/Checks.kt:62:37: NullableConcurrentHashMap: ConcurrentHashMap should not use nullable key types
+src/main/java/com/example/Checks.kt:63:56: NullableConcurrentHashMap: ConcurrentHashMap should not use nullable key types
+src/main/java/com/example/Checks.kt:63:65: NullableConcurrentHashMap: ConcurrentHashMap should not use nullable value types
+src/main/java/com/example/JavaMaps.java:7:21: NullableConcurrentHashMap: ConcurrentHashMap should not use nullable key types
+src/main/java/com/example/JavaMaps.java:9:31: NullableConcurrentHashMap: ConcurrentHashMap should not use nullable value types
+src/main/java/com/example/JavaMaps.java:9:80: NullableConcurrentHashMap: ConcurrentHashMap should not use nullable key types

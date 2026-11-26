@@ -1,0 +1,4 @@
+src/com/example/Arc.kt:14:5: ArcAnimationSpecTypeIssue: Arc animation is intended for 2D values such as Offset, IntOffset or DpOffset.\nOtherwise, the animation might not be what you expect.
+src/com/example/Arc.kt:15:5: ArcAnimationSpecTypeIssue: Arc animation is intended for 2D values such as Offset, IntOffset or DpOffset.\nOtherwise, the animation might not be what you expect.
+src/com/example/Arc.kt:20:37: ArcAnimationSpecTypeIssue: Arc animation is intended for 2D values such as Offset, IntOffset or DpOffset.\nOtherwise, the animation might not be what you expect.
+src/com/example/Arc.kt:21:5: ArcAnimationSpecTypeIssue: Arc animation is intended for 2D values such as Offset, IntOffset or DpOffset.\nOtherwise, the animation might not be what you expect.

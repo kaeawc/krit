@@ -153,7 +153,10 @@ compilation's `languageVersion`, `apiVersion`, `optIn`, `freeCompilerArgs`,
 when not configured (krit computes the effective values; see
 [Kotlin compiler settings](../docs/kotlin-compiler-settings.md)).
 `sourceDirs` excludes paths beneath the project's build directory; those registered
-paths appear in `generatedSourceDirs` even before files exist. Android generated
+paths appear in `generatedSourceDirs` even before files exist. Each file also records
+`rootDir` and `gradleUserHome`, the build root and Gradle user home it was exported
+under. krit rebases paths under them when the model is read somewhere else (see
+[CI recipe: skip Gradle](#ci-recipe-skip-gradle-when-the-build-has-not-changed)). Android generated
 class jars are discovered best-effort from compile artifact views. Missing values
 are empty lists or an empty `jvmTarget` string.
 
@@ -163,9 +166,13 @@ krit {
     fir = true               // default: run the FIR checker pass during kritCheck
     exportGenerated = false  // default: export declared paths without running code generation
     androidVariant = "debug" // default; choose another Android variant if needed
+    exportTests = true       // default; false exports (and resolves) production source sets only
 }
 ```
 
+With `exportTests = false`, test sources that a scan still reads (`kritCheck`'s default
+`src/test/kotlin`, `kritCheckTest`, `kritCheckAll`) get no classpath from the model, so FIR
+gates them. Use it when the scans leave test sources out.
 Set `exportModel = false` to run `kritCheck` without generating the model.
 The task can still be run explicitly.
 Set `fir = false` to pass `--no-fir` to `kritCheck` when FIR is unavailable.
@@ -362,6 +369,53 @@ service takes them from the first project that applies krit. When the extension
 turns FIR off, krit tasks don't use the pool and run without its limit; a single
 task's `fir = false` skips the lease but still counts toward the limit. The pool
 needs a krit release after 0.5.0; older ones ignore it.
+
+#### CI recipe: skip Gradle when the build has not changed
+
+A CI job that only needs the model can skip Gradle when no build input changed.
+`krit gradle-model key` prints a key that hashes those inputs: settings and build
+scripts, version catalogs, lockfiles, `gradle/verification-metadata.xml`,
+`gradle.properties`, `local.properties`, the wrapper's Gradle version, and the `src/main`
+sources of `buildSrc`, `build-logic` and every build nested under the root (any directory
+with its own settings file, such as `includeBuild("gradle/plugins")`). It covers root-relative paths and file contents only, so
+checkouts at different paths get the same key (`krit gradle-model key --list` shows the
+files). Cache `.krit/gradle-model` under it, together with the Gradle user home's
+dependency caches the model's jars live in, which `gradle/actions/setup-gradle` already
+restores:
+
+```yaml
+- uses: gradle/actions/setup-gradle@<sha> # restores ~/.gradle/caches
+- id: model-key
+  run: echo "key=$(krit gradle-model key)" >> "$GITHUB_OUTPUT"
+- id: model
+  uses: actions/cache@<sha>
+  with:
+    path: .krit/gradle-model
+    key: krit-gradle-model-${{ runner.os }}-${{ steps.model-key.outputs.key }}
+- if: steps.model.outputs.cache-hit != 'true'
+  run: ./gradlew kritExportModel && krit gradle-model key --write
+- run: krit --fir .
+```
+
+`--write` stamps the key, with the content hash of every file it covers, in
+`.krit/gradle-model/inputs.key`. From then on krit compares the build with the stamp,
+not with modification times (a restored model always looks newer). It re-hashes the
+files the stamp lists, without walking the tree, and warns
+`gradle model … is stale: <file> changed since it was exported` when one differs.
+`kritExportModel` deletes the stamp whenever it rewrites a model. A model restored into another checkout path, or onto a machine with another
+`GRADLE_USER_HOME`, still resolves. krit rebases paths under the recorded `rootDir` onto
+the directory that holds `.krit/gradle-model`, and paths under a recorded
+`gradleUserHome` that no longer exists onto `$GRADLE_USER_HOME` (default `~/.gradle`).
+Missing jars (a Gradle cache that wasn't restored) produce the usual missing-classpath
+warning. Rerun `kritExportModel` then.
+
+The key doesn't cover inputs outside the build's files: environment variables or
+system properties that build scripts read, plugins resolved through dynamic versions
+without a lockfile, and included builds outside the root (`includeBuild("../shared")`).
+A build that depends on those should add them to the cache key. A nested build that
+isn't included, such as a sample, still counts as build logic: editing its sources
+changes the key and costs one re-export. The stale check sees changes to the files the
+stamp lists. A build file added later changes the key, so a cache keyed on it misses.
 
 ## Build cache
 

@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/kaeawc/krit/internal/testutil"
 )
 
 func TestFirFingerprintChangesWhenClasspathJarChanges(t *testing.T) {
@@ -23,6 +25,14 @@ func TestFirFingerprintChangesWhenClasspathJarChanges(t *testing.T) {
 		t.Fatal("jar replacement retained FIR fingerprint")
 	}
 	before = FirInvocationFingerprint([]string{jar}, "", nil, nil, FileFacts{})
+	// A rebuild that keeps the size and lands in the same mtime tick.
+	testutil.RewriteKeepingStat(t, jar, "SECOND LONGER")
+	rebuilt := FirInvocationFingerprint([]string{jar}, "", nil, nil, FileFacts{})
+	if before == rebuilt {
+		t.Fatal("same-size, same-mtime jar rebuild retained FIR fingerprint")
+	}
+	// The same bytes with a new mtime (a touch, or a re-downloaded jar) are
+	// the same input and keep their cache entries.
 	stat, err := os.Stat(jar)
 	if err != nil {
 		t.Fatal(err)
@@ -31,8 +41,8 @@ func TestFirFingerprintChangesWhenClasspathJarChanges(t *testing.T) {
 	if err := os.Chtimes(jar, newTime, newTime); err != nil {
 		t.Fatal(err)
 	}
-	if before == FirInvocationFingerprint([]string{jar}, "", nil, nil, FileFacts{}) {
-		t.Fatal("mtime-only change retained FIR fingerprint")
+	if rebuilt != FirInvocationFingerprint([]string{jar}, "", nil, nil, FileFacts{}) {
+		t.Fatal("an mtime-only change of identical bytes changed the FIR fingerprint")
 	}
 }
 

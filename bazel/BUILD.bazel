@@ -102,3 +102,20 @@ int_flag(
     build_setting_default = 400,
     visibility = ["//visibility:public"],
 )
+
+# The Android minSdk / targetSdk of sources whose own manifest (in their
+# directory or above) declares none, for krit_aspect's and
+# krit_project_report's actions (krit --min-sdk / --target-sdk); 0 leaves
+# them unknown. An android_binary's own action uses its manifest_values'
+# minSdkVersion / targetSdkVersion instead, when they are numbers.
+int_flag(
+    name = "min_sdk_version",
+    build_setting_default = 0,
+    visibility = ["//visibility:public"],
+)
+
+int_flag(
+    name = "target_sdk_version",
+    build_setting_default = 0,
+    visibility = ["//visibility:public"],
+)

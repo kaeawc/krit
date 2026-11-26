@@ -46,10 +46,12 @@ follows the cgroup CPU quota; see
 
 Facts are cached per module in `<repo>/.krit/module-facts`, keyed by the
 `krit-fir` jar, the module's compiler settings and plugins, its classpath
-(file size and modification time), and the content of every source file. A
-changed module, or a rebuilt dependency jar, invalidates only the modules whose
-key changed. Unreferenced entries are removed after seven days. The merged
-oracle is rewritten only when the set of keys changes.
+(each jar's path and content, and each class directory's files; see
+[cache inventory](perf.md#cache-inventory-and-invalidation)), and the content
+of every source file. A changed module, or a rebuilt dependency jar,
+invalidates only the modules whose key changed. Unreferenced entries are
+removed after seven days. The merged oracle is rewritten only when the set of
+keys changes.
 
 The FIR checkers run inside the same module compiles. Each module checks its
 own requested files, and the responses are merged. A requested file that no

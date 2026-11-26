@@ -120,3 +120,33 @@ def resource_dirs_build_file(build_path, resource_files, path):
     up = "../" * len(build_path.rpartition("/")[0].split("/"))
     globs = ['"%s%s/**"' % (up, d) for d in sorted(dirs)]
     return "android_library(\n    name = \"resources\",\n    resource_files = glob([%s]),\n)\n" % ", ".join(globs)
+
+def sdk_level_args(min_sdk, target_sdk, manifest_values = {}):
+    """krit's --min-sdk / --target-sdk for one action.
+
+    They are the levels of sources whose own manifest declares none; krit
+    still reads a manifest's <uses-sdk> where there is one. Bazel builds
+    often set the levels only on the android_binary (manifest_values) or
+    build-wide, where krit cannot see them.
+
+    Args:
+      min_sdk: int, --@krit//:min_sdk_version (0: unset).
+      target_sdk: int, --@krit//:target_sdk_version (0: unset).
+      manifest_values: the analyzed android_binary's manifest_values; a
+        minSdkVersion or targetSdkVersion that is a number wins over the
+        flag. Values with make variables are left to the flag.
+
+    Returns:
+      list of krit arguments.
+    """
+    args = []
+    for flag, level, key in [
+        ("--min-sdk", min_sdk, "minSdkVersion"),
+        ("--target-sdk", target_sdk, "targetSdkVersion"),
+    ]:
+        value = manifest_values.get(key, "")
+        if value.isdigit():
+            level = int(value)
+        if level > 0:
+            args += [flag, str(level)]
+    return args

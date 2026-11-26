@@ -80,6 +80,7 @@ class KritPlugin : Plugin<Project> {
         extension.exportModel.convention(true)
         extension.fir.convention(true)
         extension.exportGenerated.convention(false)
+        extension.exportTests.convention(true)
         extension.androidVariant.convention("debug")
         extension.advanced.toolVersion.convention(KRIT_DEFAULT_VERSION)
         extension.advanced.allRules.convention(false)
@@ -378,7 +379,9 @@ class KritPlugin : Plugin<Project> {
                 project.logger.warn("krit: kritExportModel for ${project.path} is exporting zero Android source sets; " +
                     "check Android variant configuration and krit.androidVariant (requested '${extension.androidVariant.orNull ?: "debug"}')")
             }
-            registerProjectModel(project, extension, specs, variantSources)
+            // Test source sets are left out before any of their classpaths is wired, so none resolves.
+            val exported = if (extension.exportTests.get()) specs else specs.filter { it.kind == "main" }
+            registerProjectModel(project, extension, exported, variantSources)
         }
         fun exportAfterEvaluateOrNow() {
             if (modelExported) {
@@ -956,6 +959,7 @@ class KritPlugin : Plugin<Project> {
             projectDir.set(modelPath(project.projectDir))
             generatedBy.set("krit-gradle-plugin ${KritVersion.VERSION}")
             rootDir.set(rootPath)
+            gradleUserHome.set(modelPath(project.gradle.gradleUserHomeDir))
             outputFile.set(File(rootPath, ".krit/gradle-model/${fileName}.json"))
         }
         // Published for the root kritCheckAll (KritAggregatePlugin), which resolves

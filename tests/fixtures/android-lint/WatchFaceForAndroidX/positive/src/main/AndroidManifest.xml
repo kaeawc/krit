@@ -1,0 +1,19 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-feature android:name="android.hardware.type.watch" />
+    <application android:label="Watch">
+        <service android:name=".MyWatchFaceService" android:exported="true">
+            <meta-data
+                android:name="com.google.android.wearable.watchface.wearableConfigurationAction"
+                android:value="com.example.watchface.CONFIG_DIGITAL" />
+        </service>
+        <service android:name=".NoValueService" android:exported="true">
+            <meta-data android:name="com.google.android.wearable.watchface.wearableConfigurationAction" />
+        </service>
+        <activity android:name=".ConfigActivity" android:exported="true">
+            <intent-filter>
+                <action android:name="com.example.watchface.CONFIG_DIGITAL" />
+                <category android:name="com.google.android.wearable.watchface.category.WEARABLE_CONFIGURATION" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

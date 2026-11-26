@@ -1,0 +1,13 @@
+load("@rules_kotlin//kotlin:jvm.bzl", "kt_jvm_library")
+
+# An SDK_INT check whose minSdk is set only by the build
+# (--@krit//:min_sdk_version), as a Bazel android_binary's manifest_values
+# sets it, not by a manifest next to the sources (#1682). Build.kt stands in
+# for android.jar's android.os.Build so the target compiles on the JVM.
+kt_jvm_library(
+    name = "sdk",
+    srcs = [
+        "Build.kt",
+        "Levels.kt",
+    ],
+)

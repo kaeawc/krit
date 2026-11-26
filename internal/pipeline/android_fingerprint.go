@@ -49,8 +49,45 @@ func (fps *resDirFingerprints) fingerprint(resDir string) string {
 		h.Write([]byte(assets))
 		fp = hex.EncodeToString(h.Sum(nil))
 	}
+	// Wear resource checks (WearBackNavigation, WearPasswordInput) decide from the module manifest whether the res
+	// directory belongs to a Wear app, so adding or removing the watch feature must invalidate them too.
+	if manifests := resDirManifestFingerprint(resDir); manifests != "" {
+		h := hashutil.Hasher().New()
+		h.Write([]byte(fp))
+		h.Write([]byte("\x00manifest\x00"))
+		h.Write([]byte(manifests))
+		fp = hex.EncodeToString(h.Sum(nil))
+	}
 	fps.values[resDir] = fp
 	return fp
+}
+
+// resDirManifestFingerprint fingerprints the manifests a resource check reads for resDir: the AndroidManifest.xml of
+// its source set and the module's main one, or returns "" when neither exists.
+func resDirManifestFingerprint(resDir string) string {
+	sourceSet := filepath.Dir(resDir)
+	paths := []string{filepath.Join(sourceSet, "AndroidManifest.xml")}
+	if filepath.Base(filepath.Dir(sourceSet)) == "src" && filepath.Base(sourceSet) != "main" {
+		paths = append(paths, filepath.Join(filepath.Dir(sourceSet), "main", "AndroidManifest.xml"))
+	}
+	h := hashutil.Hasher().New()
+	memo := hashutil.Default()
+	found := false
+	for _, path := range paths {
+		hx, err := memo.HashFile(path, nil)
+		if err != nil {
+			continue
+		}
+		h.Write([]byte(path))
+		h.Write([]byte{0})
+		h.Write([]byte(hx))
+		h.Write([]byte{0})
+		found = true
+	}
+	if !found {
+		return ""
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 // resDirAssetsFingerprint fingerprints the regular files directly inside the assets folder beside resDir, or returns

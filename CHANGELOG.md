@@ -499,6 +499,9 @@ All notable changes to Krit will be documented in this file.
   `MoshiUsageNonMoshiClassInternal`/`External` (#1384, #1395, #1396, #1404, #1407, #1408, #1409).
 
 ### Fixed
+- `--no-cache` skips every cache that can change findings. A one-shot scan read the cross-file findings cache, so a
+  stale entry replayed into the run warm results are checked against; it now skips that cache and also the cross-file
+  index, resource index, file-walk and incremental oracle caches. Only the parse cache stays on (#1818).
 - `MutableImplicitPendingIntent` follows more ways of building the intent, as Lint 32.4.1 does: `getActivities`
   intent arrays held in locals (`arrayOf`, a Java array initializer, and `arrayOfNulls(n)` / `new Intent[n]` of
   constant size whose elements are the last write to each index before the call), and `let`, `run` and `with`

@@ -16,6 +16,10 @@ import (
 // stale slot under the current key used to replay into a --no-cache run.
 func TestNoCacheIgnoresStaleCrossFindingsCache(t *testing.T) {
 	dir := copyTree(t, "../../playground/kotlin-webservice")
+	// Earlier scans of the playground leave a .krit there; start cold.
+	if err := os.RemoveAll(filepath.Join(dir, ".krit")); err != nil {
+		t.Fatal(err)
+	}
 	count := func(extra ...string) int {
 		t.Helper()
 		args := append([]string{"--no-fir", "--no-daemon", "--no-type-oracle", "-f", "json", "-q"}, extra...)
@@ -33,6 +37,12 @@ func TestNoCacheIgnoresStaleCrossFindingsCache(t *testing.T) {
 	}
 
 	fresh := count("--no-cache")
+	// A cold --no-cache run writes none of the caches it skips.
+	for _, name := range []string{"cross-findings-cache", "cross-file-cache", "filewalk-cache", "resource-cache", "findings-bundle-cache"} {
+		if _, err := os.Stat(filepath.Join(dir, ".krit", name)); !os.IsNotExist(err) {
+			t.Errorf("cold --no-cache run created .krit/%s (stat err %v)", name, err)
+		}
+	}
 	count() // fills .krit/cross-findings-cache
 	slot := crossFindingsSlot(t, dir)
 	// A finding no rule reports: --no-cache must never print it.

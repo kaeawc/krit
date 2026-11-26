@@ -111,6 +111,7 @@ func resolveDepthForDelegation(f *scanFlags, fs *flag.FlagSet, args []string) {
 	cfg, _ := config.LoadAndMergeDefaultsWith(detektLoadOptions(f), cfgPath, args...)
 	applyDetektBaseline(f, cfg)
 	applyDepthPreset(resolveDepthPreset(*f.Depth, cfg, io.Discard), f, fs)
+	applyNoCache(f)
 }
 
 // DaemonServedPerfMarker is printed to stderr under -perf when a krit daemon

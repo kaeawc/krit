@@ -51,6 +51,12 @@ func (r *EnsureInitializerMetadataRule) Meta() api.RuleDescriptor {
 
 // axlStartupClasses returns the project's Initializer classes in Lint's report order.
 func axlStartupClasses(ctx *api.Context) []*workClass {
+	_, classes := axlStartupProject(ctx)
+	return classes
+}
+
+// axlStartupProject returns the project's class index and its Initializer classes in Lint's report order.
+func axlStartupProject(ctx *api.Context) (*workProject, []*workClass) {
 	files := workProjectFiles(ctx)
 	mentions := false
 	for _, f := range files {
@@ -60,7 +66,7 @@ func axlStartupClasses(ctx *api.Context) []*workClass {
 		}
 	}
 	if !mentions {
-		return nil
+		return nil, nil
 	}
 	p := buildWorkProject(files)
 	var out []*workClass
@@ -69,7 +75,7 @@ func axlStartupClasses(ctx *api.Context) []*workClass {
 			out = append(out, c)
 		}
 	}
-	return out
+	return p, out
 }
 
 // check mirrors InitializerConstructorDetector: a non-interface Initializer with constructors, none of them without
@@ -146,7 +152,7 @@ func axlClassHasNoArgConstructor(file *scanner.File, cls uint32) bool {
 			return true
 		}
 		// @JvmOverloads with every parameter defaulted compiles to a no-argument overload too.
-		if acrFunctionHasModifier(file, ctor, "JvmOverloads") || strings.Contains(file.FlatNodeText(ctor), "@JvmOverloads") {
+		if hasAnnotationNamed(file, ctor, "JvmOverloads") {
 			allDefault := true
 			for _, p := range ps {
 				if next := file.FlatNextSib(p); next == 0 || file.FlatType(next) != "=" {
@@ -166,7 +172,7 @@ func axlClassHasNoArgConstructor(file *scanner.File, cls uint32) bool {
 // check mirrors EnsureInitializerMetadataDetector: every non-interface Initializer must be named by a manifest
 // <meta-data android:value="androidx.startup"> entry or by a class literal in some Initializer's dependencies().
 func (r *EnsureInitializerMetadataRule) check(ctx *api.Context) {
-	classes := axlStartupClasses(ctx)
+	project, classes := axlStartupProject(ctx)
 	if len(classes) == 0 {
 		return
 	}
@@ -179,7 +185,7 @@ func (r *EnsureInitializerMetadataRule) check(ctx *api.Context) {
 		axlStartupMetadataNames(m, reachable)
 	}
 	for _, c := range classes {
-		axlDependencyLiterals(c, reachable)
+		axlDependencyLiterals(project, c, reachable)
 	}
 	for _, c := range classes {
 		if c.iface || reachable[c.fqn] {
@@ -202,11 +208,14 @@ func axlStartupMetadataNames(m *manifest.Manifest, out map[string]bool) {
 	}
 }
 
-// axlDependencyLiterals adds the classes named by class literals (`X::class.java`, `X.class`) in the class's own
-// dependencies() method.
-func axlDependencyLiterals(c *workClass, out map[string]bool) {
+// axlDependencyLiterals adds the project class named by each class literal (`X::class.java`, `X.class`) in the
+// class's own no-argument dependencies() method (a Java interface's default one included).
+func axlDependencyLiterals(p *workProject, c *workClass, out map[string]bool) {
 	file := c.file
 	body, ok := file.FlatFindChild(c.idx, "class_body")
+	if !ok {
+		body, ok = file.FlatFindChild(c.idx, "interface_body")
+	}
 	if !ok {
 		return
 	}
@@ -221,7 +230,7 @@ func axlDependencyLiterals(c *workClass, out map[string]bool) {
 		default:
 			continue
 		}
-		if name != "dependencies" {
+		if name != "dependencies" || !axlHasNoParameters(file, child) {
 			continue
 		}
 		file.FlatWalkAllNodes(child, func(n uint32) {
@@ -245,9 +254,43 @@ func axlDependencyLiterals(c *workClass, out map[string]bool) {
 			if typeText == "" {
 				return
 			}
-			for _, fqn := range workResolveTypeRef(file, pkg, typeText) {
+			if fqn := axlResolveProjectClass(p, c, file, pkg, typeText); fqn != "" {
 				out[fqn] = true
 			}
 		})
 	}
+}
+
+// axlHasNoParameters reports whether a Kotlin function or Java method declares no parameters.
+func axlHasNoParameters(file *scanner.File, fn uint32) bool {
+	if params, ok := file.FlatFindChild(fn, "function_value_parameters"); ok {
+		return len(flatDirectChildrenOfType(file, params, "parameter")) == 0
+	}
+	if params, ok := file.FlatFindChild(fn, "formal_parameters"); ok {
+		return len(flatDirectChildrenOfType(file, params, "formal_parameter"))+
+			len(flatDirectChildrenOfType(file, params, "spread_parameter")) == 0
+	}
+	return true
+}
+
+// axlResolveProjectClass resolves a class literal written inside class c to the one project class it names, or "":
+// a type nested in c or an enclosing class first, then the file's imports, package and on-demand imports, in the
+// order workResolveTypeRef lists them (Java prefers a same-package class to an on-demand import).
+func axlResolveProjectClass(p *workProject, c *workClass, file *scanner.File, pkg, text string) string {
+	var candidates []string
+	for owner := c.fqn; len(owner) > len(pkg); {
+		candidates = append(candidates, owner+"."+text)
+		i := strings.LastIndexByte(owner, '.')
+		if i < 0 {
+			break
+		}
+		owner = owner[:i]
+	}
+	candidates = append(candidates, workResolveTypeRef(file, pkg, text)...)
+	for _, fqn := range candidates {
+		if p.byFQN[fqn] != nil {
+			return fqn
+		}
+	}
+	return ""
 }

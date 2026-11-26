@@ -97,3 +97,34 @@ fun body() {
 		t.Fatalf("expected 1 finding (the Any? argument), got %d: %v", len(findings), findings)
 	}
 }
+
+// #1751 review: implicit receivers and inherited members win over the
+// same-file function Kotlin would otherwise call, so the rule abstains under
+// extension receivers, receiver lambdas and classes with supertypes, and when
+// the innermost candidate cannot take the arguments.
+func TestAutoboxingStateCreationAbstainsWhenReceiversCanShadowTheCallee(t *testing.T) {
+	findings := runRuleByName(t, "AutoboxingStateCreation", `package s
+
+import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.mutableStateOf
+
+fun use(x: Any?) {}
+fun take(x: MutableState<Any>) {}
+
+class Scope { fun use(x: MutableState<Any>) {} }
+open class Base { fun use(x: MutableState<Any>) {} }
+
+fun Scope.f() { use(mutableStateOf(1)) }
+fun g(scope: Scope) { with(scope) { use(mutableStateOf(2)) } }
+fun h(scope: Scope) { scope.apply { use(mutableStateOf(3)) } }
+class Child : Base() { fun k() { use(mutableStateOf(4)) } }
+fun outer() {
+    fun take(a: Any?, b: Int) {}
+    take(mutableStateOf(5))
+}
+fun plain() { use(mutableStateOf(6)) }
+`)
+	if len(findings) != 1 || findings[0].Line != 20 {
+		t.Fatalf("expected only the plain top-level call on line 20, got %v", findings)
+	}
+}

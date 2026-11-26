@@ -332,7 +332,7 @@ func acrStateTypeOf(file *scanner.File, call uint32) acrStateTypeEvidence {
 // (or `R.() -> T`), so the lambda's last expression is the call's value, as with remember { } (#1612).
 func acrGenericLambdaHelper(file *scanner.File, arg acrLambdaArgument, name string) bool {
 	fn := acrSameFileCallee(file, arg.Call, name)
-	if fn == 0 {
+	if fn == 0 || !acrCallArityFits(file, fn, arg.Call) {
 		return false
 	}
 	typeParam := acrReturnTypeParameter(file, fn)
@@ -364,7 +364,7 @@ func acrArgumentStateType(file *scanner.File, call uint32) acrStateTypeEvidence 
 		return acrStateTypeEvidence{}
 	}
 	fn := acrSameFileCallee(file, arg.Call, name)
-	if fn == 0 {
+	if fn == 0 || !acrCallArityFits(file, fn, arg.Call) {
 		return acrStateTypeEvidence{}
 	}
 	param := acrParameterForArgument(file, fn, arg)
@@ -401,6 +401,9 @@ func acrSameFileCallee(file *scanner.File, call uint32, name string) uint32 {
 			return 0
 		}
 	}
+	if acrImplicitReceiverMayShadow(file, call) {
+		return 0
+	}
 	var best uint32
 	bestDepth, count := -1, 0
 	for _, decl := range acrFunctionDecls(file, name) {
@@ -423,6 +426,108 @@ func acrSameFileCallee(file *scanner.File, call uint32, name string) uint32 {
 		return 0
 	}
 	return best
+}
+
+// acrImplicitReceiverMayShadow reports whether call sits where an implicit receiver's members, which Kotlin
+// resolves before outer and top-level functions, may declare the callee: inside an extension function, a lambda of
+// with/apply/run or of a same-file function taking a receiver function type, or a class or object with supertypes
+// whose inherited members are unknown here (#1751 review).
+func acrImplicitReceiverMayShadow(file *scanner.File, call uint32) bool {
+	for p, ok := file.FlatParent(call); ok; p, ok = file.FlatParent(p) {
+		switch file.FlatType(p) {
+		case "function_declaration":
+			if flatFunctionReceiverTypeName(file, p) != "" {
+				return true
+			}
+		case "class_declaration", "object_declaration", "companion_object", "object_literal":
+			if _, ok := file.FlatFindChild(p, "delegation_specifier"); ok {
+				return true
+			}
+			if specs, ok := file.FlatFindChild(p, "delegation_specifiers"); ok && specs != 0 {
+				return true
+			}
+		case "lambda_literal":
+			if acrReceiverLambda(file, p) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// acrReceiverLambda reports a lambda whose body has an implicit receiver: the block of with, apply or run, or a
+// lambda passed to a same-file function parameter of a receiver function type (`T.() -> R`).
+func acrReceiverLambda(file *scanner.File, lambda uint32) bool {
+	arg, ok := acrLambdaArgumentOf(file, lambda)
+	if !ok {
+		return false
+	}
+	name, _, _ := acrCallCallee(file, arg.Call)
+	switch name {
+	case "with", "apply", "run":
+		return true
+	}
+	fn := acrSameFileFunction(file, name)
+	if fn == 0 {
+		return false
+	}
+	param := acrParameterForArgument(file, fn, arg)
+	if param == 0 {
+		return false
+	}
+	typ := acrDeclaredType(file, param)
+	return typ != 0 && file.FlatType(typ) == "function_type" && strings.Contains(file.FlatNodeText(typ), ".(")
+}
+
+// acrCallArityFits reports whether fn's value parameters can take the call's arguments.
+func acrCallArityFits(file *scanner.File, fn, call uint32) bool {
+	params := acrFunctionParameters(file, fn)
+	required, vararg := 0, false
+	for _, p := range params {
+		switch {
+		case acrParameterHasModifier(file, p, "vararg"):
+			vararg = true
+		case !acrParameterHasDefault(file, p):
+			required++
+		}
+	}
+	args := acrCallArgumentCount(file, call)
+	return args >= required && (vararg || args <= len(params))
+}
+
+// acrParameterHasDefault reports whether a function parameter is followed by `= default`.
+func acrParameterHasDefault(file *scanner.File, param uint32) bool {
+	for next := file.FlatNextSib(param); next != 0; next = file.FlatNextSib(next) {
+		switch file.FlatType(next) {
+		case ",", ")":
+			return false
+		case "=":
+			return true
+		}
+	}
+	return false
+}
+
+// acrCallArgumentCount counts a call's value arguments, including a trailing lambda.
+func acrCallArgumentCount(file *scanner.File, call uint32) int {
+	n := 0
+	file.FlatWalkNodes(call, "value_argument", func(arg uint32) {
+		if parent, ok := file.FlatParent(arg); ok {
+			if suffix, ok := file.FlatParent(parent); ok {
+				if owner, ok := file.FlatParent(suffix); ok && (owner == call || file.FlatFirstChild(call) == owner) {
+					n++
+				}
+			}
+		}
+	})
+	file.FlatWalkNodes(call, "annotated_lambda", func(l uint32) {
+		if suffix, ok := file.FlatParent(l); ok {
+			if owner, ok := file.FlatParent(suffix); ok && owner == call {
+				n++
+			}
+		}
+	})
+	return n
 }
 
 // acrAncestorDepth returns the depth of container below the file root when it is node's ancestor (or the

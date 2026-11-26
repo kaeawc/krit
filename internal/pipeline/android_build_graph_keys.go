@@ -91,10 +91,21 @@ func projectBuildGraphs(project *android.Project) []buildGraphLayout {
 	}
 	var finder module.BuildRootFinder
 	roots := map[string]bool{}
+	memo := hashutil.Default()
 	for _, manifest := range project.ManifestPaths {
 		// The manifest content is in every key this feeds, so skipping a manifest no rule discovers a graph for is
-		// safe: editing it in moves the key anyway. An unreadable manifest is searched.
-		if content, err := os.ReadFile(manifest); err == nil && !rules.ManifestNeedsModuleGraph(content) {
+		// safe: editing it in moves the key anyway. An unreadable manifest is searched. Reading it through the memo
+		// leaves its hash there for the manifest fingerprints, so it is read once.
+		var content []byte
+		_, err := memo.HashFile(manifest, func() ([]byte, error) {
+			b, err := os.ReadFile(manifest)
+			content = b
+			return b, err
+		})
+		if err == nil && content == nil {
+			content, err = os.ReadFile(manifest)
+		}
+		if err == nil && !rules.ManifestNeedsModuleGraph(content) {
 			continue
 		}
 		if root := finder.Find(filepath.Dir(manifest)); root != "" {

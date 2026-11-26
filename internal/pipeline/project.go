@@ -3197,6 +3197,10 @@ func xmlInputsFingerprint(host ProjectHostState, project *android.Project, kotli
 	if len(xmlFiles) == 0 && len(manifests) == 0 && len(resDirs) == 0 {
 		return ""
 	}
+	if readsGraph && project != nil {
+		// Reads each manifest once for both its hash and the module-graph check below.
+		projectBuildGraphs(project)
+	}
 	h := hashutil.Hasher().New()
 	for _, f := range xmlFiles {
 		if f == nil {

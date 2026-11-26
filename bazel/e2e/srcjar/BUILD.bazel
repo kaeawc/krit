@@ -1,0 +1,21 @@
+load("@rules_kotlin//kotlin:jvm.bzl", "kt_jvm_library")
+
+# A generated srcjar in srcs, as a Wire or other codegen genrule writes one.
+genrule(
+    name = "gen_srcjar",
+    srcs = ["Gen.kt.in"],
+    outs = ["gen.srcjar"],
+    cmd = "$(location @bazel_tools//tools/zip:zipper) c $@ g/Gen.kt=$<",
+    tools = ["@bazel_tools//tools/zip:zipper"],
+)
+
+# Its own file is in a Gradle-style src/main/kotlin and uses the generated
+# class; krit_aspect compiles it against the srcjar's sources (#1688), so
+# UnnecessarySafeCall's FIR-only finding is reported, not gated.
+kt_jvm_library(
+    name = "srcjar",
+    srcs = [
+        "src/main/kotlin/d/UsesGen.kt",
+        ":gen_srcjar",
+    ],
+)

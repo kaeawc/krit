@@ -443,6 +443,11 @@ All notable changes to Krit will be documented in this file.
   `MODULE.bazel`/`WORKSPACE`, looking no higher than a repository root (`.git`) or a Bazel execution root. A file in no
   build has no module graph and walks no directory tree, and `--only-scope file` scans of a file skip discovery unless
   the type oracle or custom rule jars read the graph (#1548, #1669, #1704).
+- Bazel targets with a generated srcjar in `srcs` (Wire, KSP) are no longer degraded under `krit_aspect`: krit-fir
+  excluded the target's own files in a Gradle-style `src/main/kotlin` as "not part of the JVM compilation" whenever the
+  session had any source root, and an unpacked srcjar was a Bazel target's only one. That check now applies only when
+  a root is itself a source-set root, so the files compile against the srcjar's sources and get FIR verdicts (#1688,
+  #1632).
 - Source-only scans of large Android projects are fast again: `ProviderReadPermissionOnly`,
   `UnsafeImplicitIntentLaunch` and `UnsafeIntentLaunch` index project classes once per run instead of rebuilding the
   index on every superclass query, and run concurrently. On a 300-module synthetic project the manifest-source phase

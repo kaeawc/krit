@@ -109,6 +109,23 @@ class AnalysisSessionCheckGatingTest {
         assertEquals(listOf(file), result.findings.map { it.path })
     }
 
+    // A Bazel target lists its files; its only root is a generated one (an
+    // unpacked srcjar). Its own files in a Gradle-style src/main/kotlin are
+    // still compiled, against the generated sources (#1688).
+    @Test fun generatedRootsAloneDoNotExcludeSourceSetLayoutFiles() {
+        val generated = write("srcjars/abc123/g/Gen.kt", "package g\n\nclass Gen(val name: String)\n")
+        val own = write(
+            "data/src/main/kotlin/d/A.kt",
+            "package d\n\nimport g.Gen\n\nfun protocolProbe() {}\nfun use(x: Gen): Int { protocolProbe(); return x.name.length }\n",
+        )
+        val result = AnalysisSession(listOf(File(generated).parentFile.parent), listOf(stdlib))
+            .check(1, listOf(FileRef(own)), setOf("ProtocolProbe"))
+
+        assertTrue(result.errorFiles.isEmpty(), result.toString())
+        assertTrue(result.crashed.isEmpty(), result.crashed.toString())
+        assertEquals(listOf(own), result.findings.filter { it.rule == "ProtocolProbe" }.map { it.path }, result.toString())
+    }
+
     private fun write(relative: String, text: String): String {
         val file = tmp.resolve(relative).toFile()
         file.parentFile.mkdirs()

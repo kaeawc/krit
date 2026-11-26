@@ -922,19 +922,25 @@ class AnalysisSession(
      * the roots of JVM-compilable source sets, so such a file belongs to a
      * dropped target (jsMain, iosMain, ...) and compiling it on the JVM would
      * produce a verdict for code the JVM never compiles. Paths outside that
-     * layout, and every path when no source roots were sent, are compiled.
+     * layout are compiled, and so is every path when none of the sent roots
+     * is a source-set root: a Bazel target lists its files rather than its
+     * directories, and its only roots are generated ones such as unpacked
+     * srcjars, so they say nothing about which source sets the JVM compiles.
      */
     internal fun excludedFromJvmCompilation(path: String): Boolean {
-        if (sourceDirs.isEmpty()) return false
+        if (!hasSourceSetRoot) return false
         var dir = File(path).absoluteFile.normalize().parentFile
         while (dir != null) {
-            if ((dir.name == "kotlin" || dir.name == "java") && dir.parentFile?.parentFile?.name == "src") {
-                return canonicalOrSelf(dir) !in canonicalSourceDirs
-            }
+            if (isSourceSetRoot(dir)) return canonicalOrSelf(dir) !in canonicalSourceDirs
             dir = dir.parentFile
         }
         return false
     }
+
+    private fun isSourceSetRoot(dir: File): Boolean =
+        (dir.name == "kotlin" || dir.name == "java") && dir.parentFile?.parentFile?.name == "src"
+
+    private val hasSourceSetRoot: Boolean by lazy { sourceDirs.any { isSourceSetRoot(File(it).absoluteFile.normalize()) } }
 
     // Kotlin scripts (build.gradle.kts, ...) compile against script
     // definitions the module compilation does not have; like the oracle,

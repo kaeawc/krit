@@ -15,8 +15,9 @@ All notable changes to Krit will be documented in this file.
 - `MissingOnRenderProcessGone`, `CrossOriginIsolatedAllowlist` (`androidx.webkit` 1.18.0) and
   `DontUseAccessibilityNodeInfoGetText` (`androidx.test.uiautomator` 2.4.1), under their Lint IDs, checked against
   the Lint CLI running those releases' `lint.jar` (`internal/rules/testdata/androidx_webkit/`,
-  `androidx_uiautomator/`). `DontUseAccessibilityNodeInfoGetText` also matches the released `onElement*` names, which
-  the shipped detector no longer recognizes (#1505, #1506, #1507).
+  `androidx_uiautomator/`). As in Lint, each runs only when the project declares the artifact that ships it.
+  `DontUseAccessibilityNodeInfoGetText` also matches the released `onElement*` names, which the shipped detector no
+  longer recognizes (#1505, #1506, #1507).
 - Gradle plugin: `kritCheck` with custom rule jars writes every enabled report from one krit run (one
   `--report FORMAT=PATH` each), like every other scan, instead of analyzing once per report (#1634).
 - `DoNotMockAnything`, `DoNotMockPlatformTypes`, `DoNotMockDataClass` and `DoNotMockObjectClass`, slack-lints 0.11.1's

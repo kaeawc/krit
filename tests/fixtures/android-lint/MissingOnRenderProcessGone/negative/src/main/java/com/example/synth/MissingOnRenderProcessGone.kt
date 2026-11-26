@@ -1,4 +1,4 @@
-package fixtures.androidlint
+package com.example.synth
 
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebView
@@ -9,3 +9,6 @@ class BrowserClient : WebViewClient() {
 }
 
 abstract class BaseClient : WebViewClient()
+
+// A sealed class is abstract, which Lint skips.
+sealed class SealedClient : WebViewClient()

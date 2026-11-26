@@ -1,4 +1,4 @@
-package fixtures.androidlint
+package com.example.synth
 
 class Settings {
     fun setCrossOriginIsolatedAllowlist(origins: Set<String>) = Unit

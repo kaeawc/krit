@@ -1,4 +1,4 @@
-package fixtures.androidlint
+package com.example.synth
 
 import androidx.webkit.Profile
 

@@ -50,14 +50,18 @@ func (r *DontUseAccessibilityNodeInfoGetTextRule) fileMentions() []string {
 func (r *MissingOnRenderProcessGoneRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{ID: "MissingOnRenderProcessGone", RuleSet: "android-lint", DefaultActive: true,
 		KnownLimitations: []string{
-			"An onRenderProcessGone inherited from a project superclass is found through same-file classes and the " +
-				"type resolver's class index; when a superclass cannot be resolved the class is not reported.",
+			"As in Lint, whose check ships in the androidx.webkit:webkit AAR, it runs only when the project declares " +
+				"that dependency.",
+			"An onRenderProcessGone inherited from a project superclass is found through same-file classes only; a " +
+				"class whose superclass is declared in another file is not reported.",
 		}}
 }
 
 func (r *CrossOriginIsolatedAllowlistRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{ID: "CrossOriginIsolatedAllowlist", RuleSet: "android-lint", DefaultActive: true,
 		KnownLimitations: []string{
+			"As in Lint, whose check ships in the androidx.webkit:webkit AAR, it runs only when the project declares " +
+				"that dependency.",
 			"The receiver must be proven to be an androidx.webkit.Profile by its declaration, a with(profile) block, " +
 				"or a ProfileStore getOrCreateProfile/getProfile call.",
 		}}
@@ -66,6 +70,8 @@ func (r *CrossOriginIsolatedAllowlistRule) Meta() api.RuleDescriptor {
 func (r *DontUseAccessibilityNodeInfoGetTextRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{ID: "DontUseAccessibilityNodeInfoGetText", RuleSet: "android-lint", DefaultActive: true,
 		KnownLimitations: []string{
+			"As in Lint, whose check ships in the androidx.test.uiautomator:uiautomator AAR, it runs only when the " +
+				"project declares that dependency.",
 			"The detector matches onView, onViews and onViewOrNull, which the released uiautomator 2.4 API renamed " +
 				"to onElement, onElements and onElementOrNull; krit checks both sets of names, so it also reports what " +
 				"the shipped detector no longer can.",
@@ -163,22 +169,34 @@ func axlJavaNewNamesWebViewClient(file *scanner.File, node uint32) bool {
 	return false
 }
 
-// axlClassIsAbstractOrNotClass reports interfaces, enums, annotation classes and abstract classes, which the
-// detector skips.
+// axlClassIsAbstractOrNotClass reports interfaces, enums, annotation classes and abstract or sealed classes (sealed
+// classes are abstract in UAST), which the detector skips.
 func axlClassIsAbstractOrNotClass(file *scanner.File, cls uint32) bool {
 	if file.Language == scanner.LangJava {
 		mods, _ := file.FlatFindChild(cls, "modifiers")
-		return mods != 0 && strings.Contains(" "+file.FlatNodeText(mods)+" ", " abstract ")
+		if mods == 0 {
+			return false
+		}
+		for _, mod := range strings.Fields(file.FlatNodeText(mods)) {
+			if mod == "abstract" || mod == "sealed" {
+				return true
+			}
+		}
+		return false
 	}
 	for child := file.FlatFirstChild(cls); child != 0; child = file.FlatNextSib(child) {
 		switch file.FlatType(child) {
 		case "interface", "enum":
 			return true
 		case "type_identifier", "simple_identifier":
-			return acrFunctionHasModifier(file, cls, "abstract") || acrFunctionHasModifier(file, cls, "annotation")
+			return axlClassIsAbstractOrSealed(file, cls) || acrFunctionHasModifier(file, cls, "annotation")
 		}
 	}
-	return acrFunctionHasModifier(file, cls, "abstract")
+	return axlClassIsAbstractOrSealed(file, cls)
+}
+
+func axlClassIsAbstractOrSealed(file *scanner.File, cls uint32) bool {
+	return acrFunctionHasModifier(file, cls, "abstract") || acrFunctionHasModifier(file, cls, "sealed")
 }
 
 // axlDeclaredFQN returns the package-qualified name of a top-level class declaration.
@@ -204,8 +222,9 @@ func axlExtendsWebViewClient(ctx *api.Context, cls uint32) bool {
 }
 
 // axlHandlesRenderProcessGone reports whether the class declares a two-parameter onRenderProcessGone, or inherits one
-// from a superclass other than WebViewClient/WebViewClientCompat. An unresolvable superclass counts as handling it,
-// so the rule abstains.
+// from a same-file superclass other than WebViewClient/WebViewClientCompat. A superclass declared in another file
+// counts as handling it, so the rule abstains: reading it would make the verdict depend on another file's contents,
+// which the per-file findings cache does not key on (#1778).
 func axlHandlesRenderProcessGone(ctx *api.Context, cls uint32, depth int) bool {
 	file := ctx.File
 	if body := axlClassBody(file, cls); body != 0 && axlBodyHandlesRenderProcessGone(file, body) {
@@ -214,62 +233,21 @@ func axlHandlesRenderProcessGone(ctx *api.Context, cls uint32, depth int) bool {
 	if depth > 6 {
 		return true
 	}
-	for _, ref := range lintDirectSupertypeRefs(file, cls) {
+	refs := lintDirectSupertypeRefs(file, cls)
+	for _, ref := range refs {
 		if _, known := axlWebViewClientKnown[ref.simple]; known {
-			continue
+			// WebViewClient is the superclass, so the other supertypes are interfaces, which cannot override it.
+			return false
 		}
+	}
+	for _, ref := range refs {
 		if local := lintSameFileClass(file, ref.simple); local != 0 && !ref.qualified {
 			if axlHandlesRenderProcessGone(ctx, local, depth+1) {
 				return true
 			}
 			continue
 		}
-		if !axlResolvedSupertypeHandles(ctx, ref.name, depth) {
-			continue
-		}
 		return true
-	}
-	return false
-}
-
-// axlResolvedSupertypeHandles looks a non-local supertype up in the resolver's class index: it handles
-// onRenderProcessGone when it or one of its project superclasses declares it. Without a resolver, or when the class
-// is not indexed, it reports true so the rule abstains.
-func axlResolvedSupertypeHandles(ctx *api.Context, name string, depth int) bool {
-	if ctx.Resolver == nil {
-		return true
-	}
-	full := name
-	if !strings.Contains(name, ".") {
-		if target, ok := fileFactsCache().Imports(ctx.File).Aliases[name]; ok {
-			full = target
-		} else if pkg := filePackageName(ctx.File); pkg != "" {
-			full = pkg + "." + name
-		}
-	}
-	for seen := 0; full != "" && seen < 8-depth; seen++ {
-		if axlWebViewClientClasses[full] != "" {
-			return false
-		}
-		info := ctx.Resolver.ClassHierarchy(full)
-		if info == nil {
-			return true
-		}
-		for _, m := range info.Members {
-			if m.Name == "onRenderProcessGone" && m.Kind == "function" && (m.Params == nil || len(m.Params) == 2) {
-				return true
-			}
-		}
-		next := ""
-		for _, s := range info.Supertypes {
-			if axlWebViewClientClasses[s] != "" {
-				return false
-			}
-			if c := ctx.Resolver.ClassHierarchy(s); c != nil && c.Kind != "interface" {
-				next = s
-			}
-		}
-		full = next
 	}
 	return false
 }
@@ -410,9 +388,6 @@ var axlNodePredicateFunctions = map[string]bool{
 // AccessibilityNodeInfo, at `text`.
 func (r *DontUseAccessibilityNodeInfoGetTextRule) check(ctx *api.Context) {
 	file, lambda := ctx.File, ctx.Idx
-	if scanner.IsTestFile(file.Path) {
-		return
-	}
 	arg, ok := acrLambdaArgumentOf(file, lambda)
 	if !ok || !arg.Trailing {
 		return
@@ -440,6 +415,10 @@ func axlNodeTextAccess(file *scanner.File, lambda, n uint32) bool {
 	switch file.FlatType(parent) {
 	case "variable_declaration", "parameter", "class_parameter":
 		return false // a declared name, not a read
+	case "value_argument":
+		if file.FlatFirstChild(parent) == n && file.FlatType(file.FlatNextSib(n)) == "=" {
+			return false // the label of a named argument, matches(text = "...")
+		}
 	case "navigation_suffix":
 		nav, ok := file.FlatParent(parent)
 		if !ok || axlIsCallee(file, nav) {

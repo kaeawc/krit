@@ -1907,7 +1907,7 @@
           }
         },
         "CrossOriginIsolatedAllowlist": {
-          "description": "Detects Profile.setCrossOriginIsolatedAllowlist, which enables cross-origin isolated APIs for the listed origins. [precision: ast-backed] [noisiness: normal]\nCaveat: The receiver must be proven to be an androidx.webkit.Profile by its declaration, a with(profile) block, or a ProfileStore getOrCreateProfile/getProfile call.",
+          "description": "Detects Profile.setCrossOriginIsolatedAllowlist, which enables cross-origin isolated APIs for the listed origins. [precision: ast-backed] [noisiness: normal]\nCaveat: As in Lint, whose check ships in the androidx.webkit:webkit AAR, it runs only when the project declares that dependency.\nCaveat: The receiver must be proven to be an androidx.webkit.Profile by its declaration, a with(profile) block, or a ProfileStore getOrCreateProfile/getProfile call.",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -2633,7 +2633,7 @@
           }
         },
         "DontUseAccessibilityNodeInfoGetText": {
-          "description": "Detects AccessibilityNodeInfo.text in UiAutomator element predicates, where the CharSequence never equals a String. [precision: ast-backed] [noisiness: normal]\nCaveat: The detector matches onView, onViews and onViewOrNull, which the released uiautomator 2.4 API renamed to onElement, onElements and onElementOrNull; krit checks both sets of names, so it also reports what the shipped detector no longer can.\nCaveat: As in Lint (JAVA_FILE scope), test sources are not checked.",
+          "description": "Detects AccessibilityNodeInfo.text in UiAutomator element predicates, where the CharSequence never equals a String. [precision: ast-backed] [noisiness: normal]\nCaveat: As in Lint, whose check ships in the androidx.test.uiautomator:uiautomator AAR, it runs only when the project declares that dependency.\nCaveat: The detector matches onView, onViews and onViewOrNull, which the released uiautomator 2.4 API renamed to onElement, onElements and onElementOrNull; krit checks both sets of names, so it also reports what the shipped detector no longer can.\nCaveat: As in Lint (JAVA_FILE scope), test sources are not checked.",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -7532,7 +7532,7 @@
           }
         },
         "MissingOnRenderProcessGone": {
-          "description": "Detects WebViewClients that do not implement onRenderProcessGone, so a render-process crash takes the app down. [precision: ast-backed] [noisiness: normal]\nCaveat: An onRenderProcessGone inherited from a project superclass is found through same-file classes and the type resolver's class index; when a superclass cannot be resolved the class is not reported.",
+          "description": "Detects WebViewClients that do not implement onRenderProcessGone, so a render-process crash takes the app down. [precision: ast-backed] [noisiness: normal]\nCaveat: As in Lint, whose check ships in the androidx.webkit:webkit AAR, it runs only when the project declares that dependency.\nCaveat: An onRenderProcessGone inherited from a project superclass is found through same-file classes only; a class whose superclass is declared in another file is not reported.",
           "type": "object",
           "additionalProperties": false,
           "properties": {

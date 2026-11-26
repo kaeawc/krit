@@ -40,3 +40,9 @@ fun direct(view: WebView) {
 }
 
 class NotAClient
+
+sealed class SealedClient : WebViewClient()
+
+class WithInterface : WebViewClient(), Runnable {
+    override fun run() = Unit
+}

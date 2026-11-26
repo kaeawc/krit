@@ -1,0 +1,13 @@
+<androidx.coordinatorlayout.widget.CoordinatorLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/list"
+        tools:ignore="RelativeClassResolution"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        app:layoutManager=".ui.GridManager"
+        app:layout_behavior=".ui.ScrollBehavior" />
+</androidx.coordinatorlayout.widget.CoordinatorLayout>

@@ -11,6 +11,11 @@
 # checks that need a library on the classpath see it. Compile tasks are skipped: Lint reads sources through UAST and
 # fixtures need not compile.
 #
+# A case whose resources AGP 9.4.1 cannot compile (an unescaped apostrophe, for one) never reaches lintDebug. Such a
+# case holds lint-standalone.txt saying why, and the script runs Lint 32.4.1's own CLI (com.android.tools.lint.Main,
+# resolved from Maven) on the case's src/main laid out as a non-Gradle project instead. No dependencies are on the
+# classpath there, so use it only for resource checks.
+#
 # Needs JAVA_HOME (JDK 17+), ANDROID_HOME (an SDK with platforms;android-36), and GRADLE (a Gradle 9 launcher;
 # default `gradle`). KRIT_LINT_PARITY_WORK sets the scratch project directory (default ~/.cache/krit-lint-parity).
 set -euo pipefail
@@ -24,6 +29,60 @@ gradle=${GRADLE:-gradle}
 work=${KRIT_LINT_PARITY_WORK:-$HOME/.cache/krit-lint-parity}
 
 mkdir -p "$work"
+
+# print_findings <lint-xml> <root> <prefix-map>: sorted `path:line:column: ID: message` lines. With prefix-map
+# "standalone", paths of the flattened project map back to the module layout (res/ -> src/main/res/, src/ ->
+# src/main/java/, AndroidManifest.xml -> src/main/AndroidManifest.xml).
+print_findings() {
+	python3 -I - "$1" "$2" "$3" <<'PY'
+import os, sys, xml.etree.ElementTree as ET
+report, root, mode = sys.argv[1:4]
+out = []
+for issue in ET.parse(report).getroot().iter("issue"):
+    loc = issue.find("location")
+    if loc is None:
+        continue
+    path = loc.get("file")
+    path = os.path.relpath(path, root) if os.path.isabs(path) else path
+    if mode == "standalone":
+        path = "src/main/java/" + path[len("src/"):] if path.startswith("src/") else "src/main/" + path
+    out.append(f"{path}:{loc.get('line', '0')}:{loc.get('column', '0')}: {issue.get('id')}: {issue.get('message')}")
+for line in sorted(out):
+    print(line)
+PY
+}
+
+if [ -f "$case_dir/lint-standalone.txt" ]; then
+	cli="$work/standalone-cli"
+	project="$work/standalone-project"
+	rm -rf "$project"
+	mkdir -p "$cli" "$project"
+	printf '%s\n' 'dependencyResolutionManagement { repositories { google(); mavenCentral() } }' \
+		'rootProject.name = "lint-standalone"' > "$cli/settings.gradle.kts"
+	printf '%s\n' 'plugins { java }' 'dependencies { runtimeOnly("com.android.tools.lint:lint:32.4.1") }' \
+		'tasks.register<JavaExec>("lint") {' \
+		'    classpath = sourceSets["main"].runtimeClasspath' \
+		'    mainClass.set("com.android.tools.lint.Main")' \
+		'    args = (project.property("lintArgs") as String).split("|")' \
+		'    isIgnoreExitValue = true' '}' > "$cli/build.gradle.kts"
+	main="$case_dir/src/main"
+	namespace=$(sed -n 's/^ *namespace *= *"\([^"]*\)".*/\1/p' "$case_dir/build.gradle.kts" | head -1)
+	if [ -f "$main/AndroidManifest.xml" ]; then
+		sed "s|<manifest |<manifest package=\"$namespace\" |" "$main/AndroidManifest.xml" > "$project/AndroidManifest.xml"
+	fi
+	if [ -d "$main/res" ]; then cp -r "$main/res" "$project/res"; fi
+	if [ -d "$main/java" ]; then cp -r "$main/java" "$project/src"; fi
+	if ! (cd "$cli" && "$gradle" -q --console=plain lint \
+		"-PlintArgs=--check|$checks|--sdk-home|$ANDROID_HOME|--xml|$project/lint-out.xml|--disable|LintError|$project" \
+		>"$work/gradle.log" 2>&1); then
+		tail -30 "$work/gradle.log" >&2
+		exit 1
+	fi
+	print_findings "$project/lint-out.xml" "$project" standalone > "$case_dir/lint-32.4.1.txt"
+	cat "$case_dir/lint-32.4.1.txt"
+	exit 0
+fi
+
 rm -rf "$work/app"
 cat > "$work/settings.gradle.kts" <<'EOF'
 pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }
@@ -40,7 +99,7 @@ printf 'android.useAndroidX=true\norg.gradle.jvmargs=-Xmx3g\n' > "$work/gradle.p
 printf 'sdk.dir=%s\n' "$ANDROID_HOME" > "$work/local.properties"
 
 cp -r "$case_dir" "$work/app"
-rm -f "$work/app"/lint-*.txt "$work/app"/divergences.txt "$work/app"/severity.txt
+rm -f "$work/app"/lint-*.txt "$work/app"/divergences.txt "$work/app"/severity.txt "$work/app"/lint-standalone.txt
 cat >> "$work/app/build.gradle.kts" <<EOF
 
 android {
@@ -65,22 +124,11 @@ open(path, 'w').write(text)
 PY
 done
 
+# Library modules order some tasks after compilation, so retry with compilation when skipping it fails.
 if ! (cd "$work" && "$gradle" -q --console=plain :app:lintDebug -x compileDebugKotlin -x compileDebugJavaWithJavac \
-	>"$work/gradle.log" 2>&1); then
+	>"$work/gradle.log" 2>&1) && ! (cd "$work" && "$gradle" -q --console=plain :app:lintDebug >"$work/gradle.log" 2>&1); then
 	tail -30 "$work/gradle.log" >&2
 	exit 1
 fi
-python3 -I - "$work/app" > "$case_dir/lint-32.4.1.txt" <<'PY'
-import os, sys, xml.etree.ElementTree as ET
-app = sys.argv[1]
-out = []
-for issue in ET.parse(os.path.join(app, "lint-out.xml")).getroot().iter("issue"):
-    loc = issue.find("location")
-    if loc is None:
-        continue
-    path = os.path.relpath(loc.get("file"), app)
-    out.append(f"{path}:{loc.get('line', '0')}:{loc.get('column', '0')}: {issue.get('id')}: {issue.get('message')}")
-for line in sorted(out):
-    print(line)
-PY
+print_findings "$work/app/lint-out.xml" "$work/app" module > "$case_dir/lint-32.4.1.txt"
 cat "$case_dir/lint-32.4.1.txt"

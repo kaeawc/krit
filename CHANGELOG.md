@@ -72,6 +72,11 @@ All notable changes to Krit will be documented in this file.
   with `androidx.compose.animation` 1.13.0 (`animation-android`, `animation-core-android`), under their Lint IDs.
   Their findings match the Lint CLI running those releases' `lint.jar` on the inputs under
   `internal/rules/testdata/androidx_compose_animation/` (#1307, #1308, #1309, #1313).
+- `StringEscaping`, `InvalidNavigation`, `ValidRestrictions` and `RelativeClassResolution`, ports of Android Lint
+  32.4.1's `StringEscapeDetector`, `StartDestinationDetector`, `RestrictionsDetector` and
+  `RelativeClassAttributeDetector` under their Lint IDs and severities. Findings match Lint on 17 recorded project
+  fixtures (one documented column divergence). `scripts/lint-parity-record.sh` gains a standalone mode that runs Lint
+  32.4.1's own CLI for fixtures whose resources AGP refuses to compile (#1270, #1267, #1253, #1249).
 - `UnusedMaterialScaffoldPaddingParameter`, `UnusedMaterial3ScaffoldPaddingParameter`, `ConflictingOnColor` and
   `UsingMaterialAndMaterial3Libraries`, ports of the Lint checks bundled with `androidx.compose.material` 1.13.0 and
   `androidx.compose.material3` 1.5.0, under their Lint IDs. Their findings match the Lint CLI running those releases'

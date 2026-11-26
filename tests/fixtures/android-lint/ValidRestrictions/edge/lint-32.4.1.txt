@@ -1,0 +1,4 @@
+src/main/res/xml/app_restrictions.xml:10:31: ValidRestrictions: Invalid number
+src/main/res/xml/app_restrictions.xml:12:31: ValidRestrictions: Invalid number
+src/main/res/xml/app_restrictions.xml:3:5: ValidRestrictions: Restriction type `bundle` should have at least one nested restriction
+src/main/res/xml/app_restrictions.xml:4:5: ValidRestrictions: Missing required attribute `android:restrictionType`

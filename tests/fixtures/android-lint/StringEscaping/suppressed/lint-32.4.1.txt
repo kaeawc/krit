@@ -1,0 +1,7 @@
+src/main/res/values/strings.xml:15:33: StringEscaping: Apostrophe not preceded by \\
+src/main/res/values/strings.xml:4:28: StringEscaping: Apostrophe not preceded by \\
+src/main/res/values/strings.xml:5:30: StringEscaping: Apostrophe not preceded by \\
+src/main/res/values/strings.xml:6:36: StringEscaping: Bad character in \\u unicode escape sequence
+src/main/res/values/strings.xml:7:48: StringEscaping: Apostrophe not preceded by \\
+src/main/res/values/strings.xml:8:41: StringEscaping: Apostrophe not preceded by \\
+src/main/res/values/strings.xml:9:44: StringEscaping: Apostrophe not preceded by \\

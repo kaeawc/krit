@@ -1,0 +1,18 @@
+<resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
+    <string name="apostrophe">Don't do that</string>
+    <string name="leading">'Quoted at start</string>
+    <string name="entity">Don&apos;t entity</string>
+    <string name="unicode">Bad \u12G4 escape</string>
+    <string name="after_quote">"quoted" then it's</string>
+    <string name="spaces">  padded    it's  </string>
+    <string name="cdata"><![CDATA[CDATA isn't escaped]]></string>
+    <string name="markup"><b>Bold</b> isn't first</string>
+    <string-array name="array">
+        <item>fine</item>
+        <item>item's bad</item>
+    </string-array>
+    <plurals name="plural">
+        <item quantity="one">one's</item>
+        <item quantity="other">others</item>
+    </plurals>
+</resources>

@@ -1,0 +1,7 @@
+<navigation xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    app:startDestination="@id/home">
+    <fragment android:id="@+id/home" android:name="com.example.Home" />
+    <navigation android:id="@+id/empty_nested" />
+    <include app:graph="@navigation/nav_included" />
+</navigation>

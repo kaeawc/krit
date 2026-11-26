@@ -1,0 +1,5 @@
+<resources>
+    <string name="title">Title</string>
+    <string name="key">key</string>
+    <string-array name="entries"><item>a</item></string-array>
+</resources>

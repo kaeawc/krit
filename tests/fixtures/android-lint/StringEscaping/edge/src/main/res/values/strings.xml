@@ -1,0 +1,8 @@
+<resources>
+    <string name="multi">First line
+        and the second's</string>
+    <string name="unicode_short">Short \u12</string>
+    <string name="quote_then_apos">"it's" and then it's</string>
+    <string name="escaped_quote">\"it's</string>
+    <string name="comment_first"><!-- note -->it's after a comment</string>
+</resources>

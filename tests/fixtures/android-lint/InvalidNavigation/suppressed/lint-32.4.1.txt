@@ -1,0 +1,3 @@
+src/main/res/navigation/nav_invalid.xml:4:27: InvalidNavigation: Invalid start destination @id/elsewhere
+src/main/res/navigation/nav_invalid.xml:6:6: InvalidNavigation: No start destination specified
+src/main/res/navigation/nav_not_id.xml:1:2: InvalidNavigation: `startDestination` must be an id

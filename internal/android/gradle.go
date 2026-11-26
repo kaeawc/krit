@@ -20,6 +20,8 @@ type BuildConfig struct {
 	Plugins           []string
 	IsAndroid         bool
 	BuildFeatures     BuildFeatures
+	// Namespace is the module's `android { namespace = "..." }`, or "" when the build script sets none.
+	Namespace string
 }
 
 // Dependency represents a single external dependency declaration.
@@ -55,6 +57,9 @@ var (
 	compileSdkRe = lazyre.New(`(?m)^\s*compileSdk(?:Version)?\s*[=(]?\s*(\d+)`)
 )
 
+// namespaceRe matches `namespace = "com.example"` (Kotlin DSL) and `namespace 'com.example'` (Groovy DSL).
+var namespaceRe = lazyre.New(`(?m)^[ \t]*namespace[ \t]*(?:=[ \t]*|\([ \t]*)?["']([\w.]+)["']`)
+
 // Plugin patterns.
 var (
 	// id("com.android.application") or id("com.android.library") etc.
@@ -79,9 +84,9 @@ var (
 	depGroovyMapRe = lazyre.New(`(?m)^[ \t]*(\w+)[ \t]*\(?[ \t]*group\s*[:=]\s*["']([^"']+)["']\s*,\s*name\s*[:=]\s*["']([^"']+)["'](?:\s*,\s*version\s*[:=]\s*["']([^"']*)["'])?`)
 )
 
-// stripGradleComments blanks `//` and `/* */` comments, keeping string contents and line breaks,
+// StripGradleComments blanks `//` and `/* */` comments, keeping string contents and line breaks,
 // so commented-out dependencies are not parsed as declarations.
-func stripGradleComments(content string) string {
+func StripGradleComments(content string) string {
 	out := []byte(content)
 	var quote byte
 	for i := 0; i < len(out); i++ {
@@ -173,6 +178,11 @@ func ParseBuildGradleContent(content string) (*BuildConfig, error) {
 	cfg.MinSdkVersion = extractInt(minSdkRe.Re(), content)
 	cfg.TargetSdkVersion = extractInt(targetSdkRe.Re(), content)
 	cfg.CompileSdkVersion = extractInt(compileSdkRe.Re(), content)
+	if strings.Contains(content, "namespace") {
+		if m := namespaceRe.FindStringSubmatch(StripGradleComments(content)); m != nil {
+			cfg.Namespace = m[1]
+		}
+	}
 
 	// Plugins.
 	cfg.Plugins = parsePlugins(content)
@@ -243,7 +253,7 @@ func isAndroidProject(plugins []string) bool {
 
 // parseExternalDeps extracts Maven-coordinate dependencies from the content.
 func parseExternalDeps(content string) []Dependency {
-	content = stripGradleComments(content)
+	content = StripGradleComments(content)
 	var deps []Dependency
 	seen := make(map[string]bool)
 	add := func(config, group, name, version string) {
@@ -426,7 +436,7 @@ func lintGradleCompatibility(content string) []GradleLint {
 }
 
 func lintGradleCompatibilityWith(rawContent, gradleVersion string) []GradleLint {
-	content := stripGradleComments(rawContent)
+	content := StripGradleComments(rawContent)
 	agpFull := ""
 	if m := agpVersionRe.FindStringSubmatch(content); m != nil {
 		agpFull = m[1]

@@ -417,3 +417,23 @@ func TestParseBuildGradleContent_GroovyAndCommentedDependencies(t *testing.T) {
 		}
 	}
 }
+
+func TestParseBuildGradleContent_Namespace(t *testing.T) {
+	for _, test := range []struct{ name, content, want string }{
+		{"kotlin dsl", "android {\n    namespace = \"com.example.lib\"\n}\n", "com.example.lib"},
+		{"groovy dsl", "android {\n    namespace 'com.example.lib'\n}\n", "com.example.lib"},
+		{"commented out", "android {\n    // namespace = \"com.example.old\"\n}\n", ""},
+		{"computed", "android {\n    namespace = libs.versions.ns.get()\n}\n", ""},
+		{"none", "android {\n    compileSdk = 34\n}\n", ""},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			cfg, err := ParseBuildGradleContent(test.content)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.Namespace != test.want {
+				t.Fatalf("Namespace = %q, want %q", cfg.Namespace, test.want)
+			}
+		})
+	}
+}

@@ -57,7 +57,7 @@ func (p *Prefetch) Rider(jarPath string, sourceDirs, classpath []string, target 
 		return nil
 	}
 	c := p.checker
-	if jarPath != c.JarPath || !sameCompileTarget(target, c.CompileTarget()) || !sameAbsolutePaths(sourceDirs, c.SourceDirs) || !sameAbsolutePaths(classpath, c.Classpath) {
+	if jarPath != c.JarPath || !sameCompileTarget(target, c.CompileTarget()) || !oracle.SamePaths(sourceDirs, c.SourceDirs) || !oracle.SamePaths(classpath, c.Classpath) {
 		return nil
 	}
 	return &oracle.CheckRider{Prepare: p.prepare}
@@ -145,7 +145,7 @@ func (p *Prefetch) response(jarPath string, target CompileTarget, files, sourceD
 	p.mu.Unlock()
 	c := p.checker
 	if resp == nil || jarPath != c.JarPath || !sameCompileTarget(target, c.CompileTarget()) ||
-		!sameAbsolutePaths(sourceDirs, c.SourceDirs) || !sameAbsolutePaths(classpath, c.Classpath) ||
+		!oracle.SamePaths(sourceDirs, c.SourceDirs) || !oracle.SamePaths(classpath, c.Classpath) ||
 		!sameRuleSet(rules, plan.rules) || configsKey(ruleConfigs) != configs {
 		return nil, false
 	}
@@ -161,10 +161,6 @@ func (p *Prefetch) response(jarPath string, target CompileTarget, files, sourceD
 		return nil, false
 	}
 	return resp, true
-}
-
-func sameAbsolutePaths(a, b []string) bool {
-	return slices.Equal(oracle.AbsolutePaths(a), oracle.AbsolutePaths(b))
 }
 
 func sameRuleSet(a, b []string) bool {

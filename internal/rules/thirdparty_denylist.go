@@ -140,8 +140,8 @@ var denyMemberNames = func() map[string]bool {
 }()
 
 // denyFileGateWords are the texts a file must contain for DenyListedApi to look at it: an import or full name of a
-// listed package or class, or a listed function name.
-var denyFileGateWords = [][]byte{[]byte("java.util"), []byte("java.text"), []byte(".hide("), []byte("newThread"),
+// listed package or class, or a listed function name (without call syntax, which may be spaced or commented).
+var denyFileGateWords = [][]byte{[]byte("java.util"), []byte("java.text"), []byte("hide"), []byte("newThread"),
 	[]byte("launchIn"), []byte("runCatching"), []byte("kotlinx.coroutines.rx3"), []byte("ContextCompat"),
 	[]byte("setOnClickListener"), []byte("withId")}
 
@@ -155,7 +155,8 @@ func denyListFileGate(file *scanner.File) bool {
 }
 
 func denyBlockingFileGate(file *scanner.File) bool {
-	return bytes.Contains(file.Content, []byte("rxjava3")) && bytes.Contains(file.Content, []byte(".blocking"))
+	// No `.` before blocking: a subclass can call an inherited blockingGet() without a receiver.
+	return bytes.Contains(file.Content, []byte("rxjava3")) && bytes.Contains(file.Content, []byte("blocking"))
 }
 
 // checkDenyListedAPI reports DenyListedApi findings at a call, constructor call, static field reference or import.
@@ -319,6 +320,11 @@ func denyCallOwners(ctx *api.Context, call lintCall) []string {
 		if file.Language == scanner.LangKotlin && slackFunctionShadows(file, call.Idx, call.Name, imported) {
 			return nil
 		}
+		// A top-level function of the file's package in another file also wins over a default import.
+		if file.Language == scanner.LangKotlin && !imported && ctx.Resolver != nil && moshiFilePackage(file) != "" &&
+			ctx.Resolver.HasFunction(moshiFilePackage(file)+"."+call.Name) {
+			return nil
+		}
 		// A statically imported function, or a Kotlin top-level one.
 		if imported {
 			if dot := strings.LastIndexByte(full, '.'); dot > 0 && full[dot+1:] == call.Name {
@@ -337,15 +343,16 @@ func denyCallOwners(ctx *api.Context, call lintCall) []string {
 		}
 		return owners
 	}
-	// A static call through the class name.
-	if fqn := denyClassFQN(file, call.ReceiverText); fqn != "" {
+	// A static call through the class name, unless the name is a variable or parameter in scope (`Object Date`).
+	if fqn := denyClassFQN(file, call.ReceiverText); fqn != "" && !denyNamesVariable(file, call.ReceiverNode) {
 		return []string{fqn}
 	}
 	var owners []string
 	if file.Language == scanner.LangKotlin {
 		// An extension function: through its import, an on-demand import of its package, or kotlin's default import.
 		for _, e := range denyEntries {
-			if e.topLevel && e.member == call.Name && (full == e.owner+"."+call.Name || e.owner == "kotlin" || denyHasStar(imp, e.owner)) {
+			if e.topLevel && e.member == call.Name && (full == e.owner+"."+call.Name || e.owner == "kotlin" || denyHasStar(imp, e.owner)) &&
+				!denyReceiverDeclaresMember(ctx, call) {
 				owners = append(owners, e.owner)
 			}
 		}
@@ -400,7 +407,45 @@ var denyConstructorNames = map[string]bool{"LinkedList": true, "Stack": true, "V
 // denyCallMayMatch is the cheap filter run before a call is resolved: a listed function name, a listed constructor's
 // class name, or any name in a file that can reach a class whose every method is listed.
 func denyCallMayMatch(file *scanner.File, name string) bool {
-	return denyMemberNames[name] || denyConstructorNames[name] || denyMentionsAllMemberOwner(file)
+	if denyMemberNames[name] || denyConstructorNames[name] || denyMentionsAllMemberOwner(file) {
+		return true
+	}
+	// A listed class imported under an alias, `import java.util.LinkedList as LL`.
+	_, listed := denyKnownClasses[lintImportsOf(file).bySimple[name]]
+	return listed
+}
+
+// denyNamesVariable reports whether a receiver is a simple name that a variable or parameter in scope declares, so
+// it is a value, not the class an import gives that name.
+func denyNamesVariable(file *scanner.File, recv uint32) bool {
+	switch file.FlatType(recv) {
+	case "simple_identifier", "identifier":
+	default:
+		return false
+	}
+	return denyVariableTypeText(file, recv) != "" || lintNameIsParameterAt(file, recv, file.FlatNodeText(recv))
+}
+
+// denyReceiverDeclaresMember reports whether the receiver's class is a source class whose own member has the
+// call's name, which Kotlin picks over an extension (`class Local { fun runCatching(...) }`).
+func denyReceiverDeclaresMember(ctx *api.Context, call lintCall) bool {
+	if ctx.Resolver == nil {
+		return false
+	}
+	typ := denyReceiverType(ctx, call.ReceiverNode)
+	if typ == "" {
+		return false
+	}
+	info := ctx.Resolver.ClassHierarchy(typ)
+	if info == nil {
+		return false
+	}
+	for _, m := range info.Members {
+		if m.Name == call.Name && m.Kind == "function" {
+			return true
+		}
+	}
+	return false
 }
 
 // denyNullableAnyExtension reports whether a Kotlin `x.toString()`, `x.equals(y)` or `x.hashCode()` without a safe

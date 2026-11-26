@@ -498,8 +498,8 @@ All notable changes to Krit will be documented in this file.
   `slack-lint` rule set for Kotlin and Java. They report the detector's built-in list (RxJava 3 `hide()` and blocking
   calls, `java.util.Date`/`Calendar` and `java.text.DateFormat` APIs, `LinkedList`/`Stack`/`Vector`, `runCatching`,
   `Flow.launchIn`, dispatcher-less rx3 builders and more) once the owner is proven from imports or the receiver's type.
-  Findings match the Lint CLI on `internal/rules/testdata/slack_lint/denylist/`, except that a same-file top-level
-  `runCatching` shadows kotlin's (#1428, #1429).
+  Findings match the Lint CLI on `internal/rules/testdata/slack_lint/denylist/`, except that a top-level
+  `runCatching` of the file's package shadows kotlin's (#1428, #1429).
 - `MultipleAwaitPointerEventScopes` and `ReturnFromAwaitPointerEventScope`, ported from `androidx.compose.ui:ui-android`
   1.12.1 under their Lint IDs and checked against the Lint CLI on the same inputs. The first counts
   `awaitPointerEventScope` calls within the enclosing `pointerInput` call (its own arguments, not the chain before it)

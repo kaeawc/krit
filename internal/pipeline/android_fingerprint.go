@@ -90,29 +90,33 @@ func resDirManifestFingerprint(resDir string) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// resDirAssetsFingerprint fingerprints the regular files directly inside the assets folder beside resDir, or returns
-// "" when there are none.
+// resDirAssetsFingerprint fingerprints the regular files directly inside the assets folders UnsafeNativeCodeLocation
+// reads for resDir (every source set's, see android.SourceSetAssetDirs), or returns "" when there are none.
 func resDirAssetsFingerprint(resDir string) string {
-	entries, err := os.ReadDir(filepath.Join(filepath.Dir(resDir), "assets"))
-	if err != nil {
-		return ""
-	}
 	h := hashutil.Hasher().New()
 	memo := hashutil.Default()
 	found := false
-	for _, e := range entries {
-		if !e.Type().IsRegular() {
+	for _, dir := range android.SourceSetAssetDirs(resDir) {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
 			continue
 		}
-		hx, err := memo.HashFile(filepath.Join(filepath.Dir(resDir), "assets", e.Name()), nil)
-		if err != nil {
-			hx = "\x00err"
+		h.Write([]byte(filepath.Base(filepath.Dir(dir))))
+		h.Write([]byte{0})
+		for _, e := range entries {
+			if !e.Type().IsRegular() {
+				continue
+			}
+			hx, err := memo.HashFile(filepath.Join(dir, e.Name()), nil)
+			if err != nil {
+				hx = "\x00err"
+			}
+			h.Write([]byte(e.Name()))
+			h.Write([]byte{0})
+			h.Write([]byte(hx))
+			h.Write([]byte{0})
+			found = true
 		}
-		h.Write([]byte(e.Name()))
-		h.Write([]byte{0})
-		h.Write([]byte(hx))
-		h.Write([]byte{0})
-		found = true
 	}
 	if !found {
 		return ""

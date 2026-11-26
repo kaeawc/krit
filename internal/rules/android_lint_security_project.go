@@ -8,6 +8,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/android"
+
 	"github.com/kaeawc/krit/internal/manifest"
 	"github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
@@ -21,7 +23,7 @@ type TileProviderPermissionsRule struct {
 }
 
 // UnsafeNativeCodeLocationRule mirrors Lint's UnsafeNativeCodeLocation (UnsafeNativeCodeDetector): an ELF binary in a
-// res/raw folder or in the assets folder.
+// res/raw folder or in an assets folder of any (non-test) source set of the module.
 type UnsafeNativeCodeLocationRule struct {
 	LayoutResourceBase
 	AndroidRule
@@ -75,23 +77,32 @@ func (r *UnsafeNativeCodeLocationRule) check(ctx *api.Context) {
 	}
 	dirs := append([]string(nil), ctx.ResourceIndex.ResDirs...)
 	sort.Strings(dirs)
+	seen := map[string]bool{}
 	for _, resDir := range dirs {
 		var files []string
-		// Lint checks the files directly inside every raw* folder of the resource directory...
-		for _, folder := range lintSortedEntries(resDir) {
-			if folder.IsDir() && strings.HasPrefix(folder.Name(), "raw") {
-				rawDir := filepath.Join(resDir, folder.Name())
-				for _, f := range lintSortedEntries(rawDir) {
-					files = append(files, filepath.Join(rawDir, f.Name()))
+		// Lint checks the files directly inside every raw* folder of the module's resource directories, including
+		// those of the other source sets (src/debug/res, src/<flavor>/res)...
+		for _, res := range append([]string{resDir}, android.SiblingSourceSetResDirs(resDir)...) {
+			for _, folder := range lintSortedEntries(res) {
+				if folder.IsDir() && strings.HasPrefix(folder.Name(), "raw") {
+					rawDir := filepath.Join(res, folder.Name())
+					for _, f := range lintSortedEntries(rawDir) {
+						files = append(files, filepath.Join(rawDir, f.Name()))
+					}
 				}
 			}
 		}
-		// ...and the files directly inside the source set's assets folder.
-		assets := filepath.Join(filepath.Dir(resDir), "assets")
-		for _, f := range lintSortedEntries(assets) {
-			files = append(files, filepath.Join(assets, f.Name()))
+		// ...and the files directly inside every source set's assets folder (#1619).
+		for _, assets := range android.SourceSetAssetDirs(resDir) {
+			for _, f := range lintSortedEntries(assets) {
+				files = append(files, filepath.Join(assets, f.Name()))
+			}
 		}
 		for _, path := range files {
+			if seen[path] {
+				continue
+			}
+			seen[path] = true
 			if !isELFFile(path) {
 				continue
 			}

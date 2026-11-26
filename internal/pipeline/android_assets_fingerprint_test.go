@@ -42,3 +42,33 @@ func TestResDirFingerprintCoversTopLevelAssets(t *testing.T) {
 		t.Fatalf("editing a top-level asset did not change the res directory fingerprint")
 	}
 }
+
+// The assets folders of the module's other source sets are read too (#1619), so they key the cached findings as well.
+func TestResDirFingerprintCoversOtherSourceSetAssets(t *testing.T) {
+	src := filepath.Join(t.TempDir(), "app", "src")
+	resDir := filepath.Join(src, "main", "res")
+	write := func(rel, content string) {
+		t.Helper()
+		path := filepath.Join(src, rel)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	fingerprint := func() string {
+		fps := newResDirFingerprints(filepath.Join(t.TempDir(), "cache"), 1)
+		return fps.fingerprint(resDir)
+	}
+	write("main/res/values/strings.xml", "<resources/>")
+	base := fingerprint()
+	write("test/assets/libtest.so", "\x7fELFtest")
+	if got := fingerprint(); got != base {
+		t.Fatalf("a test source set's asset changed the fingerprint; test assets are not read")
+	}
+	write("debug/assets/libdebug.so", "\x7fELFdebug")
+	if got := fingerprint(); got == base {
+		t.Fatalf("adding a debug source set asset did not change the res directory fingerprint")
+	}
+}

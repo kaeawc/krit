@@ -156,3 +156,41 @@ func TestUnsafeNativeCodeLocationMessagesMatchLint(t *testing.T) {
 		t.Errorf("executable message = %q", msgs["tool"])
 	}
 }
+
+// #1619: Lint also reads the assets (and res/raw) folders of the module's other source sets, such as build types and
+// flavors; test source sets are not packaged.
+func TestUnsafeNativeCodeLocationReadsEverySourceSet(t *testing.T) {
+	const elf = "\x7fELF\x02\x01\x01\x00rest"
+	src := filepath.Join(t.TempDir(), "app", "src")
+	for rel, body := range map[string]string{
+		"main/res/values/strings.xml": "<resources/>",
+		"main/assets/libmain.so":      elf,
+		"debug/assets/tool":           elf,
+		"free/assets/libfree.so":      elf,
+		"debug/res/raw/libraw.so":     elf,
+		"test/assets/libtest.so":      elf,
+		"androidTest/assets/tool":     elf,
+	} {
+		path := filepath.Join(src, rel)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	idx, err := android.ScanResourceDir(filepath.Join(src, "main", "res"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, f := range runResourceRule(findResourceRule(t, "UnsafeNativeCodeLocation"), idx) {
+		rel, _ := filepath.Rel(src, f.File)
+		got = append(got, filepath.ToSlash(rel))
+	}
+	sort.Strings(got)
+	want := []string{"debug/assets/tool", "debug/res/raw/libraw.so", "free/assets/libfree.so", "main/assets/libmain.so"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("findings %v, want %v", got, want)
+	}
+}

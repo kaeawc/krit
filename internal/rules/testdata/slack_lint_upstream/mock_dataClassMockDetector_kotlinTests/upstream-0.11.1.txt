@@ -1,0 +1,11 @@
+src/test/java/test/slack/test/TestClass.kt:12:22: DoNotMockDataClass: 'slack.test.TestClass' is a data class, so mocking it should not be necessary
+src/test/java/test/slack/test/TestClass.kt:13:21: DoNotMockDataClass: 'slack.test.TestClass' is a data class, so mocking it should not be necessary
+src/test/java/test/slack/test/TestClass.kt:14:22: DoNotMockDataClass: 'slack.test.TestClass' is a data class, so mocking it should not be necessary
+src/test/java/test/slack/test/TestClass.kt:16:22: DoNotMockDataClass: 'slack.test.TestClass' is a data class, so mocking it should not be necessary
+src/test/java/test/slack/test/TestClass.kt:18:23: DoNotMockDataClass: 'slack.test.TestClass' is a data class, so mocking it should not be necessary
+src/test/java/test/slack/test/TestClass.kt:21:31: DoNotMockDataClass: 'slack.test.TestClass' is a data class, so mocking it should not be necessary
+src/test/java/test/slack/test/TestClass.kt:27:7: DoNotMockPlatformTypes: platform type 'java.util.List' should not be mocked
+src/test/java/test/slack/test/TestClass.kt:31:14: DoNotMockDataClass: 'slack.test.TestClass' is a data class, so mocking it should not be necessary
+src/test/java/test/slack/test/TestClass.kt:35:21: DoNotMockDataClass: 'slack.test.TestClass' is a data class, so mocking it should not be necessary
+src/test/java/test/slack/test/TestClass.kt:8:3: DoNotMockDataClass: 'slack.test.TestClass' is a data class, so mocking it should not be necessary
+src/test/java/test/slack/test/TestClass.kt:9:3: DoNotMockDataClass: 'slack.test.TestClass' is a data class, so mocking it should not be necessary

@@ -136,6 +136,7 @@ func init() {
 	registerGradleKotlinRules()
 	registerTestingQualityRules()
 	registerThirdPartyMoshiRules()
+	registerThirdPartyMockingRules()
 
 	applySecurityTaxonomy()
 }

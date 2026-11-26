@@ -120,6 +120,19 @@ They report only what the source proves:
 Not ported: `MoshiUsageNonMoshiClassInternal` and `MoshiUsageNonMoshiClassExternal`, which split on whether a type
 lives in Slack's own `slack.*` packages.
 
+The `DoNotMock*` rules port `MockDetector` and, as in Lint, look only at test sources (`src/test`, `src/androidTest`
+and the other test source sets). A mock site is a call to one of the detector's default factories
+(`org.mockito.Mockito.mock`/`spy`, `org.mockito.kotlin.mock`/`spy`, `slack.test.mockito.mock`) or a field annotated
+`@org.mockito.Mock` or `@org.mockito.Spy`; Lint's `mock-factories` and `mock-annotations` options are not read yet.
+The mocked type comes from a type argument, a class literal, the declared type of the field or of the variable a
+`mock()` initializes, or a local variable those initialize. The detector's checkers run in its order, so a
+platform data class such as `kotlin.Pair` is reported as a platform type, and a type annotated `@DoNotMock` is left to
+that check. Differences from Lint:
+
+- a `mock()` passed as an argument, whose type Lint infers from the parameter, is not reported;
+- `DoNotMockAnything` reports alongside the other `DoNotMock*` rules. Lint runs it first, so when it is enabled the
+  others stay silent.
+
 ## Compose lint checks (compose-lints)
 
 Rules named `Compose…` with a Lint issue ID port [compose-lints](https://github.com/slackhq/compose-lints)

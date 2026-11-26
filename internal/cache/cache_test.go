@@ -213,9 +213,12 @@ func TestCheckFiles_GitDirtyPathsSkipCleanMetadataChecks(t *testing.T) {
 				Size:    1,
 			},
 			absB: {
+				// Stale stat and hash, but the git blob of b.kt's committed
+				// content: only the git shortcut can make this a hit.
 				Hash:    "clean-entry-with-stale-metadata",
 				ModTime: 1,
 				Size:    1,
+				GitBlob: gitBlobID([]byte("fun b() {}\n"), 40),
 				Columns: testFindingColumns([]scanner.Finding{{
 					File: fileB, Line: 1, Col: 1, Severity: "warning", RuleSet: "test", Rule: "Clean", Message: "cached",
 				}}),

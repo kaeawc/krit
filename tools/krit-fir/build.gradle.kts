@@ -166,8 +166,15 @@ tasks.shadowJar {
         "it/unimi/dsi/fastutil/booleans/**",
         // klib IR serialization and implementation and native binary options and diagnostics: the JVM
         // pipeline never reaches them (no static reference from the launcher, service files, or other bundled
-        // classes). IR lowerings stay because bundled compiler plugins (Compose etc.) call into them.
-        "org/jetbrains/kotlin/backend/common/serialization/**",
+        // classes). IR lowerings stay because bundled compiler plugins (Compose etc.) call into them. The IR
+        // manglers in serialization/mangle stay too: the JVM backend that builds the incremental snapshot calls
+        // them, and without them every snapshot build failed (#1599). TestFirIncrementalSnapshotThroughShadowJar
+        // runs that backend through this jar.
+        "org/jetbrains/kotlin/backend/common/serialization/*.class",
+        "org/jetbrains/kotlin/backend/common/serialization/encodings/**",
+        "org/jetbrains/kotlin/backend/common/serialization/metadata/**",
+        "org/jetbrains/kotlin/backend/common/serialization/proto/**",
+        "org/jetbrains/kotlin/backend/common/serialization/signature/**",
         "org/jetbrains/kotlin/library/impl/**",
         "org/jetbrains/kotlin/config/nativeBinaryOptions/**",
         "org/jetbrains/kotlin/resolve/konan/diagnostics/**",

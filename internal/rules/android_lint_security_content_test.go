@@ -393,6 +393,356 @@ func TestUnsanitizedFilenameFromContentProviderLintParityFlows(t *testing.T) {
 	}
 }
 
+// #1621: a Cursor local whose type is inferred from a call is proven: ContentResolver.query, SQLiteDatabase.query or
+// rawQuery, or a same-file function declared to return Cursor. Lines marked `// report` are expected findings.
+const unsanitizedFilenameInferredSource = `package test.pkg
+
+import android.content.ContentResolver
+import android.database.Cursor
+import android.database.sqlite.SQLiteDatabase
+import android.net.Uri
+import android.provider.OpenableColumns
+import java.io.File
+
+class NotACursor { fun getString(i: Int): String = ""; fun getColumnIndex(c: String): Int = 0 }
+
+class F(private val resolver: ContentResolver, private val db: SQLiteDatabase) {
+    fun openCursor(uri: Uri): Cursor = resolver.query(uri, null, null, null, null)!!
+    fun openOther(): NotACursor = NotACursor()
+
+    fun viaQuery(uri: Uri, dir: File) {
+        val c = resolver.query(uri, null, null, null, null)!!
+        val name = c.getString(c.getColumnIndex(OpenableColumns.DISPLAY_NAME))
+        File(dir, name) // report
+    }
+    fun viaRawQuery(dir: File) {
+        val c = db.rawQuery("select 1", null)
+        val name = c.getString(c.getColumnIndex(OpenableColumns.DISPLAY_NAME))
+        File(dir, name) // report
+    }
+    fun viaHelper(uri: Uri, dir: File) {
+        val c = openCursor(uri)
+        val name = c.getString(c.getColumnIndex(OpenableColumns.DISPLAY_NAME))
+        File(dir, name) // report
+    }
+    fun lookalike(dir: File) {
+        val c = openOther()
+        val name = c.getString(c.getColumnIndex(OpenableColumns.DISPLAY_NAME))
+        File(dir, name)
+    }
+    fun unknownCall(dir: File) {
+        val c = somewhereElse()
+        val name = c.getString(c.getColumnIndex(OpenableColumns.DISPLAY_NAME))
+        File(dir, name)
+    }
+}
+`
+
+// assertReportLines checks that the findings sit exactly on the source lines marked `// report`.
+func assertReportLines(t *testing.T, findings []scanner.Finding, src string) {
+	t.Helper()
+	var want, got []string
+	for i, line := range strings.Split(src, "\n") {
+		if strings.HasSuffix(line, "// report") {
+			want = append(want, fmt.Sprint(i+1))
+		}
+	}
+	for _, f := range findings {
+		got = append(got, fmt.Sprint(f.Line))
+	}
+	sort.Strings(got)
+	sort.Strings(want)
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("finding lines %v, want %v", got, want)
+	}
+}
+
+func TestUnsanitizedFilenameFromContentProviderInfersCursorLocals(t *testing.T) {
+	findings := runRuleByName(t, "UnsanitizedFilenameFromContentProvider", unsanitizedFilenameInferredSource)
+	assertReportLines(t, findings, unsanitizedFilenameInferredSource)
+}
+
+const unsanitizedFilenameInferredJavaSource = `package test.pkg;
+
+import android.app.Activity;
+import android.database.Cursor;
+import android.database.sqlite.SQLiteDatabase;
+import android.net.Uri;
+import android.provider.OpenableColumns;
+import java.io.File;
+
+class NotACursor { String getString(int i) { return ""; } int getColumnIndex(String c) { return 0; } }
+
+class J extends Activity {
+    Cursor openCursor(Uri u) { return getContentResolver().query(u, null, null, null, null); }
+    NotACursor openOther() { return new NotACursor(); }
+
+    void viaQuery(Uri uri, File dir) {
+        var c = getContentResolver().query(uri, null, null, null, null);
+        String name = c.getString(c.getColumnIndex(OpenableColumns.DISPLAY_NAME));
+        new File(dir, name); // report
+    }
+    void viaRaw(SQLiteDatabase db, File dir) {
+        var c = db.rawQuery("select 1", null);
+        String name = c.getString(c.getColumnIndex(OpenableColumns.DISPLAY_NAME));
+        new File(dir, name); // report
+    }
+    void viaHelper(Uri uri, File dir) {
+        var c = openCursor(uri);
+        String name = c.getString(c.getColumnIndex(OpenableColumns.DISPLAY_NAME));
+        new File(dir, name); // report
+    }
+    void viaThisHelper(Uri uri, File dir) {
+        var c = this.openCursor(uri);
+        String name = c.getString(c.getColumnIndex(OpenableColumns.DISPLAY_NAME));
+        new File(dir, name); // report
+    }
+    void lookalike(File dir) {
+        var c = openOther();
+        String name = c.getString(c.getColumnIndex(OpenableColumns.DISPLAY_NAME));
+        new File(dir, name);
+    }
+}
+`
+
+func TestUnsanitizedFilenameFromContentProviderInfersCursorLocalsJava(t *testing.T) {
+	findings := runRuleByNameOnJava(t, "UnsanitizedFilenameFromContentProvider", unsanitizedFilenameInferredJavaSource)
+	assertReportLines(t, findings, unsanitizedFilenameInferredJavaSource)
+}
+
+// The receiver is the declaration visible at the call: a local in the same or an enclosing block, or a nearer
+// parameter. Locals in sibling blocks and in nested functions or lambdas do not decide it.
+const unsanitizedFilenameScopeSource = `package test.pkg
+
+import android.database.sqlite.SQLiteDatabase
+import android.provider.OpenableColumns
+import java.io.File
+
+class NotACursor { fun getString(i: Int): String = ""; fun getColumnIndex(c: String): Int = 0; fun close() {} }
+
+class S(private val db: SQLiteDatabase) {
+    fun siblingBlock(c: NotACursor, dir: File, flag: Boolean) {
+        if (flag) { val c = db.rawQuery("x", null); c.close() }
+        val name = c.getString(c.getColumnIndex(OpenableColumns.DISPLAY_NAME))
+        File(dir, name)
+    }
+    fun nestedFunction(dir: File) {
+        val c = NotACursor()
+        fun helper() { val c = db.rawQuery("x", null); c.close() }
+        val name = c.getString(c.getColumnIndex(OpenableColumns.DISPLAY_NAME))
+        File(dir, name)
+    }
+    fun nestedLambda(dir: File) {
+        val c = NotACursor()
+        listOf(1).forEach { val c = db.rawQuery("x", null); c.close() }
+        val name = c.getString(c.getColumnIndex(OpenableColumns.DISPLAY_NAME))
+        File(dir, name)
+    }
+    fun lambdaParameter(dir: File) {
+        val c = db.rawQuery("x", null)
+        listOf(NotACursor()).forEach { c ->
+            val name = c.getString(c.getColumnIndex(OpenableColumns.DISPLAY_NAME))
+            File(dir, name)
+        }
+    }
+    fun enclosingBlock(dir: File, flag: Boolean) {
+        val c = db.rawQuery("x", null)
+        if (flag) {
+            val name = c.getString(c.getColumnIndex(OpenableColumns.DISPLAY_NAME))
+            File(dir, name) // report
+        }
+    }
+    fun capturedInLambda(dir: File) {
+        val c = db.rawQuery("x", null)
+        listOf(1).forEach {
+            val name = c.getString(c.getColumnIndex(OpenableColumns.DISPLAY_NAME))
+            File(dir, name) // report
+        }
+    }
+    fun innerShadowsOuter(c: NotACursor, dir: File) {
+        val c = db.rawQuery("x", null)
+        val name = c.getString(c.getColumnIndex(OpenableColumns.DISPLAY_NAME))
+        File(dir, name) // report
+    }
+    fun useOnRawQuery(c: NotACursor, dir: File) {
+        db.rawQuery("x", null).use { c ->
+            val name = c.getString(c.getColumnIndex(OpenableColumns.DISPLAY_NAME))
+            File(dir, name) // report
+        }
+    }
+}
+`
+
+func TestUnsanitizedFilenameFromContentProviderReceiverScope(t *testing.T) {
+	findings := runRuleByName(t, "UnsanitizedFilenameFromContentProvider", unsanitizedFilenameScopeSource)
+	assertReportLines(t, findings, unsanitizedFilenameScopeSource)
+}
+
+const unsanitizedFilenameScopeJavaSource = `package test.pkg;
+
+import android.database.sqlite.SQLiteDatabase;
+import android.provider.OpenableColumns;
+import java.io.File;
+
+class NotACursor { String getString(int i) { return ""; } int getColumnIndex(String c) { return 0; } void close() {} }
+
+class S {
+    SQLiteDatabase db;
+    void siblingBlock(NotACursor c, File dir, boolean flag) {
+        if (flag) { var c2 = db.rawQuery("x", null); c2.close(); }
+        Runnable r = () -> { var c = db.rawQuery("x", null); c.close(); };
+        String name = c.getString(c.getColumnIndex(OpenableColumns.DISPLAY_NAME));
+        new File(dir, name);
+    }
+    void enclosingBlock(File dir, boolean flag) {
+        var c = db.rawQuery("x", null);
+        if (flag) {
+            String name = c.getString(c.getColumnIndex(OpenableColumns.DISPLAY_NAME));
+            new File(dir, name); // report
+        }
+    }
+    void resource(File dir) {
+        try (var c = db.rawQuery("x", null)) {
+            String name = c.getString(c.getColumnIndex(OpenableColumns.DISPLAY_NAME));
+            new File(dir, name); // report
+        }
+    }
+}
+`
+
+func TestUnsanitizedFilenameFromContentProviderReceiverScopeJava(t *testing.T) {
+	findings := runRuleByNameOnJava(t, "UnsanitizedFilenameFromContentProvider", unsanitizedFilenameScopeJavaSource)
+	assertReportLines(t, findings, unsanitizedFilenameScopeJavaSource)
+}
+
+// A receiverless helper call resolves to a function visible from the call: a member of an enclosing class or a
+// top-level function, with a matching argument count. Overloads that disagree on the return type abstain.
+const unsanitizedFilenameHelperSource = `package test.pkg
+
+import android.content.ContentResolver
+import android.database.Cursor
+import android.net.Uri
+import android.provider.OpenableColumns
+import java.io.File
+
+class NotACursor { fun getString(i: Int): String = ""; fun getColumnIndex(c: String): Int = 0 }
+
+fun topLevelCursor(resolver: ContentResolver, uri: Uri): Cursor = resolver.query(uri, null, null, null, null)!!
+
+class A(private val resolver: ContentResolver) {
+    fun open(uri: Uri): Cursor = resolver.query(uri, null, null, null, null)!!
+}
+
+class B(private val resolver: ContentResolver) {
+    fun open(): NotACursor = NotACursor()
+    fun pick(): Cursor = resolver.query(Uri.EMPTY, null, null, null, null)!!
+    fun pick(uri: Uri): NotACursor = NotACursor()
+    fun same(uri: Uri): Cursor = resolver.query(uri, null, null, null, null)!!
+    fun same(name: String): NotACursor = NotACursor()
+    fun defaults(uri: Uri, flag: Boolean = false): Cursor = resolver.query(uri, null, null, null, null)!!
+
+    fun otherClassMember(dir: File) {
+        val c = open()
+        val name = c.getString(c.getColumnIndex(OpenableColumns.DISPLAY_NAME))
+        File(dir, name)
+    }
+    fun arityPicksCursor(dir: File) {
+        val c = pick()
+        val name = c.getString(c.getColumnIndex(OpenableColumns.DISPLAY_NAME))
+        File(dir, name) // report
+    }
+    fun arityPicksOther(uri: Uri, dir: File) {
+        val c = pick(uri)
+        val name = c.getString(c.getColumnIndex(OpenableColumns.DISPLAY_NAME))
+        File(dir, name)
+    }
+    fun overloadsDisagree(uri: Uri, dir: File) {
+        val c = same(uri)
+        val name = c.getString(c.getColumnIndex(OpenableColumns.DISPLAY_NAME))
+        File(dir, name)
+    }
+    fun defaultArgument(uri: Uri, dir: File) {
+        val c = defaults(uri)
+        val name = c.getString(c.getColumnIndex(OpenableColumns.DISPLAY_NAME))
+        File(dir, name) // report
+    }
+    fun topLevel(uri: Uri, dir: File) {
+        val c = topLevelCursor(resolver, uri)
+        val name = c.getString(c.getColumnIndex(OpenableColumns.DISPLAY_NAME))
+        File(dir, name) // report
+    }
+    fun localFunction(uri: Uri, dir: File) {
+        fun open(): Cursor = resolver.query(uri, null, null, null, null)!!
+        val c = open()
+        val name = c.getString(c.getColumnIndex(OpenableColumns.DISPLAY_NAME))
+        File(dir, name) // report
+    }
+    fun nestedLocalFunctionElsewhere(dir: File) {
+        val c = open()
+        val name = c.getString(c.getColumnIndex(OpenableColumns.DISPLAY_NAME))
+        File(dir, name)
+    }
+}
+`
+
+func TestUnsanitizedFilenameFromContentProviderSameFileHelpers(t *testing.T) {
+	findings := runRuleByName(t, "UnsanitizedFilenameFromContentProvider", unsanitizedFilenameHelperSource)
+	assertReportLines(t, findings, unsanitizedFilenameHelperSource)
+}
+
+// ContentResolver.query proves a Cursor through a `!!` or an Elvis that returns or throws; a receiver named
+// contentResolver proves a ContentResolver only when nothing visible declares it with another type.
+const unsanitizedFilenameResolverSource = `package test.pkg
+
+import android.app.Activity
+import android.content.ContentResolver
+import android.net.Uri
+import android.provider.OpenableColumns
+import java.io.File
+
+class NotACursor { fun getString(i: Int): String = ""; fun getColumnIndex(c: String): Int = 0 }
+class FakeResolver { fun query(uri: Uri, a: Any?, b: Any?, c: Any?, d: Any?): NotACursor = NotACursor() }
+
+class E(private val resolver: ContentResolver) {
+    fun elvisReturn(uri: Uri, dir: File) {
+        val c = resolver.query(uri, null, null, null, null) ?: return
+        val name = c.getString(c.getColumnIndex(OpenableColumns.DISPLAY_NAME))
+        File(dir, name) // report
+    }
+    fun elvisThrow(uri: Uri, dir: File) {
+        val c = resolver.query(uri, null, null, null, null) ?: throw IllegalStateException()
+        val name = c.getString(c.getColumnIndex(OpenableColumns.DISPLAY_NAME))
+        File(dir, name) // report
+    }
+    fun elvisFallback(uri: Uri, dir: File) {
+        val c = resolver.query(uri, null, null, null, null) ?: NotACursor()
+        val name = c.getString(c.getColumnIndex(OpenableColumns.DISPLAY_NAME))
+        File(dir, name)
+    }
+}
+
+class D(private val contentResolver: FakeResolver) {
+    fun fake(uri: Uri, dir: File) {
+        val c = contentResolver.query(uri, null, null, null, null)
+        val name = c.getString(c.getColumnIndex(OpenableColumns.DISPLAY_NAME))
+        File(dir, name)
+    }
+}
+
+class R : Activity() {
+    fun inherited(uri: Uri, dir: File) {
+        val c = contentResolver.query(uri, null, null, null, null)!!
+        val name = c.getString(c.getColumnIndex(OpenableColumns.DISPLAY_NAME))
+        File(dir, name) // report
+    }
+}
+`
+
+func TestUnsanitizedFilenameFromContentProviderResolverQueries(t *testing.T) {
+	findings := runRuleByName(t, "UnsanitizedFilenameFromContentProvider", unsanitizedFilenameResolverSource)
+	assertReportLines(t, findings, unsanitizedFilenameResolverSource)
+}
+
 // #1620: a Kotlin property (or primary-constructor property) annotated @get:/@set:JavascriptInterface, or with an
 // annotated accessor, has an annotated getter or setter method, as UAST sees it. @field: does not, and neither does a
 // @JvmField or const property, or a private property whose annotated accessor has no body: none of them has that

@@ -1,0 +1,10 @@
+src/test/java/test/slack/test/TestClass.java:10:3: DoNotMockSealedClass: 'slack.test.TestClass' is a sealed type and has a restricted type hierarchy, use a subtype instead.
+src/test/java/test/slack/test/TestClass.java:13:27: DoNotMockSealedClass: 'slack.test.TestClass' is a sealed type and has a restricted type hierarchy, use a subtype instead.
+src/test/java/test/slack/test/TestClass.java:14:26: DoNotMockSealedClass: 'slack.test.TestClass' is a sealed type and has a restricted type hierarchy, use a subtype instead.
+src/test/java/test/slack/test/TestClass.java:16:28: DoNotMockSealedClass: 'slack.test.TestClass' is a sealed type and has a restricted type hierarchy, use a subtype instead.
+src/test/java/test/slack/test/TestClass.java:20:3: DoNotMockSealedClass: 'slack.test.TestJavaClass' is a sealed type and has a restricted type hierarchy, use a subtype instead.
+src/test/java/test/slack/test/TestClass.java:21:3: DoNotMockSealedClass: 'slack.test.TestJavaClass' is a sealed type and has a restricted type hierarchy, use a subtype instead.
+src/test/java/test/slack/test/TestClass.java:23:27: DoNotMockSealedClass: 'slack.test.TestJavaClass' is a sealed type and has a restricted type hierarchy, use a subtype instead.
+src/test/java/test/slack/test/TestClass.java:24:30: DoNotMockSealedClass: 'slack.test.TestClass' is a sealed type and has a restricted type hierarchy, use a subtype instead.
+src/test/java/test/slack/test/TestClass.java:26:32: DoNotMockSealedClass: 'slack.test.TestJavaClass' is a sealed type and has a restricted type hierarchy, use a subtype instead.
+src/test/java/test/slack/test/TestClass.java:9:3: DoNotMockSealedClass: 'slack.test.TestClass' is a sealed type and has a restricted type hierarchy, use a subtype instead.

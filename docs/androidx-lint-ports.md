@@ -64,6 +64,39 @@ import, as it does in Kotlin.
   Bazel `MODULE.bazel`/`WORKSPACE` counts for the whole build.
   Fully qualified references such as `androidx.compose.material.Button()` are not reported, as in Lint.
 
+## ConstraintLayout Compose
+
+`androidx.constraintlayout:constraintlayout-compose-android` 1.1.2 (Kotlin, production sources). Like the detector,
+the checks compare source text. In UAST a lambda's last statement is an implicit return, which the detector's
+statement scans skip, so the port skips it too: a `linkTo` (or a `constrain { }` block) written last in its lambda is
+not looked at.
+
+- `IncorrectReferencesDeclaration` reports `val (a, b) = createRefsFor("a", "b", "c")` when the number of string ids
+  differs from the destructured variables, at `createRefsFor`, when its implicit receiver is a `ConstraintSetScope` or
+  `MotionSceneScope` (inside `ConstraintSet { }` / `MotionScene { }`, or an extension on the scope), as Lint
+  requires. A spread array or a non-string id is not counted.
+- `IncorrectMatchParentUsage` reports `width = Dimension.matchParent` (or `height`) in a `constrain(ref) { }` block
+  that also links the same axis to something other than the matching parent anchor (`start.linkTo(button.end)`,
+  `centerHorizontallyTo(button)`), at `Dimension.matchParent`.
+- `IncorrectChainMarginsUsage` reports an element of `createHorizontalChain(...)` / `createVerticalChain(...)`
+  without `withChainParams` whose `constrain` block links it, with a margin, to its neighbour's opposite anchor (or
+  the parent's same anchor at the ends), at the element.
+## Startup
+
+`androidx.startup:startup-runtime` 1.2.0 (Kotlin and Java). Both checks see every main-source class at once, so an
+`Initializer` that extends a base class declared in another file is found; they run in the project scopes, whose
+results are cached on the whole source set.
+
+- `EnsureInitializerNoArgConstr` reports an `Initializer` that cannot be created without arguments, at the class: a
+  Kotlin class whose primary and secondary constructors all take parameters (a primary constructor whose parameters
+  all have defaults counts as a no-argument one, as it compiles to one, and so does an `@JvmOverloads` secondary
+  constructor whose parameters all have defaults), or a Java class whose constructors all take parameters. Comments
+  in a parameter list are not parameters. Interfaces are skipped.
+- `EnsureInitializerMetadata` reports an `Initializer` (abstract ones too, as in Lint; interfaces are skipped) that no
+  manifest `<meta-data android:name="…" android:value="androidx.startup">` (or `@string/androidx_startup`) names and no
+  class literal in an `Initializer`'s `dependencies()` reaches, at the class. As in Lint, the `<meta-data>` name must
+  be the fully qualified class name, and test-artifact (`androidTest`, `test`) and generated `build/` manifests are not
+  read.
 ## Compose animation
 
 `androidx.compose.animation:animation-android` and `animation-core-android` 1.13.0 (Kotlin). The unused-parameter

@@ -1,0 +1,18 @@
+package fixtures.compose
+
+import androidx.compose.foundation.layout.Box
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+
+@Composable
+fun Card(title: String, modifier: Modifier) {
+    Box(modifier) {}
+}
+
+@Composable
+fun Optional(
+    modifier: Modifier?,
+    enabled: Boolean = true,
+) {
+    Box(modifier ?: Modifier) {}
+}

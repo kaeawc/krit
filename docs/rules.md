@@ -120,6 +120,17 @@ They report only what the source proves:
 Not ported: `MoshiUsageNonMoshiClassInternal` and `MoshiUsageNonMoshiClassExternal`, which split on whether a type
 lives in Slack's own `slack.*` packages.
 
+`SubscribeOnMain` reports `subscribeOn(AndroidSchedulers.mainThread())`, or `immediateMainThread()`, on RxJava 3's
+`Observable`, `Flowable`, `Single`, `Maybe` and `Completable`. Lint resolves the receiver's type; krit requires the file
+to import from RxJava 3 and not from RxJava 1/2 or Reactor, which also declare `subscribeOn`. As in Lint, a scheduler
+variable counts when its initializer ends in `mainThread()`; a parameter does not, nor (in Java) a statically imported
+`mainThread()`.
+
+`RxObservableDoesNotEmit` and `RxFlowableDoesNotEmit` report a kotlinx-coroutines-rx `rxObservable`/`rxFlowable`
+whose lambda never calls `send()` or `trySend()` on its `ProducerScope`. A nested factory is checked on its own. They
+follow slack-lints main (c0e92cb): the 0.11.1 release looks for `kotlin.coroutines.ProducerScope`, which does not exist,
+so it never reports on real code.
+
 Five single-node checks resolve the names they need through the file's imports and stay silent when a same-file
 declaration could shadow them:
 
@@ -150,16 +161,25 @@ rules instead: `BindsWrongParameterCount` is a Lint alias of `BindsMismatchedAri
 
 The `DoNotMock*` rules port `MockDetector` and, as in Lint, look only at test sources (`src/test`, `src/androidTest`
 and the other test source sets). A mock site is a call to one of the detector's default factories
-(`org.mockito.Mockito.mock`/`spy`, `org.mockito.kotlin.mock`/`spy`, `slack.test.mockito.mock`) or a field annotated
-`@org.mockito.Mock` or `@org.mockito.Spy`; Lint's `mock-factories` and `mock-annotations` options are not read yet.
-The mocked type comes from a type argument, a class literal, the declared type of the field or of the variable a
-`mock()` initializes, or a local variable those initialize. The detector's checkers run in its order, so a
-platform data class such as `kotlin.Pair` is reported as a platform type, and a type annotated `@DoNotMock` is left to
-that check. Differences from Lint:
+(`org.mockito.Mockito.mock`/`spy`, `org.mockito.kotlin.mock`/`spy`, `slack.test.mockito.mock`), also under an import
+alias, or a field annotated `@org.mockito.Mock` or `@org.mockito.Spy`; Lint's `mock-factories` and `mock-annotations`
+options are not read yet. The mocked type comes from a type argument, a class literal, the declared type of the field
+or of the variable a `mock()` initializes, or a local variable those initialize. The detector's checkers run in its
+order (platform, data, `@DoNotMock`, sealed, AutoValue, object, record), so a platform data class such as `kotlin.Pair`
+is reported as a platform type, and a type annotated `@DoNotMock` is left to that check. A class reached only through an
+on-demand import is resolved to that package when it is a well-known platform class (`android.content.Context`,
+`java.util.Date`, ...); any other unindexed name might be a same-package class krit does not see, so it abstains.
+
+`DoNotMockAnything` reports every mock. Lint keeps it disabled unless it is named, and so does krit: it is not
+experimental, so `--experimental` does not turn it on, and it is marked noisy, so `--strict` leaves it off. Enable it
+with `--enable-rules DoNotMockAnything` or in `krit.yml`.
+
+Differences from Lint:
 
 - a `mock()` passed as an argument, whose type Lint infers from the parameter, is not reported;
 - `DoNotMockAnything` reports alongside the other `DoNotMock*` rules. Lint runs it first, so when it is enabled the
-  others stay silent.
+  others stay silent;
+- `DoNotMockRecordClass` also reports Java records, which Lint 0.11.1's own tests leave out pending Lint support.
 
 ## Compose lint checks (compose-lints)
 
@@ -181,6 +201,9 @@ CLI running compose-lint-checks 1.6.1 on the inputs under `internal/rules/testda
 | `ComposeM2Api` | same ID | Off by default in compose-lints too. Resolves through imports, not types: a call or reference to an `androidx.compose.material` top-level declaration (explicit import, or the wildcard import for a name Material 2 declares), `M2Class.member`, `MaterialTheme.colors/typography/shapes.member`, and imported M2 extensions. A member read on a local of an M2 type (`colors.primary`) is a known false negative. `allowedM2Apis` (compose-lints `allowed-m2-apis`) matches source names, as Lint does with `enable-mangling-workaround`. |
 | `ComposeItemKeyHashCode` | same ID | A zero-argument `hashCode()` inside a `key =` argument of a call in a `@Composable` function. |
 | `ComposeModifierComposed` | same ID | The receiver must be provably a `Modifier` (`Modifier`, `this` or the implicit receiver of a `Modifier` extension, a parameter or local declared as `Modifier`, or a call chain rooted in one). |
+| `ComposeModifierMissing` | same ID | Cross-file (previews are exempt, including multipreviews from other files). Options: `contentEmitters` (compose-lints `content-emitters`) and `visibilityThreshold` (`only_public`, `public_and_internal` or `all`; compose-lints `visibility-threshold`). An extension receiver that resolves to `Modifier` or `androidx.glance.GlanceModifier` counts as the modifier parameter, as in Lint's UAST. |
+| `ComposeModifierWithoutDefault` | same ID | Autofix (idiomatic): appends a default written as the parameter's type (` = Modifier`, ` = GlanceModifier`, the qualified name or the import alias). A `vararg` parameter, or a lookalike type named `Modifier` or `GlanceModifier` that resolves elsewhere, is reported without a fix. |
+| `ComposeParameterOrder` | same ID | Cross-file, so a trailing-function type alias declared in another file is expanded. As in Lint, a trailing function is a function type, a type alias of one, `kotlin.Function`/`FunctionN` or `kotlin.jvm.functions.*`, or a Java `@FunctionalInterface` type such as `Runnable` or `Comparator`; a Kotlin `fun interface` is not, and neither is a project class that shadows one of those names. The message prints each parameter's source text with whitespace runs collapsed, so a multi-line default reads as one line (Lint keeps the line breaks). compose-lints' reordering autofix is not ported, because moving parameters breaks positional callers. |
 
 ## Compose-aware defaults
 

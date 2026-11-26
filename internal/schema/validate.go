@@ -3,7 +3,9 @@ package schema
 import (
 	"fmt"
 	"math"
+	"slices"
 	"sort"
+	"strings"
 
 	"github.com/kaeawc/krit/internal/config"
 	api "github.com/kaeawc/krit/internal/rules/api"
@@ -46,6 +48,7 @@ func ValidateConfig(cfg *config.Config) []ValidationError {
 	knownSets := KnownRuleSets()
 	rulesBySet := KnownRulesBySet()
 	optionsByRule := KnownOptionsByRule()
+	enumsByRule := KnownOptionEnumsByRule()
 
 	var errs []ValidationError
 
@@ -107,14 +110,14 @@ func ValidateConfig(cfg *config.Config) []ValidationError {
 			continue
 		}
 
-		errs = append(errs, validateRuleSet(key, setMap, rulesBySet[key], optionsByRule)...)
+		errs = append(errs, validateRuleSet(key, setMap, rulesBySet[key], optionsByRule, enumsByRule)...)
 	}
 
 	return errs
 }
 
 // validateRuleSet checks the rule entries of one ruleset section.
-func validateRuleSet(key string, setMap map[string]interface{}, knownRules map[string]bool, optionsByRule map[string]map[string]OptionType) []ValidationError {
+func validateRuleSet(key string, setMap map[string]interface{}, knownRules map[string]bool, optionsByRule map[string]map[string]OptionType, enumsByRule map[string]map[string][]string) []ValidationError {
 	var errs []ValidationError
 	// Sort rule keys for deterministic output
 	ruleKeys := make([]string, 0, len(setMap))
@@ -159,7 +162,7 @@ func validateRuleSet(key string, setMap map[string]interface{}, knownRules map[s
 		}
 
 		allowedKeys := optionsByRule[ruleKey]
-		errs = append(errs, validateRuleFields(key, ruleKey, ruleMap, allowedKeys)...)
+		errs = append(errs, validateRuleFields(key, ruleKey, ruleMap, allowedKeys, enumsByRule[ruleKey])...)
 	}
 	return errs
 }
@@ -551,7 +554,7 @@ func isNumber(v interface{}) bool {
 	}
 }
 
-func validateRuleFields(setName, ruleName string, ruleMap map[string]interface{}, allowedKeys map[string]OptionType) []ValidationError {
+func validateRuleFields(setName, ruleName string, ruleMap map[string]interface{}, allowedKeys map[string]OptionType, enums map[string][]string) []ValidationError {
 	var errs []ValidationError
 
 	// Sort keys for deterministic output
@@ -577,9 +580,20 @@ func validateRuleFields(setName, ruleName string, ruleMap map[string]interface{}
 
 		if err := checkType(path, val, expectedType); err != nil {
 			errs = append(errs, *err)
+		} else if err := checkEnum(path, val, enums[key]); err != nil {
+			errs = append(errs, *err)
 		}
 	}
 	return errs
+}
+
+// checkEnum rejects a string value outside an option's declared Enum.
+func checkEnum(path string, val interface{}, allowed []string) *ValidationError {
+	s, ok := val.(string)
+	if !ok || len(allowed) == 0 || slices.Contains(allowed, s) {
+		return nil
+	}
+	return &ValidationError{Path: path, Message: fmt.Sprintf("invalid value %q, expected one of: %s", s, strings.Join(allowed, ", ")), Level: "error"}
 }
 
 func checkType(path string, val interface{}, expected OptionType) *ValidationError {

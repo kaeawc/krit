@@ -11,8 +11,11 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/android"
+	"github.com/kaeawc/krit/internal/filefacts"
 	"github.com/kaeawc/krit/internal/manifest"
 	"github.com/kaeawc/krit/internal/rules/api"
+	"github.com/kaeawc/krit/internal/rules/semantics"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -117,11 +120,43 @@ func tilePreviews(m *manifest.Manifest) (map[string]*tilePreview, []string, []*m
 
 // tileScanPreviewImages reads the binary drawables named like a preview in the module's resource folders, as
 // checkBinaryResource does in a Wear project.
+// tilePreviewFlags is what the drawable scan found for one preview name.
+type tilePreviewFlags struct {
+	round, square, wrongRatio, small bool
+}
+
+// slotTilePreviewScan memoizes the drawable scan per manifest, which both preview rules need.
+const slotTilePreviewScan = "lintTilePreviewScan"
+
 func tileScanPreviewImages(m *manifest.Manifest, previews map[string]*tilePreview) {
-	if len(previews) == 0 || m.Path == "" || !wearIsWearProject(m) {
+	if len(previews) == 0 || m.Path == "" {
 		return
 	}
-	for _, resDir := range tileModuleResDirs(m.Path) {
+	names := make([]string, 0, len(previews))
+	for name := range previews {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	scan := filefacts.StringFact(fileFactsCache(), m.Path+"\x00"+strings.Join(names, ","), slotTilePreviewScan,
+		func() map[string]tilePreviewFlags { return tileScanDrawables(m, names) })
+	for name, flags := range scan {
+		p := previews[name]
+		p.round, p.square, p.wrongRatio, p.small = flags.round, flags.square, flags.wrongRatio, flags.small
+	}
+}
+
+// tileScanDrawables reads the preview images of a Wear module's drawable folders, in every res directory the module
+// merges.
+func tileScanDrawables(m *manifest.Manifest, names []string) map[string]tilePreviewFlags {
+	out := map[string]tilePreviewFlags{}
+	if !wearIsWearProject(m) {
+		return out
+	}
+	wanted := map[string]bool{}
+	for _, n := range names {
+		wanted[n] = true
+	}
+	for _, resDir := range android.ManifestModuleResDirs(m.Path) {
 		folders, err := os.ReadDir(resDir)
 		if err != nil {
 			continue
@@ -138,10 +173,11 @@ func tileScanPreviewImages(m *manifest.Manifest, previews map[string]*tilePrevie
 				name := f.Name()
 				ext := filepath.Ext(name)
 				// Lint 32.4.1 does not match a nine-patch foo.9.png to the preview foo (recorded in nine_patch).
-				p := previews[strings.TrimSuffix(name, ext)]
-				if p == nil || f.IsDir() || strings.EqualFold(ext, ".xml") {
+				key := strings.TrimSuffix(name, ext)
+				if !wanted[key] || f.IsDir() || strings.EqualFold(ext, ".xml") {
 					continue
 				}
+				p := out[key]
 				w, h, ok := tileImageSize(filepath.Join(resDir, folder.Name(), name), ext)
 				if !ok {
 					continue
@@ -152,41 +188,22 @@ func tileScanPreviewImages(m *manifest.Manifest, previews map[string]*tilePrevie
 				if w < tilePreviewMinSize || h < tilePreviewMinSize {
 					p.small = true
 				}
+				// Lint tests the folder name with contains("round"), so drawable-notround counts as round too.
 				if strings.Contains(folder.Name(), "round") {
 					p.round = true
 				} else {
 					p.square = true
 				}
+				out[key] = p
 			}
 		}
 	}
+	return out
 }
 
 // tileIsDrawableFolder reports a drawable resource folder: drawable or drawable-<qualifiers>.
 func tileIsDrawableFolder(name string) bool {
 	return name == "drawable" || strings.HasPrefix(name, "drawable-")
-}
-
-// tileModuleResDirs lists the res directories of every non-test source set of the manifest's module, which make up
-// Lint's project resource folders.
-func tileModuleResDirs(manifestPath string) []string {
-	dir := filepath.Dir(manifestPath)
-	if filepath.Base(filepath.Dir(dir)) != "src" {
-		return []string{filepath.Join(dir, "res")}
-	}
-	sets, err := os.ReadDir(filepath.Dir(dir))
-	if err != nil {
-		return nil
-	}
-	var out []string
-	for _, set := range sets {
-		// Lint's project resources leave out the test source sets.
-		if set.IsDir() && !scanner.IsTestSourceSetName(set.Name()) {
-			out = append(out, filepath.Join(filepath.Dir(dir), set.Name(), "res"))
-		}
-	}
-	sort.Strings(out)
-	return out
 }
 
 // tileImageSize reads an image header as javax.imageio does for the formats Lint's classpath supports. A WebP file has
@@ -268,7 +285,12 @@ func (r *StartActivityAndCollapseDeprecatedRule) check(ctx *api.Context) {
 	}
 	// Lint reports a warning below target SDK 34 (where the call still works) and an error from 34 on.
 	severity := ""
-	if lintTargetSdk(ctx) < tileUpsideDownCakeSdk {
+	// The file's own module decides, as Lint checks each module with its own target SDK.
+	target := android.ResolveSDKLevels(file.Path).TargetSdk
+	if target <= 0 {
+		target = lintTargetSdk(ctx)
+	}
+	if target < tileUpsideDownCakeSdk {
 		severity = "warning"
 	}
 	ctx.Emit(lintFindingAtNode(ctx, call.Args[0], severity, tileCollapseMessage))
@@ -277,27 +299,48 @@ func (r *StartActivityAndCollapseDeprecatedRule) check(ctx *api.Context) {
 // tileCallOnTileService reports whether the call resolves to a method of TileService or one of its subclasses.
 func tileCallOnTileService(ctx *api.Context, call lintCall) bool {
 	file := ctx.File
-	if call.ReceiverNode != 0 && strings.TrimSpace(call.ReceiverText) != "this" {
-		if lintReceiverIsType(ctx, call, tileServiceFQN) {
-			return true
-		}
-		typ := lintReceiverTypeText(file, call)
-		decl := lintSameFileClass(file, typ)
-		return decl != 0 && lintHasSupertype(file, decl, []string{tileServiceFQN}, false, 0)
+	recv := strings.TrimSpace(call.ReceiverText)
+	if call.ReceiverNode == 0 || recv == "this" || recv == "super" || strings.HasPrefix(recv, "this@") ||
+		strings.HasSuffix(recv, ".this") {
+		// `super.`, a labeled `this@Tile.` and Java's `Outer.this.` name an enclosing class, as an implicit receiver does.
+		return tileImplicitReceiverIsTileService(file, call)
 	}
-	// An implicit (or `this`) receiver is the innermost enclosing class that declares the method or extends
-	// TileService; object literals, anonymous classes and inner classes defer to the class around them.
+	typ := lintTrimGenerics(lintReceiverTypeText(file, call))
+	if typ == "TileService" && !lintTypeRefMatches(file, typ, tileServiceFQN) {
+		// A bare TileService with no import, star import or same-file class may be a class of the file's package.
+		return false
+	}
+	if lintReceiverIsType(ctx, call, tileServiceFQN) {
+		return true
+	}
+	decl := lintSameFileClass(file, typ)
+	return decl != 0 && lintHasSupertype(file, decl, []string{tileServiceFQN}, false, 0)
+}
+
+// tileImplicitReceiverIsTileService resolves an implicit receiver: the innermost enclosing scope that can supply the
+// method. An extension function decides from its receiver type, a receiver lambda from its receiver, and a class from
+// whether it extends TileService; object literals, anonymous classes and inner classes defer to the class around
+// them.
+func tileImplicitReceiverIsTileService(file *scanner.File, call lintCall) bool {
+	unqualified := call.ReceiverNode == 0
 	for cur, ok := file.FlatParent(call.Idx); ok; cur, ok = file.FlatParent(cur) {
 		switch file.FlatType(cur) {
 		case "lambda_literal":
-			// with(x) { }, x.apply { } and x.run { } give the lambda another implicit receiver.
-			if tileIsReceiverLambda(file, cur) {
+			// with(x) { }, x.apply { } and x.run { } give the lambda another implicit receiver; plain run { } does not.
+			if recv, ok := tileReceiverLambdaReceiver(file, cur); ok && !tileIsIntentValue(file, recv) {
 				return false
 			}
 		case "function_declaration", "method_declaration":
-			// A local function of the same name shadows the member.
-			if tileDeclaresLocalFunction(file, cur, tileCollapseMethod) {
+			// A local function of the same name shadows the member for an unqualified call; `this.` still names it.
+			if unqualified && tileDeclaresLocalFunction(file, cur, tileCollapseMethod) {
 				return false
+			}
+			if ext := tileExtensionReceiverType(file, cur); ext != "" {
+				if lintTypeRefMatches(file, ext, tileServiceFQN) {
+					return true
+				}
+				decl := lintSameFileClass(file, ext)
+				return decl != 0 && lintHasSupertype(file, decl, []string{tileServiceFQN}, false, 0)
 			}
 		case "class_declaration", "object_declaration", "object_literal", "object_creation_expression", "enum_declaration":
 			if file.FlatType(cur) == "object_creation_expression" {
@@ -316,26 +359,77 @@ func tileCallOnTileService(ctx *api.Context, call lintCall) bool {
 	return false
 }
 
+// tileExtensionReceiverType returns the receiver type of a Kotlin extension function (`fun T.f()`), or "".
+func tileExtensionReceiverType(file *scanner.File, fn uint32) string {
+	if file.FlatType(fn) != "function_declaration" {
+		return ""
+	}
+	for c := file.FlatFirstChild(fn); c != 0; c = file.FlatNextSib(c) {
+		switch file.FlatType(c) {
+		case "user_type", "nullable_type":
+			if next := file.FlatNextSib(c); next != 0 && file.FlatNodeText(next) == "." {
+				return lintTrimGenerics(strings.TrimSuffix(strings.TrimSpace(file.FlatNodeText(c)), "?"))
+			}
+		case "simple_identifier", "function_value_parameters":
+			return ""
+		}
+	}
+	return ""
+}
+
+// tileIsIntentValue reports an expression proven to be an Intent: a constructor call or a variable declared as one.
+// An Intent has no startActivityAndCollapse, so a scope lambda on it leaves the call to the enclosing receiver.
+func tileIsIntentValue(file *scanner.File, n uint32) bool {
+	if n == 0 {
+		return false
+	}
+	for n != 0 && file.FlatType(n) == "parenthesized_expression" {
+		n = file.FlatNamedChild(n, 0)
+	}
+	switch file.FlatType(n) {
+	case "call_expression":
+		c, ok := lintCallAt(file, n)
+		return ok && c.Name == "Intent" && lintTypeRefMatches(file, c.TypeText, tileIntentFQN)
+	case "simple_identifier":
+		return lintTypeRefMatches(file, lintDeclaredTypeText(file, n, file.FlatNodeText(n)), tileIntentFQN)
+	}
+	return false
+}
+
 // tileReceiverScopeFunctions are the standard functions whose lambda runs with a new implicit receiver.
 var tileReceiverScopeFunctions = map[string]bool{"with": true, "apply": true, "run": true}
 
-// tileIsReceiverLambda reports a lambda passed to with, apply or run.
-func tileIsReceiverLambda(file *scanner.File, lambda uint32) bool {
+// tileReceiverLambdaReceiver reports a lambda passed to with(x), x.apply or x.run, and returns x. A plain run { }
+// has no receiver, so it is not one.
+func tileReceiverLambdaReceiver(file *scanner.File, lambda uint32) (uint32, bool) {
 	for cur, ok := file.FlatParent(lambda); ok; cur, ok = file.FlatParent(cur) {
 		switch file.FlatType(cur) {
 		case "annotated_lambda", "call_suffix", "value_argument", "value_arguments":
 			continue
 		case "call_expression":
-			name := flatCallExpressionName(file, cur)
 			// `with(x) { }` parses as a call whose callee is the call `with(x)`.
+			target := cur
 			if inner := file.FlatFirstChild(cur); file.FlatType(inner) == "call_expression" {
-				name = flatCallExpressionName(file, inner)
+				target = inner
 			}
-			return tileReceiverScopeFunctions[name]
+			c, ok := lintCallAt(file, target)
+			if !ok || !tileReceiverScopeFunctions[c.Name] {
+				return 0, false
+			}
+			if c.Name == "with" {
+				if len(c.Args) > 0 {
+					return c.Args[0], true
+				}
+				return 0, true
+			}
+			if c.ReceiverNode == 0 {
+				return 0, false
+			}
+			return c.ReceiverNode, true
 		}
-		return false
+		return 0, false
 	}
-	return false
+	return 0, false
 }
 
 // tileDeclaresLocalFunction reports a function declared directly in fn's body under name.
@@ -401,6 +495,10 @@ func tileNearestDeclaration(file *scanner.File, ref uint32, name string) (typ st
 				if file.FlatStartByte(decl) >= file.FlatStartByte(ref) {
 					return
 				}
+				// Only a local whose block holds the reference is in scope there.
+				if block, ok := file.FlatParent(decl); !ok || file.FlatStartByte(ref) >= file.FlatEndByte(block) {
+					return
+				}
 				for _, v := range []string{"variable_declaration", "variable_declarator"} {
 					if vd, ok := file.FlatFindChild(decl, v); ok && lintDeclaredName(file, vd) == name {
 						local = decl
@@ -451,6 +549,19 @@ func tileIsIntentExpr(ctx *api.Context, expr uint32, depth int) bool {
 	switch file.FlatType(expr) {
 	case "parenthesized_expression":
 		return tileIsIntentExpr(ctx, file.FlatNamedChild(expr, 0), depth+1)
+	case "this_expression":
+		// `Intent().apply { startActivityAndCollapse(this) }`: this is the scope lambda's Intent receiver.
+		for cur, ok := file.FlatParent(expr); ok; cur, ok = file.FlatParent(cur) {
+			switch file.FlatType(cur) {
+			case "lambda_literal":
+				if recv, ok := tileReceiverLambdaReceiver(file, cur); ok {
+					return tileIsIntentValue(file, recv)
+				}
+			case "function_declaration", "class_body":
+				return false
+			}
+		}
+		return false
 	case "simple_identifier", "identifier":
 		name := file.FlatNodeText(expr)
 		if typ, init, found := tileNearestDeclaration(file, expr, name); found {
@@ -467,12 +578,19 @@ func tileIsIntentExpr(ctx *api.Context, expr uint32, depth int) bool {
 		if !ok {
 			return false
 		}
-		if file.FlatType(expr) == "object_creation_expression" || (call.ReceiverNode == 0 && call.Name == "Intent") {
-			return lintTypeRefMatches(file, call.TypeText, tileIntentFQN)
+		// `Intent()`, `android.content.Intent()` or Java's `new Intent()`; a PendingIntent is another type.
+		if file.FlatType(expr) == "object_creation_expression" || call.Name == "Intent" {
+			if lintTypeRefMatches(file, call.TypeText, tileIntentFQN) {
+				return true
+			}
 		}
-		if tileIntentReturningMethods[call.Name] && call.ReceiverNode != 0 {
-			return tileIsIntentExpr(ctx, call.ReceiverNode, depth+1)
+		if tileIntentReturningMethods[call.Name] && call.ReceiverNode != 0 && tileIsIntentExpr(ctx, call.ReceiverNode, depth+1) {
+			return true
 		}
+	}
+	// With type information, any expression of type Intent: getIntent(), Intent.createChooser(...).
+	if typ, ok := semantics.ExpressionType(ctx, expr); ok && typ.FQN != "" {
+		return typ.FQN == tileIntentFQN
 	}
 	return false
 }

@@ -3218,6 +3218,14 @@ func xmlInputsFingerprint(host ProjectHostState, project *android.Project, kotli
 	// Module SDK levels come from build scripts the hashes above do not cover.
 	_, _ = h.Write([]byte{3})
 	_, _ = h.Write([]byte(sdkLevelsFingerprint(project)))
+	// Manifest rules read the res of every source set of a manifest's module (and a flat module's res), which
+	// project detection may not list in ResDirs.
+	_, _ = h.Write([]byte{4})
+	var moduleRes resDirFingerprints
+	for _, m := range manifests {
+		_, _ = h.Write([]byte(AndroidInput{Project: project}.manifestModuleFP(m, &moduleRes)))
+		_, _ = h.Write([]byte{0})
+	}
 	return hex.EncodeToString(h.Sum(nil))
 }
 

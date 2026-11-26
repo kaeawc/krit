@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"encoding/hex"
+	"os"
 	"path/filepath"
 	"sort"
 
@@ -74,33 +75,26 @@ func (in AndroidInput) manifestInputFP(path, contentHash string, resDirs *resDir
 }
 
 // manifestModuleFP fingerprints the files next to a manifest that its rules read: the res directories of the
-// module's non-test source sets (a variant manifest with no res of its own still reads main's, as the tile preview
-// checks do), the main manifest of a variant, and the build script.
+// module's non-test source sets (android.ManifestModuleResDirs, which the tile preview checks read too), whether or
+// not project detection listed them, the main manifest of a variant, and the build script.
 func (in AndroidInput) manifestModuleFP(manifestPath string, resDirs *resDirFingerprints) string {
 	h := hashutil.Hasher().New()
 	manifestDir := filepath.Dir(manifestPath)
 	srcDir := filepath.Dir(manifestDir)
-	inSourceSet := filepath.Base(srcDir) == "src"
-	if in.Project != nil {
-		res := filepath.Join(manifestDir, "res")
-		var dirs []string
-		for _, dir := range in.Project.ResDirs {
-			set := filepath.Dir(dir)
-			if dir == res || (inSourceSet && filepath.Base(dir) == "res" && filepath.Dir(set) == srcDir &&
-				!scanner.IsTestSourceSetName(filepath.Base(set))) {
-				dirs = append(dirs, dir)
-			}
+	for _, dir := range android.ManifestModuleResDirs(manifestPath) {
+		_, _ = h.Write([]byte(dir))
+		_, _ = h.Write([]byte{0})
+		if info, err := os.Stat(dir); err == nil && info.IsDir() {
+			_, _ = h.Write([]byte(resDirs.dirFingerprint(dir)))
+		} else {
+			// A stable marker, so creating the directory changes the key.
+			_, _ = h.Write([]byte("absent"))
 		}
-		sort.Strings(dirs)
-		for _, dir := range dirs {
-			_, _ = h.Write([]byte(dir))
-			_, _ = h.Write([]byte{0})
-			_, _ = h.Write([]byte(resDirs.fingerprint(dir)))
-		}
+		_, _ = h.Write([]byte{0})
 	}
 	_, _ = h.Write([]byte{0})
 	memo := hashutil.Default()
-	if inSourceSet && filepath.Base(manifestDir) != "main" {
+	if filepath.Base(srcDir) == "src" && filepath.Base(manifestDir) != "main" {
 		if sum, err := memo.HashFile(filepath.Join(srcDir, "main", "AndroidManifest.xml"), nil); err == nil {
 			_, _ = h.Write([]byte(sum))
 		}
@@ -229,6 +223,11 @@ func (in AndroidInput) androidProjectBundleFingerprint(needs androidPhaseNeeds, 
 	if needs.manifest {
 		if !writePathHashes(h, "manifest", in.Project.ManifestPaths) {
 			return "", false
+		}
+		// Manifest rules read the res of every source set of the module, listed in Project.ResDirs or not (the tile
+		// preview checks), so the module fingerprint of each manifest keys the bundle too.
+		for _, path := range in.Project.ManifestPaths {
+			h.Write([]byte("manifest-module\x00" + in.manifestModuleFP(path, resDirFPs) + "\x00"))
 		}
 	}
 	// Manifest rules also read the module's build script and res/ files from disk.

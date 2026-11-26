@@ -2,6 +2,7 @@ package hashutil
 
 import (
 	"os"
+	"sync"
 	"time"
 )
 
@@ -26,9 +27,22 @@ func StatTrusted(mtime, at time.Time) bool {
 // hash (or "unreadable"). Stat-keyed cache keys append it, so a racy file is
 // keyed by content while every other file keeps its existing key.
 // Directories have no content to hash and always return "".
+//
+// A stat that was racy once in this process stays keyed by content until the
+// stat changes. Otherwise a key computed before a long step (a FIR run) and
+// recomputed after it to detect edits during the step would differ only
+// because the file aged out of the window.
 func RacyContentToken(path string, info os.FileInfo) string {
-	if info.IsDir() || StatTrusted(info.ModTime(), time.Now()) {
+	if info.IsDir() {
 		return ""
+	}
+	stamp := racyStamp{size: info.Size(), modNano: info.ModTime().UnixNano()}
+	if StatTrusted(info.ModTime(), racyNow()) {
+		if seen, ok := racySeen.Load(path); !ok || seen.(racyStamp) != stamp {
+			return ""
+		}
+	} else {
+		racySeen.Store(path, stamp)
 	}
 	hx, err := Default().HashFile(path, nil)
 	if err != nil {
@@ -36,3 +50,15 @@ func RacyContentToken(path string, info os.FileInfo) string {
 	}
 	return hx
 }
+
+// racyStamp is the stat RacyContentToken last keyed a path by content under.
+type racyStamp struct{ size, modNano int64 }
+
+var (
+	// racySeen maps a path to the racy stat it was keyed under; at most one
+	// entry per path, for the life of the process.
+	racySeen sync.Map
+	// racyNow is the clock RacyContentToken judges stats against; tests
+	// advance it to age a file out of the window.
+	racyNow = time.Now
+)

@@ -131,7 +131,18 @@ plan_checks() {
 # test_targets prints `go test` arguments for the test check, one package
 # per line; non-package lines are `-run` filters handled by run_test.
 test_targets() {
-	changed_packages <<<"$CHANGED"
+	# tests/parity holds many slow FIR/daemon tests (CI runs selected ones
+	# with -timeout 30m); run only the Test functions in changed files.
+	changed_packages <<<"$CHANGED" | grep -vx './tests/parity' || true
+	if has_match '^tests/parity/'; then
+		local names
+		names=$(parity_test_names)
+		if [ -n "$names" ]; then
+			printf 'parity:%s\n' $names
+		else
+			echo parity-all
+		fi
+	fi
 	if has_match '^tests/fixtures/|^internal/rules/'; then
 		echo ./internal/rules
 	fi
@@ -140,6 +151,15 @@ test_targets() {
 	if has_match '^tests/fixtures/|^internal/rules/|^tools/krit-fir/compiler-tests/'; then
 		echo 'parity:TestFirGoldenGoLines'
 	fi
+}
+
+# parity_test_names prints the Test functions declared in changed
+# tests/parity/*_test.go files that still exist.
+parity_test_names() {
+	local f
+	grep -E '^tests/parity/[^/]+_test\.go$' <<<"$CHANGED" | while IFS= read -r f; do
+		[ -f "$f" ] && grep -oE '^func Test[A-Za-z0-9_]+\(t \*testing\.T\)' "$f" | sed -E 's/^func (Test[A-Za-z0-9_]+).*/\1/'
+	done | sort -u
 }
 
 # --- running ----------------------------------------------------------------
@@ -264,22 +284,26 @@ run_gomod() {
 
 run_test() {
 	step "go test (changed packages)"
-	local targets pkgs=() runs=() t
+	local targets pkgs=() runs=() t parity_all=0
 	targets=$(test_targets | sort -u)
 	while IFS= read -r t; do
 		[ -n "$t" ] || continue
 		case "$t" in
 			parity:*) runs+=("${t#parity:}") ;;
+			parity-all) parity_all=1 ;;
 			*) [ -n "$(find "${t#./}" -maxdepth 1 -name '*_test.go' -print -quit)" ] && pkgs+=("$t") ;;
 		esac
 	done <<<"$targets"
 	if [ "${#pkgs[@]}" -gt 0 ]; then
 		bash scripts/go-test.sh "${pkgs[@]}" || fail test "Fix the failing tests above."
 	fi
-	for t in "${runs[@]+"${runs[@]}"}"; do
-		bash scripts/go-test.sh ./tests/parity -run "^${t}\$" -count=1 ||
-			fail test "$t failed; if the Go rule change is intended, regenerate with KRIT_UPDATE_GO_LINES=1."
-	done
+	if [ "$parity_all" = 1 ]; then
+		bash scripts/go-test.sh ./tests/parity -count=1 -timeout 30m || fail test "tests/parity failed."
+	elif [ "${#runs[@]}" -gt 0 ]; then
+		local IFS='|'
+		bash scripts/go-test.sh ./tests/parity -run "^(${runs[*]})\$" -count=1 -timeout 30m ||
+			fail test "tests/parity (${runs[*]}) failed; for TestFirGoldenGoLines, if the Go rule change is intended, regenerate with KRIT_UPDATE_GO_LINES=1."
+	fi
 }
 
 run_actions() {

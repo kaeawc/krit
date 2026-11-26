@@ -1,0 +1,10 @@
+# A tests/parity edit runs only the Test functions in the changed files
+# (-timeout 30m), not the whole slow FIR/daemon package.
+tests/parity/fir_golden_go_lines_test.go
+---
+merge
+gofmt
+build
+vet
+lint
+test parity:TestFindGoLinesHeaderPlacement parity:TestFirGoldenGoLines parity:TestFirGoldenGoLinesFixtureProject parity:TestFirGoldenGoLinesSingleFileProject parity:TestFirGoldenGoLinesTestWithoutAssertionNameTables parity:TestParseGoLines

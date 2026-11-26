@@ -29,8 +29,12 @@ make watch          # Re-run tests on file changes (requires fswatch)
 
 ## Pre-push Hook
 
-`make hooks` sets `git config core.hooksPath .githooks`. Worktrees share the
-setting, so one run covers every worktree of a clone. After that, every
+`make hooks` (`scripts/install-hooks.sh`) installs `.githooks/pre-push` and
+`.githooks/pre-commit` as small wrappers in the clone's shared hooks
+directory, so one run covers every worktree. It doesn't set
+`core.hooksPath`, which would silently disable hooks you already have. An
+existing hook with the same name is kept as `<name>.local` and runs first.
+`scripts/install-hooks.sh --uninstall` restores it. After that, every
 `git push` runs `scripts/pre-push.sh`. You can also run it any time with
 `make prepush`. It checks the files your branch changes since its merge-base
 with `origin/main`. Each check mirrors a CI job and runs only when the

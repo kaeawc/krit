@@ -20,13 +20,14 @@ vet:
 	go vet ./...
 
 # prepush runs the fast local mirror of CI over the files this branch changes
-# (see scripts/pre-push.sh). `make hooks` installs it as the git pre-push hook.
+# (see scripts/pre-push.sh). `make hooks` installs .githooks/pre-push and
+# .githooks/pre-commit for this clone and its worktrees, keeping any hook
+# already installed (scripts/install-hooks.sh).
 prepush:
 	bash scripts/pre-push.sh
 
 hooks:
-	git config core.hooksPath .githooks
-	@echo "Installed .githooks (pre-commit, pre-push). Bypass once with git push --no-verify."
+	bash scripts/install-hooks.sh
 
 # lint-rules enforces static gates against the rules package (all run
 # inside TestRulesPackageHasNoCapabilityDrift via the shared Analyze pass):

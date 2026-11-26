@@ -2,9 +2,9 @@
 # Fast local gate that mirrors the cheap CI jobs (.github/workflows/ci.yml)
 # for the files a branch changes. .githooks/pre-push runs it on every push;
 # `make prepush` runs it by hand. Install the hook once per clone (worktrees
-# share the setting):
+# share it; hooks already installed keep running):
 #
-#   make hooks            # git config core.hooksPath .githooks
+#   make hooks            # scripts/install-hooks.sh
 #
 # Checks, each only when the changed files make it relevant:
 #

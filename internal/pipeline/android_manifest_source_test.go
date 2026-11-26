@@ -269,6 +269,10 @@ func TestManifestSourcePass_InvalidatesOnBuildFilesOutsideTheScan(t *testing.T) 
 		library     = "plugins { id(\"com.android.library\") }\n"
 		application = "plugins {\n    id(\"com.android.application\")\n}\n"
 	)
+	const catalogRel = "gradle/libs.versions.toml"
+	catalogOf := func(id string) string {
+		return "[plugins]\nandroid-application = { id = \"" + id + "\", version = \"8.5.0\" }\n"
+	}
 	// edit writes body to rel; want is the finding count after it, and unkeyed marks a file no rule reads, whose edit
 	// must leave the findings-bundle key alone.
 	type edit struct {
@@ -302,6 +306,10 @@ func TestManifestSourcePass_InvalidatesOnBuildFilesOutsideTheScan(t *testing.T) 
 	if rule == nil {
 		t.Fatal("ProviderReadPermissionOnly is not registered")
 	}
+	catalogApp := []edit{
+		{appBuildRel, "plugins { alias(libs.plugins.android.application) }\n\ndependencies {\n    implementation(project(\":feat\"))\n}\n", 0, false},
+		{catalogRel, catalogOf("com.android.application"), 0, false},
+	}
 	for _, test := range []struct {
 		name, featureDir string
 		// scanSettings adds the settings file to the scanned Gradle files.
@@ -309,29 +317,46 @@ func TestManifestSourcePass_InvalidatesOnBuildFilesOutsideTheScan(t *testing.T) 
 		// noSettings leaves out the settings file, and the scan holds no Gradle file: `krit app/src lib/src`.
 		noSettings bool
 		edits      []edit
+		// before is written before the cold run.
+		before []edit
 	}{
 		// A scan of only app/ and lib/.
-		{"intermediate module script", "feature", false, false, []edit{{"feature/build.gradle.kts", testOnly, 0, false}}},
-		{"settings file", "feature", false, false, []edit{{settingsRel, unmapped, 0, false}}},
+		{"intermediate module script", "feature", false, false, []edit{{"feature/build.gradle.kts", testOnly, 0, false}}, nil},
+		{"settings file", "feature", false, false, []edit{{settingsRel, unmapped, 0, false}}, nil},
 		// An explicit file list (or a git file list with feature/ ignored) that holds the settings file but not the
 		// intermediate module's script (#1800 third review).
 		{"settings scanned, intermediate module script not", "feature", true, false,
-			[]edit{{"feature/build.gradle.kts", testOnly, 0, false}}},
+			[]edit{{"feature/build.gradle.kts", testOnly, 0, false}}, nil},
 		// `krit .`: detection skips dot-directories, but the settings file maps a module into one.
 		{"module mapped into a dot-directory", ".modules/feature", true, false,
-			[]edit{{".modules/feature/build.gradle.kts", testOnly, 0, false}}},
+			[]edit{{".modules/feature/build.gradle.kts", testOnly, 0, false}}, nil},
 		// No settings file: the app's own build script decides whether it is an app (#1800 fourth review).
 		{"no settings file, app module turns library and back", "feature", false, true,
-			[]edit{{appBuildRel, library, 0, false}, {appBuildRel, application, 1, false}}},
+			[]edit{{appBuildRel, library, 0, false}, {appBuildRel, application, 1, false}}, nil},
 		// A build script created nearer the manifest takes over, so a missing candidate is keyed too.
 		{"no settings file, nearer build script created", "feature", false, true,
-			[]edit{{"app/src/build.gradle.kts", library, 0, false}}},
+			[]edit{{"app/src/build.gradle.kts", library, 0, false}}, nil},
 		// A build script that is no manifest's candidate and in no graph doesn't move the key.
 		{"no settings file, unrelated build script", "feature", false, true,
-			[]edit{{"tools/build.gradle.kts", library, 1, true}}},
+			[]edit{{"tools/build.gradle.kts", library, 1, true}}, nil},
+		// The app applies its plugin through a version-catalog alias, so the catalog decides whether it is an app:
+		// editing only the catalog, or creating one its search reaches first, must re-run the rule (#1800 fifth review).
+		{"version catalog plugin id", "feature", false, false,
+			[]edit{{catalogRel, catalogOf("com.android.library"), 0, false}, {catalogRel, catalogOf("com.android.application") + "\n", 1, false}},
+			catalogApp},
+		{"no settings file, version catalog plugin id", "feature", false, true,
+			[]edit{{catalogRel, catalogOf("com.android.library"), 0, false}}, catalogApp},
+		{"no settings file, nearer version catalog created", "feature", false, true,
+			[]edit{{"app/gradle/libs.versions.toml", catalogOf("com.android.library"), 0, false}}, catalogApp},
+		// A catalog no module's search reaches doesn't move the key.
+		{"no settings file, unrelated version catalog", "feature", false, true,
+			[]edit{{"tools/gradle/libs.versions.toml", catalogOf("com.android.library"), 1, true}}, catalogApp},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			p := setup(t, test.featureDir, test.noSettings)
+			for _, e := range test.before {
+				p.write(e.rel, e.body)
+			}
 			cacheDir := filepath.Join(p.dir, ".krit", "android-findings-cache")
 			project := &android.Project{
 				ManifestPaths: []string{p.path(appManRel), p.path(libManRel)},

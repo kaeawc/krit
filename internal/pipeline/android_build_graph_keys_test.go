@@ -3,6 +3,7 @@ package pipeline
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -125,6 +126,49 @@ func TestBuildFilesFingerprint_ManifestBuildScriptsWithoutSettings(t *testing.T)
 				t.Fatal("fingerprint failed")
 			}
 			write(test.rel, "plugins { id(\"com.android.library\") }\n")
+			hashutil.ResetDefault()
+			after, _ := buildFilesFingerprint(project, test.readsGraph)
+			if moved := after != before; moved != test.wantMove {
+				t.Fatalf("fingerprint moved = %v, want %v", moved, test.wantMove)
+			}
+		})
+	}
+}
+
+// ProviderReadPermissionOnly reads whether a module is an app from version-catalog plugin aliases too, so the graph
+// section keys every directory a manifest's catalog search globs, with its gradle/*.versions.toml matches (none
+// counts), and the matched catalogs' content. Catalogs off every search don't move it (#1800 fifth review).
+func TestBuildFilesFingerprint_VersionCatalogSearch(t *testing.T) {
+	const catalog = "[plugins]\nandroid-application = { id = \"com.android.application\", version = \"8.5.0\" }\n"
+	for _, test := range []struct {
+		name, libManifest string
+		readsGraph        bool
+		// existing catalogs are written before the first fingerprint.
+		existing []string
+		rel      string
+		wantMove bool
+	}{
+		{"root catalog created", buildGraphKeyProvider, true, nil, "gradle/libs.versions.toml", true},
+		{"root catalog edited", buildGraphKeyProvider, true, []string{"gradle/libs.versions.toml"}, "gradle/libs.versions.toml", true},
+		{"second root catalog created", buildGraphKeyProvider, true, []string{"gradle/libs.versions.toml"}, "gradle/more.versions.toml", true},
+		{"nearer module catalog created", buildGraphKeyProvider, true, []string{"gradle/libs.versions.toml"}, "app/gradle/libs.versions.toml", true},
+		{"catalog past the nearest match", buildGraphKeyProvider, true, []string{"app/gradle/libs.versions.toml", "lib/gradle/libs.versions.toml"}, "gradle/libs.versions.toml", false},
+		{"catalog off every search", buildGraphKeyProvider, true, nil, "tools/gradle/libs.versions.toml", false},
+		{"not a versions.toml", buildGraphKeyProvider, true, nil, "gradle/notes.toml", false},
+		{"no active rule reads the graph", buildGraphKeyProvider, false, nil, "gradle/libs.versions.toml", false},
+		{"no manifest needs the graph", "<manifest><application/></manifest>", true, nil, "gradle/libs.versions.toml", false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			project, write := buildGraphKeyProject(t, test.libManifest)
+			for _, rel := range test.existing {
+				write(rel, catalog)
+			}
+			hashutil.ResetDefault()
+			before, ok := buildFilesFingerprint(project, test.readsGraph)
+			if !ok {
+				t.Fatal("fingerprint failed")
+			}
+			write(test.rel, strings.Replace(catalog, "application\"", "library\"", 1))
 			hashutil.ResetDefault()
 			after, _ := buildFilesFingerprint(project, test.readsGraph)
 			if moved := after != before; moved != test.wantMove {

@@ -76,3 +76,21 @@ func TestManifestBuildScriptCandidatesCoverTheLookup(t *testing.T) {
 		t.Error("a build script past the last candidate is read")
 	}
 }
+
+// VersionCatalogSearch, which versionCatalogsFor and the cache keys share (#1800), globs from the module directory
+// upward and stops at the first directory with a catalog.
+func TestVersionCatalogSearchStopsAtTheNearestCatalog(t *testing.T) {
+	root := t.TempDir()
+	writeModuleFile(t, root, "gradle/libs.versions.toml", "")
+	writeModuleFile(t, root, "gradle/more.versions.toml", "")
+	writeModuleFile(t, root, "gradle/notes.toml", "")
+	module := filepath.Join(root, "group", "app")
+	searched, matches := VersionCatalogSearch(module, VersionCatalogGlob)
+	if want := []string{module, filepath.Dir(module), root}; strings.Join(searched, "|") != strings.Join(want, "|") {
+		t.Fatalf("searched = %v, want %v", searched, want)
+	}
+	want := []string{filepath.Join(root, "gradle", "libs.versions.toml"), filepath.Join(root, "gradle", "more.versions.toml")}
+	if strings.Join(matches, "|") != strings.Join(want, "|") {
+		t.Fatalf("matches = %v, want %v", matches, want)
+	}
+}

@@ -214,16 +214,27 @@ func normalizeCatalogKey(key string) string {
 
 // versionCatalogsFor loads the plugin tables of every gradle/*.versions.toml found at or above moduleDir.
 func versionCatalogsFor(moduleDir string) []map[string]string {
+	_, matches := VersionCatalogSearch(moduleDir, VersionCatalogGlob)
+	if len(matches) == 0 {
+		return nil
+	}
+	catalogs := make([]map[string]string, 0, len(matches))
+	for _, path := range matches {
+		catalogs = append(catalogs, loadCatalogPlugins(path))
+	}
+	return catalogs
+}
+
+// VersionCatalogSearch is the version-catalog search of a module directory: it globs, through glob, the
+// directories at and above moduleDir, nearest first and at most 12, and stops at the first with a catalog. It
+// returns the directories it globbed and that directory's catalogs, nil when none was found. A cache key over the
+// rules that read catalogs hashes both: a catalog created in a globbed directory changes what is read.
+func VersionCatalogSearch(moduleDir string, glob func(dir string) []string) (searched, matches []string) {
 	dir := moduleDir
 	for range 12 {
-		matches, _ := filepath.Glob(filepath.Join(dir, "gradle", "*.versions.toml"))
-		if len(matches) > 0 {
-			sort.Strings(matches)
-			catalogs := make([]map[string]string, 0, len(matches))
-			for _, path := range matches {
-				catalogs = append(catalogs, loadCatalogPlugins(path))
-			}
-			return catalogs
+		searched = append(searched, dir)
+		if matches := glob(dir); len(matches) > 0 {
+			return searched, matches
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
@@ -231,7 +242,14 @@ func versionCatalogsFor(moduleDir string) []map[string]string {
 		}
 		dir = parent
 	}
-	return nil
+	return searched, nil
+}
+
+// VersionCatalogGlob returns, sorted, the gradle/*.versions.toml catalogs of dir.
+func VersionCatalogGlob(dir string) []string {
+	matches, _ := filepath.Glob(filepath.Join(dir, "gradle", "*.versions.toml"))
+	sort.Strings(matches)
+	return matches
 }
 
 func loadCatalogPlugins(path string) map[string]string {

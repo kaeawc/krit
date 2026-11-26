@@ -582,8 +582,10 @@ All notable changes to Krit will be documented in this file.
   outside the scan re-runs them: `krit app lib`, an explicit file list, or a gitignored or dot-directory module. They
   also hash, present or missing, each manifest's own build-script candidates (`build.gradle.kts` and `build.gradle`
   in the four directories above it, where the rule reads whether a module is an app and its namespace), so a build
-  with no settings file scanned as `krit app/src lib/src` re-runs them when an app module's plugin changes. The graph
-  is discovered once per run and only when an active rule reads it.
+  with no settings file scanned as `krit app/src lib/src` re-runs them when an app module's plugin changes. They also
+  hash each module's version-catalog search (every directory it globs for `gradle/*.versions.toml`, with what it
+  found, and the catalogs found), so changing the plugin id behind an `alias(libs.plugins...)`, or creating a nearer
+  catalog, re-runs them too. The graph is discovered once per run and only when an active rule reads it.
 - `UnsafeNativeCodeLocation` reads the assets folders of every source set of the module (`src/debug/assets`,
   `src/<flavor>/assets`, ...) and the `res/raw*` folders of the other source sets' res directories, not only those
   beside `src/main/res`; test source sets are skipped. The resource cache key now covers those assets folders, so an

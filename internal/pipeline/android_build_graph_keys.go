@@ -49,6 +49,12 @@ func buildFilesFingerprint(project *android.Project, readsGraph bool) (string, b
 	}
 	_, _ = h.Write([]byte("scripts\x00"))
 	writeUnscannedFileHashes(h, memo, inputs.scripts, scanned)
+	// Every directory a catalog search globbed, with what it found: a catalog created in one changes what is read.
+	_, _ = h.Write([]byte("catalogs\x00"))
+	for _, c := range inputs.catalogDirs {
+		_, _ = h.Write([]byte(c.dir + "\x00" + strings.Join(c.matches, "\x00") + "\x01"))
+	}
+	writeUnscannedFileHashes(h, memo, inputs.catalogs, scanned)
 	return hex.EncodeToString(h.Sum(nil)), true
 }
 
@@ -78,11 +84,21 @@ type buildGraphLayout struct {
 }
 
 // buildGraphInputs is what the module-graph rules read from disk beyond the scan: the layout of every build that
-// holds a manifest they read the graph for, sorted by root, and the build-script candidates of every manifest
-// (rules.ManifestBuildScriptCandidates) that no layout lists, sorted.
+// holds a manifest they read the graph for, sorted by root; the build-script candidates of every manifest
+// (rules.ManifestBuildScriptCandidates) that no layout lists, sorted; and the version-catalog search of every
+// manifest's module directory (rules.VersionCatalogSearch), which can make a module an app through a plugin alias:
+// each globbed directory with its matches, sorted by directory, and the matched catalogs, sorted.
 type buildGraphInputs struct {
-	layouts []buildGraphLayout
-	scripts []string
+	layouts     []buildGraphLayout
+	scripts     []string
+	catalogDirs []catalogDir
+	catalogs    []string
+}
+
+// catalogDir is one directory a version-catalog search globbed and the catalogs it found there.
+type catalogDir struct {
+	dir     string
+	matches []string
 }
 
 // buildGraphMemo shares projectBuildGraphs between the findings-bundle and manifest-source keys of one run. An entry
@@ -156,6 +172,7 @@ func projectBuildGraphs(project *android.Project) buildGraphInputs {
 	inputs := buildGraphInputs{layouts: layouts}
 	if needed {
 		inputs.scripts = manifestScriptsOutsideGraphs(project.ManifestPaths, layouts)
+		inputs.catalogDirs, inputs.catalogs = manifestCatalogSearches(project.ManifestPaths)
 	}
 	buildGraphMemo.generation, buildGraphMemo.identity, buildGraphMemo.inputs, buildGraphMemo.valid =
 		generation, identity, inputs, true
@@ -182,4 +199,49 @@ func manifestScriptsOutsideGraphs(manifests []string, layouts []buildGraphLayout
 	}
 	sort.Strings(scripts)
 	return scripts
+}
+
+// manifestCatalogSearches runs the version-catalog search of every manifest's module directory, the directory of its
+// first build-script candidate that exists (lookupManifestGradleInfo's choice; which one that is, is keyed by the
+// candidates' hashes). Each directory is globbed and each module directory searched once.
+func manifestCatalogSearches(manifests []string) ([]catalogDir, []string) {
+	globbed := map[string][]string{}
+	glob := func(dir string) []string {
+		matches, ok := globbed[dir]
+		if !ok {
+			matches = rules.VersionCatalogGlob(dir)
+			globbed[dir] = matches
+		}
+		return matches
+	}
+	searched := map[string]bool{}
+	catalogSet := map[string]bool{}
+	for _, manifest := range manifests {
+		moduleDir := ""
+		for _, script := range rules.ManifestBuildScriptCandidates(manifest) {
+			if _, err := os.Stat(script); err == nil {
+				moduleDir = filepath.Dir(script)
+				break
+			}
+		}
+		if moduleDir == "" || searched[moduleDir] {
+			continue
+		}
+		searched[moduleDir] = true
+		_, matches := rules.VersionCatalogSearch(moduleDir, glob)
+		for _, catalog := range matches {
+			catalogSet[catalog] = true
+		}
+	}
+	dirs := make([]catalogDir, 0, len(globbed))
+	for dir, matches := range globbed {
+		dirs = append(dirs, catalogDir{dir: dir, matches: matches})
+	}
+	sort.Slice(dirs, func(i, j int) bool { return dirs[i].dir < dirs[j].dir })
+	catalogs := make([]string, 0, len(catalogSet))
+	for catalog := range catalogSet {
+		catalogs = append(catalogs, catalog)
+	}
+	sort.Strings(catalogs)
+	return dirs, catalogs
 }

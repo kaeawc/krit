@@ -13,8 +13,8 @@ All notable changes to Krit will be documented in this file.
 - Compose lint parity, first batch of [compose-lints](https://github.com/slackhq/compose-lints) 1.6.1 ports:
   `ComposeCompositionLocalUsage` (with the `allowedCompositionLocals` option) and `ComposeCompositionLocalGetter`,
   under their Lint IDs, messages and severities, experimental and off by default. `ComposeNamingUppercase` and
-  `ComposeNamingLowercase` are Lint aliases of the existing `ComposableNaming`, which gains compose-lints'
-  `allowedComposableFunctionNames` option. Findings are checked against the Lint CLI running compose-lint-checks
+  `ComposeNamingLowercase` map onto the existing `ComposableNaming`: suppressing either ID silences its casing direction,
+  and `ComposableNaming` gains compose-lints' `allowedComposableFunctionNames` option. Findings are checked against the Lint CLI running compose-lint-checks
   1.6.1 on the same inputs (#1332, #1333, #1334, #1335).
 - FIR sessions resolve Java sources: every `.java` file under the source dirs, generated source dirs and unpacked
   srcjars (same-module Java, view binding, BuildConfig, Wire-Java, kapt/KSP Java output) is given to K2 as a Java

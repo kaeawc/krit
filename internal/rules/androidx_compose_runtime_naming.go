@@ -4,13 +4,16 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/filefacts"
 	"github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
 // ComposableNamingRule ports runtime-lint's ComposableNaming: a @Composable function that returns Unit should
 // start with an uppercase letter, and one that returns a value should start with a lowercase letter. compose-lints'
-// ComposeNamingUppercase and ComposeNamingLowercase report the same casing and are Lint aliases of this rule.
+// ComposeNamingUppercase and ComposeNamingLowercase report the same casing, one direction each, so
+// @Suppress/@SuppressLint of either ID silences the findings of its direction (see composeNamingSuppressed). They are
+// not general aliases: a lint.xml that ignores a compose-lints ID leaves this AndroidX check on, as in Lint.
 type ComposableNamingRule struct {
 	FlatDispatchBase
 	BaseRule
@@ -143,14 +146,32 @@ func (r *ComposableNamingRule) check(ctx *api.Context) {
 	upper := acrFirstRuneIsUpper(name)
 	switch acrFunctionReturnKind(file, fn) {
 	case acrReturnUnit:
-		if !upper {
+		if !upper && !composeNamingSuppressed(file, nameNode, "ComposeNamingUppercase") {
 			ctx.EmitAtNode(nameNode, "Composable functions that return Unit should start with an uppercase letter")
 		}
 	case acrReturnValue:
-		if upper {
+		if upper && !composeNamingSuppressed(file, nameNode, "ComposeNamingLowercase") {
 			ctx.EmitAtNode(nameNode, "Composable functions with a return type should start with a lowercase letter")
 		}
 	}
+}
+
+// slotComposeNamingSuppressions caches a file's @Suppress/@SuppressLint index for composeNamingSuppressed.
+const slotComposeNamingSuppressions = "composeNamingSuppressions"
+
+// composeNamingSuppressed reports whether an @Suppress or @SuppressLint covering node names the compose-lints issue
+// for this casing direction.
+func composeNamingSuppressed(file *scanner.File, node uint32, lintID string) bool {
+	var idx *scanner.SuppressionIndex
+	if file.Suppression != nil {
+		idx = file.Suppression.Annotations()
+	}
+	if idx == nil {
+		idx = filefacts.FileFact(fileFactsCache(), file, slotComposeNamingSuppressions, func() *scanner.SuppressionIndex {
+			return scanner.BuildSuppressionIndexFlat(file.FlatTree, file.Content)
+		})
+	}
+	return idx != nil && idx.IsSuppressed(int(file.FlatStartByte(node)), lintID, "")
 }
 
 // checkJava applies the rule to a Java method annotated @Composable; `void` methods count as returning Unit.

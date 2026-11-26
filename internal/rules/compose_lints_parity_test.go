@@ -19,7 +19,8 @@ import (
 // (`RuleID.option = a, b`). known-false-negatives.txt lists Lint findings krit deliberately does not report (a
 // lint-1.6.1.txt line, then ` # reason`); krit must report exactly the remaining findings and nothing else.
 //
-// A case whose checks.txt names a krit rule that Lint IDs alias (alias.txt: `LintID = KritRuleID`) is compared on
+// A case whose checks.txt names a krit rule that reports Lint issues under its own ID (alias.txt: `LintID =
+// KritRuleID`) is compared on
 // locations only, since the krit rule keeps its own messages; krit-only.txt lists `path:line:column # reason` for
 // locations krit reports and Lint does not.
 func TestComposeLintsParity(t *testing.T) {

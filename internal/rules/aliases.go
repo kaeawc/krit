@@ -94,8 +94,6 @@ var extraLintAliases = map[string][]string{
 	"RequiresApiViolation": {"NewApi"},
 	// Lint renamed the issue; the old ID still suppresses it.
 	"SuspiciousIndentation": {"SuspiciousIndentAfterControlStatement"},
-	// compose-lints splits AndroidX's ComposableNaming into one issue per casing.
-	"ComposableNaming": {"ComposeNamingLowercase", "ComposeNamingUppercase"},
 }
 
 // LintSuppressionAliases returns the Android lint issue IDs that also suppress the rule: the ID without

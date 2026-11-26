@@ -207,9 +207,12 @@ func TestXMLInputsFingerprint_TracksXMLInputs(t *testing.T) {
 	manifest := write("app/src/main/AndroidManifest.xml", "<manifest package=\"a\"/>")
 	write("app/src/main/res/layout/main.xml", bundleXMLWithoutHelper)
 	write("app/src/main/res/values/strings.xml", "<resources><string name=\"a\">A</string></resources>")
+	// Manifest and manifest-source rules read Groovy build scripts, which are not source files (#1625 review).
+	build := write("app/build.gradle", "dependencies {\n    implementation project(':lib')\n}\n")
 	project := &android.Project{
 		ManifestPaths: []string{manifest},
 		ResDirs:       []string{filepath.Join(dir, "app/src/main/res")},
+		GradlePaths:   []string{build},
 	}
 	host := ProjectHostState{}
 	fp := func() string { return xmlInputsFingerprint(host, project, []string{kt}) }
@@ -225,6 +228,7 @@ func TestXMLInputsFingerprint_TracksXMLInputs(t *testing.T) {
 		{"layout", "app/src/main/res/layout/main.xml", bundleXMLWithHelper},
 		{"manifest", "app/src/main/AndroidManifest.xml", "<manifest package=\"b\"/>"},
 		{"values resource", "app/src/main/res/values/strings.xml", "<resources><string name=\"b\">B</string></resources>"},
+		{"build script", "app/build.gradle", "dependencies {\n}\n"},
 	} {
 		write(tc.path, tc.body)
 		if got := fp(); got == base {
@@ -236,6 +240,8 @@ func TestXMLInputsFingerprint_TracksXMLInputs(t *testing.T) {
 			write(tc.path, bundleXMLWithoutHelper)
 		case "manifest":
 			write(tc.path, "<manifest package=\"a\"/>")
+		case "build script":
+			write(tc.path, "dependencies {\n    implementation project(':lib')\n}\n")
 		default:
 			write(tc.path, "<resources><string name=\"a\">A</string></resources>")
 		}

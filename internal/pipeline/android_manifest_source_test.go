@@ -167,6 +167,89 @@ func TestManifestSourcePass_CachesAndInvalidatesOnEitherInput(t *testing.T) {
 	step("source edit unparsed", false, 1, 1)
 }
 
+// TestManifestSourcePass_InvalidatesOnGroovyBuildScriptEdit pins #1625 review: ProviderReadPermissionOnly reads the
+// app's Groovy build.gradle (not a source file) to decide whether a library provider reaches the merged manifest, so
+// the manifest-source key must cover the project's build scripts. Every warm result must equal a cache-free run.
+func TestManifestSourcePass_InvalidatesOnGroovyBuildScriptEdit(t *testing.T) {
+	const (
+		appBuildRel = "app/build.gradle"
+		libBuildRel = "lib/build.gradle.kts"
+		settingsRel = "settings.gradle.kts"
+		appManRel   = "app/src/main/AndroidManifest.xml"
+		libManRel   = "lib/src/main/AndroidManifest.xml"
+		providerRel = "lib/src/main/java/com/example/lib/NotesProvider.kt"
+		depends     = "plugins { id 'com.android.application' }\n\ndependencies {\n    implementation project(':lib')\n}\n"
+		independent = "plugins { id 'com.android.application' }\n"
+	)
+	p := &manifestSourceProject{t: t, dir: t.TempDir()}
+	p.write(settingsRel, "include(\":app\", \":lib\")\n")
+	p.write(appBuildRel, depends)
+	p.write(libBuildRel, "plugins { id(\"com.android.library\") }\n")
+	p.write(appManRel, "<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\" package=\"com.example.app\">\n    <application />\n</manifest>\n")
+	p.write(libManRel, "<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\" package=\"com.example.lib\">\n    <application>\n        <provider android:name=\".NotesProvider\" android:authorities=\"a\" android:readPermission=\"com.example.READ\" />\n    </application>\n</manifest>\n")
+	p.write(providerRel, `package com.example.lib
+
+import android.content.ContentProvider
+import android.content.ContentValues
+import android.net.Uri
+
+class NotesProvider : ContentProvider() {
+    override fun insert(uri: Uri, values: ContentValues?): Uri? = uri
+}
+`)
+	var rule *api.Rule
+	for _, r := range api.Registry {
+		if r.ID == "ProviderReadPermissionOnly" {
+			rule = r
+		}
+	}
+	if rule == nil {
+		t.Fatal("ProviderReadPermissionOnly is not registered")
+	}
+	cacheDir := filepath.Join(p.dir, ".krit", "android-findings-cache")
+	run := func(cacheDir string) int {
+		t.Helper()
+		hashutil.ResetDefault()
+		writer := scanner.NewAndroidCacheWriter(2)
+		res, err := (AndroidPhase{}).Run(context.Background(), AndroidInput{
+			Project: &android.Project{
+				ManifestPaths: []string{p.path(appManRel), p.path(libManRel)},
+				GradlePaths:   []string{p.path(settingsRel), p.path(appBuildRel), p.path(libBuildRel)},
+			},
+			ActiveRules:    []*api.Rule{rule},
+			Dispatcher:     rules.NewDispatcher([]*api.Rule{rule}, nil),
+			SourceFiles:    []*scanner.File{parseKotlinForTest(t, p.path(providerRel), readFile(t, p.path(providerRel)))},
+			SourcePaths:    []string{p.path(providerRel)},
+			RuleHash:       "test-rule-hash",
+			LibraryFactsFP: "test-lf",
+			CacheDir:       cacheDir,
+			CacheWriter:    writer,
+		})
+		if err != nil {
+			t.Fatalf("AndroidPhase.Run: %v", err)
+		}
+		if err := writer.Close(); err != nil {
+			t.Fatal(err)
+		}
+		return res.Findings.Len()
+	}
+	step := func(label string, want int) {
+		t.Helper()
+		if got := run(""); got != want {
+			t.Fatalf("%s: cache-free findings = %d, want %d", label, got, want)
+		}
+		if got := run(cacheDir); got != want {
+			t.Fatalf("%s: warm findings = %d, cache-free %d", label, got, want)
+		}
+	}
+	step("cold", 1)
+	step("warm unchanged", 1)
+	p.write(appBuildRel, independent)
+	step("dependency removed", 0)
+	p.write(appBuildRel, depends)
+	step("dependency restored", 1)
+}
+
 func TestManifestSourceRules_SkipTheCrossFilePhase(t *testing.T) {
 	var calls int64
 	rule := manifestSourceJoinRule(&calls)

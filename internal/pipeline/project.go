@@ -3166,15 +3166,16 @@ func fileSetPaths(files []*scanner.File) []string {
 // xmlInputsFingerprint hashes the XML inputs that feed cross-file and Android
 // rules, so the findings bundle cannot outlive an XML-only edit (layouts,
 // manifests and navigation graphs contribute class references to the code
-// index; manifests and res/ directories feed the Android rules). It returns
-// "" when the project has none, which keeps the bundle key unchanged for
-// projects without XML.
+// index; manifests and res/ directories feed the Android rules), plus the
+// build scripts the manifest rules read next to them. It returns "" when the
+// project has no XML, which keeps the bundle key unchanged for projects
+// without XML.
 //
 // The class-reference XML set comes from the host's resident XMLFilesLoader
 // when wired, so a warm daemon run re-reads nothing until the watcher bumps
-// the XML version. The manifests and res/ directories are hashed through the
-// stat-keyed hashutil memo, which re-reads only files whose size or mtime
-// moved. kotlinPaths only locates the module roots for the XML walk.
+// the XML version. The manifests, res/ directories and build scripts are
+// hashed through the stat-keyed hashutil memo, which re-reads only files
+// whose size or mtime moved. kotlinPaths only locates the module roots for the XML walk.
 func xmlInputsFingerprint(host ProjectHostState, project *android.Project, kotlinPaths []string) string {
 	build := func() []*scanner.XMLCacheFile {
 		return scanner.LoadXMLFilesForCache(filesForPaths(kotlinPaths, scanner.LangKotlin))
@@ -3215,6 +3216,14 @@ func xmlInputsFingerprint(host ProjectHostState, project *android.Project, kotli
 	// Module SDK levels come from build scripts the hashes above do not cover.
 	_, _ = h.Write([]byte{3})
 	_, _ = h.Write([]byte(sdkLevelsFingerprint(project)))
+	// Manifest and manifest-source rules also read the build scripts themselves (plugins, namespace, project
+	// dependencies), and a Groovy build.gradle is not a source file the SourceSet hash covers (#1625).
+	if project != nil && len(project.GradlePaths) > 0 {
+		_, _ = h.Write([]byte{4})
+		if !writePathHashes(h, "gradle", project.GradlePaths) {
+			_, _ = h.Write([]byte("\x00err"))
+		}
+	}
 	return hex.EncodeToString(h.Sum(nil))
 }
 

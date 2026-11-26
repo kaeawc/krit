@@ -5,6 +5,9 @@ All notable changes to Krit will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Module-shard FIR sessions (source-set isolation, per-settings-group sessions) put the upstream project outputs from
+  `--gradle-project-outputs` on the classpath, ahead of a jar at a conventional build path, instead of compiling those
+  projects from source again (#1681).
 - `UnusedMaterialScaffoldPaddingParameter`, `UnusedMaterial3ScaffoldPaddingParameter`, `ConflictingOnColor` and
   `UsingMaterialAndMaterial3Libraries`, ports of the Lint checks bundled with `androidx.compose.material` 1.13.0 and
   `androidx.compose.material3` 1.5.0, under their Lint IDs. Their findings match the Lint CLI running those releases'

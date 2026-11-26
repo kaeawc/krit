@@ -216,7 +216,7 @@ type SplitResult struct {
 // SettingsSplitter returns the FIR pass's per-settings-group recheck for a scan
 // of scanPaths, or nil when KRIT_MODULE_SHARDS=merged turns it off or the scan
 // reads no Gradle model. Arguments are those of Isolator.
-func SettingsSplitter(scanPaths []string, modelDir string, modelDisabled, noCache bool, logf func(string, ...any)) firchecks.SettingsSplitter {
+func SettingsSplitter(scanPaths []string, modelDir string, modelDisabled, noCache bool, outputs map[string][]string, logf func(string, ...any)) firchecks.SettingsSplitter {
 	if MergedOnly() || len(scanPaths) == 0 || (modelDir == "" && modelDisabled) {
 		return nil
 	}
@@ -243,13 +243,14 @@ func SettingsSplitter(scanPaths []string, modelDir string, modelDisabled, noCach
 			cacheDir = filepath.Join(fsutil.ProjectStateDir(repoDir), "module-facts", "settings-groups")
 		}
 		resp, rechecked, _, err := CheckSettingsGroups(ctx, Input{
-			ScanPaths:    scanPaths,
-			ModelDir:     modelDir,
-			JarPath:      jarPath,
-			JavaPath:     javaPath,
-			CacheDir:     cacheDir,
-			CheckRequest: request,
-			Logf:         logf,
+			ScanPaths:      scanPaths,
+			ModelDir:       modelDir,
+			ProjectOutputs: outputs,
+			JarPath:        jarPath,
+			JavaPath:       javaPath,
+			CacheDir:       cacheDir,
+			CheckRequest:   request,
+			Logf:           logf,
 		})
 		return resp, rechecked, err
 	}
@@ -318,7 +319,7 @@ func planSettingsSessions(in Input, model *gradlemodel.Model, repoRoot string, c
 		logf("verbose: FIR settings: 1 session (every source set shares its compiler settings)\n")
 		return nil, split
 	}
-	all, _ := Plan(model, repoRoot, in.ScanPaths)
+	all, _ := Plan(model, repoRoot, in.ScanPaths, in.ProjectOutputs)
 	addUserClasspath(all, model, check.classpath)
 	groups, left := groupBySettings(all)
 	split.Groups = len(groups)

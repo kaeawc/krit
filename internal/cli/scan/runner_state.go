@@ -879,8 +879,8 @@ func (r *runner) firPassOptions(parsed pipeline.ParseResult) firCheckerOpts {
 	if enabled {
 		checker := r.productionFIRChecker()
 		opts.Checker, opts.SourceDirs, opts.Classpath = checker, checker.SourceDirs, checker.Classpath
-		opts.Isolator = SourceSetIsolator(r.paths, *r.f.GradleModel, *r.f.NoGradleModel, *r.f.NoCache, verboseWriter(*r.f.Verbose))
-		opts.SettingsSplitter = SettingsSplitter(r.paths, *r.f.GradleModel, *r.f.NoGradleModel, *r.f.NoCache, verboseWriter(*r.f.Verbose))
+		opts.Isolator = SourceSetIsolator(r.paths, *r.f.GradleModel, *r.f.NoGradleModel, *r.f.NoCache, r.f.projectOutputs, verboseWriter(*r.f.Verbose))
+		opts.SettingsSplitter = SettingsSplitter(r.paths, *r.f.GradleModel, *r.f.NoGradleModel, *r.f.NoCache, r.f.projectOutputs, verboseWriter(*r.f.Verbose))
 	}
 	return opts
 }

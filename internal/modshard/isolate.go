@@ -27,7 +27,7 @@ func MergedOnly() bool { return os.Getenv(ShardsEnv) == "merged" }
 // explicit model directory ("" discovers one from the scan paths unless modelDisabled). Rechecked units
 // are cached by content under the project state directory, or in a directory removed after the recheck
 // when noCache is set.
-func Isolator(scanPaths []string, modelDir string, modelDisabled, noCache bool, logf func(string, ...any)) firchecks.SourceSetIsolator {
+func Isolator(scanPaths []string, modelDir string, modelDisabled, noCache bool, outputs map[string][]string, logf func(string, ...any)) firchecks.SourceSetIsolator {
 	if MergedOnly() || len(scanPaths) == 0 || (modelDir == "" && modelDisabled) {
 		return nil
 	}
@@ -54,13 +54,14 @@ func Isolator(scanPaths []string, modelDir string, modelDisabled, noCache bool, 
 			cacheDir = filepath.Join(fsutil.ProjectStateDir(repoDir), "module-facts", "source-sets")
 		}
 		return CheckIsolated(ctx, Input{
-			ScanPaths:    scanPaths,
-			ModelDir:     modelDir,
-			JarPath:      jarPath,
-			JavaPath:     javaPath,
-			CacheDir:     cacheDir,
-			CheckRequest: request,
-			Logf:         logf,
+			ScanPaths:      scanPaths,
+			ModelDir:       modelDir,
+			ProjectOutputs: outputs,
+			JarPath:        jarPath,
+			JavaPath:       javaPath,
+			CacheDir:       cacheDir,
+			CheckRequest:   request,
+			Logf:           logf,
 		}, gated)
 	}
 }
@@ -87,7 +88,7 @@ func CheckIsolated(ctx context.Context, in Input, gated []string) ([]byte, []str
 	if model == nil {
 		return nil, nil, nil
 	}
-	all, _ := Plan(model, repoRoot, in.ScanPaths)
+	all, _ := Plan(model, repoRoot, in.ScanPaths, in.ProjectOutputs)
 	units, skipped, unowned := isolationUnits(all, gated)
 	variants, beyond := variantUnits(model, all, skipped, unowned)
 	units = append(units, variants...)

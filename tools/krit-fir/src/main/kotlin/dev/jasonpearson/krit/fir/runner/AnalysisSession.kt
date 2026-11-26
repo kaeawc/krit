@@ -929,7 +929,11 @@ class AnalysisSession(
      */
     internal fun excludedFromJvmCompilation(path: String): Boolean {
         if (!hasSourceSetRoot) return false
-        var dir = File(path).absoluteFile.normalize().parentFile
+        val parent = File(path).absoluteFile.normalize().parentFile ?: return false
+        // A file under a sent root is in the compilation, whatever the layout above that root (an exported
+        // Bazel model sends package directories such as data/src/main/kotlin/d).
+        if (generateSequence(parent) { it.parentFile }.any { canonicalOrSelf(it) in canonicalSourceDirs }) return false
+        var dir: File? = parent
         while (dir != null) {
             if (isSourceSetRoot(dir)) return canonicalOrSelf(dir) !in canonicalSourceDirs
             dir = dir.parentFile

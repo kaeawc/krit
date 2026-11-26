@@ -240,6 +240,10 @@ var javaSupportReadiness = JavaSupportMatrix{
 		"TextConcatSpace":                         {Status: api.LanguageSupportSupported, Fixtures: []string{"tests/fixtures/android-lint/TextConcatSpace/positive"}},
 		"WrongCommentType":                        {Status: api.LanguageSupportSupported, Fixtures: []string{"tests/fixtures/android-lint/WrongCommentType/positive"}},
 		"CustomSplashScreen":                      {Status: api.LanguageSupportSupported, Fixtures: []string{"tests/fixtures/android-lint/CustomSplashScreen/positive"}},
+		"RecyclerView":                            {Status: api.LanguageSupportSupported, Fixtures: []string{"tests/fixtures/android-lint/RecyclerView/positive"}},
+		"FindViewByIdCast":                        {Status: api.LanguageSupportSupported, Fixtures: []string{"tests/fixtures/android-lint/FindViewByIdCast/positive"}},
+		"RemoteViewLayout":                        {Status: api.LanguageSupportSupported, Fixtures: []string{"tests/fixtures/android-lint/RemoteViewLayout/positive"}},
+		"DefaultUncaughtExceptionDelegation":      {Status: api.LanguageSupportSupported, Fixtures: []string{"tests/fixtures/android-lint/DefaultUncaughtExceptionDelegation/positive"}},
 	},
 }
 

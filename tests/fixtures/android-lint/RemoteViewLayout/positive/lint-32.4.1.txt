@@ -1,0 +1,2 @@
+src/main/java/com/example/remoteviewlayout/JWidget.java:8:16: RemoteViewLayout: `@layout/widget` includes views not allowed in a `RemoteView`: CheckBox, EditText, SeekBar, android.widget.Space
+src/main/java/com/example/remoteviewlayout/Widget.kt:6:31: RemoteViewLayout: `@layout/widget` includes views not allowed in a `RemoteView`: CheckBox, EditText, SeekBar, android.widget.Space

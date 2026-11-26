@@ -93,6 +93,11 @@ All notable changes to Krit will be documented in this file.
   with `androidx.compose.animation` 1.13.0 (`animation-android`, `animation-core-android`), under their Lint IDs.
   Their findings match the Lint CLI running those releases' `lint.jar` on the inputs under
   `internal/rules/testdata/androidx_compose_animation/` (#1307, #1308, #1309, #1313).
+- `RecyclerView`, `FindViewByIdCast`, `RemoteViewLayout`, `DefaultUncaughtExceptionDelegation` and
+  `WrongGradleMethod`, ports of Android Lint 32.4.1's `RecyclerViewDetector`, `ViewTypeDetector` (FindViewByIdCast,
+  with Lint's cast fix), `RemoteViewDetector`, `UncaughtExceptionHandlerDetector` and `WrongGradleMethodDetector`
+  (command-line patterns). Findings match Lint on 13 recorded project fixtures; `scripts/lint-parity-record.sh` now
+  records Groovy build scripts and flavored modules too (#1248, #1290, #1250, #1282, #1300).
 - `ScopedStorage`, `SelectableText`, `CustomSplashScreen`, `VectorDrawableCompat` and `TranslucentOrientation`, ports
   of Android Lint 32.4.1's `ScopedStorageDetector`, `TextViewDetector` (SelectableText), `SplashScreenDetector`,
   `VectorDrawableCompatDetector` and `TranslucentViewDetector` under their Lint IDs. Findings match Lint on 20

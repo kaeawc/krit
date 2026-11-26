@@ -118,16 +118,12 @@ func (in AndroidInput) manifestSourceSourceFingerprint() (string, bool) {
 	return hex.EncodeToString(h.Sum(nil)), true
 }
 
-// manifestSourceGradleFingerprint hashes the (path, content hash) pair of every settings file and build script of
-// the project. Manifest-source rules read them from disk: the module's plugins and namespace, and
-// ProviderReadPermissionOnly the module graph and project dependencies that decide which apps merge a library
-// manifest (#1625). Groovy build.gradle files are not source files, so the source fingerprint misses them.
+// manifestSourceGradleFingerprint hashes the settings files and build scripts manifest-source rules read from disk:
+// the module's plugins and namespace, and ProviderReadPermissionOnly's module graph, which decides which apps merge
+// a library manifest and can reach build files outside the scan paths (#1625, #1800). Groovy build.gradle files are
+// not source files, so the source fingerprint misses them. See buildFilesFingerprint.
 func (in AndroidInput) manifestSourceGradleFingerprint() (string, bool) {
-	h := hashutil.Hasher().New()
-	if !writePathHashes(h, "gradle", in.Project.GradlePaths) {
-		return "", false
-	}
-	return hex.EncodeToString(h.Sum(nil)), true
+	return buildFilesFingerprint(in.Project)
 }
 
 func (in AndroidInput) manifestSourceKey(manifestFP, sourceFP string) string {

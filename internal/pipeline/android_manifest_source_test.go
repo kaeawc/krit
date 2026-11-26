@@ -250,6 +250,103 @@ class NotesProvider : ContentProvider() {
 	step("dependency restored", 1)
 }
 
+// TestManifestSourcePass_InvalidatesOnBuildFilesOutsideTheScan pins the #1800 second review: a scan of only app and
+// lib has neither the settings file nor the intermediate module's build script in Project.GradlePaths, yet
+// ProviderReadPermissionOnly's module graph reads both. Editing only one of them must not replay the cached result.
+func TestManifestSourcePass_InvalidatesOnBuildFilesOutsideTheScan(t *testing.T) {
+	const (
+		settingsRel = "settings.gradle"
+		appBuildRel = "app/build.gradle.kts"
+		libBuildRel = "lib/build.gradle.kts"
+		featureRel  = "feature/build.gradle.kts"
+		appManRel   = "app/src/main/AndroidManifest.xml"
+		libManRel   = "lib/src/main/AndroidManifest.xml"
+		providerRel = "lib/src/main/java/com/example/lib/NotesProvider.kt"
+		// :feat lives in feature/ only through the projectDir mapping.
+		mapped   = "include ':app', ':lib', ':feat'\nproject(':feat').projectDir = file('feature')\n"
+		unmapped = "include ':app', ':lib', ':feat'\n"
+		apiDep   = "plugins { id(\"com.android.library\") }\n\ndependencies {\n    api(project(\":lib\"))\n}\n"
+		testOnly = "plugins { id(\"com.android.library\") }\n\ndependencies {\n    testImplementation(project(\":lib\"))\n}\n"
+	)
+	setup := func(t *testing.T) *manifestSourceProject {
+		p := &manifestSourceProject{t: t, dir: t.TempDir()}
+		p.write(settingsRel, mapped)
+		p.write(appBuildRel, "plugins { id(\"com.android.application\") }\n\ndependencies {\n    implementation(project(\":feat\"))\n}\n")
+		p.write(libBuildRel, "plugins { id(\"com.android.library\") }\n")
+		p.write(featureRel, apiDep)
+		p.write(appManRel, "<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\" package=\"com.example.app\">\n    <application />\n</manifest>\n")
+		p.write(libManRel, "<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\" package=\"com.example.lib\">\n    <application>\n        <provider android:name=\".NotesProvider\" android:authorities=\"a\" android:readPermission=\"com.example.READ\" />\n    </application>\n</manifest>\n")
+		p.write(providerRel, "package com.example.lib\n\nimport android.content.ContentProvider\nimport android.content.ContentValues\nimport android.net.Uri\n\nclass NotesProvider : ContentProvider() {\n    override fun insert(uri: Uri, values: ContentValues?): Uri? = uri\n}\n")
+		return p
+	}
+	var rule *api.Rule
+	for _, r := range api.Registry {
+		if r.ID == "ProviderReadPermissionOnly" {
+			rule = r
+		}
+	}
+	if rule == nil {
+		t.Fatal("ProviderReadPermissionOnly is not registered")
+	}
+	for _, test := range []struct {
+		name, rel, edit string
+	}{
+		{"intermediate module script", featureRel, testOnly},
+		{"settings file", settingsRel, unmapped},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			p := setup(t)
+			cacheDir := filepath.Join(p.dir, ".krit", "android-findings-cache")
+			// The project a scan of only app/ and lib/ detects.
+			project := &android.Project{
+				ManifestPaths: []string{p.path(appManRel), p.path(libManRel)},
+				GradlePaths:   []string{p.path(appBuildRel), p.path(libBuildRel)},
+			}
+			run := func(cacheDir string) int {
+				t.Helper()
+				hashutil.ResetDefault()
+				writer := scanner.NewAndroidCacheWriter(2)
+				res, err := (AndroidPhase{}).Run(context.Background(), AndroidInput{
+					Project:        project,
+					ActiveRules:    []*api.Rule{rule},
+					Dispatcher:     rules.NewDispatcher([]*api.Rule{rule}, nil),
+					SourceFiles:    []*scanner.File{parseKotlinForTest(t, p.path(providerRel), readFile(t, p.path(providerRel)))},
+					SourcePaths:    []string{p.path(providerRel)},
+					RuleHash:       "test-rule-hash",
+					LibraryFactsFP: "test-lf",
+					CacheDir:       cacheDir,
+					CacheWriter:    writer,
+				})
+				if err != nil {
+					t.Fatalf("AndroidPhase.Run: %v", err)
+				}
+				if err := writer.Close(); err != nil {
+					t.Fatal(err)
+				}
+				return res.Findings.Len()
+			}
+			if got := run(""); got != 1 {
+				t.Fatalf("cold cache-free findings = %d, want 1", got)
+			}
+			if got := run(cacheDir); got != 1 {
+				t.Fatalf("cold findings = %d, want 1", got)
+			}
+			xmlBefore := xmlInputsFingerprint(ProjectHostState{}, project, nil)
+			p.write(test.rel, test.edit)
+			hashutil.ResetDefault()
+			if xmlInputsFingerprint(ProjectHostState{}, project, nil) == xmlBefore {
+				t.Error("findings-bundle XML inputs fingerprint did not move")
+			}
+			if got := run(""); got != 0 {
+				t.Fatalf("after the edit: cache-free findings = %d, want 0", got)
+			}
+			if got := run(cacheDir); got != 0 {
+				t.Fatalf("after the edit: warm findings = %d, cache-free 0", got)
+			}
+		})
+	}
+}
+
 func TestManifestSourceRules_SkipTheCrossFilePhase(t *testing.T) {
 	var calls int64
 	rule := manifestSourceJoinRule(&calls)

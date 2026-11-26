@@ -3217,11 +3217,14 @@ func xmlInputsFingerprint(host ProjectHostState, project *android.Project, kotli
 	_, _ = h.Write([]byte{3})
 	_, _ = h.Write([]byte(sdkLevelsFingerprint(project)))
 	// Manifest and manifest-source rules also read the build scripts themselves (plugins, namespace, project
-	// dependencies), and a Groovy build.gradle is not a source file the SourceSet hash covers (#1625).
-	if project != nil && len(project.GradlePaths) > 0 {
+	// dependencies) and the module graph of each manifest's build, settings file included, which can lie outside
+	// the scan paths. A Groovy build.gradle is not a source file the SourceSet hash covers (#1625, #1800).
+	if project != nil && (len(project.GradlePaths) > 0 || len(project.ManifestPaths) > 0) {
 		_, _ = h.Write([]byte{4})
-		if !writePathHashes(h, "gradle", project.GradlePaths) {
-			_, _ = h.Write([]byte("\x00err"))
+		if fp, ok := buildFilesFingerprint(project); ok {
+			_, _ = h.Write([]byte(fp))
+		} else {
+			_, _ = h.Write([]byte("err"))
 		}
 	}
 	return hex.EncodeToString(h.Sum(nil))

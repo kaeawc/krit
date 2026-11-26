@@ -1,6 +1,7 @@
 package module
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"sort"
@@ -683,5 +684,40 @@ project(":tools").projectDir = file("build-tools/custom")
 	wantDir = filepath.Join(dir, "lib", "core")
 	if libCore.Dir != wantDir {
 		t.Errorf("lib:core dir = %q, want %q", libCore.Dir, wantDir)
+	}
+}
+
+// InputFiles lists the settings file and every module's build file names,
+// including a mapped module outside the scanned directories.
+func TestGraphInputFilesCoverSettingsAndModules(t *testing.T) {
+	root := t.TempDir()
+	for rel, body := range map[string]string{
+		"settings.gradle":              "include ':app', ':feat'\nproject(':feat').projectDir = file('modules/feature')\n",
+		"app/build.gradle.kts":         "",
+		"modules/feature/build.gradle": "",
+	} {
+		path := filepath.Join(root, rel)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := BuildRoot(filepath.Join(root, "app", "src", "main")); got != root {
+		t.Fatalf("BuildRoot = %q, want %q", got, root)
+	}
+	g, err := DiscoverModules(context.Background(), filepath.Join(root, "app", "build.gradle.kts"))
+	if err != nil || g == nil {
+		t.Fatalf("DiscoverModules = %v, %v", g, err)
+	}
+	var rels []string
+	for _, f := range g.InputFiles() {
+		rel, _ := filepath.Rel(root, f)
+		rels = append(rels, filepath.ToSlash(rel))
+	}
+	want := "app/build.gradle,app/build.gradle.kts,modules/feature/build.gradle,modules/feature/build.gradle.kts,settings.gradle,settings.gradle.kts"
+	if got := strings.Join(rels, ","); got != want {
+		t.Fatalf("InputFiles = %s, want %s", got, want)
 	}
 }

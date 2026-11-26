@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/bazel"
@@ -13,6 +14,39 @@ import (
 
 // settingsFiles lists the settings file names in priority order.
 var settingsFiles = []string{"settings.gradle.kts", "settings.gradle"}
+
+// BuildRoot returns the directory DiscoverModules discovers a file in dir
+// from: the nearest one at or above dir with a Gradle settings file or a
+// Bazel workspace file, or "" when there is none (see buildRoot).
+func BuildRoot(dir string) string {
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return ""
+	}
+	return buildRoot(abs)
+}
+
+// InputFiles lists the files a Gradle graph and its dependencies are read
+// from: both settings file names at the root and both build file names of
+// every module, sorted. A name that does not exist is listed too, since
+// creating it changes the graph. Callers that cache results derived from the
+// graph key them on these files' contents and existence.
+func (g *Graph) InputFiles() []string {
+	if g == nil {
+		return nil
+	}
+	files := make([]string, 0, 2+2*len(g.Modules))
+	for _, name := range settingsFiles {
+		files = append(files, filepath.Join(g.RootDir, name))
+	}
+	for _, m := range g.Modules {
+		for _, name := range buildFiles {
+			files = append(files, filepath.Join(m.Dir, name))
+		}
+	}
+	slices.Sort(files)
+	return slices.Compact(files)
+}
 
 // DiscoverModules discovers the Gradle modules of the project rooted at
 // rootDir. Modules declared in the settings file come first; directories

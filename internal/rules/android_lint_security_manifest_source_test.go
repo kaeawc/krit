@@ -1122,9 +1122,12 @@ public class JavaQuietActivity extends Activity {
 	})
 }
 
-// #1802 review: a runtime registration is protected by a non-null broadcast permission that is not a known normal
-// permission, or by flags that include RECEIVER_NOT_EXPORTED, read by argument position. Registrations on
-// LocalBroadcastManager or on a project class's own registerReceiver are not Context registrations.
+// #1802 review: a runtime registration is protected, as in Lint's isRuntimeReceiverProtected, by a broadcast
+// permission that is not null, blank, a known normal permission, or a value Lint cannot evaluate (a call or a
+// parameter), while an unresolved field or property reference counts; by flags that evaluate to include
+// RECEIVER_NOT_EXPORTED, read by argument position; or (#1813 review) by a null filter or one whose actions are all
+// protected broadcasts. Registrations on LocalBroadcastManager or on a project class's own registerReceiver are not
+// Context registrations.
 func TestUnsafeIntentLaunchRuntimeReceiverProtection(t *testing.T) {
 	manifest := `<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.example">
     <application />
@@ -1133,7 +1136,8 @@ func TestUnsafeIntentLaunchRuntimeReceiverProtection(t *testing.T) {
 	onReceive := ` : BroadcastReceiver() { override fun onReceive(context: Context, intent: Intent) { context.startActivity(intent) } }`
 	receivers := []string{"NormalPermConst", "NormalPermString", "NullPerm", "ResourcePerm", "FieldPerm", "SignaturePerm",
 		"FlagsConst", "ExportedFlag", "CompatExported", "CompatNotExported", "CompatPermission", "PropertyHeld",
-		"LocalBroadcast", "CustomOwner"}
+		"LocalBroadcast", "CustomOwner", "BlankPerm", "DirectFieldPerm", "OtherFilePerm", "FlagsOrUnknown", "FlagsOrKnown",
+		"ProtectedFilter", "NullFilter", "MixedFilter"}
 	var decls strings.Builder
 	decls.WriteString("package com.example\n\nimport android.content.BroadcastReceiver\nimport android.content.Context\nimport android.content.Intent\n\n")
 	for _, name := range receivers {
@@ -1157,6 +1161,7 @@ class Outer {
 import android.Manifest
 import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
 import android.content.IntentFilter
 import androidx.core.content.ContextCompat
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
@@ -1170,7 +1175,7 @@ class Bus {
 class Registrar(private val context: Context, private val bus: Bus) {
     private val held = PropertyHeld()
 
-    fun register(filter: IntentFilter) {
+    fun register(filter: IntentFilter, extraFlags: Int) {
         val permission = BuildConfig.PERM
         context.registerReceiver(NormalPermConst(), filter, Manifest.permission.INTERNET, null)
         context.registerReceiver(NormalPermString(), filter, "android.permission.INTERNET", null)
@@ -1187,6 +1192,16 @@ class Registrar(private val context: Context, private val bus: Bus) {
         LocalBroadcastManager.getInstance(context).registerReceiver(LocalBroadcast(), filter)
         bus.registerReceiver(CustomOwner(), filter)
         context.registerReceiver(Outer.Nested(), filter)
+        context.registerReceiver(BlankPerm(), filter, "", null)
+        context.registerReceiver(DirectFieldPerm(), filter, BuildConfig.PERM, null)
+        context.registerReceiver(OtherFilePerm(), filter, Permissions.SIGNATURE, null)
+        context.registerReceiver(FlagsOrUnknown(), filter, Context.RECEIVER_NOT_EXPORTED or extraFlags)
+        context.registerReceiver(FlagsOrKnown(), filter, Context.RECEIVER_NOT_EXPORTED or Context.RECEIVER_VISIBLE_TO_INSTANT_APPS)
+        context.registerReceiver(ProtectedFilter(), IntentFilter(Intent.ACTION_SCREEN_OFF))
+        context.registerReceiver(NullFilter(), null)
+        val mixed = IntentFilter(Intent.ACTION_SCREEN_ON)
+        mixed.addAction("com.example.CUSTOM")
+        context.registerReceiver(MixedFilter(), mixed)
     }
 }
 `,
@@ -1199,21 +1214,30 @@ import android.content.Intent;
 class JavaOpenReceiver extends BroadcastReceiver { @Override public void onReceive(Context context, Intent intent) { context.startActivity(intent); } }
 class JavaPermReceiver extends BroadcastReceiver { @Override public void onReceive(Context context, Intent intent) { context.startActivity(intent); } }
 class JavaFlagReceiver extends BroadcastReceiver { @Override public void onReceive(Context context, Intent intent) { context.startActivity(intent); } }
+class JavaFieldPermReceiver extends BroadcastReceiver { @Override public void onReceive(Context context, Intent intent) { context.startActivity(intent); } }
+class JavaBusReceiver extends BroadcastReceiver { @Override public void onReceive(Context context, Intent intent) { context.startActivity(intent); } }
 `,
 		"com/example/JavaRegistrar.java": `package com.example;
 
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.IntentFilter;
+
+class JavaBus {
+    void registerReceiver(BroadcastReceiver receiver, IntentFilter filter) {}
+}
 
 class JavaRegistrar {
     private final Context context;
 
     JavaRegistrar(Context context) { this.context = context; }
 
-    void register(IntentFilter filter, String permission) {
+    void register(IntentFilter filter, String permission, JavaBus bus) {
         context.registerReceiver(new JavaOpenReceiver(), filter);
         context.registerReceiver(new JavaPermReceiver(), filter, permission, null);
         context.registerReceiver(new JavaFlagReceiver(), filter, Context.RECEIVER_NOT_EXPORTED);
+        context.registerReceiver(new JavaFieldPermReceiver(), filter, BuildConfig.PERM, null);
+        bus.registerReceiver(new JavaBusReceiver(), filter);
     }
 }
 `,
@@ -1228,9 +1252,166 @@ class JavaRegistrar {
 		return ""
 	}
 	assertUnsafeIntentLaunchLocs(t, manifest, sources, []string{
-		line("NormalPermConst"), line("NormalPermString"), line("NullPerm"), line("ExportedFlag"),
-		line("CompatExported"), line("PropertyHeld"),
+		line("NormalPermConst"), line("NormalPermString"), line("NullPerm"), line("ResourcePerm"), line("ExportedFlag"),
+		line("CompatExported"), line("PropertyHeld"), line("BlankPerm"), line("FlagsOrUnknown"), line("MixedFilter"),
 		"com/example/Outer.kt:8",
 		"com/example/JavaReceivers.java:7",
+		// A String parameter is not a value Lint can evaluate, so it does not protect the receiver.
+		"com/example/JavaReceivers.java:8",
+	})
+}
+
+// #1813 review: a cross-file helper's owner is found through an aliased or nested import, a member is found through
+// a Kotlin member import or a Java static (or static wildcard) import, a companion member is called through its
+// class, and a Java record's methods are members, not top-level functions.
+func TestUnsafeIntentLaunchCrossFileOwners(t *testing.T) {
+	manifest := `<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.example">
+    <application>
+        <activity android:name=".AliasOwnerActivity" android:exported="true" />
+        <activity android:name=".NestedOwnerActivity" android:exported="true" />
+        <activity android:name=".MemberImportActivity" android:exported="true" />
+        <activity android:name=".JavaStaticImportActivity" android:exported="true" />
+        <activity android:name=".JavaStaticStarActivity" android:exported="true" />
+        <activity android:name=".RecordCallerActivity" android:exported="true" />
+        <activity android:name=".CompanionOwnerActivity" android:exported="true" />
+    </application>
+</manifest>
+`
+	sources := map[string]string{
+		"com/helpers/Launchers.kt": `package com.helpers
+
+import android.content.Context
+import android.content.Intent
+
+object Launcher {
+    fun launch(context: Context, i: Intent) { context.startActivity(i) }
+    fun peek(context: Context, i: Intent) = i.action
+}
+
+class Outer {
+    object Inner {
+        fun go(context: Context, i: Intent) { context.startActivity(i) }
+    }
+}
+
+class Router {
+    companion object {
+        fun route(context: Context, i: Intent) { context.startActivity(i) }
+    }
+}
+`,
+		"com/example/CompanionOwnerActivity.kt": `package com.example
+
+import android.app.Activity
+import com.helpers.Router
+
+class CompanionOwnerActivity : Activity() {
+    fun viaCompanion() { Router.route(this, intent) }
+}
+`,
+		"com/example/AliasOwnerActivity.kt": `package com.example
+
+import android.app.Activity
+import com.helpers.Launcher as L
+
+class AliasOwnerActivity : Activity() {
+    fun viaAlias() { L.launch(this, intent) }
+    fun viaQuietAlias() { L.peek(this, intent) }
+}
+`,
+		"com/example/NestedOwnerActivity.kt": `package com.example
+
+import android.app.Activity
+import com.helpers.Outer.Inner
+
+class NestedOwnerActivity : Activity() {
+    fun viaNested() { Inner.go(this, intent) }
+}
+`,
+		"com/example/MemberImportActivity.kt": `package com.example
+
+import android.app.Activity
+import com.helpers.Launcher.launch
+import com.helpers.Launcher.peek as look
+
+class MemberImportActivity : Activity() {
+    fun viaMember() { launch(this, intent) }
+    fun viaQuietMember() { look(this, intent) }
+}
+`,
+		"com/jhelpers/JLauncher.java": `package com.jhelpers;
+
+import android.content.Context;
+import android.content.Intent;
+
+public final class JLauncher {
+    public static void open(Context context, Intent i) { context.startActivity(i); }
+    public static void inspect(Context context, Intent i) { i.getAction(); }
+}
+`,
+		"com/example/JavaStaticImportActivity.java": `package com.example;
+
+import static com.jhelpers.JLauncher.open;
+
+import android.app.Activity;
+import android.content.Intent;
+
+public class JavaStaticImportActivity extends Activity {
+    @Override
+    protected void onNewIntent(Intent intent) {
+        open(this, intent);
+    }
+}
+`,
+		"com/example/JavaStaticStarActivity.java": `package com.example;
+
+import static com.jhelpers.JLauncher.*;
+
+import android.app.Activity;
+import android.content.Intent;
+
+public class JavaStaticStarActivity extends Activity {
+    @Override
+    protected void onNewIntent(Intent intent) {
+        open(this, intent);
+    }
+}
+`,
+		"com/example/RecordLauncher.java": `package com.example;
+
+import android.content.Context;
+import android.content.Intent;
+
+record RecordLauncher(int id) {
+    void launch(Context context, Intent i) { context.startActivity(i); }
+    static void open(Context context, Intent i) { context.startActivity(i); }
+}
+`,
+		"com/example/RecordBase.kt": `package com.example
+
+import android.app.Activity
+import android.content.Context
+import android.content.Intent
+
+open class RecordBaseActivity : Activity() {
+    fun launch(c: Context, i: Intent) { i.action }
+}
+`,
+		"com/example/RecordCaller.kt": `package com.example
+
+class RecordCallerActivity : RecordBaseActivity() {
+    fun viaInherited() { launch(this, intent) }
+    fun viaRecord() { RecordLauncher.open(this, intent) }
+}
+`,
+	}
+	assertUnsafeIntentLaunchLocs(t, manifest, sources, []string{
+		"com/example/AliasOwnerActivity.kt:7",
+		"com/example/CompanionOwnerActivity.kt:7",
+		"com/example/JavaStaticImportActivity.java:10",
+		"com/example/JavaStaticStarActivity.java:10",
+		"com/example/MemberImportActivity.kt:8",
+		"com/example/NestedOwnerActivity.kt:7",
+		"com/example/RecordCaller.kt:5",
 	})
 }

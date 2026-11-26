@@ -217,6 +217,19 @@ modules or rerun `kritExportModel`.
 For an explicit model location use `--gradle-model DIR`. An empty exported
 classpath is valid.
 
+With a Gradle model loaded, JSON and SARIF reports also say which project each
+finding belongs to: the project whose directory or source root holds its file,
+the deepest one when they nest. JSON findings carry `project`, and SARIF results
+`properties.project`. JSON `summary.byProject` and SARIF
+`runs[0].properties.byProject` count findings per project. Every project in
+the model is listed, and findings outside every project count under `""`:
+
+```json
+"byProject": {":app": {"findings": 3, "errors": 1, "warnings": 2},
+              ":lib": {"findings": 0, "errors": 0, "warnings": 0},
+              "":     {"findings": 1, "errors": 0, "warnings": 1}}
+```
+
 To get `kritExportModel` and `kritCheck` in every Kotlin/Android module of a
 multi-module build, apply the settings plugin once. Both plugins are on Maven
 Central, so `mavenCentral()` in `pluginManagement` is enough:

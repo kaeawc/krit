@@ -9,6 +9,7 @@ import (
 	"github.com/kaeawc/krit/internal/cacheutil"
 	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/diag"
+	"github.com/kaeawc/krit/internal/gradlemodel"
 	"github.com/kaeawc/krit/internal/javafacts"
 	"github.com/kaeawc/krit/internal/librarymodel"
 	"github.com/kaeawc/krit/internal/module"
@@ -503,6 +504,10 @@ type OutputInput struct {
 	// FirCoverage, when non-nil, is the FIR pass's coverage: summary.fir in
 	// JSON, runs[0].properties.fir in SARIF.
 	FirCoverage *output.FirCoverage
+	// GradleProjects, when non-nil, returns the loaded Gradle model's project
+	// index, so JSON and SARIF reports attribute each finding to its project
+	// (#1635). A nil or empty index reports no attribution.
+	GradleProjects func() *gradlemodel.ProjectIndex
 	// DiffRef, when non-empty, is a git ref (e.g. "main",
 	// "origin/main") used to restrict findings to files changed
 	// since that ref.

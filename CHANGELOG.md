@@ -5,6 +5,10 @@ All notable changes to Krit will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Per-project attribution for whole-build scans: with a Gradle model loaded, JSON findings carry `project` and
+  `summary.byProject` counts findings, errors and warnings per Gradle project (files outside every project under `""`);
+  SARIF has the same in each result's `properties.project` and `runs[0].properties.byProject`. The Gradle plugin's
+  `kritCheckAll` logs the counts (#1635, #1651).
 - Gradle model: Kotlin Multiplatform Android targets record the generated roots AGP's Variant API registers for their
   component (view binding, BuildConfig, AIDL, `addGeneratedSourceDirectory`), and `kritCheck`/`exportGenerated` run
   their producers, as plain Android modules already did (#1643).

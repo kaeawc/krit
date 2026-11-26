@@ -1243,6 +1243,7 @@ func (r *runner) outputPhase() int {
 		BaselineSuppressed: r.baselineSuppressed,
 		FirDegraded:        r.currentFirDegraded(),
 		FirCoverage:        r.firCoverage,
+		GradleProjects:     pipeline.GradleProjectIndex(*r.f.GradleModel, *r.f.NoGradleModel, firstScanPath(r.paths), nil),
 		Format:             r.effectiveFormat,
 		BasePath:           r.basePath,
 		AbsolutePaths:      *r.f.AbsolutePaths,
@@ -1274,6 +1275,15 @@ func (r *runner) outputPhase() int {
 		return code
 	}
 	return finalScanExit(os.Stderr, r.allColumns.Len(), time.Since(r.start), *r.f.Quiet)
+}
+
+// firstScanPath is the path a scan discovers its Gradle model from, as the
+// pipeline's index phase does.
+func firstScanPath(paths []string) string {
+	if len(paths) == 0 {
+		return "."
+	}
+	return paths[0]
 }
 
 // prModeFiles returns the changed Kotlin files a --diff scan analyzes with

@@ -879,34 +879,58 @@ func (p IndexPhase) Run(ctx context.Context, in IndexInput) (IndexResult, error)
 // gradleProjectIndex returns a lazy loader for the exported Gradle model's
 // file-to-project index, or nil when no model is configured or discovered.
 func (p IndexPhase) gradleProjectIndex(in IndexInput) func() *gradlemodel.ProjectIndex {
-	dir := in.GradleModelDir
-	if dir == "" {
-		if in.NoGradleModel {
-			return nil
-		}
-		scanRoot := p.ScanRoot
-		if scanRoot == "" {
-			scanRoot = in.ModuleScanRoot
-		}
-		if scanRoot == "" {
-			scanRoot = "."
-			if len(in.Paths) > 0 {
-				scanRoot = in.Paths[0]
-			}
-		}
-		dir = gradlemodel.Discover(scanRoot)
+	scanRoot := p.ScanRoot
+	if scanRoot == "" {
+		scanRoot = in.ModuleScanRoot
 	}
-	if dir == "" {
+	if scanRoot == "" && len(in.Paths) > 0 {
+		scanRoot = in.Paths[0]
+	}
+	return GradleProjectIndex(in.GradleModelDir, in.NoGradleModel, scanRoot, in.logf)
+}
+
+// GradleModelDir returns the Gradle model directory a scan reads: dir when set,
+// else the one discovered from scanRoot ("." when empty) unless noModel, else "".
+func GradleModelDir(dir string, noModel bool, scanRoot string) string {
+	if dir != "" {
+		return dir
+	}
+	if noModel {
+		return ""
+	}
+	if scanRoot == "" {
+		scanRoot = "."
+	}
+	return gradlemodel.Discover(scanRoot)
+}
+
+// GradleProjectIndex returns a lazy loader for the file-to-project index of the
+// model GradleModelDir picks, or nil when there is none. The index phase (oracle
+// modules), the in-process report and the daemon's report all use it, so a scan
+// is attributed the same way on every route. logf, when set, gets load errors.
+func GradleProjectIndex(dir string, noModel bool, scanRoot string, logf func(string, ...any)) func() *gradlemodel.ProjectIndex {
+	modelDir := GradleModelDir(dir, noModel, scanRoot)
+	if modelDir == "" {
 		return nil
 	}
 	return sync.OnceValue(func() *gradlemodel.ProjectIndex {
-		model, _, err := gradlemodel.Load(dir)
+		model, _, err := gradlemodel.Load(modelDir)
 		if err != nil {
-			in.logf("verbose: oracle modules: gradle model %s: %v\n", dir, err)
+			if logf != nil {
+				logf("verbose: gradle model %s: %v\n", modelDir, err)
+			}
 			return nil
 		}
 		return model.ProjectIndex()
 	})
+}
+
+// gradleModelIdentity is gradlemodel.Identity of modelDir; "" without one.
+func gradleModelIdentity(modelDir string) string {
+	if modelDir == "" {
+		return ""
+	}
+	return gradlemodel.Identity(modelDir)
 }
 
 // attachOracleModules gives the oracle resolver the Gradle module of each file, so a compiler verdict that rests

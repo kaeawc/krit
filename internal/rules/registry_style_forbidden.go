@@ -31,7 +31,7 @@ func registerStyleWildcardImport() {
 			// Skip test files and test-fixture Kotlin sources. Fixtures routinely
 			// use wildcard imports of an API surface being tested (e.g. KSP's
 			// integration-tests copy Kotlin files that `import foo.bar.*`).
-			if scanner.IsTestFile(projectPath(ctx, file.Path)) {
+			if isProjectTestFile(ctx, file.Path) {
 				return
 			}
 			imp := importStatementPath(file, idx)
@@ -579,21 +579,22 @@ func registerStyleMagicNumber() {
 			idx, file := ctx.Idx, ctx.File
 			// Skip database migration files — they contain frozen-in-time constants
 			// that reflect historical DB schema values and should not be extracted.
-			if strings.Contains(file.Path, "/database/helpers/migration/") ||
-				strings.Contains(file.Path, "\\database\\helpers\\migration\\") {
+			inProject := projectPath(ctx, file.Path)
+			if strings.Contains(inProject, "/database/helpers/migration/") ||
+				strings.Contains(inProject, "\\database\\helpers\\migration\\") {
 				return
 			}
 			// Skip test source sets (including benchmark/canary macrobenchmark variants).
 			// Test-data sizing, timeouts, and iteration counts are legitimate literals.
-			if isTestSupportFile(file.Path) {
+			if isTestSupportFile(ctx, file.Path) {
 				return
 			}
 			// Skip Android debug/dev source sets. Debug-only scaffolding (dropdown
 			// defaults, mock-data sizes, dev-menu thresholds) is throwaway tooling,
 			// not production constants to extract.
-			if strings.Contains(file.Path, "/src/debug/") ||
-				strings.Contains(file.Path, "/src/dev/") ||
-				strings.Contains(file.Path, "/src/internal/") {
+			if strings.Contains(inProject, "/src/debug/") ||
+				strings.Contains(inProject, "/src/dev/") ||
+				strings.Contains(inProject, "/src/internal/") {
 				return
 			}
 			// Skip if parent is also a literal type we dispatch on — avoids double-counting

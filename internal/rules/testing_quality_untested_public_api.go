@@ -29,14 +29,14 @@ func (r *UntestedPublicAPIRule) check(ctx *api.Context) {
 		filesByPath = testingQualityFilesByPath(index.Files)
 	}
 	for _, sym := range index.Symbols {
-		if !untestedPublicAPICandidate(sym) {
+		if !untestedPublicAPICandidate(ctx, sym) {
 			continue
 		}
 		file := filesByPath[sym.File]
 		if untestedPublicAPISuppressed(sym, file) {
 			continue
 		}
-		if untestedPublicAPIHasTestReference(index, sym) {
+		if untestedPublicAPIHasTestReference(ctx, index, sym) {
 			continue
 		}
 		kind := sym.Kind
@@ -67,7 +67,7 @@ func testingQualityFilesByPath(files []*scanner.File) map[string]*scanner.File {
 	return out
 }
 
-func untestedPublicAPICandidate(sym scanner.Symbol) bool {
+func untestedPublicAPICandidate(ctx *api.Context, sym scanner.Symbol) bool {
 	if sym.Language != scanner.LangKotlin {
 		return false
 	}
@@ -86,13 +86,13 @@ func untestedPublicAPICandidate(sym scanner.Symbol) bool {
 	if sym.IsOverride || sym.IsTest || sym.IsMain {
 		return false
 	}
-	return !scanner.IsTestFile(sym.File)
+	return !isProjectTestFile(ctx, sym.File)
 }
 
-func untestedPublicAPIHasTestReference(index *scanner.CodeIndex, sym scanner.Symbol) bool {
+func untestedPublicAPIHasTestReference(ctx *api.Context, index *scanner.CodeIndex, sym scanner.Symbol) bool {
 	for _, name := range untestedPublicAPIReferenceNames(sym) {
 		for path := range index.ReferenceFiles(name) {
-			if path != sym.File && scanner.IsTestFile(path) {
+			if path != sym.File && isProjectTestFile(ctx, path) {
 				return true
 			}
 		}

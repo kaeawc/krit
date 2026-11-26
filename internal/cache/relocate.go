@@ -113,13 +113,18 @@ func mapColumnFiles(columns scanner.FindingColumns, fn func(string) string) scan
 
 // relocateLoaded re-roots a cache read from cacheFilePath and reports
 // whether it may be used there: a cache moved from or to a root a rule path
-// heuristic could match is not.
+// heuristic could match is not, nor one written before its root was marked.
 func relocateLoaded(c *Cache, cacheFilePath string) bool {
 	root := relocationRoot(cacheFilePath)
 	c.root = root
 	saved := c.SavedRoot
-	if saved == "" || root == "" {
+	if root == "" {
 		return true // absolute paths throughout, as before relocation
+	}
+	if saved == "" {
+		// Written before the root was marked: its verdicts read absolute
+		// paths, which rules no longer do under a marked root.
+		return false
 	}
 	if saved != root && (rootAffectsRuleVerdicts(saved) || rootAffectsRuleVerdicts(root)) {
 		return false

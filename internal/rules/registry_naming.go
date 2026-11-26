@@ -42,7 +42,7 @@ func registerNamingClassNaming() {
 		NodeTypes: []string{"class_declaration", "object_declaration"}, Confidence: api.ConfidenceVeryHigh, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
-			if scanner.IsTestFile(projectPath(ctx, file.Path)) {
+			if isProjectTestFile(ctx, file.Path) {
 				return
 			}
 			name := extractIdentifierFlat(file, idx)
@@ -187,7 +187,7 @@ func registerNamingBooleanPropertyNaming() {
 		NodeTypes: []string{"property_declaration"}, Confidence: api.ConfidenceVeryHigh, Fix: api.FixSemantic, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
-			if scanner.IsTestFile(projectPath(ctx, file.Path)) || !isPublicDeclarationFlat(file, idx) {
+			if isProjectTestFile(ctx, file.Path) || !isPublicDeclarationFlat(file, idx) {
 				return
 			}
 			if !isBooleanPropertyFlat(file, idx) {
@@ -415,7 +415,7 @@ func registerNamingInvalidPackageDeclaration() {
 			// Only the directories inside the project count: a package
 			// matched by folders above the checkout would pass at one
 			// checkout path and fail at another.
-			dirNorm := projectPath(ctx, filepath.Dir(file.Path))
+			dirNorm := filepath.ToSlash(projectPath(ctx, filepath.Dir(file.Path)))
 			expectedNorm := filepath.ToSlash(expectedSuffix)
 			if strings.HasSuffix(dirNorm, expectedNorm) {
 				return

@@ -556,7 +556,7 @@ func (r *UseRxSetProgress2Rule) Confidence() float64 { return api.ConfidenceHigh
 func (r *UseRxSetProgress2Rule) check(ctx *api.Context) {
 	file := ctx.File
 	// Lint does not analyze test sources unless checkTestSources is on.
-	if scanner.IsTestFile(projectPath(ctx, file.Path)) {
+	if isProjectTestFile(ctx, file.Path) {
 		return
 	}
 	call, ok := lintCallAt(file, ctx.Idx)

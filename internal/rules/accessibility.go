@@ -797,11 +797,11 @@ var composeTextFieldCalls = map[string]bool{
 
 // composeTextFieldCallResolvesToMaterial reports whether an unqualified call resolves through imports to the
 // Material TextField family, inside a @Composable and not shadowed by a local declaration.
-func composeTextFieldCallResolvesToMaterial(file *scanner.File, call uint32, name string) bool {
+func composeTextFieldCallResolvesToMaterial(ctx *api.Context, file *scanner.File, call uint32, name string) bool {
 	if navExpr, _ := flatCallExpressionParts(file, call); navExpr != 0 {
 		return false
 	}
-	if scanner.IsTestFile(file.Path) || isAndroidTestSupportArtifactSource(file.Path) {
+	if isProjectTestFile(ctx, file.Path) || isAndroidTestSupportArtifactSource(projectPath(ctx, file.Path)) {
 		return false
 	}
 	inComposable := false
@@ -837,8 +837,8 @@ func composeTextFieldCallResolvesToMaterial(file *scanner.File, call uint32, nam
 }
 
 // composeIsTestSourceOrFakeAt reports whether idx sits in a test source set or a Fake/Test class.
-func composeIsTestSourceOrFakeAt(file *scanner.File, idx uint32) bool {
-	if scanner.IsTestFile(file.Path) || isAndroidTestSupportArtifactSource(file.Path) {
+func composeIsTestSourceOrFakeAt(ctx *api.Context, file *scanner.File, idx uint32) bool {
+	if isProjectTestFile(ctx, file.Path) || isAndroidTestSupportArtifactSource(projectPath(ctx, file.Path)) {
 		return true
 	}
 	name := flatEnclosingClassName(file, idx)

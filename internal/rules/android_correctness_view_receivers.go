@@ -33,7 +33,7 @@ func checkWrongCall(ctx *api.Context) {
 		return
 	}
 	// Lint does not analyze test sources.
-	if scanner.IsTestFile(projectPath(ctx, file.Path)) {
+	if isProjectTestFile(ctx, file.Path) {
 		return
 	}
 	navExpr, _ := flatCallExpressionParts(file, idx)

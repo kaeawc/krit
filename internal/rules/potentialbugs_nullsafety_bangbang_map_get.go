@@ -36,7 +36,7 @@ type mapGetBangAccess struct {
 func (r *MapGetWithNotNullAssertionRule) check(ctx *api.Context) {
 	idx, file := ctx.Idx, ctx.File
 	// Skip test files — fail-fast `map[key]!!` is idiomatic in tests.
-	if scanner.IsTestFile(projectPath(ctx, file.Path)) {
+	if isProjectTestFile(ctx, file.Path) {
 		return
 	}
 	access, ok := flatMapGetBangAccess(file, idx)

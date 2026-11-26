@@ -27,7 +27,7 @@ func (r *TimberTreeNotPlantedRule) check(ctx *api.Context) {
 	hasStartupPlant := false
 
 	for _, file := range files {
-		if file == nil || file.FlatTree == nil || scanner.IsTestFile(projectPath(ctx, file.Path)) {
+		if file == nil || file.FlatTree == nil || isProjectTestFile(ctx, file.Path) {
 			continue
 		}
 		imports := timberImportsForFile(file)

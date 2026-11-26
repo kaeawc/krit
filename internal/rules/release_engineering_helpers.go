@@ -386,7 +386,7 @@ func isDebugSourceFile(path string) bool {
 // resources, instrumentation utilities, …).
 func isAndroidTestSupportArtifactSource(path string) bool {
 	normalized := filepath.ToSlash(strings.ToLower(path))
-	if isTestSupportFile(normalized) {
+	if isTestSupportFile(nil, normalized) {
 		return true
 	}
 	for _, marker := range []string{

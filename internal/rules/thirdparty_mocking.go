@@ -81,8 +81,8 @@ func mockAnalysisFor(ctx *api.Context) *mockResult {
 	if index == nil || len(index.Files) == 0 {
 		return &mockResult{}
 	}
-	return filefacts.StringFact(fileFactsCache(), fmt.Sprintf("%p", index), slotMockUsage, func() *mockResult {
-		return analyzeMockProject(index)
+	return filefacts.StringFact(fileFactsCache(), fmt.Sprintf("%p\x00%s", index, projectRoot(ctx)), slotMockUsage, func() *mockResult {
+		return analyzeMockProject(ctx, index)
 	})
 }
 
@@ -108,10 +108,10 @@ type mockAnalyzer struct {
 	byPath map[string]*scanner.File
 }
 
-func analyzeMockProject(index *scanner.CodeIndex) *mockResult {
+func analyzeMockProject(ctx *api.Context, index *scanner.CodeIndex) *mockResult {
 	a := &mockAnalyzer{result: &mockResult{index: index, byRule: map[string][]mockFinding{}}}
 	for _, file := range index.Files {
-		if file == nil || file.FlatTree == nil || !scanner.IsTestFile(file.Path) || !mockFileMayMatch(file.Content) {
+		if file == nil || file.FlatTree == nil || !isProjectTestFile(ctx, file.Path) || !mockFileMayMatch(file.Content) {
 			continue
 		}
 		a.analyzeFile(file)

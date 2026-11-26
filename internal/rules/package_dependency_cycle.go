@@ -57,11 +57,14 @@ type PackageDependencyGraphData struct {
 	Edges    []PackageDependencyEdge `json:"edges"`
 }
 
-func PackageDependencyGraph(files []*scanner.File) PackageDependencyGraphData {
+// PackageDependencyGraph returns the package import graph of files, leaving
+// out test and benchmark source sets. projectRoot, when set, bounds that
+// source-set test to the folders inside the project (scanner.RootRelativePath).
+func PackageDependencyGraph(projectRoot string, files []*scanner.File) PackageDependencyGraphData {
 	entries := make([]packageCycleFile, 0, len(files))
 	packages := make(map[string]bool)
 	for _, file := range files {
-		if file == nil || shouldSkipPackageDependencyCycleFile(file.Path) {
+		if file == nil || shouldSkipPackageDependencyCycleFile(scanner.RootRelativePath(projectRoot, file.Path)) {
 			continue
 		}
 		pkg, line, imports := packageDependencyCycleData(file)
@@ -105,7 +108,7 @@ func (r *PackageDependencyCycleRule) checkModule(ctx *api.Context, modPath strin
 	packages := make(map[string]packageCycleFile)
 
 	for _, file := range files {
-		if shouldSkipPackageDependencyCycleFile(file.Path) {
+		if shouldSkipPackageDependencyCycleFile(projectPath(ctx, file.Path)) {
 			continue
 		}
 

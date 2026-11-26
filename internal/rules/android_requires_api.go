@@ -212,7 +212,7 @@ func projectMinSdk(ctx *api.Context) int {
 
 func (r *RequiresAPIViolationRule) check(ctx *api.Context) {
 	idx, file := ctx.Idx, ctx.File
-	if file == nil || scanner.IsTestFile(projectPath(ctx, file.Path)) {
+	if file == nil || isProjectTestFile(ctx, file.Path) {
 		return
 	}
 	if nodeHasAncestorTypeFlat(file, idx, "import_header") {

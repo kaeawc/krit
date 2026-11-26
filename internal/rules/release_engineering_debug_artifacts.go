@@ -461,7 +461,7 @@ func (r *HardcodedLocalhostURLRule) check(ctx *api.Context) {
 	if file.Language != scanner.LangKotlin && file.Language != scanner.LangJava {
 		return
 	}
-	if scanner.IsTestFile(projectPath(ctx, file.Path)) || isDebugSourceFile(file.Path) {
+	if isProjectTestFile(ctx, file.Path) || isDebugSourceFile(projectPath(ctx, file.Path)) {
 		return
 	}
 	idx := ctx.Idx
@@ -528,7 +528,7 @@ func (r *TestOnlyImportInProductionRule) check(ctx *api.Context) {
 	if !testOnlyImportFQN(fqn) {
 		return
 	}
-	if scanner.IsTestFile(projectPath(ctx, file.Path)) || isAndroidTestSupportArtifactSource(file.Path) ||
+	if isProjectTestFile(ctx, file.Path) || isAndroidTestSupportArtifactSource(projectPath(ctx, file.Path)) ||
 		isTestFixtureModulePath(projectPath(ctx, file.Path)) || isTestFrameworkModulePath(projectPath(ctx, file.Path)) {
 		return
 	}

@@ -293,7 +293,7 @@ func (r *MaxChainedCallsOnSameLineRule) Confidence() float64 { return api.Confid
 
 func (r *MaxChainedCallsOnSameLineRule) check(ctx *api.Context) {
 	file := ctx.File
-	if scanner.IsTestFile(projectPath(ctx, file.Path)) || isGradleBuildScript(file.Path) {
+	if isProjectTestFile(ctx, file.Path) || isGradleBuildScript(file.Path) {
 		return
 	}
 	idx := ctx.Idx

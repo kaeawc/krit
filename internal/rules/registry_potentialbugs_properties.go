@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	api "github.com/kaeawc/krit/internal/rules/api"
-	"github.com/kaeawc/krit/internal/scanner"
 )
 
 func registerPotentialbugsPropertiesRules() {
@@ -125,7 +124,7 @@ func registerPotentialbugsPropertiesRules() {
 			NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
-				if scanner.IsTestFile(projectPath(ctx, file.Path)) || isGradleBuildScript(file.Path) {
+				if isProjectTestFile(ctx, file.Path) || isGradleBuildScript(file.Path) {
 					return
 				}
 				_, args := flatCallExpressionParts(file, idx)

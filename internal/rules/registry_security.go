@@ -265,7 +265,7 @@ func registerSecurityRules() {
 			Confidence: r.Confidence(), Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
-				if !javaObjectInputStreamConstructor(file, idx) {
+				if !javaObjectInputStreamConstructor(ctx, file, idx) {
 					return
 				}
 				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, "ObjectInputStream enables Java deserialization gadget attacks. Prefer JSON, protobuf, or kotlinx.serialization for untrusted data.")
@@ -399,7 +399,7 @@ func registerSecurityRules() {
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				lowerPath := strings.ToLower(file.Path)
-				if strings.HasSuffix(lowerPath, ".pem") || strings.HasSuffix(lowerPath, ".json") || scanner.IsTestFile(projectPath(ctx, file.Path)) {
+				if strings.HasSuffix(lowerPath, ".pem") || strings.HasSuffix(lowerPath, ".json") || isProjectTestFile(ctx, file.Path) {
 					return
 				}
 				text := file.FlatNodeText(idx)
@@ -418,7 +418,7 @@ func registerSecurityRules() {
 			NodeTypes: []string{"string_literal"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
-				if scanner.IsTestFile(projectPath(ctx, file.Path)) {
+				if isProjectTestFile(ctx, file.Path) {
 					return
 				}
 				text := file.FlatNodeText(idx)
@@ -436,7 +436,7 @@ func registerSecurityRules() {
 			NodeTypes: []string{"string_literal"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: r.Confidence(), Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
-				if scanner.IsTestFile(projectPath(ctx, file.Path)) {
+				if isProjectTestFile(ctx, file.Path) {
 					return
 				}
 				text := file.FlatNodeText(idx)

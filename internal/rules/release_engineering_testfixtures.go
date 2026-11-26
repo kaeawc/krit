@@ -2,7 +2,6 @@ package rules
 
 import (
 	"fmt"
-	"path/filepath"
 	"strings"
 
 	api "github.com/kaeawc/krit/internal/rules/api"
@@ -59,7 +58,7 @@ func (r *TestFixtureAccessedFromProductionRule) check(ctx *api.Context) {
 		}
 		packageName := packageByPath[sym.File]
 		qualifiedName := qualifySourceName(packageName, sym.Name)
-		if isTestFixturePath(sym.File) {
+		if isTestFixturePath(projectPath(ctx, sym.File)) {
 			if isNestedClassLikeSymbol(file, sym) {
 				continue
 			}
@@ -71,7 +70,7 @@ func (r *TestFixtureAccessedFromProductionRule) check(ctx *api.Context) {
 		productionDeclarations[qualifiedName] = true
 	}
 	for _, file := range parsedFiles {
-		if file == nil || isTestFixturePath(file.Path) || scanner.IsTestFile(filepath.ToSlash(file.Path)) {
+		if file == nil || isTestFixturePath(projectPath(ctx, file.Path)) || isProjectTestFile(ctx, file.Path) {
 			continue
 		}
 		for _, name := range topLevelClassLikeNames(file) {
@@ -92,7 +91,7 @@ func (r *TestFixtureAccessedFromProductionRule) check(ctx *api.Context) {
 			continue
 		}
 		// A test-fixtures module is test code, so fixture-to-fixture references are fine.
-		if scanner.IsTestFile(filepath.ToSlash(file.Path)) || isTestFixturePath(file.Path) || isTestFixtureModulePath(file.Path) || isGeneratedSourcePath(file.Path) {
+		if inProject := projectPath(ctx, file.Path); isProjectTestFile(ctx, file.Path) || isTestFixturePath(inProject) || isTestFixtureModulePath(inProject) || isGeneratedSourcePath(inProject) {
 			continue
 		}
 		if !mentionsIdentifier(file.Content, simpleNames) {

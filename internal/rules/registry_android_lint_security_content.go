@@ -25,7 +25,7 @@ func registerAndroidLintSecurityContentPorts() {
 		}},
 		Confidence: js.Confidence(), Implementation: js, NeedsLibraryFacts: true,
 		Check: func(ctx *api.Context) {
-			if !scanner.IsTestFile(projectPath(ctx, ctx.File.Path)) {
+			if !isProjectTestFile(ctx, ctx.File.Path) {
 				js.check(ctx)
 			}
 		},

@@ -2,10 +2,15 @@ package cache
 
 import (
 	"bufio"
+	"go/ast"
+	"go/parser"
+	"go/printer"
+	"go/token"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -137,6 +142,28 @@ func TestAnalysisCacheNotRelocatedWithoutProjectMarker(t *testing.T) {
 	}
 }
 
+// A cache written before the project was marked holds verdicts computed on
+// absolute paths; once a marker makes rules read root-relative paths, it is
+// discarded rather than served (#1834). Without a marker it keeps hitting.
+func TestAnalysisCacheDiscardedWhenRootBecomesMarked(t *testing.T) {
+	root := filepath.Join(relocationTempDir(t), "repo")
+	cachePath, files := seedRelocationRepoMarked(t, root, false)
+	if res := Load(cachePath).CheckFiles(files, "rh", root); res.TotalCached != len(files) {
+		t.Fatalf("unmarked cache served %d of %d files at its own unmarked root", res.TotalCached, len(files))
+	}
+
+	if err := os.WriteFile(filepath.Join(root, "settings.gradle.kts"), []byte("rootProject.name = \"repo\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if marked := FilePath(DefaultDir(root), []string{root}); marked != cachePath {
+		copyFile(t, cachePath, marked) // the same file under whatever name the marked root uses
+		cachePath = marked
+	}
+	if c := Load(cachePath); len(c.Files) != 0 {
+		t.Fatalf("a cache written before the root was marked kept %d entries", len(c.Files))
+	}
+}
+
 // A cache outside the repository's default directory (--cache-dir) keeps
 // absolute paths, as before.
 func TestAnalysisCacheElsewhereKeepsAbsolutePaths(t *testing.T) {
@@ -226,6 +253,305 @@ func TestRulePathMarkersCoverRules(t *testing.T) {
 	if checked == 0 {
 		t.Fatal("found no path heuristic segments: the scan no longer recognizes the rules' heuristics")
 	}
+}
+
+// A rule's path heuristic must read projectPath(ctx, file.Path), never the
+// raw file.Path: the raw path holds the folders above the project root, so
+// a checkout under /work/debug/ or /work/test/ would change the verdict,
+// and a relocated cache entry would disagree with a fresh scan (#1814).
+// The scan flags every call in internal/rules that passes a raw source or
+// manifest path (file.Path, ctx.File.Path, m.Path, or a local holding one
+// of them after filepath.ToSlash, strings.ToLower, ...) to a path
+// heuristic: scanner.IsTestFile, a strings.Contains-style test against a
+// folder literal, or a rules function whose body runs either on a string
+// parameter.
+func TestRulePathHeuristicsReadProjectPath(t *testing.T) {
+	fset := token.NewFileSet()
+	type parsed struct {
+		dir  string
+		file *ast.File
+	}
+	var files []parsed
+	consts := map[string]string{} // package-level string constants, by package dir + "." + name
+	err := filepath.WalkDir(filepath.Join("..", "rules"), func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			if name := d.Name(); name == "testdata" || name == "ruletest" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(p, ".go") || strings.HasSuffix(p, "_test.go") {
+			return nil
+		}
+		f, err := parser.ParseFile(fset, p, nil, parser.SkipObjectResolution)
+		if err != nil {
+			return err
+		}
+		dir := filepath.Dir(p)
+		files = append(files, parsed{dir, f})
+		for _, decl := range f.Decls {
+			gd, ok := decl.(*ast.GenDecl)
+			if !ok || gd.Tok != token.CONST {
+				continue
+			}
+			for _, spec := range gd.Specs {
+				vs := spec.(*ast.ValueSpec)
+				for i, name := range vs.Names {
+					if i >= len(vs.Values) {
+						continue
+					}
+					if lit, ok := vs.Values[i].(*ast.BasicLit); ok && lit.Kind == token.STRING {
+						if s, err := strconv.Unquote(lit.Value); err == nil {
+							consts[dir+"."+name.Name] = s
+						}
+					}
+				}
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) == 0 {
+		t.Fatal("found no internal/rules sources")
+	}
+
+	// folderLiteral reports whether e is a string naming a folder
+	// ("/debug/", "-test", "/src/test/", "/spotless/"), not a file name,
+	// an extension or a bare separator.
+	folderLiteral := func(dir string, e ast.Expr) bool {
+		var s string
+		switch v := e.(type) {
+		case *ast.BasicLit:
+			if v.Kind != token.STRING {
+				return false
+			}
+			u, err := strconv.Unquote(v.Value)
+			if err != nil {
+				return false
+			}
+			s = u
+		case *ast.Ident:
+			c, ok := consts[dir+"."+v.Name]
+			if !ok {
+				return false
+			}
+			s = c
+		default:
+			return false
+		}
+		lit := strings.ToLower(s)
+		if strings.Trim(lit, "/.") == "" {
+			return false
+		}
+		if !strings.HasPrefix(lit, "/") && !strings.HasPrefix(lit, "-") && !strings.HasSuffix(lit, "/") {
+			return false
+		}
+		// A file name or extension is matched against a path's end.
+		return strings.HasSuffix(lit, "/") || strings.HasPrefix(lit, "/.") || filepath.Ext(lit) == ""
+	}
+	calleeName := func(call *ast.CallExpr) string {
+		switch fn := call.Fun.(type) {
+		case *ast.Ident:
+			return fn.Name
+		case *ast.SelectorExpr:
+			if x, ok := fn.X.(*ast.Ident); ok {
+				return x.Name + "." + fn.Sel.Name
+			}
+		}
+		return ""
+	}
+	methodName := func(call *ast.CallExpr) string {
+		if fn, ok := call.Fun.(*ast.SelectorExpr); ok {
+			return fn.Sel.Name
+		}
+		return ""
+	}
+	stringsTests := map[string]bool{
+		"strings.Contains": true, "strings.HasPrefix": true, "strings.HasSuffix": true,
+		"strings.Index": true, "strings.LastIndex": true, "strings.Count": true,
+	}
+	// Wrappers keep their argument's folders.
+	wrappers := map[string]bool{
+		"filepath.ToSlash": true, "filepath.FromSlash": true, "filepath.Clean": true, "filepath.Dir": true,
+		"filepath.Abs": true, "strings.ToLower": true, "strings.ReplaceAll": true, "strings.TrimPrefix": true,
+		"path.Clean": true, "path.Dir": true, "scanner.LowerPath": true, "scanner.LowerSlashPath": true,
+		"strings.Split": true, "strings.Fields": true,
+	}
+	external := map[string]bool{
+		"scanner.IsTestFile": true, "fileignore.DocSamplePath": true, "fileignore.TestDataPath": true,
+		"fileignore.DefaultPrunedWithinRepo": true,
+	}
+	// funcs and methods hold the rules functions that test folder names,
+	// by package dir + "." + name.
+	funcs, methods := map[string]bool{}, map[string]bool{}
+	isHeuristicCall := func(dir string, call *ast.CallExpr) bool {
+		name := calleeName(call)
+		if external[name] || funcs[dir+"."+name] || methods[dir+"."+methodName(call)] {
+			return true
+		}
+		if stringsTests[name] {
+			for _, a := range call.Args {
+				if folderLiteral(dir, a) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	// carries reports whether e holds a value of locals, or one isSource
+	// accepts, possibly lowered, slash-converted or trimmed.
+	var carries func(e ast.Expr, locals map[string]bool, isSource func(ast.Expr) bool) bool
+	carries = func(e ast.Expr, locals map[string]bool, isSource func(ast.Expr) bool) bool {
+		if isSource(e) {
+			return true
+		}
+		switch v := e.(type) {
+		case *ast.ParenExpr:
+			return carries(v.X, locals, isSource)
+		case *ast.Ident:
+			return locals[v.Name]
+		case *ast.BinaryExpr: // "/" + path
+			return v.Op == token.ADD && (carries(v.X, locals, isSource) || carries(v.Y, locals, isSource))
+		case *ast.IndexExpr: // segments[i]
+			return carries(v.X, locals, isSource)
+		case *ast.SliceExpr: // path[idx+5:]
+			return carries(v.X, locals, isSource)
+		case *ast.CallExpr:
+			if wrappers[calleeName(v)] && len(v.Args) > 0 {
+				return carries(v.Args[0], locals, isSource)
+			}
+		}
+		return false
+	}
+	// heuristicArgs calls report for every argument of a heuristic call in
+	// body that carries a value of locals (updated through assignments) or
+	// one isSource accepts.
+	heuristicArgs := func(dir string, body *ast.BlockStmt, locals map[string]bool, isSource func(ast.Expr) bool, report func(call *ast.CallExpr, arg ast.Expr)) {
+		ast.Inspect(body, func(n ast.Node) bool {
+			switch v := n.(type) {
+			case *ast.RangeStmt: // for _, seg := range segments
+				if id, ok := v.Value.(*ast.Ident); ok {
+					locals[id.Name] = carries(v.X, locals, isSource)
+				}
+			case *ast.AssignStmt:
+				if len(v.Rhs) == len(v.Lhs) {
+					for i, lhs := range v.Lhs {
+						if id, ok := lhs.(*ast.Ident); ok {
+							locals[id.Name] = carries(v.Rhs[i], locals, isSource)
+						}
+					}
+				}
+			case *ast.CallExpr:
+				if isHeuristicCall(dir, v) {
+					for _, a := range v.Args {
+						if carries(a, locals, isSource) {
+							report(v, a)
+						}
+					}
+				}
+			}
+			return true
+		})
+	}
+	noSource := func(ast.Expr) bool { return false }
+
+	// A function that runs a heuristic on one of its string parameters is
+	// one; repeat until no more are found (printlnNonProductionPath calls
+	// scanner.IsTestFile on its path).
+	for changed := true; changed; {
+		changed = false
+		for _, pf := range files {
+			for _, decl := range pf.file.Decls {
+				fd, ok := decl.(*ast.FuncDecl)
+				if !ok || fd.Body == nil {
+					continue
+				}
+				params := stringParams(fd)
+				if len(params) == 0 {
+					continue
+				}
+				set := funcs
+				if fd.Recv != nil {
+					set = methods
+				}
+				key := pf.dir + "." + fd.Name.Name
+				if set[key] {
+					continue
+				}
+				heuristicArgs(pf.dir, fd.Body, params, noSource, func(*ast.CallExpr, ast.Expr) {
+					if !set[key] {
+						set[key] = true
+						changed = true
+					}
+				})
+			}
+		}
+	}
+	if len(funcs) == 0 {
+		t.Fatal("found no path heuristic helpers: the scan no longer recognizes them")
+	}
+
+	// rawPath reports whether e is a source or manifest path as the
+	// dispatcher holds it: absolute, folders above the root included.
+	rawPath := func(e ast.Expr) bool {
+		v, ok := e.(*ast.SelectorExpr)
+		if !ok {
+			return false
+		}
+		owner := ""
+		switch x := v.X.(type) {
+		case *ast.Ident:
+			owner = x.Name
+		case *ast.SelectorExpr:
+			owner = x.Sel.Name
+		}
+		owner = strings.ToLower(owner)
+		switch v.Sel.Name {
+		case "Path": // file.Path, ctx.File.Path, cls.file.Path, m.Path
+			return strings.HasSuffix(owner, "file") || owner == "f" || owner == "m" || strings.HasSuffix(owner, "manifest")
+		case "File": // an index symbol's or finding's path (sym.File); ctx.File is the parsed file
+			return owner != "ctx"
+		}
+		return false
+	}
+	for _, pf := range files {
+		for _, decl := range pf.file.Decls {
+			fd, ok := decl.(*ast.FuncDecl)
+			if !ok || fd.Body == nil {
+				continue
+			}
+			heuristicArgs(pf.dir, fd.Body, map[string]bool{}, rawPath, func(call *ast.CallExpr, arg ast.Expr) {
+				t.Errorf("%s: %s reads folder names from the raw path %s, which holds the folders above the project root; pass projectPath(ctx, file.Path) instead, threading ctx into the helper if it lacks one",
+					fset.Position(arg.Pos()), exprString(fset, call.Fun), exprString(fset, arg))
+			})
+		}
+	}
+}
+
+// stringParams returns the names of fd's string parameters.
+func stringParams(fd *ast.FuncDecl) map[string]bool {
+	params := map[string]bool{}
+	for _, field := range fd.Type.Params.List {
+		if id, ok := field.Type.(*ast.Ident); ok && id.Name == "string" {
+			for _, name := range field.Names {
+				params[name.Name] = true
+			}
+		}
+	}
+	return params
+}
+
+func exprString(fset *token.FileSet, e ast.Expr) string {
+	var b strings.Builder
+	if err := printer.Fprint(&b, fset, e); err != nil {
+		return "?"
+	}
+	return b.String()
 }
 
 // Common CI workspace roots must stay relocatable.

@@ -8,15 +8,18 @@ import (
 	api "github.com/kaeawc/krit/internal/rules/api"
 )
 
+// The fixtures sit under t.TempDir() so they are absolute on Windows too,
+// where a path without a volume is not.
 func TestProjectPath(t *testing.T) {
-	root := filepath.Join(string(filepath.Separator), "ci", "junit-kit", "app")
+	base := t.TempDir()
+	root := filepath.Join(base, "ci", "junit-kit", "app")
 	facts := filefacts.NewCache()
 	facts.SetProjectRoot(root)
 	ctx := &api.Context{Facts: facts}
 	cases := []struct{ name, path, want string }{
 		{"file under the root", filepath.Join(root, "sub", "Foo.kt"), "/sub/Foo.kt"},
 		{"the root itself", root, "/"},
-		{"outside the root", filepath.Join(string(filepath.Separator), "elsewhere", "Foo.kt"), filepath.Join(string(filepath.Separator), "elsewhere", "Foo.kt")},
+		{"outside the root", filepath.Join(base, "elsewhere", "Foo.kt"), filepath.Join(base, "elsewhere", "Foo.kt")},
 		{"sibling sharing a prefix", root + "-other" + string(filepath.Separator) + "Foo.kt", root + "-other" + string(filepath.Separator) + "Foo.kt"},
 		{"relative path", filepath.Join("sub", "Foo.kt"), filepath.Join("sub", "Foo.kt")},
 	}
@@ -36,7 +39,7 @@ func TestProjectPath(t *testing.T) {
 
 // The heuristics read only the folders inside the project once it has a root.
 func TestPathHeuristicsStopAtProjectRoot(t *testing.T) {
-	root := filepath.Join(string(filepath.Separator), "ci1", "junit-kit", "kotlin", "app")
+	root := filepath.Join(t.TempDir(), "ci1", "junit-kit", "kotlin", "app")
 	facts := filefacts.NewCache()
 	facts.SetProjectRoot(root)
 	ctx := &api.Context{Facts: facts}

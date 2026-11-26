@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/kaeawc/krit/internal/filefacts"
+	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -84,7 +85,7 @@ func testingQualityIsComposeUIAssertionCall(file *scanner.File, idx uint32, name
 	return strings.Contains(text, "onNode") || strings.Contains(text, "onAllNodes")
 }
 
-func testingQualityIsSnapshotVerificationCall(file *scanner.File, name string) bool {
+func testingQualityIsSnapshotVerificationCall(ctx *api.Context, file *scanner.File, name string) bool {
 	if file == nil {
 		return false
 	}
@@ -96,7 +97,7 @@ func testingQualityIsSnapshotVerificationCall(file *scanner.File, name string) b
 	case "gif", "snapshot":
 		return sourceImportsOrMentions(file, "SnapshotTestRule")
 	case "testContent":
-		return strings.Contains(file.Path, "/snapshot/") || sourceImportsOrMentions(file, "SnapshotTestRule")
+		return strings.Contains(projectPath(ctx, file.Path), "/snapshot/") || sourceImportsOrMentions(file, "SnapshotTestRule")
 	default:
 		return false
 	}
@@ -320,11 +321,12 @@ func testingQualityFunctionHeaderText(file *scanner.File, idx uint32) string {
 	return strings.ToLower(string(file.Content[start:end]))
 }
 
-func testingQualityAssertionHelperNames(file *scanner.File) map[string]bool {
+func testingQualityAssertionHelperNames(ctx *api.Context, file *scanner.File) map[string]bool {
 	if file == nil {
 		return map[string]bool{}
 	}
-	return filefacts.FileFact(fileFactsCache(), file, slotTestQualityAssertionHelpers, func() map[string]bool {
+	// The names depend on the project root: a /snapshot/ folder inside it makes testContent an assertion.
+	return filefacts.FileFact(fileFactsCache(), file, slotTestQualityAssertionHelpers+"\x00"+projectRoot(ctx), func() map[string]bool {
 		helpers := make(map[string]bool)
 		type helperCandidate struct {
 			name string
@@ -349,7 +351,7 @@ func testingQualityAssertionHelperNames(file *scanner.File) map[string]bool {
 				if helpers[candidate.name] {
 					continue
 				}
-				if testingQualityBodyHasAssertionOrVerificationWithHelpers(file, candidate.body, helpers) {
+				if testingQualityBodyHasAssertionOrVerificationWithHelpers(ctx, file, candidate.body, helpers) {
 					helpers[candidate.name] = true
 					changed = true
 				}

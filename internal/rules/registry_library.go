@@ -18,7 +18,7 @@ func registerLibraryRules() {
 			NodeTypes: []string{"class_declaration"}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
-				if !file.FlatHasModifier(idx, "data") || scanner.IsTestFile(projectPath(ctx, file.Path)) {
+				if !file.FlatHasModifier(idx, "data") || isProjectTestFile(ctx, file.Path) {
 					return
 				}
 				if !libraryEffectivelyPublic(file, idx) {
@@ -37,7 +37,7 @@ func registerLibraryRules() {
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				parent, ok := file.FlatParent(idx)
-				if !ok || file.FlatType(parent) != "source_file" || scanner.IsTestFile(projectPath(ctx, file.Path)) {
+				if !ok || file.FlatType(parent) != "source_file" || isProjectTestFile(ctx, file.Path) {
 					return
 				}
 				if file.FlatHasModifier(idx, "private") || file.FlatHasModifier(idx, "internal") || file.FlatHasModifier(idx, "protected") {
@@ -60,7 +60,7 @@ func registerLibraryRules() {
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				parent, ok := file.FlatParent(idx)
-				if !ok || scanner.IsTestFile(projectPath(ctx, file.Path)) {
+				if !ok || isProjectTestFile(ctx, file.Path) {
 					return
 				}
 				// Top-level declarations and members of classes; locals have other parents.

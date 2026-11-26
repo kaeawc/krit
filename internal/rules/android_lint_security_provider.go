@@ -266,7 +266,7 @@ func (r *ProviderReadPermissionOnlyRule) checkProvider(ctx *api.Context, m *mani
 		return
 	}
 	fqn, cls := lintManifestClass(m, provider.AttrValue("android:name"), classes)
-	if cls == nil || scanner.IsTestFile(cls.file.Path) || !classes.extendsTarget(cls, contentProviderClasses) {
+	if cls == nil || isProjectTestFile(ctx, cls.file.Path) || !classes.extendsTarget(cls, contentProviderClasses) {
 		return
 	}
 	methods := providerImplementedWriteMethods(cls.file, cls.idx)

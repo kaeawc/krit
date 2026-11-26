@@ -55,7 +55,7 @@ func (r *AnimatorKeepRule) check(ctx *api.Context) {
 	sort.SliceStable(files, func(i, j int) bool { return files[i].Path < files[j].Path })
 	a := &animatorAnalysis{files: files, warned: map[[2]uintptr]bool{}}
 	for _, file := range files {
-		if file == nil || file.FlatTree == nil || scanner.IsTestFile(projectPath(ctx, file.Path)) ||
+		if file == nil || file.FlatTree == nil || isProjectTestFile(ctx, file.Path) ||
 			!bytes.Contains(file.Content, []byte("ObjectAnimator")) {
 			continue
 		}

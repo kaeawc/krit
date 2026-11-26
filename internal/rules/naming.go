@@ -96,11 +96,13 @@ type EnumNamingRule struct {
 // Classified per roadmap/17.
 func (r *EnumNamingRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
-func isTestSupportFile(path string) bool {
-	if scanner.IsTestFile(path) {
+// isTestSupportFile reports a test source or a test-support module (-testing/, test-utils/), judged by the
+// project-relative path (projectPath); a nil ctx judges path as given.
+func isTestSupportFile(ctx *api.Context, path string) bool {
+	if isProjectTestFile(ctx, path) {
 		return true
 	}
-	lower := scanner.LowerPath(path)
+	lower := scanner.LowerPath(projectPath(ctx, path))
 	return strings.Contains(lower, "-testing/") ||
 		strings.Contains(lower, "/testing/") ||
 		strings.Contains(lower, "/test-utils/") ||

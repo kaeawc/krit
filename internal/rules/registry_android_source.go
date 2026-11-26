@@ -303,7 +303,7 @@ func registerAndroidSourceRules() {
 					checkLogTagMismatch(ctx, lookup)
 					return
 				}
-				if scanner.IsTestFile(projectPath(ctx, file.Path)) {
+				if isProjectTestFile(ctx, file.Path) {
 					return
 				}
 				className := extractIdentifierFlat(file, idx)

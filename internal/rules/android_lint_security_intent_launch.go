@@ -102,7 +102,7 @@ func (r *UnsafeIntentLaunchRule) check(ctx *api.Context) {
 		return
 	}
 	for _, file := range ctx.ParsedFiles {
-		if file == nil || scanner.IsTestFile(projectPath(ctx, file.Path)) {
+		if file == nil || isProjectTestFile(ctx, file.Path) {
 			continue
 		}
 		s.scanFile(file)
@@ -733,7 +733,7 @@ func (s *unsafeIntentScan) resolveCrossFileCallee(file *scanner.File, call lintC
 		// Only a function with an Intent parameter can receive the tracked intent.
 		s.functions = map[string][]unsafeIntentFunction{}
 		for _, f := range s.ctx.ParsedFiles {
-			if f == nil || f.FlatTree == nil || scanner.IsTestFile(f.Path) || !fileFactsCache().Mentions(f, "Intent") {
+			if f == nil || f.FlatTree == nil || isProjectTestFile(s.ctx, f.Path) || !fileFactsCache().Mentions(f, "Intent") {
 				continue
 			}
 			for _, kind := range []string{"function_declaration", "method_declaration"} {
@@ -850,7 +850,7 @@ func unsafeIntentParamFor(file *scanner.File, fn uint32, call lintCall, index in
 // permission, which leaves the receiver exported to other apps.
 func (s *unsafeIntentScan) addRuntimeRegisteredReceivers() {
 	for _, file := range s.ctx.ParsedFiles {
-		if file == nil || file.FlatTree == nil || scanner.IsTestFile(file.Path) ||
+		if file == nil || file.FlatTree == nil || isProjectTestFile(s.ctx, file.Path) ||
 			!fileFactsCache().Mentions(file, "registerReceiver") {
 			continue
 		}

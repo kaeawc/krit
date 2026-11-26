@@ -150,7 +150,7 @@ func registerPotentialbugsTypesRules() {
 			OptionalResolver: true, TypeInfo: api.TypeInfoHint{PreferBackend: api.PreferResolver, Required: true},
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
-				if r.OnlyValCandidates && scanner.IsTestFile(projectPath(ctx, file.Path)) {
+				if r.OnlyValCandidates && isProjectTestFile(ctx, file.Path) {
 					return
 				}
 				if !propertyDeclarationIsVar(file, idx) {
@@ -161,7 +161,7 @@ func registerPotentialbugsTypesRules() {
 				if varDecl == 0 {
 					return
 				}
-				isCandidate := !scanner.IsTestFile(projectPath(ctx, file.Path)) && doubleMutabilityVarIsCandidate(file, idx, varDecl)
+				isCandidate := !isProjectTestFile(ctx, file.Path) && doubleMutabilityVarIsCandidate(file, idx, varDecl)
 				useCandidates := r.OnlyValCandidates || ctx.Resolver == nil
 				if useCandidates && !isCandidate {
 					return
@@ -315,7 +315,7 @@ func registerPotentialbugsTypesRules() {
 			Needs: api.NeedsResolver,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
-				if scanner.IsTestFile(projectPath(ctx, file.Path)) || file.FlatHasModifier(idx, "override") || ctx.Resolver == nil {
+				if isProjectTestFile(ctx, file.Path) || file.FlatHasModifier(idx, "override") || ctx.Resolver == nil {
 					return
 				}
 				body, _ := file.FlatFindChild(idx, "function_body")

@@ -179,7 +179,7 @@ func (r *EnsureInitializerMetadataRule) check(ctx *api.Context) {
 	reachable := map[string]bool{}
 	for _, m := range ctx.Manifests {
 		// Lint does not visit test-artifact (androidTest, test) or generated build/ manifests.
-		if m == nil || scanner.IsTestFile(m.Path) || strings.Contains(filepath.ToSlash(m.Path), "/build/") {
+		if m == nil || isProjectTestFile(ctx, m.Path) || strings.Contains(filepath.ToSlash(projectPath(ctx, m.Path)), "/build/") {
 			continue
 		}
 		axlStartupMetadataNames(m, reachable)

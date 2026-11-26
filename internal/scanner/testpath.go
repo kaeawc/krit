@@ -28,18 +28,25 @@ var (
 	testPathMu        sync.RWMutex
 	testPaths         = defaultTestPathSlice()
 	testPathsOverride bool
+	// configuredTestPaths are the markers testPaths took from config (the
+	// additions or the override), for IsTestFileIn.
+	configuredTestPaths []string
 )
 
 func InitTestPaths(config []string, override []string) {
 	next := defaultTestPathSlice()
+	var configured []string
 	if len(override) > 0 {
-		next = cleanTestPaths(override)
+		configured = cleanTestPaths(override)
+		next = configured
 	} else if len(config) > 0 {
-		next = append(next, cleanTestPaths(config)...)
+		configured = cleanTestPaths(config)
+		next = append(next, configured...)
 	}
 	testPathMu.Lock()
 	testPaths = next
 	testPathsOverride = len(override) > 0
+	configuredTestPaths = configured
 	testPathMu.Unlock()
 	// Swap after the markers change so a result computed from old markers is never served from the new memo.
 	testPathMemo.Store(new(sync.Map))
@@ -59,6 +66,50 @@ func IsTestFile(path string) bool {
 	result := isTestFileUncached(path)
 	memo.Store(path, result)
 	return result
+}
+
+// IsTestFileIn is IsTestFile for a file of the project rooted at root: the
+// markers match RootRelativePath(root, path), so a folder above the root
+// cannot mark the file and the verdict survives the checkout moving
+// (#1814). A configured marker spelled as an absolute path inside root
+// ("/work/repo/spec/") still matches, in its root-relative form
+// (RootRelativeMarker). An empty root matches path as given.
+func IsTestFileIn(root, path string) bool {
+	rel := RootRelativePath(root, path)
+	if IsTestFile(rel) {
+		return true
+	}
+	if rel == path {
+		return false
+	}
+	testPathMu.RLock()
+	defer testPathMu.RUnlock()
+	for _, marker := range configuredTestPaths {
+		if inRoot := RootRelativeMarker(root, marker); inRoot != marker && strings.Contains(rel, inRoot) {
+			return true
+		}
+	}
+	return false
+}
+
+// RootRelativeMarker returns a configured path marker spelled as an
+// absolute path inside root in the form RootRelativePath gives paths
+// ("/work/repo/tools/" under root /work/repo is "/tools/"), so the marker
+// still matches the root-relative path; any other marker is returned
+// unchanged and keeps matching only inside the project.
+func RootRelativeMarker(root, marker string) string {
+	if root == "" || marker == "" {
+		return marker
+	}
+	slashRoot := strings.TrimSuffix(filepath.ToSlash(root), "/")
+	slash := filepath.ToSlash(marker)
+	if rest, ok := strings.CutPrefix(slash, slashRoot+"/"); ok {
+		return "/" + rest
+	}
+	if slash == slashRoot {
+		return "/"
+	}
+	return marker
 }
 
 func isTestFileUncached(path string) bool {

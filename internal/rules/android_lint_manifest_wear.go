@@ -130,9 +130,10 @@ func wearManifestPathDeclaresWatch(path string) bool {
 	return false
 }
 
-// wearMainManifestPath returns the main source set manifest next to a variant manifest, or "" for the main one.
-func wearMainManifestPath(path string) string {
-	if !isNonMainManifestPath(path) {
+// wearMainManifestPath returns the main source set manifest next to a variant manifest, or "" for the main one. The
+// variant test reads the project-relative path, so a src/ folder above the project root does not count.
+func wearMainManifestPath(ctx *api.Context, path string) string {
+	if !isNonMainManifestPath(projectPath(ctx, path)) {
 		return ""
 	}
 	return filepath.Join(filepath.Dir(filepath.Dir(path)), "main", "AndroidManifest.xml")
@@ -140,17 +141,17 @@ func wearMainManifestPath(path string) string {
 
 // wearIsWearProject approximates Lint's isWearProject, which reads the merged manifest: a variant manifest also
 // counts when the main manifest of its module declares the watch feature.
-func wearIsWearProject(m *manifest.Manifest) bool {
+func wearIsWearProject(ctx *api.Context, m *manifest.Manifest) bool {
 	if wearDeclaresWatch(m.Root) {
 		return true
 	}
-	mainPath := wearMainManifestPath(m.Path)
+	mainPath := wearMainManifestPath(ctx, m.Path)
 	return mainPath != "" && wearManifestPathDeclaresWatch(mainPath)
 }
 
 // wearIsWearResDir reports whether the module that owns a res directory is a Wear project, using the manifest next to
 // the directory or, for a variant source set without one, the main manifest.
-func wearIsWearResDir(resDir string) bool {
+func wearIsWearResDir(ctx *api.Context, resDir string) bool {
 	candidate := filepath.Join(filepath.Dir(resDir), "AndroidManifest.xml")
 	if _, err := os.Stat(candidate); err != nil {
 		candidate = filepath.Join(filepath.Dir(filepath.Dir(resDir)), "main", "AndroidManifest.xml")
@@ -158,7 +159,7 @@ func wearIsWearResDir(resDir string) bool {
 	if wearManifestPathDeclaresWatch(candidate) {
 		return true
 	}
-	mainPath := wearMainManifestPath(candidate)
+	mainPath := wearMainManifestPath(ctx, candidate)
 	return mainPath != "" && wearManifestPathDeclaresWatch(mainPath)
 }
 
@@ -222,7 +223,7 @@ func (r *WearStandaloneAppFlagRule) check(ctx *api.Context) {
 
 func (r *WearRecentsRule) check(ctx *api.Context) {
 	m := ctx.Manifest
-	if !wearIsWearProject(m) {
+	if !wearIsWearProject(ctx, m) {
 		return
 	}
 	manifestWalk(m.Root, func(n, _ *manifest.Node) {
@@ -268,7 +269,7 @@ func wearIsMainLauncher(component *manifest.Node) bool {
 
 func (r *WearSplashScreenRule) check(ctx *api.Context) {
 	m := ctx.Manifest
-	if !wearIsWearProject(m) || manifestMinSdk(m) >= 31 {
+	if !wearIsWearProject(ctx, m) || manifestMinSdk(m) >= 31 {
 		return
 	}
 	if m.Path != "" && lookupManifestGradleInfo(m.Path).usesSplashScreenLibrary {
@@ -462,7 +463,7 @@ func wffDeclaresNoCode(manifestPath, value string) bool {
 func (r *WatchFaceFormatDeclaresHasNoCodeRule) check(ctx *api.Context) {
 	m := ctx.Manifest
 	app := firstChild(m.Root, "application")
-	if app == nil || !wearIsWearProject(m) {
+	if app == nil || !wearIsWearProject(ctx, m) {
 		return
 	}
 	if len(wffVersionProperties(app)) == 0 && !wffHasDeclarativeWatchFace(m.Path) {
@@ -488,7 +489,7 @@ func (r *WatchFaceFormatMissingVersionRule) check(ctx *api.Context) {
 			emitManifestAtName(ctx, p, "The `android:value` attribute is missing")
 		}
 	}
-	if len(wffVersionProperties(app)) == 0 && wearIsWearProject(m) && wffHasDeclarativeWatchFace(m.Path) {
+	if len(wffVersionProperties(app)) == 0 && wearIsWearProject(ctx, m) && wffHasDeclarativeWatchFace(m.Path) {
 		emitManifestAtName(ctx, app, "The Watch Face Format version property must be set")
 	}
 }
@@ -527,7 +528,7 @@ func (r *WearPasswordInputRule) check(ctx *api.Context) {
 		resDir := filepath.Dir(filepath.Dir(layout.FilePath))
 		wear, seen := wearByResDir[resDir]
 		if !seen {
-			wear = wearIsWearResDir(resDir)
+			wear = wearIsWearResDir(ctx, resDir)
 			wearByResDir[resDir] = wear
 		}
 		if !wear {

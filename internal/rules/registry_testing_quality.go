@@ -168,7 +168,7 @@ func registerTestingQualityAssertNullableWithNotNullAssertion() {
 		Needs: api.NeedsResolver | api.NeedsOracleDiagnostics | api.NeedsOracleCallTargets,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
-			if !testingQualityRuleShouldRunInFile(file) {
+			if !testingQualityRuleShouldRunInFile(ctx, file) {
 				return
 			}
 			name := flatCallExpressionName(file, idx)
@@ -401,7 +401,7 @@ func registerTestingQualityRunBlockingInTest() {
 			if !ok || !testingQualityIsTestFunction(file, fn) {
 				return
 			}
-			if testingQualityIsAndroidInstrumentedTestFile(file) {
+			if testingQualityIsAndroidInstrumentedTestFile(ctx, file) {
 				return
 			}
 			if testingQualityInsideAssertionOrCallbackBoundary(file, idx, fn) {
@@ -602,7 +602,7 @@ func registerTestingQualityTestNameContainsUnderscore() {
 				return
 			}
 			// Instrumented tests run through dex, where backticked names with spaces are not allowed before API 30.
-			if testingQualityIsAndroidInstrumentedTestFile(file) {
+			if testingQualityIsAndroidInstrumentedTestFile(ctx, file) {
 				return
 			}
 			name := testingQualityFunctionName(file, idx)
@@ -651,7 +651,7 @@ func registerTestingQualitySharedMutableStateInObject() {
 		NodeTypes: []string{"companion_object", "object_declaration"}, Confidence: api.ConfidenceMedium, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
-			if !testingQualityIsTestFile(file) {
+			if !testingQualityIsTestFile(ctx, file) {
 				return
 			}
 			if sharedMutableStateObjectIsTestSupport(file, idx) {
@@ -690,7 +690,7 @@ func registerTestingQualityTestInheritanceDepth() {
 		NodeTypes: []string{"class_declaration"}, Confidence: api.ConfidenceMediumLow, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
-			if !testingQualityIsTestFile(file) {
+			if !testingQualityIsTestFile(ctx, file) {
 				return
 			}
 			delegation, _ := file.FlatFindChild(idx, "delegation_specifier")
@@ -760,7 +760,7 @@ func registerTestingQualityVerifyWithoutMock() {
 		NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceMediumLow, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
-			if !testingQualityRuleShouldRunInFile(file) {
+			if !testingQualityRuleShouldRunInFile(ctx, file) {
 				return
 			}
 			name := flatCallNameAny(file, idx)

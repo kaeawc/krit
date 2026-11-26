@@ -264,19 +264,19 @@ func testingQualityIsASCIIUpper(b byte) bool {
 	return b >= 'A' && b <= 'Z'
 }
 
-func testingQualityBodyHasAssertionOrVerification(file *scanner.File, body uint32) bool {
-	return testingQualityBodyHasAssertionOrVerificationWithPatterns(file, body, nil)
+func testingQualityBodyHasAssertionOrVerification(ctx *api.Context, file *scanner.File, body uint32) bool {
+	return testingQualityBodyHasAssertionOrVerificationWithPatterns(ctx, file, body, nil)
 }
 
-func testingQualityBodyHasAssertionOrVerificationWithPatterns(file *scanner.File, body uint32, patterns []string) bool {
-	return testingQualityBodyHasAssertionOrVerificationWithHelpersAndPatterns(file, body, testingQualityAssertionHelperNames(file), patterns)
+func testingQualityBodyHasAssertionOrVerificationWithPatterns(ctx *api.Context, file *scanner.File, body uint32, patterns []string) bool {
+	return testingQualityBodyHasAssertionOrVerificationWithHelpersAndPatterns(ctx, file, body, testingQualityAssertionHelperNames(ctx, file), patterns)
 }
 
-func testingQualityBodyHasAssertionOrVerificationWithHelpers(file *scanner.File, body uint32, helpers map[string]bool) bool {
-	return testingQualityBodyHasAssertionOrVerificationWithHelpersAndPatterns(file, body, helpers, nil)
+func testingQualityBodyHasAssertionOrVerificationWithHelpers(ctx *api.Context, file *scanner.File, body uint32, helpers map[string]bool) bool {
+	return testingQualityBodyHasAssertionOrVerificationWithHelpersAndPatterns(ctx, file, body, helpers, nil)
 }
 
-func testingQualityBodyHasAssertionOrVerificationWithHelpersAndPatterns(file *scanner.File, body uint32, helpers map[string]bool, patterns []string) bool {
+func testingQualityBodyHasAssertionOrVerificationWithHelpersAndPatterns(ctx *api.Context, file *scanner.File, body uint32, helpers map[string]bool, patterns []string) bool {
 	if file == nil || body == 0 {
 		return false
 	}
@@ -303,7 +303,7 @@ func testingQualityBodyHasAssertionOrVerificationWithHelpersAndPatterns(file *sc
 				testingQualityIsTurbineAssertionCall(file, name) ||
 				testingQualityIsComposeUIAssertionCall(file, n, name) ||
 				testingQualityIsEspressoAssertionCall(file, n, name) ||
-				testingQualityIsSnapshotVerificationCall(file, name) ||
+				testingQualityIsSnapshotVerificationCall(ctx, file, name) ||
 				testingQualityIsUIVisibilityAssertionCall(file, name) ||
 				testingQualityIsExplicitThisOrSuperHelperCall(file, n)
 		case "assignment":

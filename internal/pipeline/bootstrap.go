@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/kaeawc/krit/internal/filefacts"
 	"github.com/kaeawc/krit/internal/projectroot"
 	"github.com/kaeawc/krit/internal/rules"
 	api "github.com/kaeawc/krit/internal/rules/api"
@@ -41,13 +42,25 @@ func BuildDispatcher(activeRules []*api.Rule, resolver typeinfer.TypeResolver) *
 // path heuristics read root-relative paths (#1814). Only a marked root counts
 // (a VCS root, a krit config, Gradle settings): without one, projectroot.Find
 // falls back to the scanned directory, which can be the source folder a
-// heuristic needs, so rules keep reading absolute paths. Every dispatcher
-// that runs rules on files of a project calls it, so the CLI, daemon, LSP
-// and MCP agree.
+// heuristic needs, so rules keep reading absolute paths, and a root an
+// earlier request recorded on a shared dispatcher is cleared. Every
+// dispatcher that runs rules on files of a project calls it, so the CLI,
+// daemon, LSP and MCP agree.
 func SetDispatcherProjectRoot(d *rules.Dispatcher, paths []string) {
+	root, _ := projectroot.FindMarked(paths)
+	d.SetProjectRoot(root)
+}
+
+// crossRuleFacts returns the facts cache for the cross-file and module-aware
+// rules of one run over paths. It records the marked project root as
+// SetDispatcherProjectRoot does, so their path heuristics read the same
+// project-relative paths as the per-file rules (#1814).
+func crossRuleFacts(paths []string) *filefacts.Cache {
+	facts := filefacts.NewCache()
 	if root, ok := projectroot.FindMarked(paths); ok {
-		d.SetProjectRoot(root)
+		facts.SetProjectRoot(root)
 	}
+	return facts
 }
 
 // SetProjectRootFor records the marked project root of paths on the

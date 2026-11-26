@@ -104,7 +104,7 @@ func registerPotentialbugsMiscRules() {
 			NodeTypes: []string{"function_declaration"}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
-				if scanner.IsTestFile(projectPath(ctx, file.Path)) {
+				if isProjectTestFile(ctx, file.Path) {
 					return
 				}
 				if file.FlatHasModifier(idx, "private") || file.FlatHasModifier(idx, "internal") ||
@@ -221,7 +221,7 @@ func registerPotentialbugsMiscRules() {
 				if ignoredReturnValueIsBuilderCallbackCall(file, idx, funcName) {
 					return
 				}
-				if ignoredReturnValueIsTestSetupSideEffectCall(file, idx, funcName) {
+				if ignoredReturnValueIsTestSetupSideEffectCall(ctx, file, idx, funcName) {
 					return
 				}
 				if ignoredReturnValueIsSideEffectFoldDispatch(file, idx, funcName) {
@@ -272,7 +272,7 @@ func registerPotentialbugsMiscRules() {
 					if hasIgnore {
 						return
 					}
-					if hasCheck && ignoredReturnValueTestFileDisposableCall(file, funcName) {
+					if hasCheck && ignoredReturnValueTestFileDisposableCall(ctx, file, funcName) {
 						return
 					}
 					if hasCheck {

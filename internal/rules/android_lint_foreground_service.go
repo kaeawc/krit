@@ -7,7 +7,6 @@ import (
 	"github.com/kaeawc/krit/internal/lazyre"
 	"github.com/kaeawc/krit/internal/manifest"
 	"github.com/kaeawc/krit/internal/rules/api"
-	"github.com/kaeawc/krit/internal/scanner"
 )
 
 // ForegroundServicePermissionRule mirrors Lint's ForegroundServicePermission: a <service> whose
@@ -96,12 +95,12 @@ func declaredPermissions(n *manifest.Node) []string {
 
 // lintAppTargetSdk returns the target SDK Lint applies to constraint-guarded reports, or 0 when it is unknown or the
 // module is a library: Lint judges a library by the app that includes it, which krit cannot see.
-func lintAppTargetSdk(m *manifest.Manifest) int {
+func lintAppTargetSdk(ctx *api.Context, m *manifest.Manifest) int {
 	if !lintPermissionManifestNamespace(m) {
 		return 0
 	}
 	if m.Path != "" {
-		if scanner.IsTestFile(m.Path) {
+		if isProjectTestFile(ctx, m.Path) {
 			return 0
 		}
 		info := lookupManifestGradleInfo(m.Path)
@@ -154,7 +153,7 @@ func lintPermissionManifestNamespace(parsedManifest *manifest.Manifest) bool {
 
 func (r *ForegroundServicePermissionRule) check(ctx *api.Context) {
 	m := ctx.Manifest
-	if m.Root == nil || lintAppTargetSdk(m) < foregroundServiceMinTargetSdk {
+	if m.Root == nil || lintAppTargetSdk(ctx, m) < foregroundServiceMinTargetSdk {
 		return
 	}
 	declared := declaredPermissions(m.Root)
@@ -199,7 +198,7 @@ func checkForegroundServiceTypes(ctx *api.Context, service *manifest.Node, decla
 
 func (r *QueryAllPackagesPermissionRule) check(ctx *api.Context) {
 	m := ctx.Manifest
-	if m.Root == nil || lintAppTargetSdk(m) < queryAllPackagesMinTargetSdk {
+	if m.Root == nil || lintAppTargetSdk(ctx, m) < queryAllPackagesMinTargetSdk {
 		return
 	}
 	manifestWalk(m.Root, func(n, _ *manifest.Node) {

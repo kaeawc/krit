@@ -63,7 +63,7 @@ func (r *TrulyRandomRule) check(ctx *api.Context) {
 	sort.SliceStable(files, func(i, j int) bool { return files[i].Path < files[j].Path })
 	var first *trulyRandomHit
 	for _, file := range files {
-		if file == nil || file.FlatTree == nil || scanner.IsTestFile(projectPath(ctx, file.Path)) {
+		if file == nil || file.FlatTree == nil || isProjectTestFile(ctx, file.Path) {
 			continue
 		}
 		if bytes.Contains(file.Content, []byte(trulyRandomWorkaround)) && bytes.Contains(file.Content, []byte("forName")) {

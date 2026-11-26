@@ -350,7 +350,7 @@ const slotLintImports = "lintImports"
 // lintImportHeaderEnd returns the offset of the start of the line holding the file's first top-level declaration,
 // or the file's length. Imports cannot follow a declaration, so scanning only the header is faster on large files
 // and does not read import-shaped lines inside raw strings or comments in the body. The cut is at a line start
-// because lintImportRe matches whole lines: an import sharing a line with the declaration never matched.
+// because the import scan matches whole lines: an import sharing a line with the declaration never matched.
 func lintImportHeaderEnd(file *scanner.File) int {
 	if file.FlatTree == nil {
 		return len(file.Content)

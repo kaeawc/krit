@@ -71,7 +71,7 @@ func manifestSourceFindings(t *testing.T, ruleID, manifestXML string, sources ma
 }
 
 // parseManifestAt writes the manifest to path and parses it into the rule-facing model.
-func parseManifestAt(t *testing.T, path, xml string) *rules.Manifest {
+func parseManifestAt(t testing.TB, path, xml string) *rules.Manifest {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)

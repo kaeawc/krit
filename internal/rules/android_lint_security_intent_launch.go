@@ -81,7 +81,7 @@ const unsafeIntentMaxCallDepth = 3
 // unsafeIntentScan holds the project-wide indexes one run of the rule needs.
 type unsafeIntentScan struct {
 	ctx      *api.Context
-	classes  map[string]*lintSourceClass
+	classes  *lintSourceIndex
 	exported map[string]bool
 	reported map[string]bool
 }
@@ -103,7 +103,7 @@ func (r *UnsafeIntentLaunchRule) check(ctx *api.Context) {
 // unsafeIntentExportedComponents returns the activities, receivers and services that Lint's getProtectedComponent
 // calls unprotected: exported (explicitly, or implicitly through an intent filter) and not guarded by a permission
 // that is probably signature-level.
-func unsafeIntentExportedComponents(manifests []*manifest.Manifest, classes map[string]*lintSourceClass) map[string]bool {
+func unsafeIntentExportedComponents(manifests []*manifest.Manifest, classes *lintSourceIndex) map[string]bool {
 	out := map[string]bool{}
 	for _, m := range manifests {
 		if m == nil || m.Root == nil {
@@ -171,21 +171,17 @@ func (s *unsafeIntentScan) scanFile(file *scanner.File) {
 
 // scanComponentClass starts a flow from the Intent parameter of each callback the component declares.
 func (s *unsafeIntentScan) scanComponentClass(file *scanner.File, cls uint32) {
-	name := extractIdentifierFlat(file, cls)
-	if name == "" {
-		return
-	}
-	c := s.classes[preferenceClassFQN(file, cls, name, newPreferenceFileScope(string(file.Content)).pkg)]
+	c := s.classes.classAt(file, cls)
 	if c == nil {
 		return
 	}
 	kind := ""
 	switch {
-	case lintSourceClassExtends(c, s.classes, activityBaseClasses):
+	case s.classes.extendsTarget(c, activityBaseClasses):
 		kind = "activity"
-	case lintSourceClassExtends(c, s.classes, serviceBaseClasses):
+	case s.classes.extendsTarget(c, serviceBaseClasses):
 		kind = "service"
-	case lintSourceClassExtends(c, s.classes, receiverBaseClasses):
+	case s.classes.extendsTarget(c, receiverBaseClasses):
 		kind = "receiver"
 	default:
 		return
@@ -344,9 +340,8 @@ func (s *unsafeIntentScan) enclosingClassExtends(file *scanner.File, n uint32, b
 				return false
 			}
 		case "class_declaration":
-			name := extractIdentifierFlat(file, cur)
-			c := s.classes[preferenceClassFQN(file, cur, name, newPreferenceFileScope(string(file.Content)).pkg)]
-			return c != nil && lintSourceClassExtends(c, s.classes, bases)
+			c := s.classes.classAt(file, cur)
+			return c != nil && s.classes.extendsTarget(c, bases)
 		}
 	}
 	return false
@@ -381,14 +376,10 @@ func (s *unsafeIntentScan) typeExtends(file *scanner.File, typ string, bases map
 			return true
 		}
 	}
-	scope := newPreferenceFileScope(string(file.Content))
-	byFQN := make(map[string]*preferenceClassDecl, len(s.classes))
-	for fqn, c := range s.classes {
-		byFQN[fqn] = c.decl
-	}
+	scope := s.classes.scope(file)
 	probe := &preferenceClassDecl{fqn: scope.pkg + ".__probe", supers: []string{typ}, file: scope}
-	if fqn := resolvePreferenceSuper(probe, typ, byFQN); s.classes[fqn] != nil {
-		return lintSourceClassExtends(s.classes[fqn], s.classes, bases)
+	if c := s.classes.classes[resolvePreferenceSuper(probe, typ, s.classes.byFQN)]; c != nil {
+		return s.classes.extendsTarget(c, bases)
 	}
 	return false
 }
@@ -663,7 +654,7 @@ func (s *unsafeIntentScan) enclosingClassFQN(file *scanner.File, n uint32) strin
 					name = file.FlatNodeText(id)
 				}
 			}
-			return preferenceClassFQN(file, cur, name, newPreferenceFileScope(string(file.Content)).pkg)
+			return preferenceClassFQN(file, cur, name, s.classes.scope(file).pkg)
 		}
 	}
 	return ""

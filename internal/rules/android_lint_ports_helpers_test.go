@@ -40,7 +40,7 @@ func findingPositions(findings []scanner.Finding) string {
 }
 
 // parseManifestForTest parses manifest XML into the rule-facing model, as the pipeline does.
-func parseManifestForTest(t *testing.T, xml string) *rules.Manifest {
+func parseManifestForTest(t testing.TB, xml string) *rules.Manifest {
 	t.Helper()
 	parsed, err := android.ParseManifestBytes([]byte(xml))
 	if err != nil {

@@ -113,3 +113,46 @@ class Child : Initializer<Unit> {
 	}
 	t.Fatal("EnsureInitializerMetadata not registered")
 }
+
+// Lint does not read test-artifact manifests: a <meta-data> entry in src/androidTest/AndroidManifest.xml does not
+// make a main-source Initializer reachable (first-pass review of #1792).
+func TestStartupIgnoresTestManifests(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src", "main", "kotlin", "p", "Init.kt")
+	if err := os.MkdirAll(filepath.Dir(src), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(src, []byte(`package p
+
+import android.content.Context
+import androidx.startup.Initializer
+
+class OnlyInTestManifest : Initializer<Unit> {
+    override fun create(context: Context) = Unit
+    override fun dependencies(): List<Class<out Initializer<*>>> = emptyList()
+}
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	file, err := scanner.ParseFile(context.Background(), src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta := &manifest.Node{Tag: "meta-data", Attrs: []manifest.Attr{
+		{Name: "android:name", Value: "p.OnlyInTestManifest"}, {Name: "android:value", Value: "androidx.startup"}}}
+	testManifest := &manifest.Manifest{Path: filepath.Join(dir, "src", "androidTest", "AndroidManifest.xml"),
+		Root: &manifest.Node{Tag: "manifest", Children: []*manifest.Node{{Tag: "application", Children: []*manifest.Node{meta}}}}}
+	for _, r := range api.Registry {
+		if r.ID != "EnsureInitializerMetadata" {
+			continue
+		}
+		collector := scanner.NewFindingCollector(0)
+		r.Check(&api.Context{ParsedFiles: []*scanner.File{file}, Manifests: []*manifest.Manifest{testManifest},
+			Collector: collector, Rule: r})
+		if got := collector.Columns().Findings(); len(got) != 1 {
+			t.Fatalf("want the Initializer reported despite the androidTest manifest entry, got %v", got)
+		}
+		return
+	}
+	t.Fatal("EnsureInitializerMetadata not registered")
+}

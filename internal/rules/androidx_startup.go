@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"path/filepath"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/manifest"
@@ -106,7 +107,9 @@ func axlClassHasNoArgConstructor(file *scanner.File, cls uint32) bool {
 			return true
 		}
 		for _, ctor := range ctors {
-			if params, ok := file.FlatFindChild(ctor, "formal_parameters"); ok && file.FlatNamedChildCount(params) == 0 {
+			if params, ok := file.FlatFindChild(ctor, "formal_parameters"); ok &&
+				len(flatDirectChildrenOfType(file, params, "formal_parameter"))+
+					len(flatDirectChildrenOfType(file, params, "spread_parameter")) == 0 {
 				return true
 			}
 		}
@@ -134,8 +137,27 @@ func axlClassHasNoArgConstructor(file *scanner.File, cls uint32) bool {
 		_ = primary
 	}
 	for _, ctor := range secondaries {
-		if params, ok := file.FlatFindChild(ctor, "function_value_parameters"); ok && file.FlatNamedChildCount(params) == 0 {
+		params, ok := file.FlatFindChild(ctor, "function_value_parameters")
+		if !ok {
+			continue
+		}
+		ps := flatDirectChildrenOfType(file, params, "parameter")
+		if len(ps) == 0 {
 			return true
+		}
+		// @JvmOverloads with every parameter defaulted compiles to a no-argument overload too.
+		if acrFunctionHasModifier(file, ctor, "JvmOverloads") || strings.Contains(file.FlatNodeText(ctor), "@JvmOverloads") {
+			allDefault := true
+			for _, p := range ps {
+				if next := file.FlatNextSib(p); next == 0 || file.FlatType(next) != "=" {
+					if !file.FlatHasChildOfType(p, "=") {
+						allDefault = false
+					}
+				}
+			}
+			if allDefault {
+				return true
+			}
 		}
 	}
 	return false
@@ -150,6 +172,10 @@ func (r *EnsureInitializerMetadataRule) check(ctx *api.Context) {
 	}
 	reachable := map[string]bool{}
 	for _, m := range ctx.Manifests {
+		// Lint does not visit test-artifact (androidTest, test) or generated build/ manifests.
+		if m == nil || scanner.IsTestFile(m.Path) || strings.Contains(filepath.ToSlash(m.Path), "/build/") {
+			continue
+		}
 		axlStartupMetadataNames(m, reachable)
 	}
 	for _, c := range classes {

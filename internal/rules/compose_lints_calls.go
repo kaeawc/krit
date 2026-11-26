@@ -384,19 +384,25 @@ func composeLintsInModifierExtension(file *scanner.File, node uint32) bool {
 
 // composeLintsReceiverIsModifier reports whether a function or property declaration's receiver type is Modifier.
 func composeLintsReceiverIsModifier(file *scanner.File, decl uint32) bool {
+	t := composeLintsReceiverType(file, decl)
+	return t != 0 && composeLintsTypeIsModifier(file, t)
+}
+
+// composeLintsReceiverType returns the (nullable) user_type of a function or property declaration's extension
+// receiver, or 0.
+func composeLintsReceiverType(file *scanner.File, decl uint32) uint32 {
 	for child := file.FlatFirstChild(decl); child != 0; child = file.FlatNextSib(child) {
 		switch file.FlatType(child) {
 		case "user_type", "nullable_type":
-			next := file.FlatNextSib(child)
-			if next == 0 || file.FlatType(next) != "." {
-				return false
+			if next := file.FlatNextSib(child); next != 0 && file.FlatType(next) == "." {
+				return child
 			}
-			return composeLintsTypeIsModifier(file, child)
+			return 0
 		case "simple_identifier", "variable_declaration", "function_value_parameters", "function_body":
-			return false
+			return 0
 		}
 	}
-	return false
+	return 0
 }
 
 // composeLintsTypeIsModifier reports whether a (nullable) user_type names androidx.compose.ui.Modifier.

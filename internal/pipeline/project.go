@@ -1495,11 +1495,12 @@ func loadWarmCrossFindings(args ProjectArgs, host ProjectHostState, warm warmAna
 	if !ok {
 		return false, nil
 	}
-	// Cross findings are only valid for the file set the index was built
-	// from. After a delete or rename every remaining file can still be a
-	// per-file cache hit (or a lexically irrelevant miss), so compare the
-	// indexed Kotlin/Java paths with the current ones before any reuse.
-	if !meta.CoversSourcePaths(crossIndexSourcePaths(args, warm)) {
+	// Cross findings are only valid for the files the index was built from.
+	// After a delete or rename every remaining file can still be a per-file
+	// cache hit (or a lexically irrelevant miss), and so can a file returned
+	// to an earlier version (#1820), so compare the indexed Kotlin/Java paths
+	// and contents with the current ones before any reuse.
+	if !meta.CoversSourcePaths(crossIndexSourcePaths(args, warm), warmSourceHash(warm)) {
 		return false, nil
 	}
 	// XML layouts, manifests and navigation graphs feed class references into
@@ -3219,6 +3220,14 @@ func xmlInputsFingerprint(host ProjectHostState, project *android.Project, kotli
 	// Module SDK levels come from build scripts the hashes above do not cover.
 	_, _ = h.Write([]byte{3})
 	_, _ = h.Write([]byte(sdkLevelsFingerprint(project)))
+	// Manifest rules read the res of every source set of a manifest's module (and a flat module's res), which
+	// project detection may not list in ResDirs.
+	_, _ = h.Write([]byte{4})
+	var moduleRes resDirFingerprints
+	for _, m := range manifests {
+		_, _ = h.Write([]byte(AndroidInput{Project: project}.manifestModuleFP(m, &moduleRes)))
+		_, _ = h.Write([]byte{0})
+	}
 	return hex.EncodeToString(h.Sum(nil))
 }
 
@@ -4329,6 +4338,36 @@ func warmXMLFiles(host ProjectHostState, warm warmAnalysisCachePlan) []*scanner.
 		return host.XMLFilesLoader(build)
 	}
 	return build()
+}
+
+// warmSourceHash returns the current content hash lookup the warm
+// cross-findings reuse compares against the cross-file index meta. A per-file
+// cache hit supplies the hash the cache already holds for that content, so
+// nothing is re-read. A per-file miss returns "": the lexically-irrelevant-miss
+// check decides those. A path outside the per-file set (Java, when no rule
+// needs it before dispatch) is hashed from disk; a Java edit leaves every
+// Kotlin entry valid.
+func warmSourceHash(warm warmAnalysisCachePlan) func(string) string {
+	analyzed := make(map[string]bool, len(warm.filePaths))
+	for _, p := range warm.filePaths {
+		analyzed[p] = true
+	}
+	return func(path string) string {
+		if warm.result != nil {
+			if hash, ok := warm.result.CachedHashes[path]; ok {
+				return hash
+			}
+			if analyzed[path] {
+				return ""
+			}
+		}
+		hash, err := hashutil.Default().HashFile(path, nil)
+		if err != nil {
+			// Unreadable: report a hash no entry has, so reuse is refused.
+			return "unreadable-source-file"
+		}
+		return hash
+	}
 }
 
 // crossIndexSourcePaths returns the Kotlin and Java source paths the

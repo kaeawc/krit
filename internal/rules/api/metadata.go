@@ -66,7 +66,9 @@ type StringOptionSpec[R any] struct {
 	Aliases     []string
 	Default     string
 	Description string
-	Apply       func(*R, string)
+	// Enum, when set, lists the only accepted values.
+	Enum  []string
+	Apply func(*R, string)
 }
 
 // StringOption builds an OptString ConfigOption from a typed spec.
@@ -77,6 +79,7 @@ func StringOption[R any](s StringOptionSpec[R]) ConfigOption {
 		Type:        OptString,
 		Default:     s.Default,
 		Description: s.Description,
+		Enum:        s.Enum,
 		Apply: func(target interface{}, value interface{}) {
 			s.Apply(target.(*R), value.(string))
 		},
@@ -403,6 +406,10 @@ type ConfigOption struct {
 	// Unanchored makes an OptRegex option compile its pattern as written
 	// instead of as a full-string match.
 	Unanchored bool
+
+	// Enum lists the only values an OptString option accepts. The schema
+	// emits it as `enum` and config validation rejects other values.
+	Enum []string
 
 	// Apply is invoked with the target rule and the parsed value when a
 	// config override is present. The closure downcasts target to the

@@ -3094,6 +3094,72 @@
             }
           }
         },
+        "EnsureInitializerMetadata": {
+          "description": "Detects androidx.startup Initializers that no manifest \u003cmeta-data\u003e entry or dependencies() list reaches. [precision: project-structure-aware] [noisiness: normal] [capabilities: manifest, parsed-files]\nCaveat: As in Lint, a \u003cmeta-data\u003e name must be the fully qualified class name (a relative `.Name` does not count), and the value must be androidx.startup or @string/androidx_startup.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable EnsureInitializerMetadata (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "EnsureInitializerNoArgConstr": {
+          "description": "Detects androidx.startup Initializers without a no-argument constructor, which the startup runtime cannot create. [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]\nCaveat: Initializer hierarchies are followed through the project's own classes; one extending a library base class other than Initializer is not seen.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable EnsureInitializerNoArgConstr (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "ExactAlarm": {
           "description": "Invalid Usage of Exact Alarms [precision: project-structure-aware] [noisiness: normal] [capabilities: manifest]",
           "type": "object",
@@ -11145,6 +11211,72 @@
             }
           }
         },
+        "SquareAndRoundTilePreviews": {
+          "description": "TileProvider does not have round and square previews [precision: project-structure-aware] [noisiness: normal] [capabilities: manifest]\nCaveat: Preview images are read from the drawable folders of every source set of the manifest's module; PNG, JPEG and GIF headers are decoded, a WebP file counts as 0x0 as it does for Lint (no WebP reader on its classpath), and other formats are skipped.\nCaveat: Each AndroidManifest.xml is checked on its own rather than as part of the merged manifest.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable SquareAndRoundTilePreviews (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "StartActivityAndCollapseDeprecated": {
+          "description": "TileService.startActivityAndCollapse(Intent) is deprecated [precision: type-aware] [noisiness: normal] [capabilities: oracle:call-targets, resolver]\nCaveat: The receiver must be proven a TileService: an implicit, `this`, `super` or labeled receiver inside a class whose same-file supertype chain reaches TileService (an extension function decides from its receiver type), or a receiver declared as one with an import, star import or qualified name; a TileService subclass in another file is followed only with type information. The argument must be an Intent constructor, a variable declared or initialized as one, an Intent builder call on one, `this` in a scope lambda on one, or (with type information) any Intent-typed expression.\nCaveat: The target SDK (error from 34, warning below) is the file's module's, from its build script; without one the finding is a warning.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable StartActivityAndCollapseDeprecated (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "StateListReachableResource": {
           "description": "Unreachable item in selector drawable [precision: project-structure-aware] [noisiness: normal] [capabilities: resources]",
           "type": "object",
@@ -12010,6 +12142,39 @@
           "properties": {
             "active": {
               "description": "Enable TextViewEditsResource (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "TilePreviewImageFormat": {
+          "description": "Tile preview is not compliant with standards [precision: project-structure-aware] [noisiness: normal] [capabilities: manifest]\nCaveat: Preview images are read from the drawable folders of every source set of the manifest's module; PNG, JPEG and GIF headers are decoded, a WebP file counts as 0x0 as it does for Lint (no WebP reader on its classpath), and other formats are skipped.\nCaveat: Each AndroidManifest.xml is checked on its own rather than as part of the merged manifest.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable TilePreviewImageFormat (default: true).",
               "type": "boolean",
               "default": true
             },
@@ -17826,6 +17991,56 @@
             }
           }
         },
+        "ComposeModifierMissing": {
+          "description": "Detects @Composable functions that emit content but have no Modifier parameter. [precision: project-structure-aware] [noisiness: normal] [capabilities: cross-file]\nCaveat: Expression-bodied composables without a declared return type are skipped: their return type needs type inference.\nCaveat: Previews are recognized as for ComposePreviewPublic.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable ComposeModifierMissing (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "contentEmitters": {
+              "description": "Extra composables known to emit content (compose-lints `content-emitters`).",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "visibilityThreshold": {
+              "description": "Which composables need a Modifier: only_public, public_and_internal or all (compose-lints `visibility-threshold`).",
+              "type": "string",
+              "enum": [
+                "only_public",
+                "public_and_internal",
+                "all"
+              ],
+              "default": "only_public"
+            }
+          }
+        },
         "ComposeModifierPassedThenChained": {
           "description": "Detects @Composable functions that declare a modifier parameter but never use it, starting fresh Modifier chains instead. [precision: ast-backed] [noisiness: normal]",
           "type": "object",
@@ -17859,6 +18074,39 @@
             }
           }
         },
+        "ComposeModifierWithoutDefault": {
+          "description": "Detects Modifier parameters of @Composable functions without a default value. [fixable: idiomatic] [precision: ast-backed] [noisiness: normal]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable ComposeModifierWithoutDefault (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "ComposeMutableDefaultArgument": {
           "description": "Detects @Composable parameters with mutable collection defaults that re-evaluate on each recomposition. [precision: ast-backed] [noisiness: normal]",
           "type": "object",
@@ -17868,6 +18116,39 @@
               "description": "Enable ComposeMutableDefaultArgument (default: true).",
               "type": "boolean",
               "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "ComposeParameterOrder": {
+          "description": "Detects @Composable function parameters not ordered as required, modifiers, optional, trailing lambda. [precision: project-structure-aware] [noisiness: normal] [capabilities: cross-file]\nCaveat: A trailing function is a function type, a type alias of one declared in the analyzed sources, or java.lang.Runnable, Callable, Comparator or a java.util.function type; library type aliases of function types are not expanded.\nCaveat: compose-lints' reordering autofix is not ported: moving parameters breaks positional callers.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable ComposeParameterOrder (default: false).",
+              "type": "boolean",
+              "default": false
             },
             "excludes": {
               "description": "Glob patterns for paths to exclude from this rule.",
@@ -31888,6 +32169,39 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "AvoidUsingNotNullOperator": {
+          "description": "Avoid using the !! operator in Kotlin [precision: ast-backed] [noisiness: normal]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable AvoidUsingNotNullOperator (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "BindingReceiverParameter": {
           "description": "@Binds/@Provides functions cannot be extensions [precision: ast-backed] [noisiness: normal]",
           "type": "object",
@@ -32093,6 +32407,72 @@
           "properties": {
             "active": {
               "description": "Enable DoNotMockPlatformTypes (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "ExceptionMessage": {
+          "description": "Please provide a string for the `lazyMessage` parameter [precision: ast-backed] [noisiness: normal]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable ExceptionMessage (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "GuavaPreconditionsUsedInKotlin": {
+          "description": "Kotlin precondition checks should use the Kotlin standard library checks [precision: ast-backed] [noisiness: normal]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable GuavaPreconditionsUsedInKotlin (default: false).",
               "type": "boolean",
               "default": false
             },
@@ -33479,6 +33859,72 @@
           "properties": {
             "active": {
               "description": "Enable MustBeInModule (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "NullableConcurrentHashMap": {
+          "description": "ConcurrentHashMap should not use nullable types [precision: ast-backed] [noisiness: normal]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable NullableConcurrentHashMap (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "ParcelizeFunctionProperty": {
+          "description": "Function type properties are not parcelable [precision: ast-backed] [noisiness: normal]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable ParcelizeFunctionProperty (default: false).",
               "type": "boolean",
               "default": false
             },

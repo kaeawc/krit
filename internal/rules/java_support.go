@@ -189,6 +189,8 @@ var javaSupportReadiness = JavaSupportMatrix{
 		"ExperimentalAnnotationRetention":         {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/androidx_lint_parity_test.go"}},
 		"UnsafeOptInUsageError":                   {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/androidx_lint_parity_test.go"}},
 		"UnsafeOptInUsageWarning":                 {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/androidx_lint_parity_test.go"}},
+		"EnsureInitializerNoArgConstr":            {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/androidx_lint_parity_test.go"}},
+		"EnsureInitializerMetadata":               {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/androidx_lint_parity_test.go"}},
 		"MissingOnRenderProcessGone":              {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/androidx_lint_parity_test.go"}},
 		"CrossOriginIsolatedAllowlist":            {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/androidx_lint_parity_test.go"}},
 		"UsingMaterialAndMaterial3Libraries":      {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/androidx_lint_parity_test.go"}},
@@ -233,6 +235,7 @@ var javaSupportReadiness = JavaSupportMatrix{
 		"RemoveWorkManagerInitializer":            {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/androidx_work_parity_test.go"}},
 		"SpecifyForegroundServiceType":            {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/androidx_work_parity_test.go"}},
 		"WearMaterialTheme":                       {Status: api.LanguageSupportSupported, Fixtures: []string{"tests/fixtures/android-lint/WearMaterialTheme/positive"}},
+		"StartActivityAndCollapseDeprecated":      {Status: api.LanguageSupportSupported, Fixtures: []string{"tests/fixtures/android-lint/StartActivityAndCollapseDeprecated/positive"}},
 	},
 }
 

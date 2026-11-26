@@ -13,6 +13,7 @@ var axlParityRoots = []string{
 	"androidx_activity_compose",
 	"androidx_compose_animation",
 	"androidx_compose_material",
+	"androidx_startup",
 	"androidx_uiautomator",
 	"androidx_webkit",
 }

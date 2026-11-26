@@ -275,8 +275,12 @@ func (r *ComposeModifierMissingRule) isEmitter(name string) bool {
 }
 
 // composeLintsCalleeName returns the simple name a call invokes (`Text` for `Text()` and `x.Text()`), or "".
+// tree-sitter parses `f<T>(args) { }` as a call whose callee is the call `f<T>(args)`; that resolves to `f`.
 func composeLintsCalleeName(file *scanner.File, call uint32) string {
 	callee := file.FlatFirstChild(call)
+	for callee != 0 && file.FlatType(callee) == "call_expression" {
+		callee = file.FlatFirstChild(callee)
+	}
 	switch file.FlatType(callee) {
 	case "simple_identifier":
 		return file.FlatNodeText(callee)

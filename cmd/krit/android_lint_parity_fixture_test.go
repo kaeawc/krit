@@ -18,6 +18,8 @@ import (
 // by divergences.txt when present: `- finding # reason` is a Lint line krit
 // deliberately does not report and `+ finding # reason` a krit line Lint does
 // not report. An empty lint-32.4.1.txt pins a case where Lint reports nothing.
+// An optional severity.txt names the severity Lint gave every finding of the
+// case (error, warning, ...), for checks whose severity depends on the project.
 func TestAndroidLintParityFixtures(t *testing.T) {
 	root := filepath.Join("..", "..", "tests", "fixtures", "android-lint")
 	cases, err := filepath.Glob(filepath.Join(root, "*", "*", "lint-32.4.1.txt"))
@@ -38,20 +40,28 @@ func TestAndroidLintParityFixtures(t *testing.T) {
 			stdout, stderr, _ := runKrit(t, "--no-daemon", "--no-cache", "--all-rules", "-f", "json", project)
 			var report struct {
 				Findings []struct {
-					File    string `json:"file"`
-					Line    int    `json:"line"`
-					Column  int    `json:"column"`
-					Rule    string `json:"rule"`
-					Message string `json:"message"`
+					File     string `json:"file"`
+					Line     int    `json:"line"`
+					Column   int    `json:"column"`
+					Rule     string `json:"rule"`
+					Severity string `json:"severity"`
+					Message  string `json:"message"`
 				} `json:"findings"`
 			}
 			if err := json.Unmarshal([]byte(stdout), &report); err != nil {
 				t.Fatalf("parse report: %v\nstderr: %s", err, stderr)
 			}
+			wantSeverity := ""
+			if data, err := os.ReadFile(filepath.Join(src, "severity.txt")); err == nil {
+				wantSeverity = strings.TrimSpace(string(data))
+			}
 			var got []string
 			for _, f := range report.Findings {
 				if f.Rule != rule {
 					continue
+				}
+				if wantSeverity != "" && f.Severity != wantSeverity {
+					t.Errorf("%s:%d: severity %q, Lint reported %q", f.File, f.Line, f.Severity, wantSeverity)
 				}
 				// krit prints paths relative to the scanned root, or absolute ones outside it.
 				rel := f.File

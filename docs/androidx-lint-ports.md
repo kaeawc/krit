@@ -80,6 +80,22 @@ import, as it does in Kotlin.
 - `TextFieldBufferInternalAppend` reports `append` on a `TextFieldBuffer` (declared as one, or the implicit receiver of
   `with(buffer)`, a `TextFieldBuffer` extension or an `edit { }` block) in files whose package is
   `androidx.compose.foundation` or below. It guards AndroidX's own code, as in Lint, so it never fires in apps.
+## Startup
+
+`androidx.startup:startup-runtime` 1.2.0 (Kotlin and Java). Both checks see every main-source class at once, so an
+`Initializer` that extends a base class declared in another file is found; they run in the project scopes, whose
+results are cached on the whole source set.
+
+- `EnsureInitializerNoArgConstr` reports an `Initializer` that cannot be created without arguments, at the class: a
+  Kotlin class whose primary and secondary constructors all take parameters (a primary constructor whose parameters
+  all have defaults counts as a no-argument one, as it compiles to one, and so does an `@JvmOverloads` secondary
+  constructor whose parameters all have defaults), or a Java class whose constructors all take parameters. Comments
+  in a parameter list are not parameters. Interfaces are skipped.
+- `EnsureInitializerMetadata` reports an `Initializer` (abstract ones too, as in Lint; interfaces are skipped) that no
+  manifest `<meta-data android:name="…" android:value="androidx.startup">` (or `@string/androidx_startup`) names and no
+  class literal in an `Initializer`'s `dependencies()` reaches, at the class. As in Lint, the `<meta-data>` name must
+  be the fully qualified class name, and test-artifact (`androidTest`, `test`) and generated `build/` manifests are not
+  read.
 ## Compose animation
 
 `androidx.compose.animation:animation-android` and `animation-core-android` 1.13.0 (Kotlin). The unused-parameter

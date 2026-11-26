@@ -1,0 +1,2 @@
+- src/main/java/com/example/Checks.kt:10:44: NullableConcurrentHashMap: ConcurrentHashMap should not use nullable key types # Lint visits a `val` constructor parameter twice, as the parameter and as the property, and reports each nullable type argument twice; krit reports it once
+- src/main/java/com/example/Checks.kt:10:53: NullableConcurrentHashMap: ConcurrentHashMap should not use nullable value types # as above

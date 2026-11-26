@@ -40,13 +40,32 @@ func registerComposeLintsRules() {
 	previewNaming := &ComposePreviewNamingRule{BaseRule: BaseRule{RuleName: "ComposePreviewNaming", RuleSetName: composeLintsRuleSet,
 		Sev: "error", Desc: "Detects multipreview annotation classes not named with the Preview or Previews suffix."}}
 	registerComposeLintsProjectRule(previewNaming.BaseRule, previewNaming, previewNaming.check)
+
+	missing := &ComposeModifierMissingRule{BaseRule: BaseRule{RuleName: "ComposeModifierMissing", RuleSetName: composeLintsRuleSet,
+		Sev: "error", Desc: "Detects @Composable functions that emit content but have no Modifier parameter."}}
+	registerComposeLintsProjectRule(missing.BaseRule, missing, missing.check)
+
+	withoutDefault := &ComposeModifierWithoutDefaultRule{BaseRule: BaseRule{RuleName: "ComposeModifierWithoutDefault",
+		RuleSetName: composeLintsRuleSet, Sev: "error", Desc: "Detects Modifier parameters of @Composable functions without a default value."}}
+	registerComposeLintsRule(withoutDefault.BaseRule, withoutDefault, []string{"function_declaration"},
+		composeLintsMentions("Modifier"), withoutDefault.check, api.FixIdiomatic)
+
+	order := &ComposeParameterOrderRule{BaseRule: BaseRule{RuleName: "ComposeParameterOrder", RuleSetName: composeLintsRuleSet,
+		Sev: "error", Desc: "Detects @Composable function parameters not ordered as required, modifiers, optional, trailing lambda."}}
+	registerComposeLintsProjectRule(order.BaseRule, order, order.check)
 }
 
-func registerComposeLintsRule(rule BaseRule, impl any, nodeTypes []string, gate func(*scanner.File) bool, check func(*api.Context)) {
+// registerComposeLintsRule registers a node-dispatched port; fix, when given, is its autofix safety level.
+func registerComposeLintsRule(rule BaseRule, impl any, nodeTypes []string, gate func(*scanner.File) bool,
+	check func(*api.Context), fix ...api.FixLevel) {
+	level := api.FixNone
+	if len(fix) > 0 {
+		level = fix[0]
+	}
 	api.Register(&api.Rule{
 		ID: rule.RuleName, Category: rule.RuleSetName, Description: rule.Desc, Sev: api.Severity(rule.Sev),
 		NodeTypes: nodeTypes, Languages: []scanner.Language{scanner.LangKotlin}, Confidence: api.ConfidenceHigh,
-		Implementation: impl, Check: check, FileGate: gate, LintIssue: true,
+		Implementation: impl, Check: check, FileGate: gate, LintIssue: true, Fix: level,
 		DefaultActive: false, OptInReason: api.OptInReasonOpinionated, Maturity: api.MaturityExperimental,
 	})
 }

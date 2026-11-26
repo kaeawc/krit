@@ -367,9 +367,12 @@ type IndexInput struct {
 	// children. The caller End()-s it so moduleRuleExecution can nest
 	// under the same parent.
 	ModuleParentTracker perf.Tracker
-	// ModuleScanRoot is the root path passed to module.DiscoverModules.
+	// ModuleScanRoot is the root path passed to module.DiscoverModulesFrom.
 	// Empty means "use Paths[0] or '.'".
 	ModuleScanRoot string
+	// ModuleRootCeiling bounds the build-root search for a file
+	// ModuleScanRoot (see module.DiscoverModulesFrom).
+	ModuleRootCeiling string
 	// ModuleJobsFlag is the -jobs flag value used by
 	// phaseWorkerCount("moduleAwareAnalysis", ...).
 	ModuleJobsFlag int
@@ -628,6 +631,13 @@ func (p IndexPhase) discoverModuleGraph(ctx context.Context, in IndexInput) *mod
 		if len(in.Paths) > 0 {
 			scanRoot = in.Paths[0]
 		}
+	}
+	// A file scan path (krit_aspect, a file-scope pre-commit run) would
+	// discover the whole build above it for a graph that only the oracle
+	// and custom rule jars read; skip it, as module-aware rules discover
+	// their own graph in runModuleIndexBuild.
+	if info, err := os.Stat(scanRoot); err == nil && !info.IsDir() {
+		return nil
 	}
 	graph, err := module.DiscoverModules(ctx, scanRoot)
 	if err != nil {
@@ -1833,7 +1843,7 @@ func (p IndexPhase) runModuleIndexBuild(ctx context.Context, in IndexInput, resu
 		modErr error
 	)
 	moduleTracker.TrackVoid("moduleDiscovery", func() {
-		graph, modErr = module.DiscoverModules(ctx, scanRoot)
+		graph, modErr = module.DiscoverModulesFrom(ctx, scanRoot, in.ModuleRootCeiling)
 	})
 	if modErr != nil {
 		in.warnf("warning: module discovery failed, module-aware rules are skipped: %v\n", modErr)

@@ -21,3 +21,17 @@ func TestProjectInputPassesNoTypeOracle(t *testing.T) {
 		}
 	}
 }
+
+// --base-path bounds module discovery for file scan paths on the CLI path as
+// it does in the daemon, so both discover the same module graph (#1704).
+func TestProjectInputPassesBasePathAsModuleRootCeiling(t *testing.T) {
+	dir := t.TempDir()
+	for _, tc := range []struct{ flag, want string }{{"", ""}, {dir, dir}} {
+		f := registerScanFlags(flag.NewFlagSet("krit", flag.ContinueOnError))
+		*f.BasePath = tc.flag
+		r := &runner{f: f, sess: &Session{}, tracker: perf.New(false)}
+		if got := r.projectInput().Args.ModuleRootCeiling; got != tc.want {
+			t.Fatalf("--base-path=%q: ProjectArgs.ModuleRootCeiling = %q, want %q", tc.flag, got, tc.want)
+		}
+	}
+}

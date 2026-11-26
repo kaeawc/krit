@@ -641,6 +641,7 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs, backend 
 			DryRun:              args.DryRun,
 			MaxFixLevel:         maxFixLevel,
 			BasePath:            basePath,
+			ModuleRootCeiling:   basePath,
 			AbsolutePaths:       args.AbsolutePaths,
 			// Wire is line-delimited; compact JSON keeps the body
 			// free of internal newlines.

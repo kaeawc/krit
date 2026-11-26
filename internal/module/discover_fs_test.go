@@ -351,27 +351,68 @@ func TestBuildRoot(t *testing.T) {
 	if err := os.MkdirAll(nested, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if got := BuildRoot(nested); got != dir {
-		t.Errorf("BuildRoot(%s) = %q, want the settings directory %q", nested, got, dir)
+	if got := buildRoot(nested, ""); got != dir {
+		t.Errorf("buildRoot(%s) = %q, want the settings directory %q", nested, got, dir)
+	}
+	// The ceiling bounds the search; at or above the build root it does not.
+	if got := buildRoot(nested, filepath.Join(dir, "app")); got != "" {
+		t.Errorf("buildRoot below a ceiling = %q, want none", got)
+	}
+	if got := buildRoot(nested, dir); got != dir {
+		t.Errorf("buildRoot with the build root as ceiling = %q, want %q", got, dir)
 	}
 	// A nested build's own settings file is the nearer root.
 	writeSettings(t, filepath.Join(dir, "app"), `include(":inner")`)
-	if got, want := BuildRoot(nested), filepath.Join(dir, "app"); got != want {
-		t.Errorf("BuildRoot(%s) = %q, want the nearer settings directory %q", nested, got, want)
+	if got, want := buildRoot(nested, ""), filepath.Join(dir, "app"); got != want {
+		t.Errorf("buildRoot(%s) = %q, want the nearer settings directory %q", nested, got, want)
 	}
 	// A directory named like a settings file is not one.
 	other := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(other, "settings.gradle.kts"), 0o755); err != nil {
-		t.Fatal(err)
+	for _, d := range []string{"settings.gradle.kts", ".git", "src"} {
+		if err := os.MkdirAll(filepath.Join(other, d), 0o755); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if err := os.MkdirAll(filepath.Join(other, ".git"), 0o755); err != nil {
-		t.Fatal(err)
+	if got := buildRoot(filepath.Join(other, "src"), ""); got != "" {
+		t.Errorf("buildRoot without a build = %q, want none", got)
 	}
-	src := filepath.Join(other, "src")
-	if err := os.MkdirAll(src, 0o755); err != nil {
-		t.Fatal(err)
+}
+
+// A file in no build discovers nothing and walks no tree: before, its own
+// directory was the root, so `krit /tmp/A.kt` walked all of /tmp (#1704).
+// The build scripts next to the file are what such a walk would have found.
+func TestDiscoverModulesFromMarkerlessFileWalksNothing(t *testing.T) {
+	dir := t.TempDir()
+	makeModule(t, dir, "elsewhere", "lib")
+	makeModule(t, dir, "other")
+	file := filepath.Join(dir, "A.kt")
+	writeFile(t, file, "package a\n")
+	graph, err := DiscoverModules(t.Context(), file)
+	if err != nil || graph != nil {
+		t.Fatalf("DiscoverModules(%s) = %v, %v; want nil, nil", file, graph, err)
 	}
-	if got := BuildRoot(src); got != src {
-		t.Errorf("BuildRoot(%s) = %q, want itself", src, got)
+}
+
+// A ceiling (--base-path, a Bazel execroot) keeps discovery from finding a
+// build above it.
+func TestDiscoverModulesFromRespectsCeiling(t *testing.T) {
+	dir := t.TempDir()
+	writeSettings(t, dir, `include(":app")`)
+	makeModule(t, dir, "app")
+	sandbox := filepath.Join(dir, "sandbox")
+	file := filepath.Join(sandbox, "app", "A.kt")
+	writeFile(t, file, "package a\n")
+	if graph, err := DiscoverModulesFrom(t.Context(), file, ""); err != nil || graph == nil {
+		t.Fatalf("without a ceiling: DiscoverModulesFrom = %v, %v; want the outer build", graph, err)
+	}
+	if graph, err := DiscoverModulesFrom(t.Context(), file, sandbox); err != nil || graph != nil {
+		t.Fatalf("with the ceiling %s: DiscoverModulesFrom = %v, %v; want nil, nil", sandbox, graph, err)
+	}
+	// A ceiling that does not hold the file, or is a file, does not apply.
+	if graph, _ := DiscoverModulesFrom(t.Context(), file, t.TempDir()); graph == nil {
+		t.Error("a ceiling outside the file's tree stopped discovery")
+	}
+	if graph, _ := DiscoverModulesFrom(t.Context(), file, file); graph == nil {
+		t.Error("a file ceiling stopped discovery")
 	}
 }

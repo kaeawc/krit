@@ -6,6 +6,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -55,9 +56,12 @@ func (w *Workspace) IsEmpty() bool {
 // IsBuildFile reports whether name is a Bazel BUILD file name.
 func IsBuildFile(name string) bool { return name == "BUILD" || name == "BUILD.bazel" }
 
+// WorkspaceFileNames are the file names that mark a Bazel workspace root.
+var WorkspaceFileNames = []string{"MODULE.bazel", "WORKSPACE", "WORKSPACE.bazel", "REPO.bazel"}
+
 // IsWorkspaceFile reports whether name marks a Bazel workspace root.
 func IsWorkspaceFile(name string) bool {
-	return name == "MODULE.bazel" || name == "WORKSPACE" || name == "WORKSPACE.bazel" || name == "REPO.bazel"
+	return slices.Contains(WorkspaceFileNames, name)
 }
 
 // IsLockFile reports whether name is a rules_jvm_external lock file

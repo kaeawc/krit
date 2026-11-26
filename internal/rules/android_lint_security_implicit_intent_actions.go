@@ -50,7 +50,7 @@ func (e *implicitIntentActionEval) eval(file *scanner.File, expr uint32) (string
 	if v, ok := lintFrameworkActionConstants[owner+"."+name]; ok && implicitIntentFrameworkQualifier(file, qualifier) {
 		return v, true
 	}
-	return e.member(file, owner, name)
+	return e.member(file, qualifier, owner, name)
 }
 
 // implicitIntentFrameworkQualifier reports whether qualifier names an android.* framework class: written in full,
@@ -85,8 +85,11 @@ func (e *implicitIntentActionEval) declsNamed(name string) []implicitIntentConst
 			if f == nil || f.FlatTree == nil {
 				continue
 			}
-			for _, kind := range []string{"property_declaration", "field_declaration"} {
+			for _, kind := range []string{"property_declaration", "field_declaration", "constant_declaration"} {
 				f.FlatWalkNodes(0, kind, func(n uint32) {
+					if !implicitIntentMemberOrTopLevel(f, n) {
+						return
+					}
 					if name := implicitIntentDeclName(f, n); name != "" {
 						e.decls[name] = append(e.decls[name], implicitIntentConstDecl{file: f, node: n})
 					}
@@ -121,20 +124,76 @@ func (e *implicitIntentActionEval) declaresName(file *scanner.File, name string)
 	return names[name]
 }
 
-// member evaluates `Owner.NAME`: a constant declared in a class, object or companion object named owner.
-func (e *implicitIntentActionEval) member(_ *scanner.File, owner, name string) (string, bool) {
+// member evaluates `Owner.NAME` (or `pkg.Owner.NAME`): a constant declared in the class, object or companion
+// object the qualifier names from file. A same-file owner wins; otherwise the owner must be the explicitly imported
+// one, or come from the written package, the file's package or a wildcard import (#1774 review).
+func (e *implicitIntentActionEval) member(file *scanner.File, qualifier, owner, name string) (string, bool) {
+	sameFileOwner := implicitIntentSameFileOwner(file, owner)
+	imp := lintImportsOf(file)
+	var pkgs map[string]bool
+	switch {
+	case strings.Contains(qualifier, "."):
+		pkgs = map[string]bool{qualifier[:strings.LastIndexByte(qualifier, '.')]: true}
+	case sameFileOwner:
+	default:
+		pkgs = map[string]bool{}
+		if full, ok := imp.bySimple[owner]; ok {
+			pkgs[strings.TrimSuffix(full, "."+owner)] = true
+		} else {
+			pkgs[filePackageName(file)] = true
+			for _, star := range imp.stars {
+				pkgs[star] = true
+			}
+		}
+	}
 	var value string
 	found := 0
 	for _, d := range e.declsNamed(name) {
 		if implicitIntentConstOwnerName(d.file, d.node) != owner {
 			continue
 		}
-		if v, ok := implicitIntentConstValue(d.file, d.node); ok {
-			value = v
-			found++
+		if sameFileOwner && !strings.Contains(qualifier, ".") {
+			if d.file != file {
+				continue
+			}
+		} else if !pkgs[filePackageName(d.file)] {
+			continue
 		}
+		v, ok := implicitIntentConstValue(d.file, d.node)
+		if !ok {
+			return "", false
+		}
+		value = v
+		found++
 	}
 	return value, found == 1
+}
+
+// implicitIntentSameFileOwner reports whether file declares a class, interface or object named owner.
+func implicitIntentSameFileOwner(file *scanner.File, owner string) bool {
+	found := false
+	for _, kind := range []string{"class_declaration", "object_declaration", "interface_declaration"} {
+		file.FlatWalkNodes(0, kind, func(n uint32) {
+			if !found && implicitIntentDeclTypeName(file, n) == owner {
+				found = true
+			}
+		})
+	}
+	return found
+}
+
+// implicitIntentMemberOrTopLevel reports whether a property or field is declared at top level or directly in a
+// class, interface, object or companion body, rather than as a local in a function, lambda or accessor.
+func implicitIntentMemberOrTopLevel(file *scanner.File, n uint32) bool {
+	parent, ok := file.FlatParent(n)
+	if !ok {
+		return false
+	}
+	switch file.FlatType(parent) {
+	case "source_file", "class_body", "enum_class_body", "interface_body":
+		return true
+	}
+	return false
 }
 
 // topLevel evaluates a bare NAME: an explicitly imported constant, or a top-level Kotlin constant of the file's
@@ -201,8 +260,13 @@ func implicitIntentConstOwnerName(file *scanner.File, n uint32) string {
 			owner = outer
 		}
 	}
+	return implicitIntentDeclTypeName(file, owner)
+}
+
+// implicitIntentDeclTypeName is the name a class, interface or object declaration declares.
+func implicitIntentDeclTypeName(file *scanner.File, decl uint32) string {
 	for _, kind := range []string{"type_identifier", "simple_identifier", "identifier"} {
-		if id, ok := file.FlatFindChild(owner, kind); ok {
+		if id, ok := file.FlatFindChild(decl, kind); ok {
 			return file.FlatNodeText(id)
 		}
 	}
@@ -223,8 +287,9 @@ func implicitIntentConstValue(file *scanner.File, n uint32) (string, bool) {
 			return "", false
 		}
 		init = lintInitializerAfterEquals(file, n)
-	case "field_declaration":
-		if !file.FlatHasModifier(n, "static") || !file.FlatHasModifier(n, "final") {
+	case "field_declaration", "constant_declaration":
+		// Java interface fields (constant_declaration) are implicitly public static final.
+		if file.FlatType(n) == "field_declaration" && (!file.FlatHasModifier(n, "static") || !file.FlatHasModifier(n, "final")) {
 			return "", false
 		}
 		if vd, ok := file.FlatFindChild(n, "variable_declarator"); ok {

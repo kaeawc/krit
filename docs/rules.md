@@ -120,6 +120,22 @@ They report only what the source proves:
 Not ported: `MoshiUsageNonMoshiClassInternal` and `MoshiUsageNonMoshiClassExternal`, which split on whether a type
 lives in Slack's own `slack.*` packages.
 
+## Compose lint checks (compose-lints)
+
+Rules named `Compose…` with a Lint issue ID port [compose-lints](https://github.com/slackhq/compose-lints)
+(`com.slack.lint.compose:compose-lint-checks`) 1.6.1. They live in the `compose` rule set, analyze Kotlin only (as
+compose-lints does), and use the Lint issue ID, message and severity, so `@SuppressLint`, `tools:ignore` and
+`lint.xml` entries for the Lint ID apply. They are experimental and off by default: they encode the compose-lints
+style guide, and some overlap AndroidX Compose ports that are on. Enable them by ID
+(`--enable-rules ComposeCompositionLocalUsage`) or with `--experimental`. Their findings are checked against the Lint
+CLI running compose-lint-checks 1.6.1 on the inputs under `internal/rules/testdata/compose_lints/`.
+
+| Lint issue | krit rule | Notes |
+|------------|-----------|-------|
+| `ComposeNamingUppercase`, `ComposeNamingLowercase` | `ComposableNaming` | Lint aliases of the AndroidX port (on by default). Its `allowedComposableFunctionNames` option is compose-lints' `allowed-composable-function-names`. Unlike compose-lints it skips overrides, and it also reports lowercase Unit composables with a receiver and expression bodies with a provable return type. |
+| `ComposeCompositionLocalUsage` | same ID | `allowedCompositionLocals` is compose-lints' `allowed-composition-locals`. The factory must resolve to `androidx.compose.runtime`; Lint matches the name alone. |
+| `ComposeCompositionLocalGetter` | same ID | As above. |
+
 ## Compose-aware defaults
 
 Krit recognizes common Compose patterns without extra config:

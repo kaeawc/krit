@@ -1,0 +1,3 @@
+src/com/example/Naming.kt:25:14 # compose-lints exempts a lowercase Unit composable with a receiver; ComposableNaming (AndroidX) reports it
+src/com/example/Naming.kt:34:5 # compose-lints skips expression bodies; ComposableNaming reports one whose Unit return type is declared
+src/com/example/Naming.kt:37:5 # compose-lints skips expression bodies; ComposableNaming reports one whose Int return type is declared

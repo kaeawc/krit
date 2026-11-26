@@ -1,0 +1,2 @@
+ComposeNamingUppercase = ComposableNaming
+ComposeNamingLowercase = ComposableNaming

@@ -69,3 +69,39 @@ func (r *ComposePreviewNamingRule) Meta() api.RuleDescriptor {
 			"Only top-level annotation classes are checked, and nested multipreviews resolve as for ComposePreviewPublic.",
 		}}
 }
+
+func (r *ComposeModifierMissingRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "ComposeModifierMissing", RuleSet: composeLintsRuleSet, DefaultActive: false,
+		OptInReason: api.OptInReasonOpinionated,
+		KnownLimitations: []string{
+			"Expression-bodied composables without a declared return type are skipped: their return type needs type inference.",
+			"Previews are recognized as for ComposePreviewPublic.",
+		},
+		Options: []api.ConfigOption{
+			api.StringListOption(api.StringListOptionSpec[ComposeModifierMissingRule]{
+				Name:        "contentEmitters",
+				Description: "Extra composables known to emit content (compose-lints `content-emitters`).",
+				Apply:       func(r *ComposeModifierMissingRule, v []string) { r.ContentEmitters = v },
+			}),
+			api.StringOption(api.StringOptionSpec[ComposeModifierMissingRule]{
+				Name:        "visibilityThreshold",
+				Default:     "only_public",
+				Description: "Which composables need a Modifier: only_public, public_and_internal or all (compose-lints `visibility-threshold`).",
+				Apply:       func(r *ComposeModifierMissingRule, v string) { r.VisibilityThreshold = v },
+			}),
+		}}
+}
+
+func (r *ComposeModifierWithoutDefaultRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "ComposeModifierWithoutDefault", RuleSet: composeLintsRuleSet, DefaultActive: false,
+		OptInReason: api.OptInReasonOpinionated, FixLevel: "idiomatic"}
+}
+
+func (r *ComposeParameterOrderRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "ComposeParameterOrder", RuleSet: composeLintsRuleSet, DefaultActive: false,
+		OptInReason: api.OptInReasonOpinionated,
+		KnownLimitations: []string{
+			"A trailing function is a function type, a type alias of one declared in the analyzed sources, or java.lang.Runnable, Callable, Comparator or a java.util.function type; library type aliases of function types are not expanded.",
+			"compose-lints' reordering autofix is not ported: moving parameters breaks positional callers.",
+		}}
+}

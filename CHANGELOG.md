@@ -38,6 +38,10 @@ All notable changes to Krit will be documented in this file.
   `androidx.compose.material3` 1.5.0, under their Lint IDs. Their findings match the Lint CLI running those releases'
   `lint.jar` on the inputs under `internal/rules/testdata/androidx_compose_material/`. The material3 import check needs
   a material3 import in the file or a material3 dependency in the build (#1457, #1458, #1459, #1461).
+- Compose lint parity, third batch of compose-lints 1.6.1 ports: `ComposeModifierMissing` (with `contentEmitters` and
+  `visibilityThreshold`), `ComposeModifierWithoutDefault` (autofix: ` = Modifier`) and `ComposeParameterOrder`, under
+  their Lint IDs, messages and severities, experimental and off by default. On nowinandroid and compose-samples their
+  findings, messages included, match the Lint CLI exactly (#1338, #1340, #1345).
 - Compose lint parity, second batch of compose-lints 1.6.1 ports: `ComposePreviewPublic`, `ComposePreviewNaming`
   (cross-file, so multipreview annotations from other files count), `ComposeM2Api` (with `allowedM2Apis`),
   `ComposeItemKeyHashCode` and `ComposeModifierComposed`, under their Lint IDs, messages and severities, experimental and

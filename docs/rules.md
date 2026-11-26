@@ -164,6 +164,9 @@ CLI running compose-lint-checks 1.6.1 on the inputs under `internal/rules/testda
 | `ComposeM2Api` | same ID | Off by default in compose-lints too. Resolves through imports, not types: a call or reference to an `androidx.compose.material` top-level declaration (explicit import, or the wildcard import for a name Material 2 declares), `M2Class.member`, `MaterialTheme.colors/typography/shapes.member`, and imported M2 extensions. A member read on a local of an M2 type (`colors.primary`) is a known false negative. `allowedM2Apis` (compose-lints `allowed-m2-apis`) matches source names, as Lint does with `enable-mangling-workaround`. |
 | `ComposeItemKeyHashCode` | same ID | A zero-argument `hashCode()` inside a `key =` argument of a call in a `@Composable` function. |
 | `ComposeModifierComposed` | same ID | The receiver must be provably a `Modifier` (`Modifier`, `this` or the implicit receiver of a `Modifier` extension, a parameter or local declared as `Modifier`, or a call chain rooted in one). |
+| `ComposeModifierMissing` | same ID | Cross-file (previews are exempt, including multipreviews from other files). Options: `contentEmitters` (compose-lints `content-emitters`) and `visibilityThreshold` (`only_public`, `public_and_internal` or `all`; compose-lints `visibility-threshold`). An extension receiver of type `Modifier` counts as the modifier parameter, as in Lint's UAST. |
+| `ComposeModifierWithoutDefault` | same ID | Autofix (idiomatic): appends ` = Modifier` to the parameter. |
+| `ComposeParameterOrder` | same ID | Cross-file, so a trailing-function type alias declared in another file is expanded. As in Lint, a trailing function is a function type, a type alias of one, or a Java `@FunctionalInterface` type such as `Runnable`; a Kotlin `fun interface` is not. compose-lints' reordering autofix is not ported, because moving parameters breaks positional callers. |
 
 ## Compose-aware defaults
 

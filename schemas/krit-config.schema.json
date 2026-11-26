@@ -17595,6 +17595,51 @@
             }
           }
         },
+        "ComposeModifierMissing": {
+          "description": "Detects @Composable functions that emit content but have no Modifier parameter. [precision: project-structure-aware] [noisiness: normal] [capabilities: cross-file]\nCaveat: Expression-bodied composables without a declared return type are skipped: their return type needs type inference.\nCaveat: Previews are recognized as for ComposePreviewPublic.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable ComposeModifierMissing (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "contentEmitters": {
+              "description": "Extra composables known to emit content (compose-lints `content-emitters`).",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "visibilityThreshold": {
+              "description": "Which composables need a Modifier: only_public, public_and_internal or all (compose-lints `visibility-threshold`).",
+              "type": "string",
+              "default": "only_public"
+            }
+          }
+        },
         "ComposeModifierPassedThenChained": {
           "description": "Detects @Composable functions that declare a modifier parameter but never use it, starting fresh Modifier chains instead. [precision: ast-backed] [noisiness: normal]",
           "type": "object",
@@ -17628,6 +17673,39 @@
             }
           }
         },
+        "ComposeModifierWithoutDefault": {
+          "description": "Detects Modifier parameters of @Composable functions without a default value. [fixable: idiomatic] [precision: ast-backed] [noisiness: normal]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable ComposeModifierWithoutDefault (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "ComposeMutableDefaultArgument": {
           "description": "Detects @Composable parameters with mutable collection defaults that re-evaluate on each recomposition. [precision: ast-backed] [noisiness: normal]",
           "type": "object",
@@ -17637,6 +17715,39 @@
               "description": "Enable ComposeMutableDefaultArgument (default: true).",
               "type": "boolean",
               "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "ComposeParameterOrder": {
+          "description": "Detects @Composable function parameters not ordered as required, modifiers, optional, trailing lambda. [precision: project-structure-aware] [noisiness: normal] [capabilities: cross-file]\nCaveat: A trailing function is a function type, a type alias of one declared in the analyzed sources, or java.lang.Runnable, Callable, Comparator or a java.util.function type; library type aliases of function types are not expanded.\nCaveat: compose-lints' reordering autofix is not ported: moving parameters breaks positional callers.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable ComposeParameterOrder (default: false).",
+              "type": "boolean",
+              "default": false
             },
             "excludes": {
               "description": "Glob patterns for paths to exclude from this rule.",

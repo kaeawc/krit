@@ -1,0 +1,2 @@
+ComposeModifierMissing.contentEmitters = MyCard
+ComposeModifierMissing.visibilityThreshold = all

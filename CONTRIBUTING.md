@@ -68,6 +68,29 @@ When CI catches something the hook missed, open an issue labeled
 that would have caught it. Add the check to `scripts/pre-push.sh`, with a
 fixture in `internal/devtools/prepush/testdata/plans/`.
 
+## Maven Central in CI
+
+GitHub runners share IP addresses, and Maven Central often answers them with
+429 Too Many Requests. CI therefore tries
+[Google's mirror of Maven Central](https://storage-download.googleapis.com/maven-central/index.html)
+first:
+
+- Gradle jobs use `./.github/actions/maven-mirror` after `setup-java` (and
+  after `setup-gradle` when the job has it). It installs an init script that
+  puts the mirror in front of the first Maven Central or plugin portal
+  repository. `mavenLocal()` and included builds still win, and an artifact
+  the mirror has not synced yet falls through to Maven Central on its 404.
+  Add the action to any new job that runs Gradle. Release and publish
+  workflows don't use it, so published artifacts resolve from Maven Central.
+- Bazel jobs pass `--downloader_config=scripts/bazel-ci-downloader.cfg`,
+  which tries the mirror first for every Maven Central URL Bazel downloads.
+- rules_jvm_external's coursier resolution of unpinned `maven.install`
+  repositories (bazel_worker_java's `bazel_worker_maven`, rules_android's
+  `android_ide_common_*`) goes to Maven Central directly, and can still hit
+  429. A coursier mirror (`COURSIER_MIRRORS`) does not work there:
+  rules_jvm_external requires each downloaded URL to start with one of the
+  install's declared repositories.
+
 ## Adding a New Rule
 
 Before implementing, confirm the rule belongs in the built-in registry: see

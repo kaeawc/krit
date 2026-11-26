@@ -91,7 +91,22 @@ func jsonSafe(v any) any {
 // every process for the same bytes. encoding/json sorts map keys, so the
 // options encoding is deterministic regardless of map iteration order.
 func FirInvocationFingerprint(classpath []string, jarPath string, rules []string, ruleConfigs RuleConfigs, facts FileFacts, target ...CompileTarget) string {
-	jarIdentity := jarPath + ":" + buildid.JarToken(jarPath)
+	return firInvocationFingerprintAt("", classpath, jarPath, rules, ruleConfigs, facts, target...)
+}
+
+// firInvocationFingerprintAt is FirInvocationFingerprint with the file facts
+// keyed by their path relative to root (see firCacheStore), so the same
+// checkout restored at another absolute path fingerprints the same. The jar
+// and the classpath are identified by content alone, so a jar at another
+// path (another GRADLE_USER_HOME) with the same bytes is the same input.
+func firInvocationFingerprintAt(root string, classpath []string, jarPath string, rules []string, ruleConfigs RuleConfigs, facts FileFacts, target ...CompileTarget) string {
+	facts = facts.keyedUnder(root)
+	jarIdentity := buildid.JarToken(jarPath)
+	if root != "" && rootAffectsVerdicts(root, ruleConfigs) {
+		// The checkers see absolute paths; a heuristic could match in the
+		// root itself, so a cache moved to another root must miss.
+		jarIdentity += "\x00root:" + root
+	}
 	ids := slices.Clone(rules)
 	slices.Sort(ids)
 	ids = slices.Compact(ids)
@@ -108,7 +123,7 @@ func FirInvocationFingerprint(classpath []string, jarPath string, rules []string
 	if err != nil {
 		testsJSON = []byte(fmt.Sprintf("unencodable:%v", err))
 	}
-	fingerprint := cache.ComputeCacheKeyHash(nil, nil, false) + "\x00" + ClasspathFingerprint(classpath) + "\x00" + gradlemodel.ClasspathFingerprint(classpath) + "\x00" + jarIdentity + "\x00" +
+	fingerprint := cache.ComputeCacheKeyHash(nil, nil, false) + "\x00" + ClasspathFingerprint(classpath) + "\x00" + gradlemodel.ClasspathContentFingerprint(classpath) + "\x00" + jarIdentity + "\x00" +
 		strings.Join(ids, "\x00") + "\x00" + string(options) + "\x00" + string(testsJSON)
 	if compile := firstTarget(target); compile.JvmTarget != "" {
 		fingerprint += "\x00jvmTarget:" + compile.JvmTarget
@@ -150,16 +165,29 @@ func FirInvocationFingerprint(classpath []string, jarPath string, rules []string
 // source in it changes; keying on the compilation makes any source edit
 // invalidate every cached FIR verdict (coarse but correct, the same trade-off
 // as krit-fir's oracle cache).
-func CheckCacheFingerprint(sourceDirs, files, classpath []string, jarPath string, rules []string, ruleConfigs RuleConfigs, facts FileFacts, target ...CompileTarget) string {
-	compilation := checkCompilation(sourceDirs, files, classpath, jarPath)
-	return hashutil.HashHex([]byte(FirInvocationFingerprint(classpath, jarPath, rules, ruleConfigs, facts, target...) + "\x00" + compilation))
+// Paths are keyed relative to repoDir (see firCacheStore); "" keeps them
+// absolute.
+func CheckCacheFingerprint(repoDir string, sourceDirs, files, classpath []string, jarPath string, rules []string, ruleConfigs RuleConfigs, facts FileFacts, target ...CompileTarget) string {
+	return checkCacheFingerprintAt(cacheRoot(repoDir), sourceDirs, files, classpath, jarPath, rules, ruleConfigs, facts, target...)
+}
+
+// checkCacheFingerprintAt is CheckCacheFingerprint with every path keyed
+// relative to root, the fingerprint a firCacheStore rooted there validates.
+func checkCacheFingerprintAt(root string, sourceDirs, files, classpath []string, jarPath string, rules []string, ruleConfigs RuleConfigs, facts FileFacts, target ...CompileTarget) string {
+	compilation := checkCompilationAt(root, sourceDirs, files, classpath, jarPath)
+	return hashutil.HashHex([]byte(firInvocationFingerprintAt(root, classpath, jarPath, rules, ruleConfigs, facts, target...) + "\x00" + compilation))
 }
 
 // checkCompilation fingerprints the compilation a check of files runs:
 // every `.kt` and `.java` under sourceDirs plus the requested files, by path
 // and content.
 func checkCompilation(sourceDirs, files, classpath []string, jarPath string) string {
-	return oracle.CompilationFingerprint(checkCompilationSources(sourceDirs, files), classpath, jarPath)
+	return checkCompilationAt("", sourceDirs, files, classpath, jarPath)
+}
+
+// checkCompilationAt is checkCompilation with source paths relative to root.
+func checkCompilationAt(root string, sourceDirs, files, classpath []string, jarPath string) string {
+	return oracle.CompilationFingerprintAt(root, checkCompilationSources(sourceDirs, files), classpath, jarPath)
 }
 
 func checkCompilationSources(sourceDirs, files []string) []string {

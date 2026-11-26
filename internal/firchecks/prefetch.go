@@ -87,8 +87,9 @@ func (p *Prefetch) hasUncachedFiles() bool {
 	if err != nil {
 		return true
 	}
-	fingerprint := CheckCacheFingerprint(c.SourceDirs, plan.requested, c.Classpath, c.JarPath, plan.rules, plan.configs, plan.facts, c.CompileTarget())
-	_, misses := classifyFilesQuiet(cacheDir, plan.requested, fingerprint)
+	store := newFirCacheStore(cacheDir)
+	fingerprint := checkCacheFingerprintAt(store.root, c.SourceDirs, plan.requested, c.Classpath, c.JarPath, plan.rules, plan.configs, plan.facts, c.CompileTarget())
+	_, misses := store.classify(plan.requested, fingerprint)
 	return len(misses) > 0
 }
 

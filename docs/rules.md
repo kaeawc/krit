@@ -120,6 +120,25 @@ They report only what the source proves:
 Not ported: `MoshiUsageNonMoshiClassInternal` and `MoshiUsageNonMoshiClassExternal`, which split on whether a type
 lives in Slack's own `slack.*` packages.
 
+The R class import-alias checks (Kotlin only, as import aliases are a Kotlin feature) read the `importAliases` option,
+Lint's `import-aliases`: entries such as `slack.l10n.R as L10nR`.
+
+```yaml
+slack-lint:
+  FullyQualifiedResource:
+    active: true
+    importAliases: ["slack.l10n.R as L10nR"]
+```
+
+- `FullyQualifiedResource` reports a fully qualified R class (`slack.l10n.R.string.app_name`) other than `android.R`,
+  naming the configured alias when there is one.
+- `MissingResourceImportAlias` reports `import other.module.R` without an alias. Lint treats an import from the
+  module's own package as local; krit does not read the module's namespace and uses Lint's fallback, so an import
+  whose package is a prefix of the file's package is local. As in Lint, of the imports that have a configured alias
+  only the file's last one is reported.
+- `WrongResourceImportAlias` reports the file's first R class import whose alias differs from the configured one, so
+  it reports nothing until `importAliases` is set.
+
 Three Android source checks prove their receiver before reporting:
 
 - `CastingViewContextToActivity` reports `view.getContext() as Activity` (also `as?` and a Java cast) when the

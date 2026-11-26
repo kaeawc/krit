@@ -1,0 +1,1 @@
+- src/main/java/com/example/fixture/feature/Missing.kt:4:1: MissingResourceImportAlias: Use an import alias for R classes from other modules # Lint compares the import's package with the module's package (com.example.fixture); krit, without the namespace, uses Lint's fallback for an unknown package: an import whose package prefixes the file's package (com.example) is local

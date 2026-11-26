@@ -1,0 +1,8 @@
+src/main/java/com/example/fixture/feature/Full.kt:10:11: FullyQualifiedResource: Use L10nR as an import alias instead
+src/main/java/com/example/fixture/feature/Full.kt:6:11: FullyQualifiedResource: Use L10nR as an import alias instead
+src/main/java/com/example/fixture/feature/Full.kt:7:11: FullyQualifiedResource: Use OtherR as an import alias instead
+src/main/java/com/example/fixture/feature/Full.kt:9:11: FullyQualifiedResource: Use an import alias instead
+src/main/java/com/example/fixture/feature/Missing.kt:4:1: MissingResourceImportAlias: Use an import alias for R classes from other modules
+src/main/java/com/example/fixture/feature/Missing.kt:6:1: MissingResourceImportAlias: Use an import alias for R classes from other modules
+src/main/java/com/example/fixture/feature/Missing.kt:7:1: MissingResourceImportAlias: Use an import alias for R classes from other modules
+src/main/java/com/example/fixture/feature/Wrong.kt:3:1: WrongResourceImportAlias: Use L10nR as an import alias here

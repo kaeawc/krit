@@ -132,10 +132,16 @@ func respell(resolved string, scan scanSpelling) (string, bool) {
 	}
 	if within(scan.resolved, resolved) {
 		// The scan path is below resolved; its spelling keeps the same tail
-		// unless the symlink sits inside that tail.
+		// unless the symlink sits inside that tail. A tail that matches by name
+		// only (the link is the scan path's last component, named like its
+		// target) gives a candidate that is another directory, so it must
+		// resolve to resolved.
 		tail := scan.resolved[len(resolved):]
 		if strings.HasSuffix(scan.abs, tail) {
-			return scan.abs[:len(scan.abs)-len(tail)], true
+			candidate := scan.abs[:len(scan.abs)-len(tail)]
+			if target, err := filepath.EvalSymlinks(candidate); err == nil && filepath.Clean(target) == resolved {
+				return candidate, true
+			}
 		}
 	}
 	return "", false

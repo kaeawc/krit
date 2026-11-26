@@ -151,3 +151,56 @@ func TestCheckSettingsGroupsLogsWhyItDoesNotSplit(t *testing.T) {
 		t.Fatalf("log %q has no reason", log.String())
 	}
 }
+
+// A link that is the scan path's last component and is named like its target
+// (~/app -> /r/proj/app) does not respell the projects above the target: the
+// candidate "~" matches the tail by name only and resolves elsewhere.
+func TestAlignModelPathsKeepsProjectsAboveASameNamedLink(t *testing.T) {
+	resolvedRoot, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var projects []string
+	for _, p := range []struct{ path, dir string }{{":", resolvedRoot}, {":app", filepath.Join(resolvedRoot, "app")}, {":lib", filepath.Join(resolvedRoot, "lib")}} {
+		src := filepath.Join(p.dir, "src", "main", "kotlin")
+		if err := os.MkdirAll(src, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		projects = append(projects, fmt.Sprintf(`{"path":%q,"dir":%q,"sourceSets":[{"name":"main","kind":"main","platform":"jvm","sourceDirs":[%q]}]}`, p.path, p.dir, src))
+	}
+	modelDir := filepath.Join(resolvedRoot, ".krit", "gradle-model")
+	if err := os.MkdirAll(modelDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "m.json"), []byte(`{"schema":2,"projects":[`+strings.Join(projects, ",")+`]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(t.TempDir(), "app")
+	if err := os.Symlink(filepath.Join(resolvedRoot, "app"), link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	model := loadForTest(t, modelDir)
+	alignModelPaths(model, []string{link})
+	want := map[string]string{":": resolvedRoot, ":app": link, ":lib": filepath.Join(resolvedRoot, "lib")}
+	for _, p := range model.Projects {
+		if p.Dir != want[p.Path] {
+			t.Errorf("project %s dir %s, want %s", p.Path, p.Dir, want[p.Path])
+		}
+	}
+}
+
+// A scan path that is a symlink to a source directory respells that root to
+// the symlink itself; its files are still listed, under the scan's spelling.
+func TestPlanListsTheSourcesOfASymlinkedSourceRoot(t *testing.T) {
+	resolvedRoot, _, modelDir := writeSymlinkedModel(t, false)
+	link := filepath.Join(t.TempDir(), "kotlin")
+	if err := os.Symlink(filepath.Join(resolvedRoot, "app", "src", "main", "kotlin"), link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	model := loadForTest(t, modelDir)
+	alignModelPaths(model, []string{link})
+	units, _ := Plan(model, resolvedRoot, []string{link})
+	if len(units) != 1 || len(units[0].Sources) != 1 || units[0].Sources[0] != filepath.Join(link, "APP.kt") {
+		t.Fatalf("units %+v, want :app:main with %s", units, filepath.Join(link, "APP.kt"))
+	}
+}

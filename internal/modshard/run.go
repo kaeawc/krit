@@ -706,7 +706,14 @@ func defaultWorkers() int { return max(2, min(sysres.CPUs()/2, 8)) }
 func sourceFiles(roots []string) []string {
 	var files []string
 	for _, root := range roots {
-		_ = filepath.Walk(root, func(p string, info os.FileInfo, err error) error {
+		walkRoot := root
+		if info, err := os.Lstat(root); err == nil && info.Mode()&os.ModeSymlink != 0 {
+			// Walk does not descend into a root that is itself a symlink (one
+			// alignModelPaths respelled to a symlinked scan path) unless it ends
+			// in a separator; it joins file paths onto it, keeping its spelling.
+			walkRoot = root + string(filepath.Separator)
+		}
+		_ = filepath.Walk(walkRoot, func(p string, info os.FileInfo, err error) error {
 			if err == nil && !info.IsDir() && (strings.HasSuffix(p, ".kt") || strings.HasSuffix(p, ".java") || strings.HasSuffix(p, ".kts")) {
 				files = append(files, p)
 			}

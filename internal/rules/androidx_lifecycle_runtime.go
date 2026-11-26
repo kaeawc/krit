@@ -253,7 +253,8 @@ func axlExprIsNullable(file *scanner.File, expr uint32) bool {
 // whose condition tests it against null or with `is`, the lambda of a safe call on it (`name?.let { }`), or an
 // earlier statement of an enclosing block that proves it non-null (see axlStatementProvesNonNull).
 func axlNameNullChecked(file *scanner.File, node uint32, name string) bool {
-	guard := []string{name + "!=null", "null!=" + name, name + "is", "requireNotNull(" + name, "checkNotNull(" + name}
+	guard := []string{name + "!=null", "null!=" + name, name + "is", "requireNotNull(" + name, "checkNotNull(" + name,
+		"!" + name + ".isNullOrEmpty()", "!" + name + ".isNullOrBlank()"}
 	child := node
 	for p, ok := file.FlatParent(node); ok; p, ok = file.FlatParent(p) {
 		switch file.FlatType(p) {
@@ -266,6 +267,14 @@ func axlNameNullChecked(file *scanner.File, node uint32, name string) bool {
 						return true
 					}
 				}
+				// The else branch of `if (name == null || …)` only runs when name is non-null.
+				if file.FlatType(p) == "if_expression" && axlIsElseBranch(file, p, child) && axlNullTestDisjunction(file, cond, name) {
+					return true
+				}
+			}
+			// In `when (name) { null -> …; else -> … }` the entries after the null entry see name non-null.
+			if file.FlatType(p) == "when_entry" && axlWhenEntryAfterNull(file, p, name) {
+				return true
 			}
 		case "lambda_literal":
 			// The lambda of `name?.f { }` only runs when name is non-null.
@@ -295,7 +304,7 @@ func axlStatementProvesNonNull(file *scanner.File, st uint32, name string) bool 
 	text := axlCompactText(file, st)
 	for _, proof := range []string{name + "!!", name + "?:return", name + "?:throw", "requireNotNull(" + name,
 		"checkNotNull(" + name, "require(" + name + "!=null", "require(null!=" + name, "check(" + name + "!=null",
-		"check(null!=" + name} {
+		"check(null!=" + name, name + "?:error(", name + "?:TODO(", name + "?:run{return"} {
 		if strings.Contains(text, proof) {
 			return true
 		}
@@ -340,7 +349,8 @@ func axlNullTestDisjunction(file *scanner.File, cond uint32, name string) bool {
 	return false
 }
 
-// axlBodyExits reports whether an if/when body ends in return, throw, break or continue.
+// axlBodyExits reports whether an if/when body ends in return, throw, break or continue, or a call of the
+// Nothing-returning error() or TODO() (unless the file declares its own).
 func axlBodyExits(file *scanner.File, body uint32) bool {
 	if body == 0 {
 		return false
@@ -349,7 +359,50 @@ func axlBodyExits(file *scanner.File, body uint32) bool {
 	if file.FlatType(last) == "statements" {
 		last = flatLastNamedChild(file, last)
 	}
-	return last != 0 && file.FlatType(last) == "jump_expression"
+	switch file.FlatType(last) {
+	case "jump_expression":
+		return true
+	case "call_expression":
+		name, _, hasReceiver := acrCallCallee(file, last)
+		return !hasReceiver && (name == "error" || name == "TODO") && len(acrFunctionDecls(file, name)) == 0
+	}
+	return false
+}
+
+// axlIsElseBranch reports whether child is the else body of an if_expression.
+func axlIsElseBranch(file *scanner.File, ifExpr, child uint32) bool {
+	afterElse := false
+	for c := file.FlatFirstChild(ifExpr); c != 0; c = file.FlatNextSib(c) {
+		if file.FlatType(c) == "else" {
+			afterElse = true
+		} else if c == child {
+			return afterElse
+		}
+	}
+	return false
+}
+
+// axlWhenEntryAfterNull reports whether entry follows a `null ->` entry of a `when (name)` expression.
+func axlWhenEntryAfterNull(file *scanner.File, entry uint32, name string) bool {
+	when, ok := file.FlatParent(entry)
+	if !ok || file.FlatType(when) != "when_expression" {
+		return false
+	}
+	subject, ok := file.FlatFindChild(when, "when_subject")
+	if !ok || strings.Trim(axlCompactText(file, subject), "()") != name {
+		return false
+	}
+	for e := file.FlatFirstChild(when); e != 0 && e != entry; e = file.FlatNextSib(e) {
+		if file.FlatType(e) != "when_entry" {
+			continue
+		}
+		for c := file.FlatFirstChild(e); c != 0; c = file.FlatNextSib(c) {
+			if file.FlatType(c) == "when_condition" && axlCompactText(file, c) == "null" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func axlCompactText(file *scanner.File, n uint32) string {

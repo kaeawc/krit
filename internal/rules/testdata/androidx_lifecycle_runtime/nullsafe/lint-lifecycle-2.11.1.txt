@@ -11,6 +11,8 @@ src/com/example/Live.kt:28:23: NullSafeMutableLiveData: Expected non-nullable va
 src/com/example/Live.kt:38:18: NullSafeMutableLiveData: Expected non-nullable value
 src/com/example/Live.kt:40:18: NullSafeMutableLiveData: Cannot set non-nullable LiveData value to `null`
 src/com/example/Live.kt:46:15: NullSafeMutableLiveData: Expected non-nullable value
+src/com/example/MoreSmartCasts.kt:56:26: NullSafeMutableLiveData: Expected non-nullable value
+src/com/example/MoreSmartCasts.kt:64:22: NullSafeMutableLiveData: Expected non-nullable value
 src/com/example/SmartCasts.kt:50:22: NullSafeMutableLiveData: Expected non-nullable value
 src/com/example/SmartCasts.kt:55:22: NullSafeMutableLiveData: Expected non-nullable value
 src/com/example/SmartCasts.kt:60:22: NullSafeMutableLiveData: Expected non-nullable value

@@ -22,6 +22,9 @@ type Unit struct {
 	Spec firchecks.ModuleSpec
 	// Files is the number of Kotlin and Java sources, used to balance the shards.
 	Files int
+	// ContextFiles is the number of dependency sources compiled with the module as context because
+	// those dependencies have no built output; they cost compile time like Files (#1661).
+	ContextFiles int
 	// Sources lists the module's own source files (sorted), found once per run; nil means not listed yet.
 	Sources []string
 	// ContextDropped is set when a dependency without built output was left out of the compile because
@@ -124,7 +127,7 @@ func Plan(model *gradlemodel.Model, repoRoot string, scanPaths []string) (units 
 		}
 		spec.DependsOn = []string{}
 		sources := sourceFiles(append(append([]string{}, spec.SourceRoots...), spec.GeneratedSourceRoots...))
-		units = append(units, Unit{Spec: spec, Files: len(sources), Sources: sources, ContextDropped: contextDropped})
+		units = append(units, Unit{Spec: spec, Files: len(sources), ContextFiles: maxContextFiles - contextBudget, Sources: sources, ContextDropped: contextDropped})
 	}
 	sort.Slice(units, func(i, j int) bool { return units[i].Spec.ID < units[j].Spec.ID })
 	return units, len(missingProjects)
@@ -187,27 +190,40 @@ func underAny(roots, scanPaths []string) bool {
 }
 
 // Shards splits units into n groups with balanced estimated work (longest first, each to the least
-// loaded group). A small constant per unit stands for fixed per-module cost.
+// loaded group). A unit's work is the files it compiles, its own and its dependency context, plus a
+// small constant for fixed per-module cost.
 func Shards(units []Unit, n int) [][]Unit {
-	if n < 1 {
-		n = 1
+	weights := make([]int, max(1, n))
+	for i := range weights {
+		weights[i] = 1
 	}
+	return weightedShards(units, weights)
+}
+
+// weightedShards is Shards over groups that work through their units at different rates, such as
+// worker JVMs with different thread counts: group i gets a share of the work in proportion to
+// weights[i].
+func weightedShards(units []Unit, weights []int) [][]Unit {
 	order := append([]Unit(nil), units...)
-	sort.SliceStable(order, func(i, j int) bool { return order[i].Files > order[j].Files })
-	groups := make([][]Unit, n)
-	load := make([]int, n)
+	sort.SliceStable(order, func(i, j int) bool { return order[i].work() > order[j].work() })
+	groups := make([][]Unit, len(weights))
+	load := make([]int, len(weights))
 	for _, u := range order {
 		best := 0
 		for i := range load {
-			if load[i] < load[best] {
+			// load[i]/weights[i] < load[best]/weights[best], without rounding.
+			if load[i]*weights[best] < load[best]*weights[i] {
 				best = i
 			}
 		}
 		groups[best] = append(groups[best], u)
-		load[best] += u.Files + 3
+		load[best] += u.work()
 	}
 	return groups
 }
+
+// work estimates a unit's compile cost for Shards.
+func (u Unit) work() int { return u.Files + u.ContextFiles + 3 }
 
 // ResidualUnits covers files that no exported source set owns (variant-specific or non-standard
 // source directories that a directory scan still finds). Files are grouped by their source root
@@ -254,7 +270,7 @@ func ResidualUnits(model *gradlemodel.Model, units []Unit, files []string) []Uni
 		spec.SourceRoots = []string{root}
 		spec.GeneratedSourceRoots = []string{}
 		spec.Fragments = nil
-		out = append(out, Unit{Spec: spec, Files: len(fs)})
+		out = append(out, Unit{Spec: spec, Files: len(fs), ContextFiles: template.ContextFiles})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Spec.ID < out[j].Spec.ID })
 	return out

@@ -57,7 +57,7 @@ func TestSettingsOnlyChangeChangesFirIdentities(t *testing.T) {
 	for name, settings := range settingsVariants() {
 		target := CompileTarget{JvmTarget: "17", Kotlin: settings}
 		inv := FirInvocationFingerprint(nil, jar, []string{"R"}, nil, FileFacts{}, target)
-		check := CheckCacheFingerprint([]string{src}, []string{file}, nil, jar, []string{"R"}, nil, FileFacts{}, target)
+		check := CheckCacheFingerprint("", []string{src}, []string{file}, nil, jar, []string{"R"}, nil, FileFacts{}, target)
 		reg := firRegistryKeyFor("check", jar, []string{src}, nil, target)
 		for kind, seen := range map[string]map[string]string{"invocation": seenInvocation, "check": seenCheck, "registry": seenRegistry} {
 			value := map[string]string{"invocation": inv, "check": check, "registry": reg}[kind]

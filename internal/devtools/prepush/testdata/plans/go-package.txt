@@ -7,6 +7,7 @@ gofmt
 build
 vet
 lint
+gosec
 oraclefp
 test ./internal/oracle
 warmclean

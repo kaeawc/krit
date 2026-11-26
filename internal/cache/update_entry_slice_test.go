@@ -7,5 +7,5 @@ import "github.com/kaeawc/krit/internal/scanner"
 // this helper exists so cache_test.go can seed cache rows from
 // []scanner.Finding fixtures.
 func (c *Cache) UpdateEntry(path string, findings []scanner.Finding) {
-	c.updateEntry(path, scanner.CollectFindings(findings))
+	c.updateEntry(path, nil, scanner.CollectFindings(findings))
 }

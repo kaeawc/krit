@@ -1,0 +1,13 @@
+src/com/example/Transitions.kt:19:42: UnusedTransitionTargetStateParameter: Target state parameter `it` is not used
+src/com/example/Transitions.kt:20:44: UnusedTransitionTargetStateParameter: Target state parameter `state` is not used
+src/com/example/Transitions.kt:22:75: UnusedTransitionTargetStateParameter: Target state parameter `_` is not used
+src/com/example/Transitions.kt:23:94: UnusedTransitionTargetStateParameter: Target state parameter `it` is not used
+src/com/example/Transitions.kt:24:39: UnusedTransitionTargetStateParameter: Target state parameter `it` is not used
+src/com/example/Transitions.kt:25:42: UnusedTransitionTargetStateParameter: Target state parameter `it` is not used
+src/com/example/Transitions.kt:27:42: UnusedTransitionTargetStateParameter: Target state parameter `it` is not used
+src/com/example/Transitions.kt:28:67: UnusedTransitionTargetStateParameter: Target state parameter `it` is not used
+src/com/example/Transitions.kt:33:31: UnusedTransitionTargetStateParameter: Target state parameter `it` is not used
+src/com/example/Transitions.kt:34:36: UnusedTransitionTargetStateParameter: Target state parameter `it` is not used
+src/com/example/Transitions.kt:40:33: UnusedTransitionTargetStateParameter: Target state parameter `it` is not used
+src/com/example/Transitions.kt:47:46: UnusedTransitionTargetStateParameter: Target state parameter `it` is not used
+src/com/example/Transitions.kt:56:21: UnusedTransitionTargetStateParameter: Target state parameter `it` is not used

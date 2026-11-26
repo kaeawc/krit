@@ -870,22 +870,42 @@ class KritPlugin : Plugin<Project> {
         val predictedFolder = if (libraryMain) "compile_r_class_jar"
             else if (major == 8) "compile_and_runtime_not_namespaced_r_class_jar"
             else "compile_and_runtime_r_class_jar"
-        val directory = when (kind) {
-            "test" -> "${variant}UnitTest"
-            "androidTest" -> "${variant}AndroidTest"
-            else -> variant
-        }
-        val capitalized = directory.replaceFirstChar(Char::uppercase)
-        val task = when (kind) {
-            "test" -> "generate${capitalized}StubRFile"
-            "androidTest" -> "process${capitalized}Resources"
-            else -> if (libraryMain) "generate${capitalized}RFile" else "process${capitalized}Resources"
-        }
+        val directory = androidRComponent(variant, kind)
+        val task = androidRTask(variant, kind, libraryMain)
         return project.layout.buildDirectory.map { build ->
             listOf(modelPath(build.asFile.resolve("intermediates").resolve(predictedFolder)
                 .resolve(directory).resolve(task).resolve("R.jar")))
         }
     }
+
+    /** The AGP component whose R jar a spec of [kind] compiles against (`debug`, `debugUnitTest`, ...). */
+    private fun androidRComponent(variant: String, kind: String): String = when (kind) {
+        "test" -> "${variant}UnitTest"
+        "androidTest" -> "${variant}AndroidTest"
+        else -> variant
+    }
+
+    /** The AGP task that writes that component's R jar. */
+    private fun androidRTask(variant: String, kind: String, libraryMain: Boolean): String {
+        val capitalized = androidRComponent(variant, kind).replaceFirstChar(Char::uppercase)
+        return when (kind) {
+            "test" -> "generate${capitalized}StubRFile"
+            "androidTest" -> "process${capitalized}Resources"
+            else -> if (libraryMain) "generate${capitalized}RFile" else "process${capitalized}Resources"
+        }
+    }
+
+    /**
+     * The R tasks of the exported Android specs' components. A production component lists both
+     * names, since which one AGP registers depends on the module type; a test component lists its
+     * own, whose R jar the model records for it (#1724).
+     */
+    private fun androidRTasks(specs: List<ModelSpec>): List<String> =
+        specs.filter { it.platform == "android" && it.variant.isNotEmpty() }
+            .map { it.variant to it.kind }.distinct().flatMap { (variant, kind) ->
+                val libraryMain = if (kind == "test" || kind == "androidTest") listOf(false) else listOf(true, false)
+                libraryMain.map { androidRTask(variant, kind, it) }
+            }
 
     private fun registerProjectModel(
         project: Project, extension: KritExtension, specs: List<ModelSpec>, variantSources: AndroidVariantSources,
@@ -1112,20 +1132,18 @@ class KritPlugin : Plugin<Project> {
      *   view binding, BuildConfig, AIDL, SQLDelight, Wire, KSP and any generator that registers its
      *   output with the build, without task names. Test compilations' roots are recorded but not
      *   produced: their KSP/kapt runs against the compiled production classes.
-     * - Android R-class tasks (`generate<Variant>RFile`, `process<Variant>Resources`) by name: AGP
-     *   has no public artifact for the R jar. They already depend on every registered resource
-     *   producer (`variant.sources.res`), so generated resources need no wiring of their own.
+     * - Android R-class tasks (`generate<Variant>RFile`, `process<Variant>Resources`, and for exported
+     *   test components `generate<Variant>UnitTestStubRFile` and `process<Variant>AndroidTestResources`)
+     *   by name: AGP has no public artifact for the R jar. They already depend on every registered
+     *   resource producer (`variant.sources.res`), so generated resources need no wiring of their own.
+     *   They link resources and write R classes; none compiles.
      * - kapt stub and kapt tasks, and KSP tasks for compilations with no roots provider, by name.
      */
     private fun generatorDependencies(
         project: Project, specs: List<ModelSpec>, variantSources: AndroidVariantSources,
     ): List<Any> {
         val main = specs.filter { it.kind == "main" }
-        val androidNames = specs.filter { it.platform == "android" }.map { it.variant }
-            .filter { it.isNotEmpty() }.distinct().flatMap { variant ->
-                val suffix = variant.replaceFirstChar(Char::uppercase)
-                listOf("generate${suffix}RFile", "process${suffix}Resources")
-            }
+        val androidNames = androidRTasks(specs)
         val providers = main.mapNotNull { producers(project, it, variantSources) }
         fun relevant(of: List<ModelSpec>) = of.map { it.name.lowercase() } +
             of.filter { it.platform == "android" }.map { it.variant.lowercase() }.filter { it.isNotEmpty() } +

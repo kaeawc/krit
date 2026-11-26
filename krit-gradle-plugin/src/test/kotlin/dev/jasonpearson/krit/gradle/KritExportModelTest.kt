@@ -860,4 +860,27 @@ class KritExportModelTest {
         assertTrue(enabled.output.contains(":processDebugResources SKIPPED"), enabled.output)
         assertTrue(enabled.output.contains(":kspDebugKotlin SKIPPED"), enabled.output)
     }
+
+    // #1724: the model predicts R jars for the unit-test and androidTest components, so with FIR on
+    // the check runs the R tasks that write them, and none when test source sets are not exported.
+    @Test
+    fun `kritCheck runs the test components' R tasks when FIR is on`() {
+        val root = File(directory, "test-r-jars").also { it.mkdirs() }
+        File(root, "settings.gradle.kts").writeText("rootProject.name = \"test-r-jars\"\n")
+        val build = File(root, "build.gradle.kts")
+        build.writeText("plugins { id(\"com.android.library\"); id(\"dev.jasonpearson.krit\") }\n")
+        val testRTasks = listOf(":generateDebugUnitTestStubRFile", ":processDebugAndroidTestResources")
+
+        val check = runWithFakeAndroid(root, "kritCheck", "--dry-run")
+        (testRTasks + ":generateDebugRFile").forEach {
+            assertTrue(check.output.contains("$it SKIPPED"), "$it\n${check.output}")
+        }
+        val export = runWithFakeAndroid(root, "kritExportModel", "--dry-run")
+        testRTasks.forEach { assertFalse(export.output.contains("$it SKIPPED"), export.output) }
+
+        build.appendText("krit { exportTests = false }\n")
+        val mainOnly = runWithFakeAndroid(root, "kritCheck", "--dry-run")
+        testRTasks.forEach { assertFalse(mainOnly.output.contains("$it SKIPPED"), mainOnly.output) }
+        assertTrue(mainOnly.output.contains(":generateDebugRFile SKIPPED"), mainOnly.output)
+    }
 }

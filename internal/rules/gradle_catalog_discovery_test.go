@@ -43,3 +43,19 @@ func TestBeginRequestDropsTheCatalogDiscoveryMemo(t *testing.T) {
 		t.Fatal("BeginRequest dropped an unrelated fact")
 	}
 }
+
+// Batch callers (the daemon's analyze_buffers) begin one request and run every
+// file in it, so running a file must keep the request's memo.
+func TestDispatcherRunKeepsTheRequestsCatalogMemo(t *testing.T) {
+	d := NewDispatcher(nil, nil)
+	d.BeginRequest()
+	memo := catalogDiscovery(d.fileFacts)
+	for range 2 {
+		file := parseInlineForInternalTest(t, "package a\n\nclass C\n")
+		d.Run(file)
+		d.RunColumnsWithStats(file)
+	}
+	if catalogDiscovery(d.fileFacts) != memo {
+		t.Fatal("running a file replaced the request's discovery memo")
+	}
+}

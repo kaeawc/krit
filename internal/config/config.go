@@ -82,6 +82,9 @@ type OracleConfig struct {
 // FIRConfig controls which Go findings retain authority after a FIR pass.
 type FIRConfig struct {
 	GoAuthoritativeRules []string
+	// RequireAuthoritativeRules are reported only where FIR's verdict is
+	// authoritative; their Go findings in files FIR gated are withheld.
+	RequireAuthoritativeRules []string
 }
 
 // HasTopLevelOption distinguishes a declared empty list from an absent key.
@@ -94,7 +97,10 @@ func (c *Config) HasTopLevelOption(section, key string) bool {
 }
 
 func (c *Config) FIR() FIRConfig {
-	return FIRConfig{GoAuthoritativeRules: c.GetTopLevelStringList("fir", "goAuthoritativeRules")}
+	return FIRConfig{
+		GoAuthoritativeRules:      c.GetTopLevelStringList("fir", "goAuthoritativeRules"),
+		RequireAuthoritativeRules: c.GetTopLevelStringList("fir", "requireAuthoritativeRules"),
+	}
 }
 
 // NewConfig creates an empty Config.

@@ -14,6 +14,9 @@ type FirCoverage struct {
 	Authoritative int `json:"authoritative"`
 	Gated         int `json:"gated"`
 	Excluded      int `json:"excluded"`
+	// Withheld is the number of Go findings of FIR-required rules dropped
+	// because FIR had no verdict for their file (fir.requireAuthoritativeRules).
+	Withheld int `json:"withheld,omitempty"`
 	// TopCauses are the most common gating reasons, most frequent first.
 	// Unresolved references are grouped by the package prefix of the import
 	// that names them, so a missing library shows up as one cause.
@@ -48,6 +51,9 @@ func FirCoverageLine(c FirCoverage) string {
 	checked := c.Authoritative + c.Gated
 	line := fmt.Sprintf("FIR analyzed %s of %s files (%.0f%%); %s gated by compile errors, so Go-only findings stand for them",
 		groupThousands(c.Authoritative), groupThousands(checked), 100*c.Ratio(), groupThousands(c.Gated))
+	if c.Withheld > 0 {
+		line += fmt.Sprintf(", except %s withheld for FIR-required rules", groupThousands(c.Withheld))
+	}
 	if len(c.TopCauses) > 0 {
 		var causes []string
 		for i, cause := range c.TopCauses {

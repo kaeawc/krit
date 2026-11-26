@@ -320,12 +320,13 @@ func (p *PendingPass) Finish(base []scanner.Finding) ([]scanner.Finding, error) 
 	result = withoutGoAuthoritativeRules(result, opts.Config)
 
 	merged, stats := ApplyVerdict(VerdictInput{
-		Go:          base,
-		FIR:         result,
-		Requested:   p.requested,
-		Excluded:    p.excluded,
-		DisplayPath: p.targets.display,
-		Suppressed:  newSuppressor(p.targets.files).suppressed,
+		Go:                   base,
+		FIR:                  result,
+		Requested:            p.requested,
+		Excluded:             p.excluded,
+		DisplayPath:          p.targets.display,
+		Suppressed:           newSuppressor(p.targets.files).suppressed,
+		RequireAuthoritative: RequiredRules(opts.Config),
 	})
 	if opts.OnCoverage != nil {
 		opts.OnCoverage(Coverage(stats, p.targets.files))
@@ -358,6 +359,34 @@ func reportDegraded(opts PassOptions, err error) {
 	if opts.OnDegraded != nil {
 		opts.OnDegraded(err)
 	}
+}
+
+// DefaultRequiredRules are the FIR-required rules when fir.requireAuthoritativeRules
+// is not configured: nullability and cast rules whose Go implementation guesses
+// at types, so in a file FIR could not compile their Go findings are mostly
+// false positives (#1675).
+var DefaultRequiredRules = []string{
+	"CastNullableToNonNullableType",
+	"UnnecessaryNotNullOperator",
+	"UnnecessarySafeCall",
+	"UnsafeCast",
+	"UselessCallOnNotNull",
+	"UselessElvisOnNonNull",
+}
+
+// RequiredRules returns the FIR-required rules: fir.requireAuthoritativeRules
+// when the config declares it (an empty list turns the policy off), else
+// DefaultRequiredRules.
+func RequiredRules(cfg *config.Config) map[string]bool {
+	rules := DefaultRequiredRules
+	if cfg.HasTopLevelOption("fir", "requireAuthoritativeRules") {
+		rules = cfg.FIR().RequireAuthoritativeRules
+	}
+	out := make(map[string]bool, len(rules))
+	for _, rule := range rules {
+		out[rule] = true
+	}
+	return out
 }
 
 // withoutGoAuthoritativeRules drops the rules the config keeps Go-authoritative
@@ -464,6 +493,15 @@ func writeVerdictSummary(w io.Writer, stats VerdictStats, buildLogicExcluded ...
 		}
 		fmt.Fprintf(w, "verbose: FIR gated: %s: %s\n", path, firstLine(stats.GatedFiles[path]))
 	}
+	writeRuleVerdicts(w, stats)
+	if stats.Withheld > 0 {
+		fmt.Fprintf(w, "verbose: FIR verdict: %d Go findings withheld in gated files for FIR-required rules (fir.requireAuthoritativeRules)\n", stats.Withheld)
+	}
+}
+
+// writeRuleVerdicts writes one verdict line per rule that has any; a rule with
+// no verdicts would only repeat the shared gated-file count.
+func writeRuleVerdicts(w io.Writer, stats VerdictStats) {
 	ruleIDs := make([]string, 0, len(stats.Rules))
 	for id := range stats.Rules {
 		ruleIDs = append(ruleIDs, id)
@@ -471,11 +509,15 @@ func writeVerdictSummary(w io.Writer, stats VerdictStats, buildLogicExcluded ...
 	sort.Strings(ruleIDs)
 	for _, id := range ruleIDs {
 		r := stats.Rules[id]
-		if r.Confirmed == 0 && r.GoDropped == 0 && r.FirAdded == 0 && r.ConfirmOnlyDropped == 0 && r.EnrichedWithFix == 0 && r.Suppressed == 0 && r.RuleErrorFiles == 0 {
-			continue // a rule with no verdicts only adds the shared gated-file count
+		if *r == (RuleVerdict{}) {
+			continue
 		}
-		fmt.Fprintf(w, "verbose: FIR verdict %s: confirmed=%d go-dropped=%d fir-added=%d enriched-with-fix=%d suppressed=%d files-gated=%d confirm-only-dropped=%d rule-errors=%d\n",
-			id, r.Confirmed, r.GoDropped, r.FirAdded, r.EnrichedWithFix, r.Suppressed, len(stats.GatedFiles), r.ConfirmOnlyDropped, r.RuleErrorFiles)
+		withheld := ""
+		if r.Withheld > 0 {
+			withheld = fmt.Sprintf(" withheld=%d", r.Withheld)
+		}
+		fmt.Fprintf(w, "verbose: FIR verdict %s: confirmed=%d go-dropped=%d fir-added=%d enriched-with-fix=%d suppressed=%d files-gated=%d confirm-only-dropped=%d rule-errors=%d%s\n",
+			id, r.Confirmed, r.GoDropped, r.FirAdded, r.EnrichedWithFix, r.Suppressed, len(stats.GatedFiles), r.ConfirmOnlyDropped, r.RuleErrorFiles, withheld)
 	}
 }
 

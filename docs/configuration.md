@@ -186,7 +186,10 @@ JSON reports carry the same numbers as `summary.fir`, and SARIF reports as
         "topCauses": [{"cause": "Unresolved reference 'androidx.compose'", "count": 12034}]}
 ```
 
-`excluded` counts scripts and files outside every JVM compilation. Up to five
+`excluded` counts scripts and files outside every JVM compilation. `withheld`
+(present when non-zero) counts the Go findings of FIR-required rules dropped in
+gated files (see `fir.requireAuthoritativeRules` below); the stderr line then
+ends its first clause with `, except N withheld for FIR-required rules`. Up to five
 causes are listed, most frequent first. An unresolved reference is reported as
 the package prefix of the import that names it, so a missing library shows up
 as one cause; other messages have their quoted names blanked (`'…'`).
@@ -284,6 +287,30 @@ fir:
 ```
 
 FIR verdicts for the listed rule IDs are ignored; other FIR rules still apply.
+
+When FIR cannot compile a file (a compile error, missing generated code, an
+unresolved classpath entry), Go's findings normally stand there. For
+**FIR-required** rules they don't: these rules' Go implementations guess at
+types, so in a gated file their findings are mostly false positives. Their Go
+findings in gated files, and where their FIR checker threw, are withheld, and
+they are reported only where FIR's verdict is authoritative (#1675):
+
+```yaml
+fir:
+  requireAuthoritativeRules:   # default when unset:
+    - CastNullableToNonNullableType
+    - UnnecessaryNotNullOperator
+    - UnnecessarySafeCall
+    - UnsafeCast
+    - UselessCallOnNotNull
+    - UselessElvisOnNonNull
+```
+
+An empty list (`requireAuthoritativeRules: []`) keeps every Go finding in
+gated files, as before. A rule listed here that krit-fir has no checker for, or
+that `goAuthoritativeRules` also lists, keeps its Go findings. `-v` reports
+`withheld=N` per rule. The default summary and the JSON/SARIF FIR coverage
+(`summary.fir.withheld`) report the total.
 
 ## Analysis depth
 

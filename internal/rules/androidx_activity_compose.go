@@ -135,7 +135,7 @@ func (r *NoCollectCallFoundRule) check(ctx *api.Context) {
 	if !ok || !isOnBack || !axlActivityCallTargets(file, arg.Call, "PredictiveBackHandler") {
 		return
 	}
-	if unused := axlUnreferencedLambdaParams(file, lambda, 1); len(unused) > 0 {
+	if unused := axlUnreferencedLambdaParams(file, lambda); len(unused) > 0 {
 		ctx.EmitAtNode(unused[0].Node, "You must call collect() on Flow "+unused[0].Name)
 		return
 	}

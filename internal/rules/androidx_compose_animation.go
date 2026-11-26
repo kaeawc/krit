@@ -96,7 +96,7 @@ func (r *UnusedTransitionTargetStateParameterRule) Meta() api.RuleDescriptor {
 
 // axlReportUnusedTargetState reports each unreferenced parameter of a one-parameter target-state lambda.
 func axlReportUnusedTargetState(ctx *api.Context, lambda uint32) {
-	for _, p := range axlUnreferencedLambdaParams(ctx.File, lambda, 1) {
+	for _, p := range axlUnreferencedLambdaParams(ctx.File, lambda) {
 		ctx.EmitAtNode(p.Node, strings.Replace(axlTargetStateMessage, "%s", p.Name, 1))
 	}
 }

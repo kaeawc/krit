@@ -54,11 +54,11 @@ type axlLambdaParam struct {
 }
 
 // axlUnreferencedLambdaParams ports compose lint-utils' ULambdaExpression.findUnreferencedParameters for a lambda
-// literal whose function type has arity value parameters: the implicit `it` when the lambda declares no parameters
-// and arity is 1, otherwise every named, non-destructured parameter, that no name expression in the lambda refers
+// literal whose function type has one value parameter: the implicit `it` when the lambda declares no parameters,
+// otherwise every named, non-destructured parameter, that no name expression in the lambda refers
 // to. A reference inside an inner lambda that declares a parameter of the same name (or, for `it`, has its own
 // implicit `it`) does not count.
-func axlUnreferencedLambdaParams(file *scanner.File, lambda uint32, arity int) []axlLambdaParam {
+func axlUnreferencedLambdaParams(file *scanner.File, lambda uint32) []axlLambdaParam {
 	var params []axlLambdaParam
 	if axlLambdaHasParameterSpec(file, lambda) {
 		if list, ok := file.FlatFindChild(lambda, "lambda_parameters"); ok {
@@ -71,7 +71,7 @@ func axlUnreferencedLambdaParams(file *scanner.File, lambda uint32, arity int) [
 				}
 			}
 		}
-	} else if arity == 1 {
+	} else {
 		params = []axlLambdaParam{{Name: "it", Node: lambda}}
 	}
 	if len(params) == 0 {

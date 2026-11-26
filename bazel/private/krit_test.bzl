@@ -75,11 +75,11 @@ rc=0
 out=$({krit} --no-daemon --no-cache --reproducible \\
   --base-path "$PWD" {flags} "$@" -- {files} 2>&1) || rc=$?
 printf '%s\\n' "$out"
-# krit skips files under test-data and test-resource directories (testdata/,
-# src/test/resources/, ...) and exits 0 when nothing is left; do not pass a
-# test that analyzed nothing.
+# krit skips files in tool and cache directories (.gradle/, .idea/, .kotlin/,
+# .krit-types/, ...) even when they are named explicitly, and exits 0 when
+# nothing is left; do not pass a test that analyzed nothing.
 if [ "$rc" -eq 0 ] && [[ "$out" == *"No Kotlin, Java, or Android project files found"* ]]; then
-  echo "krit_test: krit analyzed none of the sources; it skips test-data and test-resource directories" >&2
+  echo "krit_test: krit analyzed none of the sources; it skips tool and cache directories such as .gradle/, .idea/ and .kotlin/" >&2
   exit 1
 fi
 exit "$rc"

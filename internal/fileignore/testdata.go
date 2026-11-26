@@ -7,50 +7,63 @@ import (
 
 // testDataDirMarkers name directories of deliberately malformed Kotlin and
 // Java used to exercise compiler and IDE behavior. They are not user code
-// and are skipped by directory scans.
-var testDataDirMarkers = [...]string{
-	"/test/data/", "/testData/", "/testdata/", "/test-data/",
-	"/compiler-tests/", "/compilerTests/",
+// and are skipped by directory scans. Each marker is a run of path segments.
+var testDataDirMarkers = [...][]string{
+	{"test", "data"}, {"testData"}, {"testdata"}, {"test-data"},
+	{"compiler-tests"}, {"compilerTests"},
 }
 
 // TestDataPathUnder reports whether path, found while walking root, lies in
-// a built-in test-data or test-resources directory. Only the part of path
-// below root is checked, so a project checked out under a directory such as
-// /home/runner/work/testdata/ is still scanned (#1549). A path outside root
-// is checked in full.
+// a built-in test-data or test-resources directory. The whole path is
+// matched, so markers that span the root (src/test/resources scanned from
+// src/) still count, but a hit needs the marker's last directory strictly
+// below root: a project checked out under /home/runner/work/testdata/, or a
+// scan of a testdata/ directory itself, is still analysed (#1549). A path
+// outside root is checked in full.
 func TestDataPathUnder(root, path string) bool {
-	rel := path
+	segments := slashSegments(path)
+	below := 0
 	if root != "" {
-		if r, err := filepath.Rel(root, path); err == nil && r != ".." && !strings.HasPrefix(r, ".."+string(filepath.Separator)) {
-			rel = r
+		if rel, err := filepath.Rel(root, path); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			below = len(segments) - len(slashSegments(rel))
 		}
 	}
-	return TestDataPath(rel)
+	return testDataSegments(segments, below)
 }
 
-// TestDataPath reports whether a root-relative path lies in a built-in
-// test-data directory or in the resources directory of a test source set.
-// Callers must pass a path relative to the scan root; an absolute path
-// would also match directories above the project.
-func TestDataPath(relative string) bool {
-	slash := filepath.ToSlash(relative)
+// TestDataPath reports whether path lies in a built-in test-data directory
+// or in the resources directory of a test source set, matching anywhere in
+// the path.
+func TestDataPath(path string) bool {
+	return testDataSegments(slashSegments(path), 0)
+}
+
+func slashSegments(path string) []string {
+	slash := filepath.ToSlash(filepath.Clean(path))
 	// filepath.ToSlash only replaces the current platform's separator. Also
 	// normalize Windows paths when running on Unix so path checks are stable.
-	slash = "/" + strings.ReplaceAll(slash, `\`, "/")
-	for _, marker := range testDataDirMarkers {
-		if strings.Contains(slash, marker) {
-			return true
-		}
+	slash = strings.ReplaceAll(slash, `\`, "/")
+	if slash == "." {
+		return nil
 	}
-	return testResourcePath(slash)
+	return strings.Split(slash, "/")
 }
 
-// testResourcePath reports whether a slash path is inside the resources
-// directory of a test source set (src/test/resources, src/commonTest/resources, ...).
-func testResourcePath(slash string) bool {
-	segments := strings.Split(slash, "/")
-	for i := 0; i+3 < len(segments); i++ {
-		if segments[i] != "src" || segments[i+2] != "resources" {
+// testDataSegments reports whether segments hold a test-data marker or a
+// test source set's resources directory whose last directory has an index
+// of at least minDir. The final segment is the file name and never matches.
+func testDataSegments(segments []string, minDir int) bool {
+	dirs := len(segments) - 1
+	for _, marker := range testDataDirMarkers {
+		for i := 0; i+len(marker) <= dirs; i++ {
+			if i+len(marker)-1 >= minDir && segmentsEqual(segments[i:i+len(marker)], marker) {
+				return true
+			}
+		}
+	}
+	// src/<test set>/resources/...
+	for i := 0; i+2 < dirs; i++ {
+		if i+2 < minDir || segments[i] != "src" || segments[i+2] != "resources" {
 			continue
 		}
 		set := segments[i+1]
@@ -59,4 +72,13 @@ func testResourcePath(slash string) bool {
 		}
 	}
 	return false
+}
+
+func segmentsEqual(a, b []string) bool {
+	for i := range b {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }

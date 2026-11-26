@@ -801,6 +801,40 @@ func TestCollectionBuiltinIgnoresAncestorTestDataDirs(t *testing.T) {
 	}
 }
 
+func TestCollectionBuiltinMatchesMarkersSpanningTheRoot(t *testing.T) {
+	module := filepath.Join(t.TempDir(), "app")
+	app := filepath.Join(module, "src", "main", "kotlin", "App.kt")
+	for _, path := range []string{
+		app,
+		filepath.Join(module, "src", "test", "resources", "Fixture.kt"),
+		filepath.Join(module, "src", "commonTest", "resources", "F2.kt"),
+		filepath.Join(module, "src", "test", "data", "D.kt"),
+	} {
+		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("package test"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, root := range []string{module, filepath.Join(module, "src")} {
+		files, err := CollectKotlinFiles([]string{root}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(files) != 1 || files[0] != app {
+			t.Fatalf("CollectKotlinFiles(%s) = %#v, want only %q", root, files, app)
+		}
+	}
+	files, err := CollectKotlinFiles([]string{filepath.Join(module, "src", "test")}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 0 {
+		t.Fatalf("rooted at src/test, expected nothing collected, got %#v", files)
+	}
+}
+
 func TestCollectKotlinFilesRespectsGitignore(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.Mkdir(filepath.Join(dir, ".git"), 0755); err != nil {

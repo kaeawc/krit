@@ -68,9 +68,11 @@ Source-file collection always skips built-in test data directories (`/test/data/
 `/compilerTests/`) and test source-set resource directories under
 `src/<set>/resources/` when `<set>` is `test`, `androidTest`, `testFixtures`,
 or ends in `Test` (for example, `src/commonTest/resources/`).
-These directory names are matched only below the scanned directory, so a
-project checked out under an ancestor such as `/home/runner/work/testdata/`
-is still analysed.
+A directory is skipped only when it lies below the scanned directory, so a
+project checked out under an ancestor such as `/home/runner/work/testdata/`,
+or a scan of a `testdata/` directory itself, is still analysed. The rest of a
+marker may sit above it: `krit src` from a module still skips
+`src/test/resources/`.
 Directory scans also skip documentation samples: a Kotlin or Java file under an
 `examples` or `references` directory (for example `docs/skill/references/examples/`)
 is not analysed when it is outside any `src` tree and no build file
@@ -81,6 +83,10 @@ in them. An example project with its own build file, a module with an `examples`
 directory beside its build file, and anything outside a Git checkout are still
 analysed.
 Built-in skips apply only to directory scans, so files named explicitly on the command line are analyzed unless a user exclude pattern matches them.
+The Gradle plugin's `krit check`, the pre-commit hook and Bazel `krit_test` /
+`krit_aspect` pass each source file explicitly, so a file under `testdata/` or
+`src/test/resources/` that they list is analysed; files in the tool and cache
+directories below are still skipped.
 
 Directory scans also skip these tool and cache directories at any depth:
 `.git`, `.krit`, `.krit-cache`, `.krit-types`, `.gradle`, `.idea`, `.kotlin`,

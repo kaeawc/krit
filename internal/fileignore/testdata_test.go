@@ -22,6 +22,18 @@ func TestTestDataPathUnder(t *testing.T) {
 		{name: "no root checks full path", root: "", path: "project/src/testData/A.kt", want: true},
 		{name: "path outside root checks full path", root: "/tmp/other", path: "/tmp/proj/testdata/A.kt", want: true},
 		{name: "testdata-like file name", root: "/tmp/proj", path: "/tmp/proj/src/testdata.kt", want: false},
+		{name: "scan the testdata dir itself", root: "/tmp/proj/testdata", path: "/tmp/proj/testdata/A.kt", want: false},
+		{name: "nested testdata below a testdata root", root: "/tmp/testdata", path: "/tmp/testdata/x/testdata/A.kt", want: true},
+		// Markers may span the root: scanning a module's src/ or src/test/
+		// still skips its test resources and test data.
+		{name: "test resources from src root", root: "/m/app/src", path: "/m/app/src/test/resources/F.kt", want: true},
+		{name: "common test resources from src root", root: "/m/app/src", path: "/m/app/src/commonTest/resources/F.kt", want: true},
+		{name: "test resources from src/test root", root: "/m/app/src/test", path: "/m/app/src/test/resources/F.kt", want: true},
+		{name: "test/data from test root", root: "/m/app/test", path: "/m/app/test/data/D.kt", want: true},
+		{name: "relative src root", root: "app/src", path: "app/src/test/resources/F.kt", want: true},
+		{name: "main sources from src root", root: "/m/app/src", path: "/m/app/src/main/kotlin/A.kt", want: false},
+		{name: "scan the resources dir itself", root: "/m/app/src/test/resources", path: "/m/app/src/test/resources/F.kt", want: false},
+		{name: "windows separators", root: "", path: `project\src\commonTest\resources\Qux.kt`, want: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

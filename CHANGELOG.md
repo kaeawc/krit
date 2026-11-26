@@ -434,6 +434,13 @@ All notable changes to Krit will be documented in this file.
   and object lookups use a per-file index, built once per run. `IgnoredReturnValue` skips type resolution for calls
   it cannot report without the oracle, and finds a detached `return` without a regex. On element-x-android
   (`--no-fir`), the three rules went from 3.2s, 2.6s and 1.1s to 0.2s, 0.1s and 0.5s, with the same findings (#1664).
+- The built-in test-data skip (`testdata/`, `testData/`, `test-data/`, `test/data/`, `compiler-tests/`,
+  `compilerTests/`, `src/<test set>/resources/`) only counts directories below the scanned path, so a project checked
+  out under an ancestor such as `/home/runner/work/testdata/` is analysed instead of reporting no files and exiting 0.
+  `krit src` from a module still skips `src/test/resources/`. The CLI also stops dropping files named explicitly on the
+  command line from those directories, as `docs/configuration.md` describes; because the Gradle plugin's `krit check`,
+  the pre-commit hook and Bazel `krit_test` / `krit_aspect` pass source files explicitly, `testdata/` files listed
+  there are now analysed while `krit .` still skips them (#1549).
 - FIR applies `-Xname-based-destructuring`, `-Xjspecify-annotations` and the other language-feature, Java-nullability
   and dependency-loading flags a Gradle model carries, instead of dropping them and gating the files that need them.
   Repeated `-Xjsr305` / `-Xnullability-annotations` values now all apply (#1571).

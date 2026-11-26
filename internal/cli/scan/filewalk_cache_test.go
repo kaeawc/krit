@@ -579,6 +579,31 @@ func TestCollectFilesCached_TestDataMatchedBelowRootOnly(t *testing.T) {
 		check(t, files, app)
 	})
 
+	// Markers may span the scan root (#1699 review): `krit src` from a
+	// module directory still skips test resources and test data.
+	t.Run("roots inside a module", func(t *testing.T) {
+		module := filepath.Join(t.TempDir(), "app")
+		app := filepath.Join(module, "src", "main", "kotlin", "App.kt")
+		writeFile(t, app, "")
+		writeFile(t, filepath.Join(module, "src", "test", "resources", "Fixture.kt"), "")
+		writeFile(t, filepath.Join(module, "src", "commonTest", "resources", "F2.kt"), "")
+		writeFile(t, filepath.Join(module, "src", "test", "data", "D.kt"), "")
+		for _, root := range []string{module, filepath.Join(module, "src")} {
+			files, err := CollectFilesCached([]string{root}, ktFilters, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			check(t, files, app)
+		}
+		files, err := CollectFilesCached([]string{filepath.Join(module, "src", "test")}, ktFilters, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(files) != 0 {
+			t.Fatalf("rooted at src/test, expected test resources and data skipped, got %v", files)
+		}
+	})
+
 	t.Run("explicit file", func(t *testing.T) {
 		_, _, inner := setup(t)
 		files, err := CollectFilesCached([]string{inner}, ktFilters, "")

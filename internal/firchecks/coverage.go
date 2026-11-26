@@ -34,6 +34,7 @@ func Coverage(stats VerdictStats, files map[string]*scanner.File) output.FirCove
 		Authoritative: stats.AuthoritativeFiles,
 		Gated:         len(stats.GatedFiles),
 		Excluded:      stats.ExcludedFiles,
+		Withheld:      stats.Withheld,
 	}
 	counts := map[string]int{}
 	for path, reason := range stats.GatedFiles {

@@ -12,7 +12,7 @@ import (
 func serialProfileFromGradlePaths(paths []string) ProjectProfile {
 	var profile ProjectProfile
 	catalogs := make(map[string]VersionCatalog)
-	discovery := newCatalogDiscoveryCache()
+	discovery := NewCatalogDiscovery()
 	for _, path := range paths {
 		content, err := os.ReadFile(path)
 		if err != nil {

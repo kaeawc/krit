@@ -11,6 +11,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/kaeawc/krit/internal/testutil"
 )
 
 func TestConnectOrStartFirDaemonReplacedJarIsNotReused(t *testing.T) {
@@ -115,13 +117,10 @@ func TestFirRegistryKeyAndRetirementTrackClasspathJar(t *testing.T) {
 	if err := writeFirPIDFile(99999999, 1, oldKey); err != nil {
 		t.Fatal(err)
 	}
-	stamp := time.Now().Add(5 * time.Second)
-	if err := os.Chtimes(dep, stamp, stamp); err != nil {
-		t.Fatal(err)
-	}
+	testutil.RewriteKeepingStat(t, dep, "BEFORE")
 	newKey := firRegistryKeyFor(firCheckRole, jar, sources, classpath)
 	if oldKey == newKey {
-		t.Fatal("classpath mtime change kept FIR registry key")
+		t.Fatal("a same-size, same-mtime classpath jar rebuild kept the FIR registry key")
 	}
 	retireSupersededFirDaemons(firRegistryFamilyPrefix(firCheckRole, jar, sources, classpath), sources, newKey, true, false)
 	if _, err := os.Stat(firPIDPath(oldKey)); !os.IsNotExist(err) {

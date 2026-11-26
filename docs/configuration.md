@@ -186,7 +186,10 @@ JSON reports carry the same numbers as `summary.fir`, and SARIF reports as
         "topCauses": [{"cause": "Unresolved reference 'androidx.compose'", "count": 12034}]}
 ```
 
-`excluded` counts scripts and files outside every JVM compilation. Up to five
+`excluded` counts scripts and files outside every JVM compilation. `withheld`
+(present when non-zero) counts the Go findings of FIR-required rules dropped in
+gated files (see `fir.requireAuthoritativeRules` below); the stderr line then
+ends its first clause with `, except N withheld for FIR-required rules`. Up to five
 causes are listed, most frequent first. An unresolved reference is reported as
 the package prefix of the import that names it, so a missing library shows up
 as one cause; other messages have their quoted names blanked (`'…'`).
@@ -195,6 +198,16 @@ analyzed less than that share of the files it checked (authoritative plus
 gated), or when the FIR pass did not run; such scans run in-process. When at
 least a quarter of a Gradle model's classpath is missing on disk, the stale
 model warning adds that FIR results will be mostly gated.
+
+`--min-sdk N` and `--target-sdk N` are the Android `minSdk` and `targetSdk` of
+files whose own build file or manifest declares none: krit takes each level
+from the nearest directory above a file whose `build.gradle(.kts)`,
+`src/main/AndroidManifest.xml` or `AndroidManifest.xml` declares it, then from
+the project's Gradle profile (a version catalog's `minSdk`), and falls back to
+these. Rules with one project-wide minSdk read the profile, then these. Use them when the build sets the levels elsewhere, as a Bazel
+`android_binary`'s `manifest_values` does (the Bazel rules pass them from
+`--@krit//:min_sdk_version` / `--@krit//:target_sdk_version`). Such scans run
+in-process.
 
 For Gradle projects, run `kritExportModel` (the Gradle plugin's `kritCheck`
 task already depends on it). Krit discovers `.krit/gradle-model/`; a stale
@@ -284,6 +297,33 @@ fir:
 ```
 
 FIR verdicts for the listed rule IDs are ignored; other FIR rules still apply.
+
+When FIR cannot compile a file (a compile error, missing generated code, an
+unresolved classpath entry), Go's findings normally stand there. For
+**FIR-required** rules they don't: these rules' Go implementations guess at
+types, so in a gated file their findings are mostly false positives. Their Go
+findings in files FIR could not compile are withheld, and they are reported only
+where FIR's verdict is authoritative (#1675):
+
+```yaml
+fir:
+  requireAuthoritativeRules:   # default when unset:
+    - CastNullableToNonNullableType
+    - UnnecessaryNotNullOperator
+    - UnnecessarySafeCall
+    - UnsafeCast
+    - UselessCallOnNotNull
+    - UselessElvisOnNonNull
+```
+
+An empty list (`requireAuthoritativeRules: []`) keeps every Go finding in
+gated files, as before. Where krit-fir itself failed (a crashed file, a checker
+that threw, or a pass that lost every verdict, which prints the `--fir checker
+failed` warning), Go's findings stand for these rules too. A rule listed here
+that krit-fir has no checker for, or that `goAuthoritativeRules` also lists,
+keeps its Go findings. `-v` reports
+`withheld=N` per rule. The default summary and the JSON/SARIF FIR coverage
+(`summary.fir.withheld`) report the total.
 
 ## Analysis depth
 
@@ -400,6 +440,14 @@ to disable discovery. An explicit directory takes precedence when both flags
 are set. Existing boot classpath entries come first, then model classpath
 entries, `oracle.classpath` from `krit.yml`, and finally the `CLASSPATH`
 environment variable. Duplicate paths keep their first position.
+
+A model read from `<root>/.krit/gradle-model` that was exported under another
+build root or Gradle user home (restored from a CI cache) has its paths rebased
+onto the current ones. `krit gradle-model key` prints a hash of the build files
+that can change the model, for keying such a cache, and
+`krit gradle-model key --write` stamps it in the model so a later scan warns when
+the build no longer matches. See the Gradle plugin README's
+[CI recipe](https://github.com/kaeawc/krit/blob/main/krit-gradle-plugin/README.md#ci-recipe-skip-gradle-when-the-build-has-not-changed).
 
 A scan of one project compiles the sources of the projects it depends on as
 context. `--gradle-project-outputs FILE` names their built outputs instead, as

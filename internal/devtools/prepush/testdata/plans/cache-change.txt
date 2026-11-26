@@ -8,5 +8,6 @@ gofmt
 build
 vet
 lint
+gosec
 test ./internal/hashutil
 warmclean

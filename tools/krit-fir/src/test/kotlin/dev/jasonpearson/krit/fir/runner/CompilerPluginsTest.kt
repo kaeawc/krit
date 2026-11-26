@@ -29,6 +29,7 @@ class CompilerPluginsTest {
     private val stdlib = File(Unit::class.java.protectionDomain.codeSource.location.toURI()).absolutePath
     private val serializationPlugin = File(requireNotNull(System.getProperty("krit.fir.test.serializationPlugin"))).absolutePath
     private val serializationRuntime = File(requireNotNull(System.getProperty("krit.fir.test.serializationRuntime"))).absolutePath
+    private val composePlugin = File(requireNotNull(System.getProperty("krit.fir.test.composePlugin"))).absolutePath
     private val sessions = ArrayList<AnalysisSession>()
     private var counter = 0
 
@@ -107,21 +108,103 @@ class CompilerPluginsTest {
     }
 
     @Test fun aPluginTheCompilerCannotLoadIsLeftOutWithAWarning() {
-        val broken = File(tmp.toFile(), "broken-plugin.jar")
-        ZipOutputStream(broken.outputStream()).use { zip ->
-            zip.putNextEntry(ZipEntry("META-INF/services/org.jetbrains.kotlin.compiler.plugin.CompilerPluginRegistrar"))
-            zip.write("com.example.DoesNotExistRegistrar\n".toByteArray())
-            zip.closeEntry()
-        }
+        val broken = brokenPlugin()
         val dir = sourceDir("A.kt" to "package p\n\nfun protocolProbe() {}\nfun a() = protocolProbe()\n")
         val s = session(dir, CompilerPlugins.of(listOf(broken.path), emptyList()))
         val result = s.checkAll(dir)
         assertEquals(emptyMap(), result.errorFiles, "the session analyzes as without plugins")
         assertTrue(s.effectivePlugins.isEmpty)
         val warning = s.compilerPluginWarnings.single()
-        assertTrue("compiler plugins not loaded" in warning && "broken-plugin.jar" in warning, warning)
-        assertTrue("compiler plugins not loaded" in withWarnings("{\"id\":1}", s, ""), "the warning reaches the response")
+        assertTrue("compiler plugin broken-plugin.jar not loaded" in warning, warning)
+        assertTrue("compiler plugin broken-plugin.jar not loaded" in withWarnings("{\"id\":1}", s, ""), "the warning reaches the response")
         assertEquals(session(dir).compileKeyNow(), s.compileKeyNow(), "keyed as the compile it runs: without plugins")
+    }
+
+    private fun brokenPlugin(): File = File(tmp.toFile(), "broken-plugin.jar").apply {
+        ZipOutputStream(outputStream()).use { zip ->
+            zip.putNextEntry(ZipEntry("META-INF/services/org.jetbrains.kotlin.compiler.plugin.CompilerPluginRegistrar"))
+            zip.write("com.example.DoesNotExistRegistrar\n".toByteArray())
+            zip.closeEntry()
+        }
+    }
+
+    // Gradle exports the embeddable Compose plugin, which refers to relocated IntelliJ classes the plain compiler
+    // krit-fir embeds does not have. It is left out alone: kotlinx.serialization next to it still loads, so
+    // Foo.serializer() resolves (#1598).
+    @Test fun theEmbeddableComposePluginIsLeftOutAloneAndTheOthersLoad() {
+        val dir = sourceDir("Model.kt" to SERIALIZABLE, "Use.kt" to USES_SERIALIZER)
+        val s = session(dir, CompilerPlugins.of(listOf(composePlugin, serializationPlugin), emptyList()))
+        assertEquals(emptyMap(), s.checkAll(dir).errorFiles, "kotlinx.serialization is loaded without Compose")
+        assertEquals(listOf(serializationPlugin), s.effectivePlugins.classpath)
+        val warning = s.compilerPluginWarnings.single()
+        assertTrue(warning.startsWith("krit-fir: compiler plugin ${File(composePlugin).name} not loaded, analyzing without it ("), warning)
+        assertTrue("serialization" !in warning, "only Compose is named: $warning")
+    }
+
+    // A plugin left out takes its options with it only in effect: the kept plugins keep theirs, and an option whose
+    // plugin is not loaded does not fail the compile.
+    @Test fun theKeptPluginsKeepTheirOptionsWhenAnotherIsLeftOut() {
+        val options = listOf("plugin:com.example.broken:key=value", "plugin:org.jetbrains.kotlinx.serialization:disableIntrinsic=true")
+        val dir = sourceDir("Model.kt" to SERIALIZABLE, "Use.kt" to USES_SERIALIZER)
+        val s = session(dir, CompilerPlugins.of(listOf(brokenPlugin().path, serializationPlugin), options))
+        assertEquals(emptyMap(), s.checkAll(dir).errorFiles)
+        assertEquals(listOf(serializationPlugin), s.effectivePlugins.classpath)
+        assertEquals(options, s.effectivePlugins.options)
+        assertTrue(s.compilerPluginWarnings.single().contains("compiler plugin broken-plugin.jar not loaded"), s.compilerPluginWarnings.toString())
+    }
+
+    // A plugin split across jars, its registrar jar listed before the jar it links against (Gradle's usual order),
+    // in a set another jar keeps from loading: the registrar fails alone, then loads once the helper jar is kept, so
+    // only the broken jar is left out (#1598).
+    @Test fun aPluginSplitAcrossJarsLoadsWhenItsRegistrarComesFirst() {
+        val (registrar, helper) = splitPlugin()
+        val broken = brokenPlugin()
+        val dir = sourceDir("Model.kt" to SERIALIZABLE, "Use.kt" to USES_SERIALIZER)
+        val s = session(dir, CompilerPlugins.of(listOf(registrar.path, broken.path, helper.path, serializationPlugin), emptyList()))
+        assertEquals(emptyMap(), s.checkAll(dir).errorFiles)
+        assertEquals(setOf(registrar.path, helper.path, serializationPlugin), s.effectivePlugins.classpath.toSet())
+        assertTrue(s.compilerPluginWarnings.single().contains("compiler plugin broken-plugin.jar not loaded"), s.compilerPluginWarnings.toString())
+    }
+
+    /** A registrar whose class initializer needs a class from a second jar, compiled with the test JVM's javac. */
+    private fun splitPlugin(): Pair<File, File> {
+        val root = tmp.resolve("split-plugin").toFile()
+        val sources = File(root, "src").apply { mkdirs() }
+        val classes = File(root, "classes").apply { mkdirs() }
+        val helperSource = File(sources, "Helper.java").apply { writeText("package multi.helper;\npublic class Helper {}\n") }
+        val registrarSource = File(sources, "Registrar.java").apply {
+            writeText(
+                """
+                package multi;
+                import org.jetbrains.kotlin.compiler.plugin.CompilerPluginRegistrar;
+                import org.jetbrains.kotlin.config.CompilerConfiguration;
+                public class Registrar extends CompilerPluginRegistrar {
+                    private static final Object HELPER = new multi.helper.Helper();
+                    @Override public String getPluginId() { return "multi"; }
+                    @Override public void registerExtensions(CompilerPluginRegistrar.ExtensionStorage storage, CompilerConfiguration configuration) {}
+                    @Override public boolean getSupportsK2() { return true; }
+                }
+                """.trimIndent(),
+            )
+        }
+        val javac = requireNotNull(javax.tools.ToolProvider.getSystemJavaCompiler()) { "the test JVM has no javac" }
+        val exit = javac.run(null, null, null, "-d", classes.path, "-classpath", System.getProperty("java.class.path"),
+            helperSource.path, registrarSource.path)
+        assertEquals(0, exit, "javac")
+        fun jar(name: String, vararg entries: Pair<String, ByteArray>) = File(root, name).apply {
+            ZipOutputStream(outputStream()).use { zip ->
+                for ((entry, bytes) in entries) {
+                    zip.putNextEntry(ZipEntry(entry))
+                    zip.write(bytes)
+                    zip.closeEntry()
+                }
+            }
+        }
+        val registrar = jar("multi-plugin.jar",
+            "META-INF/services/org.jetbrains.kotlin.compiler.plugin.CompilerPluginRegistrar" to "multi.Registrar\n".toByteArray(),
+            "multi/Registrar.class" to File(classes, "multi/Registrar.class").readBytes())
+        val helper = jar("multi-helper.jar", "multi/helper/Helper.class" to File(classes, "multi/helper/Helper.class").readBytes())
+        return registrar to helper
     }
 
     @Test fun pluginSetsAreValidated() {

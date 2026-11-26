@@ -168,3 +168,35 @@ func BenchmarkIndexFilesParallel(b *testing.B) {
 		r.IndexFilesParallel(files, 4)
 	}
 }
+
+// BenchmarkIndexFileParallel_ConstructorParamInitializers covers data-holder
+// classes whose property initializers and init blocks read primary-
+// constructor parameters, which get an initializer scope each (#1673).
+func BenchmarkIndexFileParallel_ConstructorParamInitializers(b *testing.B) {
+	var sb strings.Builder
+	sb.WriteString("package bench\n\n")
+	for i := 0; i < 60; i++ {
+		n := strconv.Itoa(i)
+		sb.WriteString("class Model" + n + "(")
+		for p := 0; p < 8; p++ {
+			sb.WriteString("p" + strconv.Itoa(p) + ": String?, ")
+		}
+		sb.WriteString("val id: Long) {\n")
+		for p := 0; p < 8; p++ {
+			ps := strconv.Itoa(p)
+			sb.WriteString("    val v" + ps + ": String = p" + ps + " ?: \"\"\n")
+		}
+		sb.WriteString("    val lazyValue by lazy { p0 ?: p1 }\n")
+		sb.WriteString("    init {\n        require(id > 0)\n        val local = p2\n    }\n")
+		sb.WriteString("    fun describe(): String = v0 + v1\n}\n\n")
+	}
+	tmp := b.TempDir() + "/Models.kt"
+	if err := os.WriteFile(tmp, []byte(sb.String()), 0o644); err != nil {
+		b.Fatal(err)
+	}
+	file := parseFixtureTI(b, tmp)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = IndexFileParallel(file)
+	}
+}

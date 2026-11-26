@@ -334,3 +334,38 @@ func TestRunKritStartsCold(t *testing.T) {
 		}
 	}
 }
+
+// TestScalingFailsOnlyOnHeadWorseThanBase pins the base-vs-head scaling rule:
+// a metric super-linear on base too is reported but doesn't fail, unless head
+// grows clearly faster than base.
+func TestScalingFailsOnlyOnHeadWorseThanBase(t *testing.T) {
+	g := scaleGates{Factor: 6, Slack: 2, MinMs: 500}
+	small := summ(1000, map[string]float64{"io": 30, "worse": 100, "fresh": 100}, nil, nil)
+	large := summ(9000, map[string]float64{"io": 540, "worse": 3600, "fresh": 1300}, nil, nil)
+	head, _ := checkScaling(small, large, g, knownSuperlinear{})
+
+	// Base: io equally super-linear; worse super-linear but much less;
+	// fresh linear.
+	bSmall := summ(1000, map[string]float64{"io": 30, "worse": 100, "fresh": 100}, nil, nil)
+	bLarge := summ(9000, map[string]float64{"io": 545, "worse": 1300, "fresh": 600}, nil, nil)
+	base, _ := checkScaling(bSmall, bLarge, g, knownSuperlinear{})
+	head = applyBase(head, base)
+
+	got := map[string]bool{}
+	for _, r := range head {
+		got[r.Key] = r.Super && !r.PreExisting
+	}
+	if got["io"] {
+		t.Error("a phase base scales as badly must not fail head")
+	}
+	if !got["worse"] {
+		t.Error("a phase head scales clearly worse than base must fail")
+	}
+	if !got["fresh"] {
+		t.Error("a phase only head scales super-linearly must fail")
+	}
+	var buf bytes.Buffer
+	if !writeScaleReport(&buf, "s", "l", head, nil, g, knownSuperlinear{}) || !strings.Contains(buf.String(), "not caused by this change") {
+		t.Errorf("report should fail and list the pre-existing metric separately:\n%s", buf.String())
+	}
+}

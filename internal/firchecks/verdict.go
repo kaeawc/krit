@@ -43,6 +43,15 @@ type VerdictInput struct {
 	// @Suppress / @SuppressWarnings / `detekt:` / "all" annotations, inline
 	// krit:ignore comments, and per-rule excludes. nil suppresses nothing.
 	Suppressed func(scanner.Finding) bool
+	// RequireAuthoritative lists the FIR-required rules: their findings are
+	// reported only where FIR's verdict is authoritative. Go's findings for
+	// such a rule are withheld in the requested files FIR gated on a compile
+	// error (Result.ErrorFiles), instead of standing there. Files krit-fir
+	// crashed on and (file, rule) pairs whose checker threw keep Go's
+	// findings: krit-fir failed there, not the code. A rule krit-fir does not
+	// advertise (no checker, or fir.goAuthoritativeRules) keeps Go's findings
+	// too (#1675). The caller leaves it nil when the pass lost every verdict.
+	RequireAuthoritative map[string]bool
 }
 
 // RuleVerdict counts what the merge did for one rule.
@@ -60,8 +69,11 @@ type RuleVerdict struct {
 	// Suppressed: FIR-only findings dropped by suppression or excludes.
 	Suppressed int
 	// RuleErrorFiles: authoritative files where this rule's checker threw;
-	// Go's findings for the rule stand there.
+	// Go's findings for the rule stand there unless the rule is FIR-required.
 	RuleErrorFiles int
+	// Withheld: Go findings of a FIR-required rule dropped because FIR could
+	// not compile their file.
+	Withheld int
 }
 
 // RuleError is one (file, rule) pair whose checker threw.
@@ -84,6 +96,9 @@ type VerdictStats struct {
 	// authoritative files and rules that fell back to Go because the rule's
 	// checker threw there.
 	RuleErrors []RuleError
+	// Withheld is the number of Go findings of FIR-required rules dropped
+	// for lack of a FIR verdict (the sum of RuleVerdict.Withheld).
+	Withheld int
 }
 
 type fileRule struct{ file, rule string }
@@ -119,20 +134,40 @@ func ApplyVerdict(in VerdictInput) ([]scanner.Finding, VerdictStats) {
 		return in.Go, stats
 	}
 	authoritativeFile := gateFiles(in.Requested, in.FIR, &stats)
+	requested := make(map[string]bool, len(in.Requested))
+	for _, path := range in.Requested {
+		requested[path] = true
+	}
 	authoritativeRule := make(map[string]bool, len(in.FIR.Rules))
 	for _, rule := range in.FIR.Rules {
 		authoritativeRule[rule] = true
 		stats.Rules[rule] = &RuleVerdict{}
 	}
-	if len(authoritativeFile) == 0 || len(authoritativeRule) == 0 {
+	if len(authoritativeRule) == 0 || len(authoritativeFile) == 0 && !requiresAny(in.RequireAuthoritative, authoritativeRule) {
 		return in.Go, stats
 	}
 	threw := collectRuleErrors(in.FIR.RuleErrors, authoritativeFile, authoritativeRule, &stats)
 	owned := func(file, rule string) bool {
 		return authoritativeFile[file] && authoritativeRule[rule] && !threw[fileRule{file, rule}]
 	}
+	// A FIR-required rule's Go finding in a file FIR could not compile has no
+	// verdict to stand on.
+	withheld := func(file, rule string) bool {
+		if !in.RequireAuthoritative[rule] || !authoritativeRule[rule] {
+			return false
+		}
+		if _, compileError := in.FIR.ErrorFiles[file]; !compileError || !requested[file] {
+			return false
+		}
+		if _, crashed := in.FIR.Crashed[file]; crashed {
+			return false
+		}
+		stats.Rules[rule].Withheld++
+		stats.Withheld++
+		return true
+	}
 
-	out, goByKey := partitionGoFindings(in.Go, owned)
+	out, goByKey := partitionGoFindings(in.Go, owned, withheld)
 	firByKey := groupFIRFindings(in.FIR.Findings, owned)
 	keys := make([]fileRule, 0, len(goByKey)+len(firByKey))
 	for k := range goByKey {
@@ -198,11 +233,21 @@ func collectRuleErrors(ruleErrors map[string]map[string]string, files, rules map
 	return threw
 }
 
+// requiresAny reports whether a FIR-required rule is among the advertised ones.
+func requiresAny(required, advertised map[string]bool) bool {
+	for rule := range required {
+		if advertised[rule] {
+			return true
+		}
+	}
+	return false
+}
+
 // partitionGoFindings splits Go findings into the ones FIR does not own
-// (kept in order) and the owned ones grouped by absolute file and rule. Go
-// findings carry the scan's spelling of the path (often relative); the
-// checker was sent absolute paths.
-func partitionGoFindings(goFindings []scanner.Finding, owned func(file, rule string) bool) ([]scanner.Finding, map[fileRule][]scanner.Finding) {
+// (kept in order, except those withheld reports, which are dropped) and the
+// owned ones grouped by absolute file and rule. Go findings carry the scan's
+// spelling of the path (often relative); the checker was sent absolute paths.
+func partitionGoFindings(goFindings []scanner.Finding, owned, withheld func(file, rule string) bool) ([]scanner.Finding, map[fileRule][]scanner.Finding) {
 	absByFile := map[string]string{}
 	kept := make([]scanner.Finding, 0, len(goFindings))
 	byKey := map[fileRule][]scanner.Finding{}
@@ -218,6 +263,9 @@ func partitionGoFindings(goFindings []scanner.Finding, owned func(file, rule str
 		if owned(abs, g.Rule) {
 			k := fileRule{abs, g.Rule}
 			byKey[k] = append(byKey[k], g)
+			continue
+		}
+		if withheld(abs, g.Rule) {
 			continue
 		}
 		kept = append(kept, g)

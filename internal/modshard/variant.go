@@ -145,7 +145,7 @@ func variantUnit(g *variantGroup, t *Unit, exportedVariant string) (Unit, bool) 
 	context = append(context, t.Spec.ContextSourceRoots...)
 	spec.ContextSourceRoots = dedupe(context, own)
 	sources := sourceFiles(own)
-	return Unit{Spec: spec, Files: len(sources), Sources: sources}, true
+	return Unit{Spec: spec, Files: len(sources), ContextFiles: len(sourceFiles(spec.ContextSourceRoots)), Sources: sources}, true
 }
 
 // sourceSetOf returns the src directory and source set name of a file under a conventional

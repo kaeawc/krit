@@ -1,0 +1,28 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <uses-feature android:name="android.hardware.type.watch" />
+    <application android:label="Watch">
+        <service android:name=".MyWatchFaceService" android:exported="true">
+            <meta-data
+                android:name="com.google.android.wearable.watchface.wearableConfigurationAction"
+                android:value="androidx.wear.watchface.editor.action.WATCH_FACE_EDITOR" />
+        </service>
+        <activity android:name=".ConfigActivity" android:exported="true" tools:ignore="WearableActionDuplicate">
+            <intent-filter>
+                <action android:name="androidx.wear.watchface.editor.action.WATCH_FACE_EDITOR" />
+                <category android:name="com.google.android.wearable.watchface.category.WEARABLE_CONFIGURATION" />
+            </intent-filter>
+        </activity>
+        <activity android:name=".OtherConfigActivity" android:exported="true">
+            <intent-filter>
+                <action android:name="androidx.wear.watchface.editor.action.WATCH_FACE_EDITOR" />
+                <category android:name="com.google.android.wearable.watchface.category.WEARABLE_CONFIGURATION" />
+            </intent-filter>
+        </activity>
+        <activity android:name=".ThirdConfigActivity" android:exported="true">
+            <intent-filter>
+                <action android:name="androidx.wear.watchface.editor.action.WATCH_FACE_EDITOR" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

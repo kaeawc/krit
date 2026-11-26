@@ -109,6 +109,60 @@ class AnalysisSessionCheckGatingTest {
         assertEquals(listOf(file), result.findings.map { it.path })
     }
 
+    // A Bazel target lists its files; its only root is a generated one (an
+    // unpacked srcjar). Its own files in a Gradle-style src/main/kotlin are
+    // still compiled, against the generated sources (#1688).
+    @Test fun generatedRootsAloneDoNotExcludeSourceSetLayoutFiles() {
+        val generated = write("srcjars/abc123/g/Gen.kt", "package g\n\nclass Gen(val name: String)\n")
+        val own = write(
+            "data/src/main/kotlin/d/A.kt",
+            "package d\n\nimport g.Gen\n\nfun protocolProbe() {}\nfun use(x: Gen): Int { protocolProbe(); return x.name.length }\n",
+        )
+        val result = AnalysisSession(listOf(File(generated).parentFile.parent), listOf(stdlib))
+            .check(1, listOf(FileRef(own)), setOf("ProtocolProbe"))
+
+        assertTrue(result.errorFiles.isEmpty(), result.toString())
+        assertTrue(result.crashed.isEmpty(), result.crashed.toString())
+        assertEquals(listOf(own), result.findings.filter { it.rule == "ProtocolProbe" }.map { it.path }, result.toString())
+    }
+
+    // Gradle + KSP: real source-set roots plus a generated root. One real root is enough for the check to apply,
+    // so a KMP jsMain file is still kept off the JVM.
+    @Test fun sourceSetRootsWithAGeneratedRootStillExcludeOtherSourceSets() {
+        write("src/commonMain/kotlin/r/Common.kt", "package r\n\nexpect fun label(): String\nfun protocolProbe() {}\n")
+        val jvm = write("src/jvmMain/kotlin/r/Jvm.kt", "package r\n\nactual fun label(): String = \"jvm\"\nfun useJvm() { protocolProbe() }\n")
+        write("build/generated/ksp/jvm/jvmMain/kotlin/r/Gen.kt", "package r\n\nclass Gen\n")
+        val js = write("src/jsMain/kotlin/r/Js.kt", "package r\n\nactual fun label(): String = \"js\"\nfun useJs() { protocolProbe() }\n")
+        val session = AnalysisSession(
+            listOf(
+                tmp.resolve("src/commonMain/kotlin").toString(),
+                tmp.resolve("src/jvmMain/kotlin").toString(),
+                tmp.resolve("build/generated/ksp/jvm/jvmMain/kotlin").toString(),
+            ),
+            listOf(stdlib),
+        )
+
+        val result = session.check(1, listOf(FileRef(jvm), FileRef(js)), setOf("ProtocolProbe"))
+
+        assertEquals(mapOf(js to AnalysisSession.NOT_IN_JVM_COMPILATION), result.errorFiles, result.toString())
+    }
+
+    // An exported Bazel model sends each target's package directories as roots. One of them may be a source-set
+    // root itself (a file directly in app/src/main/kotlin); a file under another sent root is still compiled.
+    @Test fun fileUnderASentRootIsCompiledWhateverTheLayoutAboveIt() {
+        val app = write("app/src/main/kotlin/App.kt", "package app\n\nfun protocolProbe() {}\n")
+        val data = write("data/src/main/kotlin/d/A.kt", "package d\n\nfun use() { app.protocolProbe() }\n")
+        val session = AnalysisSession(
+            listOf(tmp.resolve("app/src/main/kotlin").toString(), tmp.resolve("data/src/main/kotlin/d").toString()),
+            listOf(stdlib),
+        )
+
+        val result = session.check(1, listOf(FileRef(app), FileRef(data)), setOf("ProtocolProbe"))
+
+        assertTrue(result.errorFiles.isEmpty(), result.toString())
+        assertEquals(listOf(data), result.findings.filter { it.rule == "ProtocolProbe" }.map { it.path }, result.toString())
+    }
+
     private fun write(relative: String, text: String): String {
         val file = tmp.resolve(relative).toFile()
         file.parentFile.mkdirs()

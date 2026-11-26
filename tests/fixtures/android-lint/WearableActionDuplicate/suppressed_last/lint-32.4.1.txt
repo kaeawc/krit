@@ -1,0 +1,1 @@
+src/main/AndroidManifest.xml:12:17: WearableActionDuplicate: Duplicate watch face configuration activities found

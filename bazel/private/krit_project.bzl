@@ -22,7 +22,7 @@ the collected sources, manifests, resources or the config changes.
 """
 
 load("@bazel_skylib//rules:common_settings.bzl", "BuildSettingInfo")
-load(":android.bzl", "resource_dirs_build_file")
+load(":android.bzl", "resource_dirs_build_file", "sdk_level_args")
 
 _SOURCE_EXTENSIONS = ["kt", "kts", "java"]
 
@@ -131,6 +131,10 @@ def _krit_project_report_impl(ctx):
     if ctx.file.baseline:
         args.add("--baseline", ctx.file.baseline)
         inputs.append(ctx.file.baseline)
+    args.add_all(sdk_level_args(
+        ctx.attr._min_sdk[BuildSettingInfo].value,
+        ctx.attr._target_sdk[BuildSettingInfo].value,
+    ))
     args.add("--")
     args.add_all(scan)
 
@@ -207,6 +211,14 @@ krit_aspect, whose per-target actions run the file-scope rules.
         ),
         "_fail_on_findings": attr.label(
             default = Label("//:fail_on_findings"),
+            providers = [BuildSettingInfo],
+        ),
+        "_min_sdk": attr.label(
+            default = Label("//:min_sdk_version"),
+            providers = [BuildSettingInfo],
+        ),
+        "_target_sdk": attr.label(
+            default = Label("//:target_sdk_version"),
             providers = [BuildSettingInfo],
         ),
     },

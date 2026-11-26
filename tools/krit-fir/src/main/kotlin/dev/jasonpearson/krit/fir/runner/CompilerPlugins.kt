@@ -21,9 +21,10 @@ import java.util.concurrent.ConcurrentHashMap
  * [KotlinCompilerSettings] allowlist. krit-fir's own plugin jar is always registered first; these come after it.
  *
  * A jar that does not exist and an option that is not `plugin:<id>:<key>=<value>` are dropped and reported in
- * [warnings]. The plugins that remain are loaded once in a probe compile ([verified]); a set the embedded compiler
- * cannot load (a plugin built for an incompatible compiler) is left out with a warning, so the analysis keeps
- * today's no-plugin behavior instead of failing every file.
+ * [warnings]. The plugins that remain are loaded once in a probe compile ([verified]). When the embedded compiler
+ * cannot load the whole set (a plugin built for an incompatible compiler, or an embeddable build that refers to
+ * relocated IntelliJ classes, like the embeddable Compose plugin), each plugin it cannot load is left out with a
+ * warning naming it and the others are kept, so one plugin never takes kotlinx.serialization or Metro with it (#1598).
  */
 data class CompilerPlugins(
     val classpath: List<String> = emptyList(),
@@ -56,17 +57,38 @@ data class CompilerPlugins(
     }
 
     /**
-     * This set if the embedded compiler can load it, otherwise the empty set with a warning saying why. The probe is
-     * one frontend-only compile of a one-line file, run once per plugin set (by jar identity and options) per process.
+     * This set if the embedded compiler can load it. Otherwise the largest set it can load built up one jar at a time:
+     * each jar is kept when it loads with the jars kept so far, and the jars that did not are tried again until a pass
+     * keeps none, so a plugin split across jars loads even when its registrar jar comes before the jars it links
+     * against. Each jar left out gets a warning saying why; the result is the empty set when none loads. A probe is one
+     * frontend-only compile of a one-line file, run once per plugin set (by jar identity and options) per process, so
+     * a set that loads costs one probe and one that does not about one more per jar and pass.
      */
     fun verified(classpath: List<String>): CompilerPlugins {
-        if (isEmpty) return this
-        val key = addTo(FingerprintBuilder()).build()
-        val failure = probes.computeIfAbsent(key) {
-            // Logged once per plugin set, so a one-shot run (which has no response warning) says it too.
-            probe(this, classpath).also { if (it.isNotEmpty()) System.err.println("krit-fir: $it") }
-        }
-        return if (failure.isEmpty()) this else CompilerPlugins(warnings = warnings + failure)
+        if (isEmpty || probeCached(this, classpath).isEmpty()) return this
+        val kept = ArrayList<String>()
+        val failures = LinkedHashMap<String, String>()
+        var pending = this.classpath
+        do {
+            val before = kept.size
+            val retry = ArrayList<String>()
+            for (jar in pending) {
+                val failure = probeCached(copy(classpath = kept + jar), classpath)
+                if (failure.isEmpty()) {
+                    kept += jar
+                } else {
+                    failures[jar] = failure
+                    retry += jar
+                }
+            }
+            pending = retry
+        } while (pending.isNotEmpty() && kept.size > before)
+        val dropped = pending.map { "compiler plugin ${File(it).name} not loaded, analyzing without it (${failures.getValue(it)})" }
+        // Logged once per plugin set, so a one-shot run (which has no response warning) says it too.
+        if (logged.add(addTo(FingerprintBuilder()).build())) dropped.forEach { System.err.println("krit-fir: $it") }
+        // An option of a plugin left out has no command-line processor to read it, and the compiler ignores it.
+        val loaded = if (kept.isEmpty()) CompilerPlugins() else CompilerPlugins(kept, options)
+        return loaded.copy(warnings = warnings + dropped)
     }
 
     companion object {
@@ -74,10 +96,20 @@ data class CompilerPlugins(
 
         private val OPTION = Regex("^plugin:[^:=\\s]+:[^=\\s:]+=.*$", RegexOption.DOT_MATCHES_ALL)
 
-        // Plugin set key -> "" when it loads, else the warning. Shared by sessions, rebuilds and module compiles.
+        // Plugin set key -> "" when it loads, else why not. Shared by sessions, rebuilds and module compiles.
         private val probes = ConcurrentHashMap<String, String>()
 
-        internal fun clearProbes() = probes.clear()
+        // Plugin sets whose left-out plugins were logged to stderr.
+        private val logged: MutableSet<String> = ConcurrentHashMap.newKeySet()
+
+        internal fun clearProbes() {
+            probes.clear()
+            logged.clear()
+        }
+
+        /** The probe failure of [plugins] ("" when it loads), computed once per plugin set per process. */
+        private fun probeCached(plugins: CompilerPlugins, classpath: List<String>): String =
+            probes.computeIfAbsent(plugins.addTo(FingerprintBuilder()).build()) { probe(plugins, classpath) }
 
         /**
          * The plugin set of [classpath] jars and [options], validated: missing jars and malformed options are
@@ -141,8 +173,7 @@ data class CompilerPlugins(
                     ExitCode.INTERNAL_ERROR
                 }
                 if (exit == ExitCode.OK && errors.isEmpty()) return ""
-                val reason = errors.firstOrNull() ?: "compiler exited with $exit"
-                return "compiler plugins not loaded, analyzing without them (${plugins.classpath.joinToString(", ") { File(it).name }}: $reason)"
+                return errors.firstOrNull() ?: "compiler exited with $exit"
             } finally {
                 dir.deleteRecursively()
             }

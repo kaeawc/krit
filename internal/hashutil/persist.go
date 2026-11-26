@@ -9,12 +9,6 @@ import (
 	"time"
 )
 
-// racyWindow is how recent a file's modification time may be, relative to when a memo was saved,
-// before its saved hash is not trusted. A file changed within this window of the save could have
-// the same size and a timestamp the filesystem has not yet told apart; git's index treats such
-// "racy" entries the same way.
-const racyWindow = 2 * time.Second
-
 // persistedMemoVersion changes when the on-disk layout does.
 const persistedMemoVersion = 1
 
@@ -45,7 +39,7 @@ func (m *Memo) LoadPersisted(path string) int {
 		len(saved.Paths) != len(saved.Hex) || len(saved.Paths) != len(saved.Sizes) || len(saved.Paths) != len(saved.MTimes) {
 		return 0
 	}
-	trustBefore := saved.SavedAt - int64(racyWindow)
+	trustBefore := saved.SavedAt - int64(RacyWindow)
 	added := 0
 	m.mu.Lock()
 	defer m.mu.Unlock()

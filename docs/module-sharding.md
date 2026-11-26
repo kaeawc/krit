@@ -30,7 +30,7 @@ Sharding applies only when all of these hold. Otherwise krit logs the reason
 | --- | --- |
 | `KRIT_MODULE_SHARDS=auto` | Use sharding with the default worker count: half the CPUs, between 2 and 8. |
 | `KRIT_MODULE_SHARDS=<n>` | Use sharding with `n` worker JVMs. `1` runs every module in one JVM, which is slower than the whole compile. |
-| `KRIT_MODULE_SHARDS=0` or unset | Whole-repository compile (default). With `--fir`, projects whose files the compile gates on a duplicate declaration between source sets are rechecked one source set at a time (see [Kotlin compiler settings](kotlin-compiler-settings.md#known-limits)). |
+| `KRIT_MODULE_SHARDS=0` or unset | Whole-repository compile (default). With `--fir`, the source sets holding a file the compile gates on a duplicate declaration between source sets are rechecked one source set at a time (see [Kotlin compiler settings](kotlin-compiler-settings.md#known-limits)). |
 | `KRIT_MODULE_SHARDS=merged` | Whole-repository compile with no source-set recheck and no settings-group sessions (see [Kotlin compiler settings](kotlin-compiler-settings.md#settings-group-sessions---fir)). |
 | `KRIT_MODULE_SHARDS=isolate` | Compile every scanned source set on its own (see [Kotlin compiler settings](kotlin-compiler-settings.md#known-limits)). |
 | `KRIT_WORKER_AOT=0` | Do not use a JDK 25+ ahead-of-time cache for the workers. |
@@ -46,10 +46,12 @@ follows the cgroup CPU quota; see
 
 Facts are cached per module in `<repo>/.krit/module-facts`, keyed by the
 `krit-fir` jar, the module's compiler settings and plugins, its classpath
-(file size and modification time), and the content of every source file. A
-changed module, or a rebuilt dependency jar, invalidates only the modules whose
-key changed. Unreferenced entries are removed after seven days. The merged
-oracle is rewritten only when the set of keys changes.
+(each jar's path and content, and each class directory's files; see
+[cache inventory](perf.md#cache-inventory-and-invalidation)), and the content
+of every source file. A changed module, or a rebuilt dependency jar,
+invalidates only the modules whose key changed. Unreferenced entries are
+removed after seven days. The merged oracle is rewritten only when the set of
+keys changes.
 
 The FIR checkers run inside the same module compiles. Each module checks its
 own requested files, and the responses are merged. A requested file that no

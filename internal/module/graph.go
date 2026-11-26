@@ -39,6 +39,8 @@ type Graph struct {
 	// BuildSystem is "" for Gradle and BuildSystemBazel for a graph of
 	// Bazel packages, whose module paths are labels ("//app/src/main").
 	BuildSystem string
+	// layoutOnly skips SourceRoots during discovery (DiscoverModuleLayout).
+	layoutOnly bool
 }
 
 // NewModuleGraph creates an empty Graph rooted at the given directory.

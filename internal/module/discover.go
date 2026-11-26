@@ -19,11 +19,89 @@ var settingsFiles = []string{"settings.gradle.kts", "settings.gradle"}
 // from: the nearest one at or above dir with a Gradle settings file or a
 // Bazel workspace file, or "" when there is none (see buildRoot).
 func BuildRoot(dir string) string {
+	var f BuildRootFinder
+	return f.Find(dir)
+}
+
+// BuildRootFinder answers BuildRoot for many directories, remembering the
+// answer for every directory a search walks through, so the manifests of
+// one build share a single upward search. The zero value is ready to use;
+// it is not safe for concurrent use.
+type BuildRootFinder struct {
+	roots map[string]string
+}
+
+// Find returns BuildRoot(dir).
+func (f *BuildRootFinder) Find(dir string) string {
 	abs, err := filepath.Abs(dir)
 	if err != nil {
 		return ""
 	}
-	return buildRoot(abs)
+	return f.find(abs)
+}
+
+func (f *BuildRootFinder) find(dir string) string {
+	if f.roots == nil {
+		f.roots = map[string]string{}
+	}
+	var walked []string
+	root := ""
+	for d := dir; ; {
+		// Every directory a search from d walks through shares its answer.
+		if r, ok := f.roots[d]; ok {
+			root = r
+			break
+		}
+		walked = append(walked, d)
+		if r, done := buildRootStepListed(d); done {
+			root = r
+			break
+		}
+		d = filepath.Dir(d)
+	}
+	for _, d := range walked {
+		f.roots[d] = root
+	}
+	return root
+}
+
+// buildRootStepListed is buildRootStep answered from one directory listing
+// instead of a stat per marker name, which is cheaper when many directories
+// are checked. It falls back to buildRootStep when d can't be listed.
+func buildRootStepListed(d string) (root string, done bool) {
+	if filepath.Base(filepath.Dir(d)) == "execroot" {
+		return "", true
+	}
+	entries, err := os.ReadDir(d)
+	if err != nil {
+		return buildRootStep(d)
+	}
+	marker, git := false, false
+	for _, e := range entries {
+		name := e.Name()
+		if name == ".git" {
+			git = true
+			continue
+		}
+		if !slices.Contains(settingsFiles, name) && !slices.Contains(bazel.WorkspaceFileNames, name) {
+			continue
+		}
+		// isBuildRoot stats the name, so a symlink counts when it points at a file.
+		if e.Type()&os.ModeSymlink != 0 {
+			if info, err := os.Stat(filepath.Join(d, name)); err == nil && !info.IsDir() {
+				marker = true
+			}
+		} else if !e.IsDir() {
+			marker = true
+		}
+	}
+	switch {
+	case marker:
+		return d, true
+	case git, filepath.Dir(d) == d:
+		return "", true
+	}
+	return "", false
 }
 
 // InputFiles lists the files a Gradle graph and its dependencies are read
@@ -59,6 +137,17 @@ func (g *Graph) InputFiles() []string {
 // discovered from the build that holds the file, see buildRoot; a file in
 // no build has no modules (nil, nil), and no directory tree is walked for it.
 func DiscoverModules(ctx context.Context, rootDir string) (*Graph, error) {
+	return discoverModules(ctx, rootDir, false)
+}
+
+// DiscoverModuleLayout is DiscoverModules without the modules' SourceRoots,
+// which costs a directory scan per module: for callers that need only the
+// module paths and directories, such as dependency walks and cache keys.
+func DiscoverModuleLayout(ctx context.Context, rootDir string) (*Graph, error) {
+	return discoverModules(ctx, rootDir, true)
+}
+
+func discoverModules(ctx context.Context, rootDir string, layoutOnly bool) (*Graph, error) {
 	rootDir, err := filepath.Abs(rootDir)
 	if err != nil {
 		return nil, err
@@ -70,6 +159,7 @@ func DiscoverModules(ctx context.Context, rootDir string) (*Graph, error) {
 		}
 	}
 	graph := NewModuleGraph(rootDir)
+	graph.layoutOnly = layoutOnly
 	found, err := discoverBuild(ctx, graph, rootDir, "")
 	if err != nil {
 		return nil, err
@@ -172,7 +262,7 @@ func discoverBuild(ctx context.Context, graph *Graph, buildDir, prefix string) (
 		graph.Modules[path] = &Module{Path: path, Dir: dir, BuildPath: prefix}
 	}
 	for _, m := range graph.Modules {
-		if m.BuildPath == prefix && m.SourceRoots == nil {
+		if !graph.layoutOnly && m.BuildPath == prefix && m.SourceRoots == nil {
 			m.SourceRoots = findSourceRoots(m.Dir)
 		}
 	}
@@ -236,22 +326,30 @@ func relocateDeclaredModules(declared []*Module, buildDirs []string, claimed map
 // is Bazel's output base, not the build. Krit actions' file scan paths sit
 // below it.
 func buildRoot(dir string) string {
-	for d := dir; ; {
-		if filepath.Base(filepath.Dir(d)) == "execroot" {
-			return ""
+	for d := dir; ; d = filepath.Dir(d) {
+		if root, done := buildRootStep(d); done {
+			return root
 		}
-		if isBuildRoot(d) {
-			return d
-		}
-		if _, err := os.Stat(filepath.Join(d, ".git")); err == nil {
-			return ""
-		}
-		parent := filepath.Dir(d)
-		if parent == d {
-			return ""
-		}
-		d = parent
 	}
+}
+
+// buildRootStep checks one directory of the upward search: done with the
+// root when d is one, done with "" when the search ends at d, and not done
+// when it continues at d's parent.
+func buildRootStep(d string) (root string, done bool) {
+	if filepath.Base(filepath.Dir(d)) == "execroot" {
+		return "", true
+	}
+	if isBuildRoot(d) {
+		return d, true
+	}
+	if _, err := os.Stat(filepath.Join(d, ".git")); err == nil {
+		return "", true
+	}
+	if filepath.Dir(d) == d {
+		return "", true
+	}
+	return "", false
 }
 
 func isBuildRoot(dir string) bool {

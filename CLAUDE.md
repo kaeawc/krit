@@ -111,8 +111,10 @@ porting, or broadening a rule:
   and identical across processes (no "is this file recent" tokens). A
   verdict that depends on declarations in *other* files (resolver lookups
   such as class hierarchy or annotated parameters) depends on those files'
-  content too, and the per-file cache doesn't track that yet (#1778). Prove
-  same-file only, or key on a cross-file fingerprint. Add a
+  content too. The per-file cache tracks resolver lookups through each
+  entry's declaration facts (#1778, `internal/pipeline/resolver_dependents.go`);
+  any other cross-file input must still prove same-file only or key on a
+  cross-file fingerprint. Add a
   cold-then-warm test that changes only the new input and compares the warm
   result with `--no-cache`. Six PRs on 2026-11-26 had this bug in review
   (#1698, #1713, #1719, #1748, #1759, #1769).

@@ -639,6 +639,29 @@ class KritExportModelTest {
         }
     }
 
+    // #1643: a KMP Android target's compilation (androidDebug) is AGP's `debug` component, so the
+    // generated roots AGP's Variant API registers for it are in the model and run by kritCheck.
+    @Test
+    fun `KMP Android compilations take the AGP Variant API generated roots`() {
+        val root = File(directory, "kmp-android-generated").also { it.mkdirs() }
+        fakeKrit(root)
+        File(root, "settings.gradle.kts").writeText("rootProject.name = \"kmp-android-generated\"\n")
+        File(root, "build.gradle.kts").writeText("""
+            plugins { id("com.android.library"); id("org.jetbrains.kotlin.multiplatform"); id("dev.jasonpearson.krit") }
+            krit { advanced { binary.set(file("fake-krit")) } }
+        """.trimIndent())
+        File(root, "android.jar").writeBytes(byteArrayOf())
+        val args = arrayOf("-PfakeAndroidKmp", "-PfakeGeneratedSources", "-PdeferAndroidVariants")
+        runWithFakePlugin(root, FakeKmpPlugin::class.java, "org.jetbrains.kotlin.multiplatform", "kritExportModel", *args)
+        val sets = sourceSets(File(root, ".krit/gradle-model/_root.json"))
+        val main = sets.single { it["platform"] == "android" && it["kind"] == "main" }
+        assertEquals("androidDebug", main["name"])
+        assertEquals(listOf(modelPath(File(root, "build/generated/source/fake/debug"))), main["generatedSourceDirs"], main.toString())
+        assertEquals(1, sets.count { it["platform"] == "android" && it["kind"] == "main" }, "no duplicate Android spec")
+        val check = runWithFakePlugin(root, FakeKmpPlugin::class.java, "org.jetbrains.kotlin.multiplatform", "kritCheck", *args)
+        assertEquals(TaskOutcome.SUCCESS, check.task(":generateDebugFakeSources")?.outcome, check.output)
+    }
+
     @Test
     fun `Android library main R jar is found in task output directory`() {
         val root = File(directory, "library-r-jar").also { it.mkdirs() }

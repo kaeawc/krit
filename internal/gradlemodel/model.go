@@ -379,13 +379,29 @@ func (m *Model) Fingerprint() string {
 // bytes, and a same-size rewrite inside one mtime tick still changes it.
 // Missing paths retain a marker so removing an existing entry changes the key.
 // Directory entries are only stat'd at the top level and relative entries
-// resolve against the working directory.
+// resolve against the working directory. The oracle scopes its caches with
+// it: their facts record jar paths (Class.JARPath), so a moved jar must miss.
 func ClasspathFingerprint(entries []string) string {
+	return classpathFingerprint(entries, true)
+}
+
+// ClasspathContentFingerprint is ClasspathFingerprint without the paths of
+// regular files: the same jars under another GRADLE_USER_HOME or checkout
+// fingerprint the same. For keys of results that depend only on the jars'
+// bytes (FIR verdicts, compiler plugin identities).
+func ClasspathContentFingerprint(entries []string) string {
+	return classpathFingerprint(entries, false)
+}
+
+func classpathFingerprint(entries []string, withFilePaths bool) string {
 	var b strings.Builder
 	for _, entry := range entries {
-		b.WriteString(entry)
-		b.WriteByte(0)
-		if info, err := os.Stat(entry); err != nil {
+		info, err := os.Stat(entry)
+		if err != nil || info.IsDir() || withFilePaths {
+			b.WriteString(entry)
+			b.WriteByte(0)
+		}
+		if err != nil {
 			b.WriteString("missing")
 		} else if info.IsDir() {
 			b.WriteString(strconv.FormatInt(info.Size(), 10))

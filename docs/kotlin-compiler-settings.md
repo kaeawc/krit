@@ -224,10 +224,23 @@ that could not be loaded) keeps incremental checking as long as the errors are
 in a few files: the binary snapshot is built from the other files, and the
 files with errors have no binary, so every incremental check compiles them from
 source. "A few" is the planner's stale bound: fewer than 16 files, or at most
-5% of the module. Past it, or with a compiler error not tied to a file, the
+5% of the module. It applies to the check that builds the snapshot, the
+first one included. Past it, or with a compiler error not tied to a file, the
 module gets no snapshot and the planner says why it fell back: the
 `firCheckBroker` perf entry reads `full (slice_unavailable: COMPILE_ERRORS:
-compile errors in 60 files)` instead of `full (slice_unavailable)`.
+compile errors in 60 files, more than the 15 a snapshot leaves out)` instead
+of `full (slice_unavailable)`. Every full check also says, under `-v`, what
+it left the next one (#1599): `incremental FIR: full (cold); snapshot built
+without 9 files with compiler errors`, or `incremental FIR off: full (cold);
+no snapshot: ...` with the reason (the bound and its counts, an error not
+tied to a file, or the snapshot build failing).
+
+Building the snapshot runs the compiler's JVM backend after the frontend, so
+the check that builds it costs more. In a one-module, 2,500-file project on
+4 cores, the cold check took 64–70s with the snapshot against 42–47s
+without, and the check after a one-line edit took 13s. A scan that cannot
+keep the snapshot (`--no-cache`, or no repository to keep it in) skips the
+backend. `KRIT_FIR_INCREMENTAL=0` turns incremental checking off.
 
 ## The allowlist
 
@@ -339,9 +352,10 @@ keys are unchanged) is part of:
   miss names `compilerSettings` among the changed components.
 
 Notes, rejected arguments and opt-in order do not affect the identity.
-Compiler plugins add each jar's path, size and modification time and every
-option, so a plugin added, removed, upgraded or rebuilt in place is a
-settings change; settings without plugins keep their identity. Inside
+Compiler plugins add each jar's content (not its path, so the same jar under
+another `GRADLE_USER_HOME` is the same plugin) and every option, so a plugin
+added, removed, upgraded or rebuilt in place is a settings change; settings
+without plugins keep their identity. Inside
 `krit-fir`, the incremental compile key (and with it the persisted bundle in
 `.krit/fir-incremental`) also takes each loaded plugin jar's file identity,
 including its entries' CRCs, and every option.

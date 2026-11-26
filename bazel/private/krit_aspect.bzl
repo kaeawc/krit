@@ -51,13 +51,16 @@ _WORKER_REQUIREMENTS = {
 _LARGE_EXEC_GROUP = "krit_large"
 
 # Local scheduling estimates (Bazel's resource_set, memory in MB) by the
-# number of files a Krit action scans: small below 50, medium below
-# _large_sources (--@krit//:large_target_sources, 400 by default), large
-# from there. With FIR the action runs krit and a krit-fir JVM; Go-only it
-# runs krit alone. Measured peaks with a stdlib-only classpath were 366 MB
-# (2 files), 523 MB (50) and 642 MB (400) with FIR and 33-59 MB Go-only;
-# the estimates leave room for real classpaths. Bazel only accepts
-# top-level functions here.
+# number of files a Krit action scans and reports on: small below 50,
+# medium below _large_sources (--@krit//:large_target_sources, 400 by
+# default), large from there. Generated srcjars are compiled too but not
+# counted: their size is unknown at analysis time. With FIR the action runs
+# krit and a krit-fir JVM; Go-only it runs krit alone. Measured with a
+# stdlib-only classpath on 4 cores, a FIR action peaked at 366 MB (2
+# files), 523 MB (50) and 642 MB (400) and used 2.5, 2.7 and 3.0 CPUs
+# (mostly JVM startup and JIT for the small ones); Go-only it peaked at
+# 33-59 MB. The memory estimates leave room for real classpaths. Bazel
+# only accepts top-level functions here.
 def _resources_fir_small(_os, _inputs):
     return {"cpu": 1, "memory": 512}
 
@@ -277,11 +280,11 @@ Flags:
 - `--@krit//:fir=false`: Go-only analysis, without the JDK or krit-fir.
 - `--@krit//:worker=false`: no persistent worker; every action starts its
   own krit-fir JVM (as with `--strategy=Krit=sandboxed` or remote execution).
+  With workers, `--worker_max_instances=Krit=N` bounds the JVMs (one per
+  worker) and `--worker_sandboxing` sandboxes them.
 - `--@krit//:large_target_sources=N` (400): actions that scan at least N
   files run in the `krit_large` exec group, so an execution platform's
   `krit_large.<key>` exec_properties apply to them only.
-  With workers, `--worker_max_instances=Krit=N` bounds the JVMs (one per
-  worker) and `--worker_sandboxing` sandboxes them.
 """,
     toolchains = [KT_TOOLCHAIN],
     exec_groups = {_LARGE_EXEC_GROUP: exec_group()},

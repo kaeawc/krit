@@ -255,12 +255,43 @@ if any(label.endswith("//typed/app:app") for label in ran):
 print("OK: compile avoidance (re-ran: %s)" % ", ".join(ran))
 PY
 
-# Large targets' actions run in the krit_large exec group; with a threshold
-# of one file every action does, and the build must still work.
-echo "== --@krit//:large_target_sources=1: every Krit action in the krit_large exec group"
-build "${extra[@]}" --@krit//:large_target_sources=1 //typed/... > /dev/null 2>&1 ||
-  build "${extra[@]}" --@krit//:large_target_sources=1 //typed/...
-echo "OK: krit_large"
+# Large targets' actions run in the krit_large exec group, and an
+# execution platform's krit_large.<key> exec_properties reach them only.
+# //:krit_large_test_platform adds krit-e2e-large=1 that way; the property
+# is part of the cache key, so these actions execute (in the group, with
+# the large resource estimate) instead of hitting the disk cache.
+echo "== krit_large exec group: a platform's krit_large.* properties reach large Krit actions only"
+large=(--extra_execution_platforms=//:krit_large_test_platform --@krit//:worker=false)
+build "${extra[@]}" "${large[@]}" --@krit//:large_target_sources=1 --execution_log_json_file="$log" //typed/lib > /dev/null 2>&1 ||
+  build "${extra[@]}" "${large[@]}" --@krit//:large_target_sources=1 //typed/lib
+cp "$log" "$work/large.json"
+build "${extra[@]}" "${large[@]}" --execution_log_json_file="$log" //typed/app > /dev/null 2>&1 ||
+  build "${extra[@]}" "${large[@]}" //typed/app
+python3 - "$work/large.json" "$log" << 'PY'
+import json, sys
+def krit_spawns(path):
+    text = open(path).read()
+    decoder, pos, out = json.JSONDecoder(), 0, []
+    while pos < len(text):
+        while pos < len(text) and text[pos].isspace():
+            pos += 1
+        if pos >= len(text):
+            break
+        entry, pos = decoder.raw_decode(text, pos)
+        if entry.get("mnemonic") == "Krit":
+            props = {p.get("name"): p.get("value") for p in entry.get("platform", {}).get("properties", [])}
+            out.append((entry.get("targetLabel", "?"), bool(entry.get("cacheHit") or entry.get("remoteCacheHit")), props))
+    return out
+large, small = krit_spawns(sys.argv[1]), krit_spawns(sys.argv[2])
+ran = [s for s in large if not s[1]]
+if not ran:
+    sys.exit("ERROR: no Krit action executed in the krit_large exec group: %s" % large)
+if any(s[2].get("krit-e2e-large") != "1" for s in ran):
+    sys.exit("ERROR: a large Krit action ran without the platform's krit_large property: %s" % ran)
+if not small or any("krit-e2e-large" in s[2] for s in small):
+    sys.exit("ERROR: a Krit action below large_target_sources got the krit_large property: %s" % small)
+print("OK: krit_large (%d large Krit actions ran with the property, %d other without)" % (len(ran), len(small)))
+PY
 
 # Project-scope rules: per target, krit_aspect runs only the file-scope
 # rules (--@krit//:scope=file). With --@krit//:scope=all an action over

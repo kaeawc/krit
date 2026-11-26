@@ -58,3 +58,13 @@ sh_test(
     args = ["$(rootpath :skipped_krit_test)"],
     data = [":skipped_krit_test"],
 )
+
+# The host as an execution platform whose exec_properties route only to the
+# krit_large exec group: scripts/bazel-e2e-local.sh registers it with
+# --extra_execution_platforms and checks that large Krit actions run with
+# krit-e2e-large=1 and the others without it.
+platform(
+    name = "krit_large_test_platform",
+    exec_properties = {"krit_large.krit-e2e-large": "1"},
+    parents = ["@platforms//host"],
+)

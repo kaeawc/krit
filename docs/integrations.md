@@ -232,9 +232,12 @@ which suits a build with one target per module and no cross-target rules.
 
 #### Caching and remote execution
 
-A Krit action's key is its sources, its deps' compile jars, the Kotlin
-settings, krit, the krit-fir jar, the Java runtime, `krit.yml` and the
-baseline. Every path in its command line and in the model it reads is
+A Krit action's key includes its sources and `.srcjar`s, its deps' compile
+jars, its Kotlin settings and compiler plugin jars, `android.jar`, the R
+jars and its manifest and resources, krit, the krit-fir jar, the Java
+runtime, `krit.yml`, the baseline, the `--@krit//` flags that shape its
+command line, and, with remote execution, the execution platform's
+properties. Every path in its command line and in the model it reads is
 relative to the execution root, and the reports name workspace-relative
 paths, so a remote cache shares the action between machines.
 `scripts/bazel-e2e-local.sh` checks that no Krit action key names an
@@ -256,7 +259,8 @@ absolute path. Two settings of yours decide whether that holds:
   `remotejdk_*` runtime (above).
 
 For scheduling, Bazel gets an estimate of each action's CPU and memory from
-the number of files it scans. Below 50 files that is 1 CPU and 512 MB with
+the number of files it scans and reports on (generated srcjars are not
+counted). Below 50 files that is 1 CPU and 512 MB with
 FIR, from 50 files 2 CPUs and 1 GB, and from `--@krit//:large_target_sources`
 (400) files 2 CPUs and 2 GB. Go-only actions (`--@krit//:fir=false`) get a
 quarter of that memory, and 4 CPUs when large. The estimate applies to local

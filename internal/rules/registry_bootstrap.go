@@ -141,6 +141,7 @@ func init() {
 	registerGradleKotlinRules()
 	registerTestingQualityRules()
 	registerThirdPartyMoshiRules()
+	registerThirdPartyAndroidUIRules()
 	registerThirdPartyMockingRules()
 	registerThirdPartyDaggerRules()
 	registerThirdPartyKotlinCheckRules()

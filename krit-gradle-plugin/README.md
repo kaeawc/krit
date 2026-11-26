@@ -151,7 +151,11 @@ when not configured (krit computes the effective values; see
 [Kotlin compiler settings](../docs/kotlin-compiler-settings.md)).
 `sourceDirs` excludes paths beneath the project's build directory; those registered
 paths appear in `generatedSourceDirs` even before files exist. Android generated
-class jars are discovered best-effort from compile artifact views. Missing values
+class jars are discovered best-effort from compile artifact views. A module's own R
+jar is recorded at the path AGP's R task writes it to, predicted from AGP's version
+and task names; the export never lists the build directory, so building the R jar
+does not invalidate the configuration cache. krit looks for the jar when it loads the
+model, under AGP's other R-jar folder names too. Missing values
 are empty lists or an empty `jvmTarget` string.
 
 ```kotlin

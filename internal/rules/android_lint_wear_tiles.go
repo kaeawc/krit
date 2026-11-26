@@ -137,6 +137,7 @@ func tileScanPreviewImages(m *manifest.Manifest, previews map[string]*tilePrevie
 			for _, f := range files {
 				name := f.Name()
 				ext := filepath.Ext(name)
+				// Lint 32.4.1 does not match a nine-patch foo.9.png to the preview foo (recorded in nine_patch).
 				p := previews[strings.TrimSuffix(name, ext)]
 				if p == nil || f.IsDir() || strings.EqualFold(ext, ".xml") {
 					continue
@@ -166,8 +167,8 @@ func tileIsDrawableFolder(name string) bool {
 	return name == "drawable" || strings.HasPrefix(name, "drawable-")
 }
 
-// tileModuleResDirs lists the res directories of every source set of the manifest's module, which make up Lint's
-// project resource folders.
+// tileModuleResDirs lists the res directories of every non-test source set of the manifest's module, which make up
+// Lint's project resource folders.
 func tileModuleResDirs(manifestPath string) []string {
 	dir := filepath.Dir(manifestPath)
 	if filepath.Base(filepath.Dir(dir)) != "src" {
@@ -179,7 +180,8 @@ func tileModuleResDirs(manifestPath string) []string {
 	}
 	var out []string
 	for _, set := range sets {
-		if set.IsDir() {
+		// Lint's project resources leave out the test source sets.
+		if set.IsDir() && !scanner.IsTestSourceSetName(set.Name()) {
 			out = append(out, filepath.Join(filepath.Dir(dir), set.Name(), "res"))
 		}
 	}
@@ -287,6 +289,16 @@ func tileCallOnTileService(ctx *api.Context, call lintCall) bool {
 	// TileService; object literals, anonymous classes and inner classes defer to the class around them.
 	for cur, ok := file.FlatParent(call.Idx); ok; cur, ok = file.FlatParent(cur) {
 		switch file.FlatType(cur) {
+		case "lambda_literal":
+			// with(x) { }, x.apply { } and x.run { } give the lambda another implicit receiver.
+			if tileIsReceiverLambda(file, cur) {
+				return false
+			}
+		case "function_declaration", "method_declaration":
+			// A local function of the same name shadows the member.
+			if tileDeclaresLocalFunction(file, cur, tileCollapseMethod) {
+				return false
+			}
 		case "class_declaration", "object_declaration", "object_literal", "object_creation_expression", "enum_declaration":
 			if file.FlatType(cur) == "object_creation_expression" {
 				if _, body := file.FlatFindChild(cur, "class_body"); !body {
@@ -302,6 +314,39 @@ func tileCallOnTileService(ctx *api.Context, call lintCall) bool {
 		}
 	}
 	return false
+}
+
+// tileReceiverScopeFunctions are the standard functions whose lambda runs with a new implicit receiver.
+var tileReceiverScopeFunctions = map[string]bool{"with": true, "apply": true, "run": true}
+
+// tileIsReceiverLambda reports a lambda passed to with, apply or run.
+func tileIsReceiverLambda(file *scanner.File, lambda uint32) bool {
+	for cur, ok := file.FlatParent(lambda); ok; cur, ok = file.FlatParent(cur) {
+		switch file.FlatType(cur) {
+		case "annotated_lambda", "call_suffix", "value_argument", "value_arguments":
+			continue
+		case "call_expression":
+			name := flatCallExpressionName(file, cur)
+			// `with(x) { }` parses as a call whose callee is the call `with(x)`.
+			if inner := file.FlatFirstChild(cur); file.FlatType(inner) == "call_expression" {
+				name = flatCallExpressionName(file, inner)
+			}
+			return tileReceiverScopeFunctions[name]
+		}
+		return false
+	}
+	return false
+}
+
+// tileDeclaresLocalFunction reports a function declared directly in fn's body under name.
+func tileDeclaresLocalFunction(file *scanner.File, fn uint32, name string) bool {
+	found := false
+	file.FlatWalkNodes(fn, "function_declaration", func(local uint32) {
+		if local != fn && file.FlatChildTextOrEmpty(local, "simple_identifier") == name {
+			found = true
+		}
+	})
+	return found
 }
 
 // tileDeclaresMethod reports whether the class body declares a function or method called name.
@@ -346,6 +391,45 @@ func tileDefersToOuterClass(file *scanner.File, cls uint32) bool {
 	return false
 }
 
+// tileNearestDeclaration finds the parameter or earlier local of the enclosing functions that a name refers to, and
+// returns its declared type text and initializer. found is false when the name is not declared in a function.
+func tileNearestDeclaration(file *scanner.File, ref uint32, name string) (typ string, init uint32, found bool) {
+	for fn, ok := flatEnclosingCallable(file, ref); ok; fn, ok = flatEnclosingCallable(file, fn) {
+		var local uint32
+		for _, t := range []string{"property_declaration", "local_variable_declaration"} {
+			file.FlatWalkNodes(fn, t, func(decl uint32) {
+				if file.FlatStartByte(decl) >= file.FlatStartByte(ref) {
+					return
+				}
+				for _, v := range []string{"variable_declaration", "variable_declarator"} {
+					if vd, ok := file.FlatFindChild(decl, v); ok && lintDeclaredName(file, vd) == name {
+						local = decl
+					}
+				}
+			})
+		}
+		if local != 0 {
+			if vd, ok := file.FlatFindChild(local, "variable_declaration"); ok {
+				return lintChildTypeText(file, vd), lintInitializerAfterEquals(file, local), true
+			}
+			vd, _ := file.FlatFindChild(local, "variable_declarator")
+			return lintChildTypeText(file, local), file.FlatNamedChild(vd, 1), true
+		}
+		for _, list := range []string{"function_value_parameters", "formal_parameters"} {
+			params, ok := file.FlatFindChild(fn, list)
+			if !ok {
+				continue
+			}
+			for p := file.FlatFirstChild(params); p != 0; p = file.FlatNextSib(p) {
+				if t := file.FlatType(p); (t == "parameter" || t == "formal_parameter") && lintDeclaredName(file, p) == name {
+					return lintChildTypeText(file, p), 0, true
+				}
+			}
+		}
+	}
+	return "", 0, false
+}
+
 // tileIntentReturningMethods are the android.content.Intent methods that return the Intent itself.
 var tileIntentReturningMethods = map[string]bool{
 	"addCategory": true, "addFlags": true, "putCharSequenceArrayListExtra": true, "putExtra": true,
@@ -368,7 +452,16 @@ func tileIsIntentExpr(ctx *api.Context, expr uint32, depth int) bool {
 	case "parenthesized_expression":
 		return tileIsIntentExpr(ctx, file.FlatNamedChild(expr, 0), depth+1)
 	case "simple_identifier", "identifier":
-		return lintTypeRefMatches(file, lintDeclaredTypeText(file, expr, file.FlatNodeText(expr)), tileIntentFQN)
+		name := file.FlatNodeText(expr)
+		if typ, init, found := tileNearestDeclaration(file, expr, name); found {
+			// The nearest declaration decides: an outer one of the same name is shadowed even when this one's type
+			// is unknown.
+			if typ != "" {
+				return lintTypeRefMatches(file, typ, tileIntentFQN)
+			}
+			return init != 0 && tileIsIntentExpr(ctx, init, depth+1)
+		}
+		return lintTypeRefMatches(file, lintDeclaredTypeText(file, expr, name), tileIntentFQN)
 	case "call_expression", "method_invocation", "object_creation_expression":
 		call, ok := lintCallAt(file, expr)
 		if !ok {

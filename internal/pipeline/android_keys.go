@@ -73,22 +73,40 @@ func (in AndroidInput) manifestInputFP(path, contentHash string, resDirs *resDir
 	return contentHash + "\x00" + path + "\x00" + in.manifestModuleFP(path, resDirs)
 }
 
-// manifestModuleFP fingerprints the files next to a manifest that its rules read: the module's res directory
-// and build script.
+// manifestModuleFP fingerprints the files next to a manifest that its rules read: the res directories of the
+// module's non-test source sets (a variant manifest with no res of its own still reads main's, as the tile preview
+// checks do), the main manifest of a variant, and the build script.
 func (in AndroidInput) manifestModuleFP(manifestPath string, resDirs *resDirFingerprints) string {
 	h := hashutil.Hasher().New()
+	manifestDir := filepath.Dir(manifestPath)
+	srcDir := filepath.Dir(manifestDir)
+	inSourceSet := filepath.Base(srcDir) == "src"
 	if in.Project != nil {
-		res := filepath.Join(filepath.Dir(manifestPath), "res")
+		res := filepath.Join(manifestDir, "res")
+		var dirs []string
 		for _, dir := range in.Project.ResDirs {
-			if dir == res {
-				_, _ = h.Write([]byte(resDirs.fingerprint(res)))
-				break
+			set := filepath.Dir(dir)
+			if dir == res || (inSourceSet && filepath.Base(dir) == "res" && filepath.Dir(set) == srcDir &&
+				!scanner.IsTestSourceSetName(filepath.Base(set))) {
+				dirs = append(dirs, dir)
 			}
+		}
+		sort.Strings(dirs)
+		for _, dir := range dirs {
+			_, _ = h.Write([]byte(dir))
+			_, _ = h.Write([]byte{0})
+			_, _ = h.Write([]byte(resDirs.fingerprint(dir)))
+		}
+	}
+	_, _ = h.Write([]byte{0})
+	memo := hashutil.Default()
+	if inSourceSet && filepath.Base(manifestDir) != "main" {
+		if sum, err := memo.HashFile(filepath.Join(srcDir, "main", "AndroidManifest.xml"), nil); err == nil {
+			_, _ = h.Write([]byte(sum))
 		}
 	}
 	_, _ = h.Write([]byte{0})
 	module := moduleDirOfFile(manifestPath)
-	memo := hashutil.Default()
 	for _, name := range []string{"build.gradle.kts", "build.gradle"} {
 		if sum, err := memo.HashFile(filepath.Join(module, name), nil); err == nil {
 			_, _ = h.Write([]byte(name))

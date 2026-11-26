@@ -1,5 +1,7 @@
 package rules
 
+import "github.com/kaeawc/krit/internal/rules/api"
+
 // registerAndroidLintWearTileChecks registers the Android Lint 32.4.1 Wear tile preview checks and the
 // TileService.startActivityAndCollapse(Intent) check.
 func registerAndroidLintWearTileChecks() {
@@ -13,5 +15,6 @@ func registerAndroidLintWearTileChecks() {
 
 	collapse := &StartActivityAndCollapseDeprecatedRule{AndroidRule: lintAndroidRule("StartActivityAndCollapseDeprecated",
 		"TileService.startActivityAndCollapse(Intent) is deprecated", ALCCorrectness, ALSError, 6)}
-	registerLintRule(collapse.AndroidRule, collapse, collapse.Confidence(), collapse.check, lintCallNodeTypes[:2], 0, nil)
+	registerLintRule(collapse.AndroidRule, collapse, collapse.Confidence(), collapse.check, lintCallNodeTypes[:2],
+		api.NeedsTypeInfo|api.NeedsOracleCallTargets, &api.JavaFactProfile{ReceiverTypesForCallees: []string{tileCollapseMethod}})
 }

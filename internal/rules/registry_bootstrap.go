@@ -151,13 +151,13 @@ func init() {
 	registerThirdPartyAnnotationRules()
 	registerThirdPartyMockingRules()
 	registerThirdPartyJavaOnlyRules()
+	registerThirdPartyViewCheckRules()
 	registerThirdPartyDaggerRules()
 	registerThirdPartyKotlinCheckRules()
 	registerThirdPartyRxRules()
 	registerThirdPartyInclusiveRules()
 	registerThirdPartyDaggerCrossFileRules()
 	registerThirdPartyDenyListRules()
-	registerThirdPartyViewCheckRules()
 
 	applySecurityTaxonomy()
 }

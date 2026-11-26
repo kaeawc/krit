@@ -222,6 +222,13 @@ type Cache struct {
 	RuleHash  string               `json:"ruleHash"`
 	ScanPaths []string             `json:"scanPaths,omitempty"`
 	Files     map[string]FileEntry `json:"files"`
+	// SavedRoot is the repository the cache file was written under with
+	// repository-relative paths, "" for absolute paths (relocate.go).
+	SavedRoot string `json:"savedRoot,omitempty"`
+
+	// root is the repository this cache is stored under (relocationRoot of
+	// the file it was loaded from), "" to store absolute paths.
+	root string
 
 	// filesMu guards Files plus the Version, RuleHash, and ScanPaths
 	// header fields. Heavy I/O (file hashing, os.Stat) is performed
@@ -277,14 +284,17 @@ func FilePath(cacheDir string, scanPaths []string) string {
 	if len(scanPaths) == 0 {
 		return filepath.Join(cacheDir, CacheFileName)
 	}
-	// Use sorted absolute paths for deterministic hashing
+	// Use sorted absolute paths for deterministic hashing, relative to the
+	// repository when cacheDir is its default cache directory, so the same
+	// checkout at another absolute path finds the same file (relocate.go).
+	repo := repoOfCacheDir(cacheDir)
 	sorted := make([]string, len(scanPaths))
 	for i, p := range scanPaths {
 		abs, err := filepath.Abs(p)
 		if err != nil {
 			abs = p
 		}
-		sorted[i] = abs
+		sorted[i] = relocatePath(repo, abs)
 	}
 	sort.Strings(sorted)
 	hash := hashutil.HashHex([]byte(strings.Join(sorted, "\x00")))[:12]
@@ -303,29 +313,36 @@ func ResolveCacheDir(cacheDir string, scanPaths []string) (dir string, filePath 
 }
 
 // Load reads the cache file from the given path.
-// Returns an empty cache if the file does not exist or is invalid.
+// Returns an empty cache if the file does not exist or is invalid, or if it
+// was moved from or to a root a rule path heuristic could match.
 func Load(cacheFilePath string) *Cache {
+	empty := func() *Cache {
+		return &Cache{Files: make(map[string]FileEntry), root: relocationRoot(cacheFilePath)}
+	}
 	data, err := os.ReadFile(cacheFilePath)
 	if err != nil {
-		return &Cache{Files: make(map[string]FileEntry)}
+		return empty()
 	}
+	var c *Cache
 	if hasBinaryMagic(data) {
-		if c, ok := decodeBinary(data); ok {
-			if c.Files == nil {
-				c.Files = make(map[string]FileEntry)
-			}
-			return c
+		decoded, ok := decodeBinary(data)
+		if !ok {
+			return empty()
 		}
-		return &Cache{Files: make(map[string]FileEntry)}
-	}
-	var c Cache
-	if err := json.Unmarshal(data, &c); err != nil {
-		return &Cache{Files: make(map[string]FileEntry)}
+		c = decoded
+	} else {
+		c = &Cache{}
+		if err := json.Unmarshal(data, c); err != nil {
+			return empty()
+		}
 	}
 	if c.Files == nil {
 		c.Files = make(map[string]FileEntry)
 	}
-	return &c
+	if !relocateLoaded(c, cacheFilePath) {
+		return empty()
+	}
+	return c
 }
 
 // LoadFromDir reads the cache file from the given directory (legacy API).
@@ -344,6 +361,10 @@ func LoadFromDir(dir string) *Cache {
 // writers cannot tear the map mid-iteration. The compressed byte buffer
 // is written to disk after the lock is released.
 func (c *Cache) Save(cacheFilePath string) error {
+	// Stored relative to the repository it is saved under (relocate.go).
+	c.filesMu.Lock()
+	c.root = relocationRoot(cacheFilePath)
+	c.filesMu.Unlock()
 	data, shouldWrite, err := c.EncodeSnapshot()
 	if err != nil {
 		return err

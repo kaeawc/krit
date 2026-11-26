@@ -178,3 +178,43 @@ class Outer : ItemDecoration() {
 		t.Errorf("want one finding, in the anonymous ItemDecoration, got %v", got)
 	}
 }
+
+// CodeRabbit on #1829: an overload toString(radix) is not the override a zero-argument call resolves to, a spaced
+// call passes the gate, and a source class in a databinding package that does not implement ViewBinding is not one.
+func TestViewChecksReviewEdgeCases(t *testing.T) {
+	got := runRuleOnSourcesWithResolver(t, "DoNotCallViewToString", map[string]string{"V.kt": `package com.example
+
+import android.content.Context
+import android.view.View
+
+class RadixView(c: Context) : View(c) {
+  fun toString(radix: Int): String = radix.toString()
+}
+
+class Named(c: Context) : View(c) {
+  override fun toString(): String = "named"
+}
+
+fun f(r: RadixView, n: Named) {
+  r.toString()
+  n.toString ()
+}
+`}, "V.kt")
+	if len(got) != 1 || got[0].Line != 16 {
+		t.Errorf("want only the spaced call on the real override (line 16), got %v", got)
+	}
+	got = runRuleOnSourcesWithResolver(t, "InflationInItemDecoration", map[string]string{
+		"DebugBinding.kt": "package com.example.databinding\n\nclass DebugBinding {\n  companion object {\n    fun inflate(x: Any?) = DebugBinding()\n  }\n}\n",
+		"Deco.kt": `package com.example
+
+import androidx.recyclerview.widget.RecyclerView
+import com.example.databinding.DebugBinding
+
+class Deco : RecyclerView.ItemDecoration() {
+  fun draw() = DebugBinding.inflate(null)
+}
+`}, "Deco.kt")
+	if len(got) != 0 {
+		t.Errorf("a source class that is not a ViewBinding: want no finding, got %v", got)
+	}
+}

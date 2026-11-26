@@ -512,15 +512,19 @@ All notable changes to Krit will be documented in this file.
   catalog-less result until restart (#1784). CLI scans already built a fresh memo per run.
 - `UnsafeIntentLaunch` treats a receiver class registered at runtime with `Context.registerReceiver` or
   `ContextCompat.registerReceiver` as an unprotected component unless, as in Lint, its flags include
-  `RECEIVER_NOT_EXPORTED`, its filter holds only protected broadcasts (a filter with an action krit cannot evaluate
-  does not count), or its broadcast permission is set to a value other than null, blank or a normal one such as
-  `INTERNET`. It also follows the incoming intent into helpers declared
+  `RECEIVER_NOT_EXPORTED`, its filter holds only protected broadcasts, or its broadcast permission is set to a value
+  other than null, blank or a normal one such as `INTERNET`. A filter counts only when krit sees every action: one
+  with an action krit cannot evaluate does not, nor does a property or field filter, a filter registered outside a
+  function, constructor or initializer block, or a local filter used before the registration other than by
+  `addAction` (passed to a function, given to `apply`, `also`, `let`, `run` or `with`, or aliased). It also follows
+  the incoming intent into helpers declared
   in other files: top-level functions imported (also under an alias or through a wildcard) or from the same package,
   members brought in by member or static imports, and members of project classes, objects and companion objects
   (`Launcher.launch(this, intent)`), including through aliased or nested imports (#1623).
 - `UnspecifiedRegisterReceiverFlag` reads the `addAction` calls of a filter built inline in the registration,
-  `registerReceiver(r, IntentFilter().apply { addAction("custom") })`, which it skipped before, so such a filter with
-  an unprotected action is reported (#1813).
+  `registerReceiver(r, IntentFilter().apply { addAction("custom") })`, of a filter registered in a Kotlin `init`
+  block or secondary constructor or a Java constructor or initializer block, and on `this.filter`, which it skipped
+  before, so such a filter with an unprotected action is reported (#1813).
 - `UnsanitizedFilenameFromContentProvider` proves a Cursor local whose type is inferred from its initializer:
   `ContentResolver.query`, `SQLiteDatabase.query`/`rawQuery` and their variants (also through `!!` or an Elvis that
   returns or throws), or a call to a function or method in the same file declared to return `Cursor`, in Kotlin and

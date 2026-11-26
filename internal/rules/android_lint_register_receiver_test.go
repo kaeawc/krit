@@ -89,3 +89,56 @@ class C : android.app.Activity() {
 		t.Fatalf("positions = %s, want %s", got, want)
 	}
 }
+
+// #1813 review: the addAction calls of a filter registered in an init block or a constructor are read, and an
+// addAction on `this.filter` counts for the property, so a custom action added there is reported.
+func TestUnspecifiedRegisterReceiverFlagConstructorsAndThisReceiver(t *testing.T) {
+	got := findingPositions(runRuleByName(t, "UnspecifiedRegisterReceiverFlag", `package com.example
+import android.content.BroadcastReceiver
+import android.content.Intent
+import android.content.IntentFilter
+class C : android.app.Activity() {
+  val r: BroadcastReceiver? = null
+  private val pf = IntentFilter(Intent.ACTION_SCREEN_OFF)
+  init {
+    val f = IntentFilter(Intent.ACTION_SCREEN_OFF)
+    f.addAction("com.example.CUSTOM")
+    registerReceiver(r, f)
+    val g = IntentFilter(Intent.ACTION_SCREEN_OFF)
+    g.addAction(Intent.ACTION_SCREEN_ON)
+    registerReceiver(r, g)
+  }
+  fun f() {
+    this.pf.addAction("com.example.CUSTOM")
+    registerReceiver(r, pf)
+  }
+}
+`))
+	if want := "11:5,18:5"; got != want {
+		t.Fatalf("positions = %s, want %s", got, want)
+	}
+	got = findingPositions(runRuleByNameOnJava(t, "UnspecifiedRegisterReceiverFlag", `package com.example;
+import android.content.BroadcastReceiver;
+import android.content.Intent;
+import android.content.IntentFilter;
+public class J extends android.app.Activity {
+  BroadcastReceiver r;
+  private final IntentFilter jf = new IntentFilter(Intent.ACTION_SCREEN_OFF);
+  public J() {
+    IntentFilter f = new IntentFilter(Intent.ACTION_SCREEN_OFF);
+    f.addAction("com.example.CUSTOM");
+    registerReceiver(r, f);
+    IntentFilter g = new IntentFilter(Intent.ACTION_SCREEN_OFF);
+    g.addAction(Intent.ACTION_SCREEN_ON);
+    registerReceiver(r, g);
+  }
+  void f() {
+    this.jf.addAction("com.example.CUSTOM");
+    registerReceiver(r, jf);
+  }
+}
+`))
+	if want := "11:5,18:5"; got != want {
+		t.Fatalf("java positions = %s, want %s", got, want)
+	}
+}

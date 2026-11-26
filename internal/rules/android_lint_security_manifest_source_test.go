@@ -1440,3 +1440,248 @@ class RecordCallerActivity : RecordBaseActivity() {
 		"com/example/RecordCaller.kt:5",
 	})
 }
+
+// #1813 review: a filter held in a variable protects its receiver only when krit sees every action added to it. The
+// variable must be a local of the function, constructor, init block or initializer that registers it, and every
+// use of it before the registration must be an addAction krit can read (or another IntentFilter member that adds no
+// action). A property or field filter, one passed to another function, given to a scope function or `with`, or
+// aliased is not known to hold only protected broadcasts, so its receiver stays unprotected, as on main.
+func TestUnsafeIntentLaunchVariableFilterCompleteness(t *testing.T) {
+	manifest := `<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.example">
+    <application />
+</manifest>
+`
+	ktReceivers := []string{"InitLocal", "SecondaryCtorLocal", "InitProperty", "MemberProperty", "ThisProperty",
+		"ApplyLocal", "WithLocal", "AlsoLocal", "LetLocal", "RunLocal", "PassedLocal", "AliasLocal", "LazyLocal",
+		"ProtectedLocal", "ProtectedInline", "ProtectedInitLocal", "ProtectedCtorLocal", "ProtectedAfterUse",
+		"ProtectedOtherMembers", "ProtectedLabel"}
+	javaReceivers := []string{"JavaCtorLocal", "JavaInstanceInit", "JavaStaticInit", "JavaFieldCtor", "JavaFieldMethod",
+		"JavaThisField", "JavaPassedLocal", "JavaAliasLocal", "JavaProtectedLocal", "JavaProtectedInline",
+		"JavaProtectedCtorLocal", "JavaProtectedOtherMembers"}
+	var kt, java strings.Builder
+	kt.WriteString("package com.example\n\nimport android.content.BroadcastReceiver\nimport android.content.Context\nimport android.content.Intent\n\n")
+	for _, name := range ktReceivers {
+		kt.WriteString("class " + name + ` : BroadcastReceiver() { override fun onReceive(context: Context, intent: Intent) { context.startActivity(intent) } }` + "\n")
+	}
+	java.WriteString("package com.example;\n\nimport android.content.BroadcastReceiver;\nimport android.content.Context;\nimport android.content.Intent;\n\n")
+	for _, name := range javaReceivers {
+		java.WriteString("class " + name + ` extends BroadcastReceiver { @Override public void onReceive(Context context, Intent intent) { context.startActivity(intent); } }` + "\n")
+	}
+	sources := map[string]string{
+		// Receivers.kt and JavaReceivers.java declare receiver i (0-based) of their list on line 7+i.
+		"com/example/Receivers.kt":       kt.String(),
+		"com/example/JavaReceivers.java": java.String(),
+		"com/example/FilterRegistrar.kt": `package com.example
+
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+
+fun addCustom(filter: IntentFilter) { filter.addAction("com.example.CUSTOM") }
+
+fun named(context: Context, pf: Int = 0) {}
+
+class FilterRegistrar(private val context: Context) {
+    private val pf = IntentFilter(Intent.ACTION_SCREEN_OFF)
+    private val qf = IntentFilter(Intent.ACTION_SCREEN_OFF)
+    private val tf = IntentFilter(Intent.ACTION_SCREEN_OFF)
+    private val lazyReg = lazy {
+        val f = IntentFilter(Intent.ACTION_SCREEN_OFF)
+        f.addAction("com.example.CUSTOM")
+        context.registerReceiver(LazyLocal(), f)
+    }
+
+    init {
+        val f = IntentFilter(Intent.ACTION_SCREEN_OFF)
+        f.addAction("com.example.CUSTOM")
+        context.registerReceiver(InitLocal(), f)
+        pf.addAction("com.example.CUSTOM")
+    }
+
+    init {
+        val g = IntentFilter(Intent.ACTION_SCREEN_OFF)
+        g.addAction(Intent.ACTION_SCREEN_ON)
+        context.registerReceiver(ProtectedInitLocal(), g)
+    }
+
+    constructor(context: Context, extra: Int) : this(context) {
+        val f = IntentFilter(Intent.ACTION_SCREEN_OFF)
+        f.addAction("com.example.CUSTOM")
+        context.registerReceiver(SecondaryCtorLocal(), f)
+    }
+
+    constructor(context: Context, extra: String) : this(context) {
+        val f = IntentFilter(Intent.ACTION_SCREEN_OFF)
+        f.addAction(Intent.ACTION_SCREEN_ON)
+        context.registerReceiver(ProtectedCtorLocal(), f)
+    }
+
+    fun addToQf() { qf.addAction("com.example.CUSTOM") }
+
+    fun properties() {
+        context.registerReceiver(InitProperty(), pf)
+        context.registerReceiver(MemberProperty(), qf)
+        this.tf.addAction("com.example.CUSTOM")
+        context.registerReceiver(ThisProperty(), tf)
+    }
+
+    fun scopeFunctions() {
+        val a = IntentFilter(Intent.ACTION_SCREEN_OFF)
+        a.apply { addAction("com.example.CUSTOM") }
+        context.registerReceiver(ApplyLocal(), a)
+        val w = IntentFilter(Intent.ACTION_SCREEN_OFF)
+        with(w) { addAction("com.example.CUSTOM") }
+        context.registerReceiver(WithLocal(), w)
+        val al = IntentFilter(Intent.ACTION_SCREEN_OFF)
+        al.also { it.addAction("com.example.CUSTOM") }
+        context.registerReceiver(AlsoLocal(), al)
+        val l = IntentFilter(Intent.ACTION_SCREEN_OFF)
+        l.let { it.addAction("com.example.CUSTOM") }
+        context.registerReceiver(LetLocal(), l)
+        val r = IntentFilter(Intent.ACTION_SCREEN_OFF)
+        r.run { addAction("com.example.CUSTOM") }
+        context.registerReceiver(RunLocal(), r)
+    }
+
+    fun otherUses() {
+        val p = IntentFilter(Intent.ACTION_SCREEN_OFF)
+        addCustom(p)
+        context.registerReceiver(PassedLocal(), p)
+        val o = IntentFilter(Intent.ACTION_SCREEN_OFF)
+        val alias = o
+        alias.addAction("com.example.CUSTOM")
+        context.registerReceiver(AliasLocal(), o)
+    }
+
+    fun protectedFilters() {
+        val f = IntentFilter(Intent.ACTION_SCREEN_OFF)
+        f.addAction(Intent.ACTION_SCREEN_ON)
+        context.registerReceiver(ProtectedLocal(), f)
+        context.registerReceiver(ProtectedInline(), IntentFilter(Intent.ACTION_SCREEN_OFF))
+        // The filter is copied at registration, so later uses do not change what the receiver gets.
+        val after = IntentFilter(Intent.ACTION_SCREEN_OFF)
+        context.registerReceiver(ProtectedAfterUse(), after)
+        after.apply { addAction("com.example.CUSTOM") }
+        addCustom(after)
+        // Members other than addAction add no action.
+        val m = IntentFilter(Intent.ACTION_SCREEN_OFF)
+        m.priority = 100
+        m.addCategory(Intent.CATEGORY_DEFAULT)
+        if (m.hasAction(Intent.ACTION_SCREEN_OFF)) m.addAction(Intent.ACTION_SCREEN_ON)
+        context.registerReceiver(ProtectedOtherMembers(), m)
+        // A named argument label and another object's member of the same name are not the variable.
+        val pf = IntentFilter(Intent.ACTION_SCREEN_OFF)
+        named(context, pf = 1)
+        val other = FilterRegistrar(context)
+        other.pf.hashCode()
+        this.pf.hashCode()
+        context.registerReceiver(ProtectedLabel(), pf)
+    }
+}
+`,
+		"com/example/JavaFilterRegistrar.java": `package com.example;
+
+import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
+
+class JavaFilterHelpers {
+    static void addCustom(IntentFilter filter) { filter.addAction("com.example.CUSTOM"); }
+}
+
+class JavaCtorRegistrar {
+    JavaCtorRegistrar(Context context) {
+        IntentFilter f = new IntentFilter(Intent.ACTION_SCREEN_OFF);
+        f.addAction("com.example.CUSTOM");
+        context.registerReceiver(new JavaCtorLocal(), f);
+    }
+
+    JavaCtorRegistrar(Context context, int extra) {
+        IntentFilter f = new IntentFilter(Intent.ACTION_SCREEN_OFF);
+        f.addAction(Intent.ACTION_SCREEN_ON);
+        context.registerReceiver(new JavaProtectedCtorLocal(), f);
+    }
+}
+
+class JavaInitRegistrar {
+    static Context sContext;
+    Context context;
+
+    {
+        IntentFilter f = new IntentFilter(Intent.ACTION_SCREEN_OFF);
+        f.addAction("com.example.CUSTOM");
+        context.registerReceiver(new JavaInstanceInit(), f);
+    }
+
+    static {
+        IntentFilter f = new IntentFilter(Intent.ACTION_SCREEN_OFF);
+        f.addAction("com.example.CUSTOM");
+        sContext.registerReceiver(new JavaStaticInit(), f);
+    }
+}
+
+class JavaFieldRegistrar {
+    private final Context context;
+    private final IntentFilter jf = new IntentFilter(Intent.ACTION_SCREEN_OFF);
+    private final IntentFilter kf = new IntentFilter(Intent.ACTION_SCREEN_OFF);
+    private final IntentFilter lf = new IntentFilter(Intent.ACTION_SCREEN_OFF);
+
+    JavaFieldRegistrar(Context context) {
+        this.context = context;
+        jf.addAction("com.example.CUSTOM");
+    }
+
+    void addToKf() { kf.addAction("com.example.CUSTOM"); }
+
+    void fields() {
+        context.registerReceiver(new JavaFieldCtor(), jf);
+        context.registerReceiver(new JavaFieldMethod(), kf);
+        this.lf.addAction("com.example.CUSTOM");
+        context.registerReceiver(new JavaThisField(), lf);
+    }
+
+    void otherUses() {
+        IntentFilter p = new IntentFilter(Intent.ACTION_SCREEN_OFF);
+        JavaFilterHelpers.addCustom(p);
+        context.registerReceiver(new JavaPassedLocal(), p);
+        IntentFilter o = new IntentFilter(Intent.ACTION_SCREEN_OFF);
+        IntentFilter alias = o;
+        alias.addAction("com.example.CUSTOM");
+        context.registerReceiver(new JavaAliasLocal(), o);
+    }
+
+    void protectedFilters() {
+        IntentFilter f = new IntentFilter(Intent.ACTION_SCREEN_OFF);
+        f.addAction(Intent.ACTION_SCREEN_ON);
+        context.registerReceiver(new JavaProtectedLocal(), f);
+        context.registerReceiver(new JavaProtectedInline(), new IntentFilter(Intent.ACTION_SCREEN_OFF));
+        IntentFilter m = new IntentFilter(Intent.ACTION_SCREEN_OFF);
+        m.setPriority(100);
+        m.addCategory(Intent.CATEGORY_DEFAULT);
+        context.registerReceiver(new JavaProtectedOtherMembers(), m);
+    }
+}
+`,
+	}
+	line := func(path string, list []string, name string) string {
+		for i, r := range list {
+			if r == name {
+				return path + ":" + strconv.Itoa(7+i)
+			}
+		}
+		t.Fatalf("unknown receiver %s", name)
+		return ""
+	}
+	var want []string
+	for _, name := range ktReceivers {
+		if !strings.HasPrefix(name, "Protected") {
+			want = append(want, line("com/example/Receivers.kt", ktReceivers, name))
+		}
+	}
+	for _, name := range javaReceivers {
+		if !strings.HasPrefix(name, "JavaProtected") {
+			want = append(want, line("com/example/JavaReceivers.java", javaReceivers, name))
+		}
+	}
+	assertUnsafeIntentLaunchLocs(t, manifest, sources, want)
+}

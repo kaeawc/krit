@@ -32,11 +32,48 @@ type manifestGradleInfo struct {
 	minSdk              int // minSdk read from the build script; 0 when unset or defined elsewhere
 	versionCode         string
 	versionName         string
+	// namespace is the build script's `android { namespace = "..." }`, which supplies the package of a manifest
+	// without one; "" when unset or computed.
+	namespace string
 	// usesSplashScreenLibrary is true when the build script mentions the SplashScreen library or declares it through
 	// a version-catalog alias.
 	usesSplashScreenLibrary bool
 
 	permissionTargetSdkProven bool
+}
+
+// manifestBuildScriptNames are the build script names a manifest's module directory is searched for, in order.
+var manifestBuildScriptNames = [...]string{"build.gradle.kts", "build.gradle"}
+
+// manifestModuleSearchDirs returns, nearest first, the ancestor directories of a manifest searched for its module's
+// build script: up to four, stopping at the filesystem root.
+func manifestModuleSearchDirs(manifestPath string) []string {
+	const depth = 4
+	dirs := make([]string, 0, depth)
+	dir := filepath.Dir(manifestPath)
+	for range depth {
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+		dirs = append(dirs, dir)
+	}
+	return dirs
+}
+
+// ManifestBuildScriptCandidates returns every path lookupManifestGradleInfo can read a manifest's build script from,
+// whether or not it exists. The first one that exists is read, so a cache key over the rules that read it hashes all
+// of them, a missing one included: creating it changes what is read.
+func ManifestBuildScriptCandidates(manifestPath string) []string {
+	dirs := manifestModuleSearchDirs(manifestPath)
+	paths := make([]string, 0, len(dirs)*len(manifestBuildScriptNames))
+	for _, dir := range dirs {
+		for _, name := range manifestBuildScriptNames {
+			paths = append(paths, filepath.Join(dir, name))
+		}
+	}
+	return paths
 }
 
 // lookupManifestGradleInfo walks up from the manifest path looking for a
@@ -45,13 +82,7 @@ type manifestGradleInfo struct {
 // and returns cached module facts via the shared filefacts cache.
 // Returns a zero-value struct if no gradle file is found.
 func lookupManifestGradleInfo(manifestPath string) manifestGradleInfo {
-	dir := filepath.Dir(manifestPath)
-	for i := 0; i < 4; i++ {
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			break
-		}
-		dir = parent
+	for _, dir := range manifestModuleSearchDirs(manifestPath) {
 		if info, ok := tryReadGradleInfo(dir); ok {
 			return info
 		}
@@ -68,7 +99,7 @@ func tryReadGradleInfo(dir string) (manifestGradleInfo, bool) {
 
 func readManifestGradleInfo(dir string) manifestGradleInfo {
 	var path string
-	for _, name := range []string{"build.gradle.kts", "build.gradle"} {
+	for _, name := range manifestBuildScriptNames {
 		p := filepath.Join(dir, name)
 		if _, err := os.Stat(p); err == nil {
 			path = p
@@ -88,6 +119,7 @@ func readManifestGradleInfo(dir string) manifestGradleInfo {
 	if cfg, err := android.ParseBuildGradleContent(content); err == nil && cfg != nil {
 		info.targetSdk = cfg.TargetSdkVersion
 		info.minSdk = cfg.MinSdkVersion
+		info.namespace = cfg.Namespace
 	}
 	if m := gradleVersionCodePattern.FindStringSubmatch(content); m != nil {
 		info.versionCode = m[1]
@@ -182,16 +214,27 @@ func normalizeCatalogKey(key string) string {
 
 // versionCatalogsFor loads the plugin tables of every gradle/*.versions.toml found at or above moduleDir.
 func versionCatalogsFor(moduleDir string) []map[string]string {
+	_, matches := VersionCatalogSearch(moduleDir, VersionCatalogGlob)
+	if len(matches) == 0 {
+		return nil
+	}
+	catalogs := make([]map[string]string, 0, len(matches))
+	for _, path := range matches {
+		catalogs = append(catalogs, loadCatalogPlugins(path))
+	}
+	return catalogs
+}
+
+// VersionCatalogSearch is the version-catalog search of a module directory: it globs, through glob, the
+// directories at and above moduleDir, nearest first and at most 12, and stops at the first with a catalog. It
+// returns the directories it globbed and that directory's catalogs, nil when none was found. A cache key over the
+// rules that read catalogs hashes both: a catalog created in a globbed directory changes what is read.
+func VersionCatalogSearch(moduleDir string, glob func(dir string) []string) (searched, matches []string) {
 	dir := moduleDir
 	for range 12 {
-		matches, _ := filepath.Glob(filepath.Join(dir, "gradle", "*.versions.toml"))
-		if len(matches) > 0 {
-			sort.Strings(matches)
-			catalogs := make([]map[string]string, 0, len(matches))
-			for _, path := range matches {
-				catalogs = append(catalogs, loadCatalogPlugins(path))
-			}
-			return catalogs
+		searched = append(searched, dir)
+		if matches := glob(dir); len(matches) > 0 {
+			return searched, matches
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
@@ -199,7 +242,14 @@ func versionCatalogsFor(moduleDir string) []map[string]string {
 		}
 		dir = parent
 	}
-	return nil
+	return searched, nil
+}
+
+// VersionCatalogGlob returns, sorted, the gradle/*.versions.toml catalogs of dir.
+func VersionCatalogGlob(dir string) []string {
+	matches, _ := filepath.Glob(filepath.Join(dir, "gradle", "*.versions.toml"))
+	sort.Strings(matches)
+	return matches
 }
 
 func loadCatalogPlugins(path string) map[string]string {

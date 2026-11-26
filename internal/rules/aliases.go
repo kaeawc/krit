@@ -94,6 +94,9 @@ var extraLintAliases = map[string][]string{
 	"RequiresApiViolation": {"NewApi"},
 	// Lint renamed the issue; the old ID still suppresses it.
 	"SuspiciousIndentation": {"SuspiciousIndentAfterControlStatement"},
+	// slack-lints' DeprecatedCall (DeprecatedAnnotationDetector) reports calls to @Deprecated (kotlin or java.lang)
+	// methods and constructors, which Deprecation covers along with deprecated property and type references.
+	"Deprecation": {"DeprecatedCall"},
 }
 
 // LintSuppressionAliases returns the Android lint issue IDs that also suppress the rule: the ID without

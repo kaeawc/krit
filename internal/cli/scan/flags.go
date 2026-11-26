@@ -190,7 +190,7 @@ func registerScanFlags(fs *flag.FlagSet) *scanFlags {
 	f.BasePath = fs.String("base-path", "", "Base path that reported file paths and baseline IDs are relative to (default: first scan path)")
 	f.EditorConfig = fs.Bool("enable-editorconfig", false, "Read .editorconfig for max_line_length, indent_size, etc.")
 	f.Version = fs.Bool("version", false, "Print version")
-	f.NoCache = fs.Bool("no-cache", false, "Disable the incremental analysis cache and the FIR check cache (neither is read or written)")
+	f.NoCache = fs.Bool("no-cache", false, "Disable every cache that can change findings: incremental analysis, cross-file index and findings, findings bundle, Android findings, resource index, file walk, type index, library profile, oracle and FIR check caches (none is read or written)")
 	f.NoParseCache = fs.Bool("no-parse-cache", false, "Disable the on-disk tree-sitter parse cache (forces re-parse of every file)")
 	f.ParseCacheCapMB = fs.Int("parse-cache-cap-mb", 0, "Size cap in MB for .krit/parse-cache/ (0 = use config or default 1024; negative = unlimited)")
 	f.NoResourceCache = fs.Bool("no-resource-cache", false, "Disable the on-disk Android values-XML ResourceIndex cache (forces re-parse of every values XML file)")
@@ -273,4 +273,17 @@ func registerScanFlags(fs *flag.FlagSet) *scanFlags {
 	f.NoDaemon = fs.Bool("no-daemon", false, "Force in-process execution; do not contact the krit daemon even if a socket is reachable.")
 	f.DaemonSocket = fs.String("daemon-socket", "", "Override the krit daemon socket path (default <repoRoot>/.krit/daemon.sock, or a short per-user temp path when that exceeds the unix socket length limit).")
 	return f
+}
+
+// applyNoCache makes --no-cache imply the bypass flags of every other cache
+// whose contents can change findings, so a --no-cache scan is the fresh
+// baseline warm runs are checked against (#1818). The parse cache stores
+// content-keyed trees and stays on.
+func applyNoCache(f *scanFlags) {
+	if f == nil || f.NoCache == nil || !*f.NoCache {
+		return
+	}
+	*f.NoCrossFileCache = true
+	*f.NoResourceCache = true
+	*f.NoCacheOracle = true
 }

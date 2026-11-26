@@ -68,7 +68,7 @@ func TestPlanCountsDependencyContextFiles(t *testing.T) {
 	if err := os.Remove(filepath.Join(root, "lib/build/intermediates/compile_library_classes_jar/release/bundleLibCompileToJarRelease/classes.jar")); err != nil {
 		t.Fatal(err)
 	}
-	units, _ := Plan(model, root, []string{root})
+	units, _ := Plan(model, root, []string{root}, nil)
 	for _, u := range units {
 		want := 0
 		if u.Spec.ID == ":app:release" || u.Spec.ID == ":lib:releaseUnitTest" {
@@ -129,7 +129,7 @@ func fixtureModel(t *testing.T) (*gradlemodel.Model, string) {
 
 func TestPlanTurnsProjectDependenciesIntoBuiltJarsAndDropsEdges(t *testing.T) {
 	model, root := fixtureModel(t)
-	units, missing := Plan(model, root, []string{root})
+	units, missing := Plan(model, root, []string{root}, nil)
 	if len(units) != 3 || missing != 0 {
 		t.Fatalf("got %d units, %d missing jars", len(units), missing)
 	}
@@ -153,7 +153,7 @@ func TestPlanTurnsProjectDependenciesIntoBuiltJarsAndDropsEdges(t *testing.T) {
 
 func TestPlanLimitsUnitsToTheScanPaths(t *testing.T) {
 	model, root := fixtureModel(t)
-	units, _ := Plan(model, root, []string{filepath.Join(root, "app")})
+	units, _ := Plan(model, root, []string{filepath.Join(root, "app")}, nil)
 	if len(units) != 1 || units[0].Spec.ID != ":app:release" {
 		t.Fatalf("got %+v", units)
 	}
@@ -164,9 +164,66 @@ func TestPlanCountsMissingDependencyJars(t *testing.T) {
 	if err := os.RemoveAll(filepath.Join(root, "lib", "build")); err != nil {
 		t.Fatal(err)
 	}
-	_, missing := Plan(model, root, []string{root})
+	_, missing := Plan(model, root, []string{root}, nil)
 	if missing != 1 {
 		t.Fatalf("expected 1 missing dependency jar, got %d", missing)
+	}
+}
+
+// #1681: the outputs the Gradle plugin passes (--gradle-project-outputs) go on the classpath
+// before, and instead of, a jar at a conventional path, which may be left from an older build.
+func TestPlanPrefersGradleProjectOutputs(t *testing.T) {
+	model, root := fixtureModel(t)
+	stale := filepath.Join(root, "lib/build/intermediates/compile_library_classes_jar/release/bundleLibCompileToJarRelease/classes.jar")
+	fresh := filepath.Join(root, "lib/build/intermediates/compile_library_classes_jar/release/bundleLibCompileToJarRelease/fresh-classes.jar")
+	if err := os.WriteFile(fresh, []byte("jar"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outputs := map[string][]string{":lib": {fresh, filepath.Join(root, "missing.jar")}}
+	units, missing := Plan(model, root, []string{root}, outputs)
+	if missing != 0 {
+		t.Fatalf("missing = %d", missing)
+	}
+	byID := map[string]Unit{}
+	for _, u := range units {
+		byID[u.Spec.ID] = u
+	}
+	app := byID[":app:release"].Spec
+	if !slices.Contains(app.Classpath, fresh) || slices.Contains(app.Classpath, stale) {
+		t.Errorf("app classpath should hold the passed output, not the conventional jar: %v", app.Classpath)
+	}
+	if slices.Contains(app.Classpath, filepath.Join(root, "missing.jar")) {
+		t.Errorf("a passed output that does not exist must not be on the classpath: %v", app.Classpath)
+	}
+	if len(app.ContextSourceRoots) != 0 {
+		t.Errorf("a built dependency is not compiled from source: %v", app.ContextSourceRoots)
+	}
+	test := byID[":lib:releaseUnitTest"].Spec
+	if !slices.Equal(test.Friends, []string{fresh}) {
+		t.Errorf("a test module's friend is its project's passed output: %v", test.Friends)
+	}
+
+	// With only the passed output on disk, the dependency is still built: no context sources to
+	// compile or count (#1661's ContextFiles).
+	if err := os.Remove(stale); err != nil {
+		t.Fatal(err)
+	}
+	units, _ = Plan(model, root, []string{root}, outputs)
+	for _, u := range units {
+		if u.Spec.ID == ":app:release" && (u.ContextFiles != 0 || len(u.Spec.ContextSourceRoots) != 0) {
+			t.Errorf("a dependency built to a passed output is compiled as context: %d files, %v", u.ContextFiles, u.Spec.ContextSourceRoots)
+		}
+	}
+	if err := os.WriteFile(stale, []byte("jar"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// A passed project without built jars on disk falls back to the conventional path.
+	units, _ = Plan(model, root, []string{root}, map[string][]string{":lib": {filepath.Join(root, "missing.jar")}})
+	for _, u := range units {
+		if u.Spec.ID == ":app:release" && !slices.Contains(u.Spec.Classpath, stale) {
+			t.Errorf("fallback to the conventional jar: %v", u.Spec.Classpath)
+		}
 	}
 }
 
@@ -271,7 +328,7 @@ func TestPlanCompilesUnbuiltDependenciesFromSourceAsContext(t *testing.T) {
 	if err := os.RemoveAll(filepath.Join(root, "lib", "build")); err != nil {
 		t.Fatal(err)
 	}
-	units, _ := Plan(model, root, []string{root})
+	units, _ := Plan(model, root, []string{root}, nil)
 	for _, u := range units {
 		if u.Spec.ID != ":app:release" {
 			continue
@@ -404,7 +461,7 @@ func TestPlanGivesAnUnbuiltMainToItsTestSetAsContext(t *testing.T) {
 	if err := os.RemoveAll(filepath.Join(root, "lib", "build")); err != nil {
 		t.Fatal(err)
 	}
-	units, _ := Plan(model, root, []string{filepath.Join(root, "lib")})
+	units, _ := Plan(model, root, []string{filepath.Join(root, "lib")}, nil)
 	for _, u := range units {
 		if u.Spec.Kind == "test" {
 			want := filepath.Join(root, "lib", "src", "main", "kotlin")
@@ -419,11 +476,11 @@ func TestPlanGivesAnUnbuiltMainToItsTestSetAsContext(t *testing.T) {
 
 func TestNeedsIsolationRequiresSeveralSourceSetsOfOneProject(t *testing.T) {
 	model, root := fixtureModel(t)
-	all, _ := Plan(model, root, []string{root})
+	all, _ := Plan(model, root, []string{root}, nil)
 	if !NeedsIsolation(all) {
 		t.Error(":lib has main and test, so isolation applies")
 	}
-	app, _ := Plan(model, root, []string{filepath.Join(root, "app")})
+	app, _ := Plan(model, root, []string{filepath.Join(root, "app")}, nil)
 	if NeedsIsolation(app) {
 		t.Error("a single source set has nothing to isolate from")
 	}
@@ -431,7 +488,7 @@ func TestNeedsIsolationRequiresSeveralSourceSetsOfOneProject(t *testing.T) {
 
 func TestIsolationDeclinedWhenContextWasDropped(t *testing.T) {
 	model, root := fixtureModel(t)
-	units, _ := Plan(model, root, []string{root})
+	units, _ := Plan(model, root, []string{root}, nil)
 	if got := isolationDeclined(Input{Isolate: true}, units); got != "" {
 		t.Fatalf("complete context should apply, got %q", got)
 	}

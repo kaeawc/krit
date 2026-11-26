@@ -39,6 +39,8 @@ type Graph struct {
 	// BuildSystem is "" for Gradle and BuildSystemBazel for a graph of
 	// Bazel packages, whose module paths are labels ("//app/src/main").
 	BuildSystem string
+	// layoutOnly skips SourceRoots during discovery (DiscoverModuleLayout).
+	layoutOnly bool
 }
 
 // NewModuleGraph creates an empty Graph rooted at the given directory.
@@ -86,6 +88,52 @@ func (g *Graph) resolveModulePath(path, buildPath string) string {
 	}
 	return match
 }
+
+// resolveAccessorPath maps a type-safe project accessor ("featureNotes",
+// "core.dataStore") to the one module of the build whose path segments
+// spell it with dashes, underscores or camel case (":feature_notes",
+// ":core:dataStore"). It returns "" when path, the accessor's dashed form,
+// already names a module, or when no module or more than one matches.
+func (g *Graph) resolveAccessorPath(accessor, path, buildPath string) string {
+	if g == nil {
+		return ""
+	}
+	if _, ok := g.Modules[buildPath+path]; ok {
+		return ""
+	}
+	if _, ok := g.Modules[path]; ok {
+		return ""
+	}
+	want := strings.Split(strings.ToLower(accessor), ".")
+	match := ""
+	for p, m := range g.Modules {
+		if m.BuildPath != buildPath || !accessorSegmentsMatch(strings.TrimPrefix(p, buildPath), want) {
+			continue
+		}
+		if match != "" {
+			return ""
+		}
+		match = p
+	}
+	return match
+}
+
+// accessorSegmentsMatch reports whether a module path's segments, with
+// dashes and underscores dropped and case folded, equal the accessor's.
+func accessorSegmentsMatch(path string, want []string) bool {
+	segments := strings.Split(strings.TrimPrefix(path, ":"), ":")
+	if len(segments) != len(want) {
+		return false
+	}
+	for i, segment := range segments {
+		if strings.ToLower(accessorSpellingReplacer.Replace(segment)) != want[i] {
+			return false
+		}
+	}
+	return true
+}
+
+var accessorSpellingReplacer = strings.NewReplacer("-", "", "_", "")
 
 // FileToModule maps an absolute file path to the Gradle path of the module
 // that contains it. Returns an empty string if no module matches.

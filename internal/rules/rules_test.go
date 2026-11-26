@@ -118,8 +118,11 @@ func TestPositiveFixtures(t *testing.T) {
 		}
 		// With detekt's defaults these rules cannot report anything until configured: ForbiddenClassName
 		// forbids no name, ForbiddenSuppress forbids suppressing no rule, and a variable name cannot be
-		// shorter than the default minimum of 1.
-		if ruleName == "ForbiddenClassName" || ruleName == "ForbiddenSuppress" || ruleName == "VariableMinLength" {
+		// shorter than the default minimum of 1. WrongResourceImportAlias needs importAliases; its
+		// configured fixture is tests/fixtures/android-lint/WrongResourceImportAlias. InclusiveNaming reports nothing
+		// without a blockList; its configured fixture is tests/fixtures/android-lint/InclusiveNaming.
+		if ruleName == "ForbiddenClassName" || ruleName == "ForbiddenSuppress" || ruleName == "VariableMinLength" ||
+			ruleName == "WrongResourceImportAlias" || ruleName == "InclusiveNaming" {
 			return nil
 		}
 

@@ -24,13 +24,12 @@ type buildTreeScan struct {
 // projects under test, not modules), node_modules, and buildSrc.
 func scanBuildTree(root string) buildTreeScan {
 	var scan buildTreeScan
-	var walk func(dir string, depth int)
-	walk = func(dir string, depth int) {
+	// walk visits the subdirectories of dir, whose listing is entries. Each
+	// child is listed once, and the listing answers both whether it holds a
+	// settings file or build script and what to descend into.
+	var walk func(dir string, entries []os.DirEntry, depth int)
+	walk = func(dir string, entries []os.DirEntry, depth int) {
 		if depth > maxBuildScanDepth {
-			return
-		}
-		entries, err := os.ReadDir(dir)
-		if err != nil {
 			return
 		}
 		for _, e := range entries {
@@ -38,20 +37,44 @@ func scanBuildTree(root string) buildTreeScan {
 				continue
 			}
 			child := filepath.Join(dir, e.Name())
-			if hasSettingsFile(child) {
+			childEntries, err := os.ReadDir(child)
+			settings, build := false, false
+			if err != nil {
+				// An unlistable directory can still be statted into.
+				settings, build = hasSettingsFile(child), hasBuildScript(child)
+			} else {
+				settings = listsAny(childEntries, settingsFiles)
+				build = listsAny(childEntries, buildFiles)
+			}
+			if settings {
 				scan.nestedBuilds = append(scan.nestedBuilds, child)
 				continue
 			}
-			if hasBuildScript(child) {
+			if build {
 				scan.buildDirs = append(scan.buildDirs, child)
 			}
-			walk(child, depth+1)
+			walk(child, childEntries, depth+1)
 		}
 	}
-	walk(root, 1)
+	if entries, err := os.ReadDir(root); err == nil {
+		walk(root, entries, 1)
+	}
 	sort.Strings(scan.buildDirs)
 	sort.Strings(scan.nestedBuilds)
 	return scan
+}
+
+// listsAny reports whether a directory listing holds an entry with one of
+// the names, of any type, as os.Stat on the name would.
+func listsAny(entries []os.DirEntry, names []string) bool {
+	for _, e := range entries {
+		for _, name := range names {
+			if e.Name() == name {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func skipBuildScanDir(name string) bool {

@@ -667,7 +667,7 @@ func RunProjectStreaming(ctx context.Context, in ProjectInput, out io.Writer) (P
 		res, ok, err := serveBundleHitFromOutputCache(
 			&analysis.CrossFileResult.Findings, analysis.RunFP,
 			analysis.ParseResult.KotlinFiles, analysis.ParseResult.JavaFiles,
-			args, host, out, startTime, perfTimings, caches, budget)
+			args, host, out, startTime, perfTimings, caches, budget, args.gradleProjects())
 		if err != nil {
 			return ProjectResult{}, err
 		}
@@ -732,10 +732,13 @@ func RunProjectStreaming(ctx context.Context, in ProjectInput, out io.Writer) (P
 		firCoverage = host.FirCoverage()
 	}
 	outputStart := time.Now()
+	// The same model the index phase reads, for per-project report attribution (#1635).
+	gradleProjects := args.gradleProjects()
 	outResult, err := OutputPhase{}.Run(ctx, OutputInput{
 		FixupResult:      fixupView,
 		FirDegraded:      firDegraded,
 		FirCoverage:      firCoverage,
+		GradleProjects:   gradleProjects,
 		Reporter:         host.Reporter,
 		Writer:           out,
 		Format:           format,
@@ -1278,6 +1281,8 @@ func runProjectParsePhase(ctx context.Context, args ProjectArgs, host ProjectHos
 			KotlinPaths: append([]string(nil), kotlinPaths...),
 			JavaFiles:   filesForPaths(javaPaths, scanner.LangJava),
 			Paths:       args.Paths,
+
+			ContentSkipped: true,
 		}, nil
 	}
 	allowCrossFile := warm.cross != nil
@@ -2462,10 +2467,11 @@ func emitBundleHitOutput(
 	perfTimings, caches, budget := capturePerfOutputs(args, host)
 	outputStart := time.Now()
 
+	gradleProjects := args.gradleProjects()
 	if canUseBundleOutputCache(args, host) {
 		res, fastOK, fastErr := serveBundleHitFromOutputCache(
 			cached, fp, kotlinFiles, javaFiles, args, host, out,
-			startTime, perfTimings, caches, budget)
+			startTime, perfTimings, caches, budget, gradleProjects)
 		if fastOK || fastErr != nil {
 			if phaseTimings != nil {
 				phaseTimings.Output = time.Since(outputStart).Milliseconds()
@@ -2493,6 +2499,7 @@ func emitBundleHitOutput(
 			},
 		},
 		Reporter:         host.Reporter,
+		GradleProjects:   gradleProjects,
 		Writer:           out,
 		Format:           format,
 		BaselinePath:     args.BaselinePath,
@@ -2597,6 +2604,7 @@ func serveBundleHitFromOutputCache(
 	perfTimings []perf.TimingEntry,
 	caches []cacheutil.NamedCacheStats,
 	cacheBudget *cacheutil.BudgetReport,
+	gradleProjects func() *gradlemodel.ProjectIndex,
 ) (ProjectResult, bool, error) {
 	if scanner.FindingsBundleKey(fp) == "" {
 		return ProjectResult{}, false, nil
@@ -2610,7 +2618,7 @@ func serveBundleHitFromOutputCache(
 		if cached == nil {
 			return ProjectResult{}, false, nil
 		}
-		built, ok := buildCachedBundleOutput(cached, args.ActiveRules, ReportPathFunc(reportBasePath(args.BasePath, args.Paths), args.AbsolutePaths))
+		built, ok := buildCachedBundleOutput(cached, args.ActiveRules, ReportPathFunc(reportBasePath(args.BasePath, args.Paths), args.AbsolutePaths), gradleProjects)
 		if !ok {
 			return ProjectResult{}, false, nil
 		}
@@ -2624,6 +2632,7 @@ func serveBundleHitFromOutputCache(
 		ByRuleSet: out2.ByRuleSet,
 		ByRule:    out2.ByRule,
 		Fixable:   out2.FixableCount,
+		ByProject: out2.ByProject,
 	}
 	if err := writeBundleHitCompactJSON(out, args, len(kotlinFiles)+len(javaFiles), len(args.ActiveRules),
 		durationMs, summary, out2.FindingsBytes, perfTimings, caches, cacheBudget); err != nil {
@@ -2646,10 +2655,12 @@ func serveBundleHitFromOutputCache(
 	}, true, nil
 }
 
-// bundleOutputKey keys formatted bundle output by the findings and the path
-// spelling the report uses, so one scan root never serves another's paths.
+// bundleOutputKey keys formatted bundle output by the findings, the path
+// spelling the report uses (so one scan root never serves another's paths), and
+// the Gradle model whose project attribution the output carries (#1635).
 func bundleOutputKey(fp scanner.RunFingerprint, args ProjectArgs) string {
-	return fmt.Sprintf("%s|paths=%s|abs=%t", scanner.FindingsBundleKey(fp), reportBasePath(args.BasePath, args.Paths), args.AbsolutePaths)
+	return fmt.Sprintf("%s|paths=%s|abs=%t|model=%s", scanner.FindingsBundleKey(fp), reportBasePath(args.BasePath, args.Paths),
+		args.AbsolutePaths, gradleModelIdentity(args.gradleModelDir()))
 }
 
 // buildCachedBundleOutput formats the bundle's findings into a
@@ -2657,14 +2668,16 @@ func bundleOutputKey(fp scanner.RunFingerprint, args ProjectArgs) string {
 // does for the findings array, but exposes the bytes so the daemon
 // can stash them on WorkspaceState. ok=false on degenerate input
 // so the caller can fall back to OutputPhase.
-func buildCachedBundleOutput(cached *scanner.FindingColumns, activeRules []*api.Rule, reportPath func(string) string) (*CachedBundleOutput, bool) {
+func buildCachedBundleOutput(cached *scanner.FindingColumns, activeRules []*api.Rule, reportPath func(string) string, gradleProjects func() *gradlemodel.ProjectIndex) (*CachedBundleOutput, bool) {
 	if cached == nil {
 		return nil, false
 	}
+	absolute := cached
 	if reportPath != nil {
 		rewritten := cached.RewriteFiles(reportPath)
 		cached = &rewritten
 	}
+	projects := projectAttribution(absolute, cached, gradleProjects)
 	fixLevels := make(map[string]string)
 	efforts := make(map[string]string)
 	for _, r := range activeRules {
@@ -2681,13 +2694,14 @@ func buildCachedBundleOutput(cached *scanner.FindingColumns, activeRules []*api.
 	byRuleSet := make(map[string]int)
 	byRule := make(map[string]int)
 	fixableCount := 0
-	findingsBytes := output.BuildFindingsArrayCompact(cached, fixLevels, efforts, byRuleSet, byRule, &fixableCount)
+	findingsBytes := output.BuildFindingsArrayCompactWithProjects(cached, fixLevels, efforts, byRuleSet, byRule, &fixableCount, projects)
 	return &CachedBundleOutput{
 		FindingsBytes: findingsBytes,
 		Total:         cached.Len(),
 		ByRuleSet:     byRuleSet,
 		ByRule:        byRule,
 		FixableCount:  fixableCount,
+		ByProject:     projects.ByProject(cached),
 	}, true
 }
 
@@ -2831,7 +2845,7 @@ func preparseBundleFingerprintWithPaths(
 	})
 	var xmlFP string
 	track("xmlInputs", func() {
-		xmlFP = xmlInputsFingerprint(host, preparseAndroidProject(args, host), kotlinPaths)
+		xmlFP = xmlInputsFingerprint(host, preparseAndroidProject(args, host), kotlinPaths, rules.ReadsModuleGraph(args.ActiveRules))
 	})
 	kotlinFiles := filesForPaths(kotlinPaths, scanner.LangKotlin)
 	javaFiles := filesForPaths(javaPaths, scanner.LangJava)
@@ -3171,16 +3185,17 @@ func fileSetPaths(files []*scanner.File) []string {
 // xmlInputsFingerprint hashes the XML inputs that feed cross-file and Android
 // rules, so the findings bundle cannot outlive an XML-only edit (layouts,
 // manifests and navigation graphs contribute class references to the code
-// index; manifests and res/ directories feed the Android rules). It returns
-// "" when the project has none, which keeps the bundle key unchanged for
-// projects without XML.
+// index; manifests and res/ directories feed the Android rules), plus the
+// build scripts the manifest rules read next to them. It returns "" when the
+// project has no XML, which keeps the bundle key unchanged for projects
+// without XML.
 //
 // The class-reference XML set comes from the host's resident XMLFilesLoader
 // when wired, so a warm daemon run re-reads nothing until the watcher bumps
-// the XML version. The manifests and res/ directories are hashed through the
-// stat-keyed hashutil memo, which re-reads only files whose size or mtime
-// moved. kotlinPaths only locates the module roots for the XML walk.
-func xmlInputsFingerprint(host ProjectHostState, project *android.Project, kotlinPaths []string) string {
+// the XML version. The manifests, res/ directories and build scripts are
+// hashed through the stat-keyed hashutil memo, which re-reads only files
+// whose size or mtime moved. kotlinPaths only locates the module roots for the XML walk.
+func xmlInputsFingerprint(host ProjectHostState, project *android.Project, kotlinPaths []string, readsGraph bool) string {
 	build := func() []*scanner.XMLCacheFile {
 		return scanner.LoadXMLFilesForCache(filesForPaths(kotlinPaths, scanner.LangKotlin))
 	}
@@ -3197,6 +3212,10 @@ func xmlInputsFingerprint(host ProjectHostState, project *android.Project, kotli
 	}
 	if len(xmlFiles) == 0 && len(manifests) == 0 && len(resDirs) == 0 {
 		return ""
+	}
+	if readsGraph && project != nil {
+		// Reads each manifest once for both its hash and the module-graph check below.
+		projectBuildGraphs(project)
 	}
 	h := hashutil.Hasher().New()
 	for _, f := range xmlFiles {
@@ -3227,6 +3246,17 @@ func xmlInputsFingerprint(host ProjectHostState, project *android.Project, kotli
 	for _, m := range manifests {
 		_, _ = h.Write([]byte(AndroidInput{Project: project}.manifestModuleFP(m, &moduleRes)))
 		_, _ = h.Write([]byte{0})
+	}
+	// Manifest and manifest-source rules also read the build scripts themselves (plugins, namespace, project
+	// dependencies) and the module graph of each manifest's build, settings file included, which can lie outside
+	// the scan paths. A Groovy build.gradle is not a source file the SourceSet hash covers (#1625, #1800).
+	if project != nil && (len(project.GradlePaths) > 0 || len(project.ManifestPaths) > 0) {
+		_, _ = h.Write([]byte{5})
+		if fp, ok := buildFilesFingerprint(project, readsGraph); ok {
+			_, _ = h.Write([]byte(fp))
+		} else {
+			_, _ = h.Write([]byte("err"))
+		}
 	}
 	return hex.EncodeToString(h.Sum(nil))
 }
@@ -4010,7 +4040,7 @@ func previewPostParseBundleHit(args ProjectArgs, host ProjectHostState, parseRes
 	if host.FindingsBundleStore == nil || host.FindingsBundleCacheRoot == "" {
 		return nil
 	}
-	if len(args.CustomRuleJars) > 0 {
+	if len(args.CustomRuleJars) > 0 || parseResult.ContentSkipped {
 		return nil
 	}
 	// Cold runs (no prior manifest residing in the host) cannot hit
@@ -4035,7 +4065,7 @@ func previewPostParseBundleHit(args ProjectArgs, host ProjectHostState, parseRes
 		Android:          androidFP,
 		LibraryFacts:     libraryFactsFP,
 		CompilerSettings: args.OracleKotlin.Identity(),
-		XMLInputs:        xmlInputsFingerprint(host, preparseAndroidProject(args, host), fileSetPaths(parseResult.KotlinFiles)),
+		XMLInputs:        xmlInputsFingerprint(host, preparseAndroidProject(args, host), fileSetPaths(parseResult.KotlinFiles), rules.ReadsModuleGraph(args.ActiveRules)),
 	}
 	// Look up the prior manifest once — daemon callers wire
 	// FindingsBundleManifestLoader to an in-memory cache so this is
@@ -4117,6 +4147,12 @@ func computeRunFingerprint(args ProjectArgs, host ProjectHostState, parseResult 
 	if len(args.CustomRuleJars) > 0 {
 		return scanner.RunFingerprint{}, false
 	}
+	// Without content, SourceSet hashes paths only, so every skipped-parse
+	// run would share one key and load the bundle of whichever earlier
+	// state saved it first.
+	if parseResult.ContentSkipped {
+		return scanner.RunFingerprint{}, false
+	}
 	rulesHash := projectRuleHashForArgs(args, false)
 	dirty := dirtyPathSet(host.SourceSetDirty)
 	fp := scanner.RunFingerprint{
@@ -4134,7 +4170,7 @@ func computeRunFingerprint(args ProjectArgs, host ProjectHostState, parseResult 
 	if indexResult.LibraryFacts != nil {
 		fp.LibraryFacts = indexResult.LibraryFacts.Fingerprint()
 	}
-	fp.XMLInputs = xmlInputsFingerprint(host, indexResult.AndroidProject, fileSetPaths(parseResult.KotlinFiles))
+	fp.XMLInputs = xmlInputsFingerprint(host, indexResult.AndroidProject, fileSetPaths(parseResult.KotlinFiles), rules.ReadsModuleGraph(args.ActiveRules))
 	return fp, true
 }
 
@@ -4387,4 +4423,21 @@ func crossIndexSourcePaths(args ProjectArgs, warm warmAnalysisCachePlan) []strin
 	paths := make([]string, 0, len(warm.filePaths)+len(javaPaths))
 	paths = append(paths, warm.filePaths...)
 	return append(paths, javaPaths...)
+}
+
+// gradleModelDir is the Gradle model directory the scan reads (see GradleModelDir).
+func (args ProjectArgs) gradleModelDir() string {
+	return GradleModelDir(args.GradleModelDir, args.NoGradleModel, firstPath(args.Paths))
+}
+
+// gradleProjects is the scan's lazy Gradle project index (see GradleProjectIndex).
+func (args ProjectArgs) gradleProjects() func() *gradlemodel.ProjectIndex {
+	return GradleProjectIndex(args.GradleModelDir, args.NoGradleModel, firstPath(args.Paths), nil)
+}
+
+func firstPath(paths []string) string {
+	if len(paths) == 0 {
+		return ""
+	}
+	return paths[0]
 }

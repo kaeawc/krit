@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/gradlemodel"
 	"github.com/kaeawc/krit/internal/output"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -108,8 +109,9 @@ func (OutputPhase) Run(_ context.Context, in OutputInput) (OutputResult, error) 
 		reported = &rewritten
 	}
 
+	projects := projectAttribution(columns, reported, in.GradleProjects)
 	write := func(w io.Writer, format string, compact bool) error {
-		return writeReport(w, format, compact, reported, fileCount, ruleCount, &in)
+		return writeReport(w, format, compact, reported, fileCount, ruleCount, &in, projects)
 	}
 	if in.Writer != nil || len(in.Reports) == 0 {
 		if err := write(in.Writer, in.Format, in.JSONCompact); err != nil {
@@ -132,7 +134,34 @@ func (OutputPhase) Run(_ context.Context, in OutputInput) (OutputResult, error) 
 }
 
 // writeReport renders reported in one format to w.
-func writeReport(w io.Writer, format string, compact bool, reported *scanner.FindingColumns, fileCount, ruleCount int, in *OutputInput) error {
+// projectAttribution maps each reported file path to its Gradle project. It
+// looks up the absolute paths of columns (before the report rewrote them):
+// RewriteFiles keeps the file table's order, so columns.Files[i] is the
+// absolute form of reported.Files[i]. Nil without a model.
+func projectAttribution(columns, reported *scanner.FindingColumns, index func() *gradlemodel.ProjectIndex) *output.ProjectAttribution {
+	if index == nil {
+		return nil
+	}
+	idx := index()
+	if idx.Len() == 0 {
+		return nil
+	}
+	byFile := make(map[string]string, len(reported.Files))
+	for i, file := range columns.Files {
+		if i >= len(reported.Files) {
+			break
+		}
+		if abs, err := filepath.Abs(file); err == nil {
+			file = abs
+		}
+		if project := idx.ProjectOf(file); project != "" {
+			byFile[reported.Files[i]] = project
+		}
+	}
+	return output.NewProjectAttribution(byFile, idx.Projects())
+}
+
+func writeReport(w io.Writer, format string, compact bool, reported *scanner.FindingColumns, fileCount, ruleCount int, in *OutputInput, projects *output.ProjectAttribution) error {
 	switch format {
 	case "json":
 		if err := output.FormatJSONColumnsWithOptions(
@@ -148,7 +177,7 @@ func writeReport(w io.Writer, format string, compact bool, reported *scanner.Fin
 			in.CacheStats,
 			in.Caches,
 			in.CacheBudget,
-			output.JSONOptions{Compact: compact, BaselineSuppressed: in.BaselineSuppressed, FirDegraded: in.FirDegraded, FirCoverage: in.FirCoverage, Reproducible: in.Reproducible},
+			output.JSONOptions{Compact: compact, BaselineSuppressed: in.BaselineSuppressed, FirDegraded: in.FirDegraded, FirCoverage: in.FirCoverage, Projects: projects, Reproducible: in.Reproducible},
 			in.PerfRuleStats,
 		); err != nil {
 			return fmt.Errorf("format json: %w", err)
@@ -156,7 +185,7 @@ func writeReport(w io.Writer, format string, compact bool, reported *scanner.Fin
 	case "plain":
 		output.FormatPlainColumns(w, reported)
 	case "sarif":
-		if err := output.FormatSARIFColumnsReport(w, reported, in.Version, output.SARIFOptions{FirDegraded: in.FirDegraded, FirCoverage: in.FirCoverage}); err != nil {
+		if err := output.FormatSARIFColumnsReport(w, reported, in.Version, output.SARIFOptions{FirDegraded: in.FirDegraded, FirCoverage: in.FirCoverage, Projects: projects}); err != nil {
 			return fmt.Errorf("format sarif: %w", err)
 		}
 	case "checkstyle":

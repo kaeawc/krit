@@ -1,0 +1,10 @@
+package fixtures
+
+/* @property name the name */
+class Named(val name: String) {
+    /*
+     * Returns the name.
+     * @return the name
+     */
+    fun value(): String = name
+}

@@ -40,6 +40,7 @@ func TestSlackLintParity(t *testing.T) {
 		dir := filepath.Join(root, c.Name())
 		t.Run(c.Name(), func(t *testing.T) {
 			checks := strings.Split(strings.TrimSpace(readParityFile(t, filepath.Join(dir, "checks.txt"))), ",")
+			applyLintXMLOptions(t, filepath.Join(dir, "lint.xml"))
 			want := slackParityExpected(t, dir)
 			got := runSlackParityChecks(t, dir, checks)
 			if strings.Join(got, "\n") != strings.Join(want, "\n") {

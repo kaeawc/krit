@@ -118,6 +118,14 @@ func (in AndroidInput) manifestSourceSourceFingerprint() (string, bool) {
 	return hex.EncodeToString(h.Sum(nil)), true
 }
 
+// manifestSourceGradleFingerprint hashes the settings files and build scripts manifest-source rules read from disk:
+// the module's plugins and namespace, and ProviderReadPermissionOnly's module graph, which decides which apps merge
+// a library manifest and can reach build files outside the scan paths (#1625, #1800). Groovy build.gradle files are
+// not source files, so the source fingerprint misses them. See buildFilesFingerprint.
+func (in AndroidInput) manifestSourceGradleFingerprint() (string, bool) {
+	return buildFilesFingerprint(in.Project, rules.ReadsModuleGraph(in.ActiveRules))
+}
+
 func (in AndroidInput) manifestSourceKey(manifestFP, sourceFP string) string {
 	return scanner.AndroidFindingsKey(scanner.AndroidFindingsKeyInputs{
 		Kind:                scanner.AndroidFindingsKindManifestSource,
@@ -165,8 +173,9 @@ func (in AndroidInput) manifestSourceFiles() []*scanner.File {
 }
 
 // runManifestSourcePass runs the ScopeManifestSource rules once for the
-// project. The result is cached under every manifest's content hash plus the
-// full source-set fingerprint, so editing either side re-runs the rules.
+// project. The result is cached under every manifest's content hash, every
+// settings file and build script, and the full source-set fingerprint, so
+// editing any of them re-runs the rules.
 func (p AndroidPhase) runManifestSourcePass(in AndroidInput, manifests *parsedManifests, collector *scanner.FindingCollector, tracker perf.Tracker) {
 	if in.Dispatcher == nil || len(in.Dispatcher.ManifestSourceRules()) == 0 || len(in.Project.ManifestPaths) == 0 {
 		return
@@ -176,8 +185,13 @@ func (p AndroidPhase) runManifestSourcePass(in AndroidInput, manifests *parsedMa
 
 	key := ""
 	if in.CacheDir != "" && in.CacheWriter != nil && in.RuleHash != "" {
-		if sourceFP, ok := in.manifestSourceSourceFingerprint(); ok {
-			key = in.manifestSourceKey(p.manifestBundleFingerprint(in.Project.ManifestPaths), sourceFP)
+		sourceFP, ok := in.manifestSourceSourceFingerprint()
+		var gradleFP string
+		if ok {
+			gradleFP, ok = in.manifestSourceGradleFingerprint()
+		}
+		if ok {
+			key = in.manifestSourceKey(p.manifestBundleFingerprint(in.Project.ManifestPaths)+"\x00"+gradleFP, sourceFP)
 			if cached, hit := scanner.LoadAndroidFindings(in.CacheDir, key); hit {
 				collector.AppendColumns(&cached)
 				return

@@ -103,6 +103,34 @@ func TestPreviewPostParseBundleHit_CustomRuleJarsBypass(t *testing.T) {
 	}
 }
 
+// A skipped parse leaves the files without content, so neither the preview
+// nor the canonical fingerprint may key a bundle on them: with no content
+// the key covers paths only and loads an earlier state's bundle.
+func TestBundleFingerprintRefusesSkippedParse(t *testing.T) {
+	store := &recordingPreviewStore{loaded: &scanner.FindingColumns{}}
+	host := ProjectHostState{
+		FindingsBundleStore:     store,
+		FindingsBundleCacheRoot: "/tmp/cache",
+		PriorContentHashes:      map[string]string{"/repo/Foo.kt": "h1"},
+	}
+	args := ProjectArgs{Version: "test"}
+	parseResult := ParseResult{
+		KotlinFiles:    []*scanner.File{{Path: "/repo/Foo.kt", Language: scanner.LangKotlin}},
+		ContentSkipped: true,
+	}
+
+	if got := previewPostParseBundleHit(args, host, parseResult); got != nil || store.loadCalls != 0 {
+		t.Errorf("preview on a skipped parse = %v after %d loads, want nil and no load", got, store.loadCalls)
+	}
+	if _, ok := computeRunFingerprint(args, host, parseResult, IndexResult{}); ok {
+		t.Error("computeRunFingerprint accepted a skipped parse")
+	}
+	parseResult.ContentSkipped = false
+	if _, ok := computeRunFingerprint(args, host, parseResult, IndexResult{}); !ok {
+		t.Error("computeRunFingerprint refused a parsed run")
+	}
+}
+
 // TestPreviewPostParseBundleHit_LoadHitReturnsColumns is the happy
 // path: prior manifest present, store has a matching entry, the
 // preview returns the cached FindingColumns so the caller can

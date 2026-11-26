@@ -32,6 +32,15 @@ func TestAppendFindingJSON_MatchesJSONMarshal(t *testing.T) {
 			},
 		},
 		{
+			name: "with-project",
+			finding: JSONFinding{
+				File: "app/src/main/kotlin/A.kt", Line: 3, Column: 2,
+				RuleSet: "style", Rule: "MaxLineLength",
+				Severity: "warning", Message: "Line too long.",
+				Project: ":feature:login",
+			},
+		},
+		{
 			name: "with-byte-offsets",
 			finding: JSONFinding{
 				File: "src/main/kotlin/A.kt", Line: 42, Column: 7,

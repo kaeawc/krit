@@ -608,18 +608,11 @@ func FilterColumnsByFilePaths(columns *FindingColumns, allowedPaths map[string]b
 		return FindingColumns{}
 	}
 
-	allowedFileIdx := make([]bool, len(columns.Files))
-	for i, file := range columns.Files {
-		if allowedPaths[file] {
-			allowedFileIdx[i] = true
-			continue
-		}
-		abs, err := filepath.Abs(file)
-		if err != nil {
-			abs = file
-		}
-		allowedFileIdx[i] = allowedPaths[abs]
+	allowed := newFilePathSet(len(allowedPaths))
+	for p := range allowedPaths {
+		allowed.add(p)
 	}
+	allowedFileIdx := allowed.fileTableMatches(columns.Files)
 
 	return columns.FilterRows(func(row int) bool {
 		return allowedFileIdx[columns.FileIdx[row]]
@@ -1155,4 +1148,47 @@ func radixSortOrder(order, scratch []int, passes int, key func(int) uint32) {
 	if !inOrder {
 		copy(order, src)
 	}
+}
+
+// filePathSet holds paths by the file they name: as spelled and resolved
+// against the working directory. The one-shot CLI spells scanned files
+// absolutely, while the daemon enters the caller's directory and keeps a
+// relative scan path, and both share .krit's findings bundle and per-file
+// cache, so a replay can meet one file under both spellings (#1832).
+type filePathSet map[string]bool
+
+func newFilePathSet(capacity int) filePathSet {
+	return make(filePathSet, capacity*2)
+}
+
+func (s filePathSet) add(path string) {
+	if path == "" {
+		return
+	}
+	s[path] = true
+	s[absOrSelfPath(path)] = true
+}
+
+func (s filePathSet) has(path string) bool {
+	return s[path] || s[absOrSelfPath(path)]
+}
+
+// fileTableMatches reports, per entry of a FindingColumns file table, whether
+// the set holds that file; each distinct file is resolved once.
+func (s filePathSet) fileTableMatches(files []string) []bool {
+	out := make([]bool, len(files))
+	for i, f := range files {
+		out[i] = s.has(f)
+	}
+	return out
+}
+
+func absOrSelfPath(path string) string {
+	if filepath.IsAbs(path) {
+		return filepath.Clean(path)
+	}
+	if abs, err := filepath.Abs(path); err == nil {
+		return abs
+	}
+	return path
 }

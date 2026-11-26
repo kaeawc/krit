@@ -126,7 +126,8 @@ declaration could shadow them:
 - `AvoidUsingNotNullOperator` reports every Kotlin `!!`, at the operator. It differs from detekt's
   `UnsafeCallOnNullableType`, which needs type information and skips some receivers, so it is a separate rule.
 - `ExceptionMessage` reports kotlin's `check`, `checkNotNull`, `require` and `requireNotNull` without a `lazyMessage`
-  (trailing, positional or named), outside test sources.
+  (trailing, positional or named), outside test sources. A call through an import alias (`import kotlin.require as req`)
+  is not checked.
 - `NullableConcurrentHashMap` reports a nullable key or value type argument of a `java.util.concurrent.ConcurrentHashMap`
   variable type or constructor call; in Java, a type argument annotated `@…Nullable`.
 - `GuavaPreconditionsUsedInKotlin` reports Kotlin calls into `com.google.common.base.Preconditions`. Lint's quick fix,

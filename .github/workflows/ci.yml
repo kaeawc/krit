@@ -11,6 +11,14 @@ permissions:
   checks: write
   security-events: write
 
+# A new push to a pull request cancels that PR's older CI run: with ~30
+# parallel PRs, superseded runs held runners for an hour while main's runs
+# queued behind them. Pushes to main are keyed by commit, so every main
+# commit keeps its own run (and its regression signal).
+concurrency:
+  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   build-verify:
     runs-on: ubuntu-latest

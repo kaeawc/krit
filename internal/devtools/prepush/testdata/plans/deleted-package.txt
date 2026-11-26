@@ -1,0 +1,10 @@
+# A deleted package's directory is gone: build and vet still run, but there is
+# no package to lint or test.
+internal/no-such-package/gone.go
+---
+merge
+gofmt
+build
+vet
+lint
+test 

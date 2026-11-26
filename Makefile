@@ -1,4 +1,4 @@
-.PHONY: build test vet lint lint-rules fix schema clean bench integration integration-ci playground ci regression daemon-verify corpus-snapshot corpus-precision corpus-bench fir-validate fir-jar test-fanotify all install install-completions watch
+.PHONY: build test vet lint lint-rules fix schema clean bench integration integration-ci playground ci regression daemon-verify corpus-snapshot corpus-precision corpus-bench fir-validate fir-jar test-fanotify all install install-completions watch prepush hooks
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS = -s -w -X main.version=$(VERSION)
@@ -18,6 +18,15 @@ fir-jar:
 
 vet:
 	go vet ./...
+
+# prepush runs the fast local mirror of CI over the files this branch changes
+# (see scripts/pre-push.sh). `make hooks` installs it as the git pre-push hook.
+prepush:
+	bash scripts/pre-push.sh
+
+hooks:
+	git config core.hooksPath .githooks
+	@echo "Installed .githooks (pre-commit, pre-push). Bypass once with git push --no-verify."
 
 # lint-rules enforces static gates against the rules package (all run
 # inside TestRulesPackageHasNoCapabilityDrift via the shared Analyze pass):

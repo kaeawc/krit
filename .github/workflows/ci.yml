@@ -31,6 +31,11 @@ jobs:
         run: make lint-rules
       - name: Oracle filter fingerprint gate
         run: go run ./internal/devtools/oraclefpcheck
+      # The pre-push hook (scripts/pre-push.sh) runs the same check.
+      - name: Config schema is fresh
+        run: |
+          ./krit --generate-schema | diff -u schemas/krit-config.schema.json - \
+            || { echo "::error::schemas/krit-config.schema.json is stale; run make schema and commit it"; exit 1; }
 
   # Cross-vet the whole tree (including test files) for Windows so untagged
   # Unix-only syscalls (Flock, Stat_t, Setsid, ...) fail CI instead of

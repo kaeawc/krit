@@ -1,0 +1,5 @@
+src/com/example/Cast.kt:13:13: ContextCastToActivity: LocalContext should not be cast to Activity, use LocalActivity instead
+src/com/example/Cast.kt:14:13: ContextCastToActivity: LocalContext should not be cast to Activity, use LocalActivity instead
+src/com/example/Cast.kt:15:13: ContextCastToActivity: LocalContext should not be cast to Activity, use LocalActivity instead
+src/com/example/Cast.kt:16:13: ContextCastToActivity: LocalContext should not be cast to Activity, use LocalActivity instead
+src/com/example/Cast.kt:18:13: ContextCastToActivity: LocalContext should not be cast to Activity, use LocalActivity instead

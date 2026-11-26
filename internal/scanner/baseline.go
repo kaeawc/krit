@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/fsutil"
@@ -269,8 +270,9 @@ func CollectBaselineIDs(columns *FindingColumns, basePath string) []string {
 	}
 	ids := make([]string, 0, columns.Len())
 	seen := make(map[string]bool, columns.Len())
+	namer := newBaselineIDs(basePath)
 	for i := 0; i < columns.Len(); i++ {
-		id := BaselineIDAt(columns, i, "", basePath)
+		id := namer.id(columns.FileAt(i), columns.RuleAt(i), columns.MessageAt(i), "")
 		if seen[id] {
 			continue
 		}
@@ -329,18 +331,16 @@ func FilterColumnsByBaseline(columns *FindingColumns, baseline *Baseline, basePa
 			budget[k] = v
 		}
 	}
+	namer, byName := newBaselineIDs(basePath), newBaselineIDs("")
 	return columns.FilterRows(func(row int) bool {
-		id := BaselineIDAt(columns, row, "", basePath)
-		if baseline.Contains(id) {
+		file, rule, message := columns.FileAt(row), columns.RuleAt(row), columns.MessageAt(row)
+		if baseline.Contains(namer.id(file, rule, message, "")) {
 			return false
 		}
-		if basePath != "" {
-			idFilenameOnly := BaselineIDFilenameOnlyAt(columns, row, "")
-			if baseline.Contains(idFilenameOnly) {
-				return false
-			}
+		if basePath != "" && baseline.Contains(byName.id(file, rule, message, "")) {
+			return false
 		}
-		if baselineMatchesRuleAlias(columns, row, baseline, basePath) {
+		if baselineMatchesRuleAlias(columns, row, baseline, namer, byName) {
 			return false
 		}
 		if budget != nil {
@@ -360,16 +360,16 @@ func FilterColumnsByBaseline(columns *FindingColumns, baseline *Baseline, basePa
 var BaselineRuleAliases func(rule string) []string
 
 // baselineMatchesRuleAlias reports whether the baseline holds the row's finding under one of its rule's former IDs.
-func baselineMatchesRuleAlias(columns *FindingColumns, row int, baseline *Baseline, basePath string) bool {
+func baselineMatchesRuleAlias(columns *FindingColumns, row int, baseline *Baseline, namer, byName *baselineIDs) bool {
 	if BaselineRuleAliases == nil {
 		return false
 	}
 	file, message := columns.FileAt(row), columns.MessageAt(row)
 	for _, alias := range BaselineRuleAliases(columns.RuleAt(row)) {
-		if baseline.Contains(baselineIDParts(file, alias, message, "", basePath)) {
+		if baseline.Contains(namer.id(file, alias, message, "")) {
 			return true
 		}
-		if basePath != "" && baseline.Contains(baselineIDParts(file, alias, message, "", "")) {
+		if namer.base != "" && baseline.Contains(byName.id(file, alias, message, "")) {
 			return true
 		}
 	}
@@ -394,15 +394,83 @@ func FindingSignature(f Finding, lines []string) string {
 }
 
 func baselineIDParts(file, rule, message, signature, basePath string) string {
-	filename := filepath.Base(file)
+	return newBaselineIDs(basePath).id(file, rule, message, signature)
+}
+
+// baselineIDs builds baseline IDs for one base path. A finding's file is
+// named relative to the base, with both made absolute first: finding paths
+// are absolute on some code paths (the daemon, cached findings, FIR results,
+// manifests) and relative on others, and filepath.Rel fails when exactly one
+// side is absolute. Without that, the same finding got a repository-path ID
+// in one run mode and a base-name ID in another (#1600).
+type baselineIDs struct {
+	base     string // absolute, cleaned; "" names files by base name
+	realBase string // base with symlinks resolved, computed on first need
+	realOnce sync.Once
+	cwd      string
+	cwdOnce  sync.Once
+}
+
+func newBaselineIDs(basePath string) *baselineIDs {
+	b := &baselineIDs{}
 	if basePath != "" {
-		// Use path relative to basePath for multi-module disambiguation
-		if rel, err := filepath.Rel(basePath, file); err == nil {
-			filename = rel
+		if abs, err := filepath.Abs(basePath); err == nil {
+			b.base = abs
+		} else {
+			b.base = filepath.Clean(basePath)
 		}
 	}
+	return b
+}
+
+func (b *baselineIDs) id(file, rule, message, signature string) string {
 	if signature == "" {
 		signature = fmt.Sprintf("$%s$%s", rule, message)
 	}
-	return fmt.Sprintf("%s:%s:%s", rule, filename, signature)
+	return fmt.Sprintf("%s:%s:%s", rule, b.fileName(file), signature)
+}
+
+// fileName is file's path relative to the base, or its base name when no
+// base is set or the two cannot be related (different Windows volumes).
+func (b *baselineIDs) fileName(file string) string {
+	if b.base == "" {
+		return filepath.Base(file)
+	}
+	abs := file
+	if !filepath.IsAbs(abs) {
+		b.cwdOnce.Do(func() { b.cwd, _ = os.Getwd() })
+		abs = filepath.Join(b.cwd, file)
+	}
+	rel, err := filepath.Rel(b.base, abs)
+	if err == nil && escapesBase(rel) {
+		// One side may be spelled through a symlink (/var vs /private/var
+		// on macOS); compare the resolved paths before calling the file
+		// outside the base.
+		b.realOnce.Do(func() { b.realBase, _ = filepath.EvalSymlinks(b.base) })
+		if realFile, ferr := filepath.EvalSymlinks(abs); ferr == nil && b.realBase != "" {
+			if realRel, rerr := filepath.Rel(b.realBase, realFile); rerr == nil && !escapesBase(realRel) {
+				rel = realRel
+			}
+		}
+	}
+	if err != nil {
+		warnBaselineBaseName(file, b.base, err)
+		return filepath.Base(file)
+	}
+	return rel
+}
+
+func escapesBase(rel string) bool {
+	return rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+var baselineWarnOnce sync.Once
+
+// warnBaselineBaseName reports, once per process, a finding whose baseline
+// ID falls back to its base name because it cannot be named relative to the
+// base path.
+func warnBaselineBaseName(file, base string, err error) {
+	baselineWarnOnce.Do(func() {
+		fmt.Fprintf(os.Stderr, "warning: baseline IDs: %s is not relative to --base-path %s (%v); naming it by file name\n", file, base, err)
+	})
 }

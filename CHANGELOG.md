@@ -451,6 +451,12 @@ All notable changes to Krit will be documented in this file.
   another module depends on material3: as in Lint, material3 must be imported in the file or declared by the file's
   own module. `UnusedMaterialScaffoldPaddingParameter` and `UnusedMaterial3ScaffoldPaddingParameter` now resolve
   aliased `Scaffold` imports (#1728).
+- `CompileTimeConstant` resolves Kotlin calls into other source files through the type index: top-level functions
+  (explicit import, same package, wildcard import), members of the receiver's type and its supertypes (including
+  interface methods), operator calls (`a[i]`, `a[i] = v`, `a += v`, `invoke`), and overrides that add the annotation
+  to a supertype method declared elsewhere. The type index now records parameter annotations, and the rule's file
+  gate admits files that mention such a function, so projects that never use `@CompileTimeConstant` still skip it
+  (part of #1151, #1610).
 - `CompileTimeConstant` only runs on files that mention `CompileTimeConstant`. Every finding needs an annotated
   declaration in the same file, so other files cannot be reported; the rule spent about 2s on element-x-android and
   0.7s on okhttp finding nothing. Lint ports can opt into the same gate by declaring `fileMentions()`.

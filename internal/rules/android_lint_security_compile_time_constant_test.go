@@ -4,6 +4,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/typeinfer"
+
 	"github.com/kaeawc/krit/internal/rules/api"
 )
 
@@ -197,8 +200,9 @@ object Database {
 	}
 }
 
-// TestCompileTimeConstantSkipsFilesWithoutTheAnnotation pins the file gate: every finding needs a same-file
-// declaration annotated @CompileTimeConstant, so a file that never mentions it is not checked at all.
+// TestCompileTimeConstantSkipsFilesWithoutTheAnnotation pins the file gate: a file runs the rule when it mentions
+// @CompileTimeConstant, or (Kotlin) when it mentions a function declared elsewhere with an annotated parameter
+// (#1610). Any other file is not checked at all.
 func TestCompileTimeConstantSkipsFilesWithoutTheAnnotation(t *testing.T) {
 	var rule *api.Rule
 	for _, r := range api.Registry {
@@ -206,15 +210,25 @@ func TestCompileTimeConstantSkipsFilesWithoutTheAnnotation(t *testing.T) {
 			rule = r
 		}
 	}
-	if rule == nil || rule.FileGate == nil {
+	if rule == nil || rule.FileGateWithResolver == nil {
 		t.Fatal("CompileTimeConstant is not registered with a file gate")
 	}
 	without := parseInline(t, "package com.example\n\nobject Sql {\n    fun query(sql: String) {}\n}\n")
-	if rule.FileGate(without) {
+	if rule.FileGateWithResolver(without, nil) {
 		t.Error("the gate admits a file that does not mention CompileTimeConstant")
 	}
 	with := parseInline(t, "package com.example\n\nobject Sql {\n    fun query(@CompileTimeConstant sql: String) {}\n}\n")
-	if !rule.FileGate(with) {
+	if !rule.FileGateWithResolver(with, nil) {
 		t.Error("the gate rejects a file that uses @CompileTimeConstant")
+	}
+	caller := parseInline(t, "package com.other\n\nfun run(q: String) = com.example.Sql.query(q)\n")
+	unrelated := parseInline(t, "package com.other\n\nfun run(q: String) = println(q)\n")
+	resolver := typeinfer.NewResolver()
+	resolver.IndexFilesParallel([]*scanner.File{with, caller, unrelated}, 1)
+	if !rule.FileGateWithResolver(caller, resolver) {
+		t.Error("the gate rejects a file calling a function with a @CompileTimeConstant parameter declared elsewhere")
+	}
+	if rule.FileGateWithResolver(unrelated, resolver) {
+		t.Error("the gate admits a file that mentions no annotated function")
 	}
 }

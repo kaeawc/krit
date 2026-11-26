@@ -7,28 +7,26 @@ import (
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
-// CompileTimeConstantRule mirrors Lint's CompileTimeConstant (CompileTimeConstantDetector) for declarations in the
-// same file: a non-constant argument for a @CompileTimeConstant parameter, a non-constant assignment to a
-// @CompileTimeConstant variable, and the declaration shapes Lint rejects (non-final fields, public properties,
-// setters, receivers, overrides that add the annotation, function references, ++ and --).
+// CompileTimeConstantRule mirrors Lint's CompileTimeConstant (CompileTimeConstantDetector): a non-constant argument
+// for a @CompileTimeConstant parameter, a non-constant assignment to a @CompileTimeConstant variable, and the
+// declaration shapes Lint rejects (non-final fields, public properties, setters, receivers, overrides that add the
+// annotation, function references, ++ and --). Same-file declarations are read from the AST; Kotlin callees,
+// operator functions and overridden methods in other source files come from the type index
+// (android_lint_security_compile_time_constant_index.go).
 type CompileTimeConstantRule struct {
 	FlatDispatchBase
 	AndroidRule
 }
 
-// Confidence reports a tier-2 (medium) base confidence: callees and referenced variables are resolved from
-// declarations in the file, and anything resolved elsewhere is not reported.
+// Confidence reports a tier-2 (medium) base confidence: callees and referenced variables are resolved from source
+// declarations, and anything only a library or the compiler could resolve is not reported.
 func (r *CompileTimeConstantRule) Confidence() float64 { return api.ConfidenceMedium }
-
-// fileMentions gates the rule to files that mention the annotation: every finding needs a declaration in the same
-// file annotated @CompileTimeConstant, matched by simple name.
-func (r *CompileTimeConstantRule) fileMentions() []string { return []string{"CompileTimeConstant"} }
 
 var compileTimeConstantNodeTypes = []string{
 	"call_expression", "method_invocation", "object_creation_expression", "callable_reference",
 	"assignment", "assignment_expression", "postfix_expression", "prefix_expression", "update_expression",
 	"property_declaration", "field_declaration", "class_parameter", "function_declaration", "method_declaration",
-	"setter",
+	"setter", "indexing_expression",
 }
 
 const (
@@ -48,14 +46,36 @@ const (
 
 func (r *CompileTimeConstantRule) check(ctx *api.Context) {
 	file, n := ctx.File, ctx.Idx
+	// Without the annotation in the file, only calls into other files can report (ctcFileGate let it run).
+	mentions := fileFactsCache().Mentions(file, ctcAnnotation)
 	switch file.FlatType(n) {
 	case "call_expression", "method_invocation", "object_creation_expression":
-		r.checkCall(ctx)
+		r.checkCall(ctx, mentions)
+		return
+	case "indexing_expression":
+		r.checkOperatorCall(ctx)
+		return
+	case "assignment":
+		r.checkOperatorCall(ctx)
+		if mentions {
+			r.checkAssignment(ctx)
+		}
+		return
+	}
+	if mentions {
+		r.checkDeclaration(ctx)
+	}
+}
+
+// checkDeclaration runs the checks that need a @CompileTimeConstant declaration in the file.
+func (r *CompileTimeConstantRule) checkDeclaration(ctx *api.Context) {
+	file, n := ctx.File, ctx.Idx
+	switch file.FlatType(n) {
 	case "callable_reference":
 		if fn := ctcReferencedFunction(file, n); fn != 0 && len(ctcAnnotatedParams(file, fn)) > 0 {
 			ctx.Emit(lintFindingAtNode(ctx, n, "", ctcReferenceMessage))
 		}
-	case "assignment", "assignment_expression":
+	case "assignment_expression":
 		r.checkAssignment(ctx)
 	case "postfix_expression", "prefix_expression", "update_expression":
 		text := strings.TrimSpace(file.FlatNodeText(n))
@@ -306,9 +326,15 @@ func (r *CompileTimeConstantRule) checkFunction(ctx *api.Context) {
 	if len(annotated) == 0 {
 		return
 	}
-	// An override that adds the annotation to a parameter of a same-file supertype method.
+	// An override that adds the annotation to a parameter of a supertype method, in this file or another.
+	var supers [][]ctcParam
 	for _, super := range ctcOverriddenMethods(file, fn) {
-		superParams := ctcParams(file, super)
+		supers = append(supers, ctcParams(file, super))
+	}
+	if ctcIsOverride(file, fn) {
+		supers = append(supers, ctcIndexedOverriddenParams(ctx, fn, len(params))...)
+	}
+	for _, superParams := range supers {
 		if len(superParams) != len(params) {
 			continue
 		}
@@ -321,18 +347,23 @@ func (r *CompileTimeConstantRule) checkFunction(ctx *api.Context) {
 	}
 }
 
+// ctcIsOverride reports `override` or `@Override` on fn.
+func ctcIsOverride(file *scanner.File, fn uint32) bool {
+	if file.FlatHasModifier(fn, "override") {
+		return true
+	}
+	for _, ann := range ctcAnnotationNodes(file, fn) {
+		if name, _ := ctcAnnotationTarget(file, ann); name == "Override" {
+			return true
+		}
+	}
+	return false
+}
+
 // ctcOverriddenMethods returns the same-file methods with the same name and arity in the supertypes of the class
 // declaring fn, when fn is an override.
 func ctcOverriddenMethods(file *scanner.File, fn uint32) []uint32 {
-	isOverride := file.FlatHasModifier(fn, "override")
-	if !isOverride {
-		for _, ann := range ctcAnnotationNodes(file, fn) {
-			if name, _ := ctcAnnotationTarget(file, ann); name == "Override" {
-				isOverride = true
-			}
-		}
-	}
-	if !isOverride {
+	if !ctcIsOverride(file, fn) {
 		return nil
 	}
 	owner := lintDeclarationOwner(file, fn)
@@ -366,32 +397,27 @@ func ctcOverriddenMethods(file *scanner.File, fn uint32) []uint32 {
 	return out
 }
 
-func (r *CompileTimeConstantRule) checkCall(ctx *api.Context) {
+func (r *CompileTimeConstantRule) checkCall(ctx *api.Context, mentions bool) {
 	file := ctx.File
 	call, ok := lintCallAt(file, ctx.Idx)
 	if !ok {
 		return
 	}
-	callee := ctcResolveCallee(file, call)
-	if callee == 0 {
+	idx := ctcIndex(ctx)
+	if !mentions && (idx == nil || !idx.HasFunctionWithAnnotatedParam(ctcAnnotation, call.Name) &&
+		!idx.HasFunctionWithAnnotatedParam(ctcAnnotation, "invoke")) {
 		return
 	}
-	params := ctcParams(file, callee)
+	var params []ctcParam
+	if callee := ctcResolveCallee(file, call); callee != 0 {
+		params = ctcParams(file, callee)
+	} else if idx != nil {
+		params = ctcIndexedCallParams(ctx, idx, call)
+	}
 	if len(params) == 0 {
 		return
 	}
-	for i, arg := range call.Args {
-		if arg == 0 {
-			continue
-		}
-		p, ok := ctcParamForArgument(params, call, i)
-		if !ok || !p.annotated {
-			continue
-		}
-		if ctcConstness(file, arg, ctx.Idx, 0) == ctcNotConstant {
-			ctx.Emit(lintFindingAtNode(ctx, lintSkipParensJS(file, arg), "", ctcArgumentMessage))
-		}
-	}
+	ctcCheckArguments(ctx, call, params)
 }
 
 // ctcParamForArgument maps argument index of the call to its declared parameter.
@@ -499,15 +525,7 @@ func ctcPickByArity(file *scanner.File, candidates []uint32, call lintCall) uint
 		if file.FlatType(c) == "class_declaration" && len(params) == 0 {
 			continue
 		}
-		required, vararg := 0, false
-		for _, p := range params {
-			if p.vararg {
-				vararg = true
-			} else if !p.defaulted {
-				required++
-			}
-		}
-		if len(call.Args) < required || (!vararg && len(call.Args) > len(params)) {
+		if !ctcArityFits(params, len(call.Args)) {
 			continue
 		}
 		match = c

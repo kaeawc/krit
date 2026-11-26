@@ -83,7 +83,7 @@ func registerLintCallRule(rule AndroidRule, impl any, confidence float64, check 
 // registerLintRule registers a Lint port over Kotlin and Java nodes of the given types. An impl declaring
 // fileMentions() only runs on files whose text contains every listed string.
 func registerLintRule(rule AndroidRule, impl any, confidence float64, check func(*api.Context), nodeTypes []string,
-	needs api.Capabilities, javaFacts *api.JavaFactProfile) {
+	needs api.Capabilities, javaFacts *api.JavaFactProfile) *api.Rule {
 	// Lint does not analyze test sources unless checkTestSources is on.
 	inner := check
 	if !lintRulesScanningTests[rule.RuleName] {
@@ -94,13 +94,15 @@ func registerLintRule(rule AndroidRule, impl any, confidence float64, check func
 			inner(ctx)
 		}
 	}
-	api.Register(&api.Rule{
+	r := &api.Rule{
 		ID: rule.RuleName, Category: rule.RuleSetName, Description: rule.Description(), Sev: api.Severity(rule.Sev),
 		NodeTypes: nodeTypes, Needs: needs, JavaFacts: javaFacts,
 		Languages:  []scanner.Language{scanner.LangKotlin, scanner.LangJava},
 		Confidence: confidence, Implementation: impl, Check: check, FileGate: lintFileMentionsGate(impl),
 		NeedsLibraryFacts: true,
-	})
+	}
+	api.Register(r)
+	return r
 }
 
 // lintFileMentionsGate returns the FileGate for an impl declaring fileMentions(), or nil.

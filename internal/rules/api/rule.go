@@ -826,6 +826,13 @@ type Rule struct {
 	// the source. Only per-file node and line rules honor it.
 	FileGate func(file *scanner.File) bool
 
+	// FileGateWithResolver is FileGate for rules whose cheapest proof
+	// that a file cannot report needs project facts from the type
+	// resolver (nil when the dispatcher has none), such as whether the
+	// file mentions any function declared elsewhere with an annotated
+	// parameter. When set it is used instead of FileGate.
+	FileGateWithResolver func(file *scanner.File, resolver typeinfer.TypeResolver) bool
+
 	// Languages declares which source languages this rule applies to.
 	// When nil the effective default is computed from Needs:
 	//   NeedsManifest   → [LangXML]

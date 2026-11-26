@@ -1775,7 +1775,7 @@
           }
         },
         "CompileTimeConstant": {
-          "description": "Compile-time constant required [precision: type-aware] [noisiness: normal] [capabilities: resolver]\nCaveat: Callees declared in other files resolve only for Kotlin callers and Kotlin source declarations (top-level functions, members of the receiver's type and its supertypes, and operator functions); Java methods in other files and library callees are not resolved (#1767).",
+          "description": "Compile-time constant required [precision: project-structure-aware] [noisiness: normal] [capabilities: cross-file, resolver]\nCaveat: Runs in the cross-file phase, so editor (LSP) and MCP single-file analysis do not report it.\nCaveat: Callees declared in other files resolve only for Kotlin callers and Kotlin source declarations (top-level functions, members of the receiver's type and its supertypes, and operator functions); Java methods in other files and library callees are not resolved (#1767).",
           "type": "object",
           "additionalProperties": false,
           "properties": {

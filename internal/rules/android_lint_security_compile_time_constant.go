@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"sort"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/rules/api"
@@ -22,11 +23,36 @@ type CompileTimeConstantRule struct {
 // declarations, and anything only a library or the compiler could resolve is not reported.
 func (r *CompileTimeConstantRule) Confidence() float64 { return api.ConfidenceMedium }
 
-var compileTimeConstantNodeTypes = []string{
+// compileTimeConstantNodeTypes are the nodes checkProject hands to check.
+var compileTimeConstantNodeTypes = lintStringSet(
 	"call_expression", "method_invocation", "object_creation_expression", "callable_reference",
 	"assignment", "assignment_expression", "postfix_expression", "prefix_expression", "update_expression",
 	"property_declaration", "field_declaration", "class_parameter", "function_declaration", "method_declaration",
 	"setter", "indexing_expression",
+)
+
+// checkProject runs the per-node checks over every non-test source file the gate admits: files that mention the
+// annotation, and Kotlin files that mention a function declared elsewhere with an annotated parameter.
+func (r *CompileTimeConstantRule) checkProject(ctx *api.Context) {
+	files := ctx.ParsedFiles
+	if ctx.CodeIndex != nil && len(ctx.CodeIndex.Files) > 0 {
+		files = ctx.CodeIndex.Files
+	}
+	files = append([]*scanner.File(nil), files...)
+	sort.SliceStable(files, func(i, j int) bool { return files[i].Path < files[j].Path })
+	for _, file := range files {
+		if file == nil || file.FlatTree == nil || scanner.IsTestFile(file.Path) || !ctcFileGate(file, ctx.Resolver) {
+			continue
+		}
+		sub := *ctx
+		sub.File = file
+		file.FlatWalkAllNodes(0, func(n uint32) {
+			if compileTimeConstantNodeTypes[file.FlatType(n)] {
+				sub.Idx = n
+				r.check(&sub)
+			}
+		})
+	}
 }
 
 const (

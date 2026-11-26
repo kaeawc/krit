@@ -3,11 +3,6 @@ package rules_test
 import (
 	"strings"
 	"testing"
-
-	"github.com/kaeawc/krit/internal/scanner"
-	"github.com/kaeawc/krit/internal/typeinfer"
-
-	"github.com/kaeawc/krit/internal/rules/api"
 )
 
 // Expected positions come from running Android Lint 32.4.1 on the same sources, with errorprone's
@@ -200,35 +195,17 @@ object Database {
 	}
 }
 
-// TestCompileTimeConstantSkipsFilesWithoutTheAnnotation pins the file gate: a file runs the rule when it mentions
+// TestCompileTimeConstantSkipsFilesWithoutTheAnnotation pins the file gate: a file is checked when it mentions
 // @CompileTimeConstant, or (Kotlin) when it mentions a function declared elsewhere with an annotated parameter
-// (#1610). Any other file is not checked at all.
+// (#1610). A call in any other file is not checked, even when it would resolve to an annotated callee.
 func TestCompileTimeConstantSkipsFilesWithoutTheAnnotation(t *testing.T) {
-	var rule *api.Rule
-	for _, r := range api.Registry {
-		if r.ID == "CompileTimeConstant" {
-			rule = r
-		}
+	decl := parseInline(t, "package com.example\n\nobject Sql {\n    fun query(@CompileTimeConstant sql: String) {}\n}\n")
+	caller := parseInline(t, "package com.other\n\nimport com.example.Sql\n\nfun run(q: String) = Sql.query(q)\n")
+	if got := runCTCProject(t, caller.Path, decl, caller); len(got) != 1 {
+		t.Fatalf("expected the call through Sql.query to be checked, got %v", got)
 	}
-	if rule == nil || rule.FileGateWithResolver == nil {
-		t.Fatal("CompileTimeConstant is not registered with a file gate")
-	}
-	without := parseInline(t, "package com.example\n\nobject Sql {\n    fun query(sql: String) {}\n}\n")
-	if rule.FileGateWithResolver(without, nil) {
-		t.Error("the gate admits a file that does not mention CompileTimeConstant")
-	}
-	with := parseInline(t, "package com.example\n\nobject Sql {\n    fun query(@CompileTimeConstant sql: String) {}\n}\n")
-	if !rule.FileGateWithResolver(with, nil) {
-		t.Error("the gate rejects a file that uses @CompileTimeConstant")
-	}
-	caller := parseInline(t, "package com.other\n\nfun run(q: String) = com.example.Sql.query(q)\n")
-	unrelated := parseInline(t, "package com.other\n\nfun run(q: String) = println(q)\n")
-	resolver := typeinfer.NewResolver()
-	resolver.IndexFilesParallel([]*scanner.File{with, caller, unrelated}, 1)
-	if !rule.FileGateWithResolver(caller, resolver) {
-		t.Error("the gate rejects a file calling a function with a @CompileTimeConstant parameter declared elsewhere")
-	}
-	if rule.FileGateWithResolver(unrelated, resolver) {
-		t.Error("the gate admits a file that mentions no annotated function")
+	// Without the declaring file in the index, nothing names an annotated function: the caller is not checked.
+	if got := runCTCProject(t, caller.Path, caller); len(got) != 0 {
+		t.Fatalf("expected no findings without the annotated declaration, got %v", got)
 	}
 }

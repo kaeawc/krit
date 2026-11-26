@@ -454,9 +454,11 @@ All notable changes to Krit will be documented in this file.
 - `CompileTimeConstant` resolves Kotlin calls into other source files through the type index: top-level functions
   (explicit import, same package, wildcard import), members of the receiver's type and its supertypes (including
   interface methods), operator calls (`a[i]`, `a[i] = v`, `a += v`, `invoke`), and overrides that add the annotation
-  to a supertype method declared elsewhere. The type index now records parameter annotations, and the rule's file
-  gate admits files that mention such a function, so projects that never use `@CompileTimeConstant` still skip it
-  (part of #1151, #1610).
+  to a supertype method declared elsewhere. Inherited members are tried before imports, and calls under an
+  extension receiver or a `with`/`apply`/`run` block abstain. The type index now records parameter annotations. The
+  rule moves to the cross-file phase, whose findings cache is keyed by every file's content, so an edit to the
+  declaring file changes warm results; editor (LSP) and MCP single-file analysis no longer run it. Files that mention
+  neither the annotation nor such a function are skipped (part of #1151, #1610).
 - `CompileTimeConstant` only runs on files that mention `CompileTimeConstant`. Every finding needs an annotated
   declaration in the same file, so other files cannot be reported; the rule spent about 2s on element-x-android and
   0.7s on okhttp finding nothing. Lint ports can opt into the same gate by declaring `fileMentions()`.

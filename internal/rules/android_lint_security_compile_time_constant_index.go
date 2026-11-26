@@ -67,14 +67,20 @@ func ctcIndex(ctx *api.Context) typeinfer.ParamAnnotationIndex {
 func ctcIndexedCallParams(ctx *api.Context, idx typeinfer.ParamAnnotationIndex, call lintCall) []ctcParam {
 	file := ctx.File
 	if call.ReceiverNode == 0 {
+		// Kotlin resolves implicit-receiver members before imported or same-package functions; their members are
+		// unknown here, so abstain (#1769 review).
+		if ctcUnderImplicitReceiver(file, call.Idx) {
+			return nil
+		}
 		if idx.HasFunctionWithAnnotatedParam(ctcAnnotation, call.Name) {
+			// Members inherited from supertypes in other files come first; one that exists decides the call.
+			if owner := lintDeclarationOwner(file, call.Idx); owner != 0 {
+				if members := ctcSupertypeMembers(ctx, file, owner, call.Name); len(members) > 0 {
+					return ctcPickParamsByArity(members, call)
+				}
+			}
 			if p := ctcPickParamsByArity(ctcTopLevelCandidates(ctx, idx, call), call); p != nil {
 				return p
-			}
-			if owner := lintDeclarationOwner(file, call.Idx); owner != 0 {
-				if p := ctcPickParamsByArity(ctcSupertypeMembers(ctx, file, owner, call.Name), call); p != nil {
-					return p
-				}
 			}
 		}
 		if idx.HasFunctionWithAnnotatedParam(ctcAnnotation, "invoke") {
@@ -88,6 +94,27 @@ func ctcIndexedCallParams(ctx *api.Context, idx typeinfer.ParamAnnotationIndex, 
 		return nil
 	}
 	return ctcPickParamsByArity(ctcMembers(ctx.Resolver, ctx.Resolver.ResolveFlatNode(call.ReceiverNode, file), call.Name), call)
+}
+
+// ctcUnderImplicitReceiver reports whether node sits in an extension function or in a lambda of with, apply or
+// run, whose implicit receiver's members Kotlin resolves before top-level functions.
+func ctcUnderImplicitReceiver(file *scanner.File, node uint32) bool {
+	for p, ok := file.FlatParent(node); ok; p, ok = file.FlatParent(p) {
+		switch file.FlatType(p) {
+		case "function_declaration":
+			if flatFunctionReceiverTypeName(file, p) != "" {
+				return true
+			}
+		case "lambda_literal":
+			if arg, ok := acrLambdaArgumentOf(file, p); ok {
+				switch name, _, _ := acrCallCallee(file, arg.Call); name {
+				case "with", "apply", "run":
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 // ctcTopLevelCandidates returns the indexed top-level functions a receiverless call can name, from the highest

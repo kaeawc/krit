@@ -6,7 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kaeawc/krit/internal/rules"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/typeinfer"
@@ -18,13 +17,29 @@ func runCTCAcrossFiles(t *testing.T, decl, caller string) []scanner.Finding {
 	t.Helper()
 	declFile := parseInline(t, decl)
 	callerFile := parseInline(t, caller)
+	return runCTCProject(t, callerFile.Path, declFile, callerFile)
+}
+
+// runCTCProject runs CompileTimeConstant's cross-file check over files with a shared resolver and code index and
+// returns the findings reported in path.
+func runCTCProject(t *testing.T, path string, files ...*scanner.File) []scanner.Finding {
+	t.Helper()
 	resolver := typeinfer.NewResolver()
-	resolver.IndexFilesParallel([]*scanner.File{declFile, callerFile}, 1)
+	resolver.IndexFilesParallel(files, 1)
 	for _, r := range api.Registry {
-		if r.ID == "CompileTimeConstant" {
-			cols := rules.NewDispatcher([]*api.Rule{r}, resolver).Run(callerFile)
-			return cols.Findings()
+		if r.ID != "CompileTimeConstant" {
+			continue
 		}
+		collector := scanner.NewFindingCollector(0)
+		r.Check(&api.Context{CodeIndex: scanner.BuildIndex(files, 1), Resolver: resolver, Collector: collector, Rule: r})
+		var out []scanner.Finding
+		for _, f := range collector.Columns().Findings() {
+			if f.File == path {
+				out = append(out, f)
+			}
+		}
+		sort.SliceStable(out, func(i, j int) bool { return out[i].Line < out[j].Line })
+		return out
 	}
 	t.Fatal("CompileTimeConstant not registered")
 	return nil
@@ -48,6 +63,8 @@ class Acc { operator fun plusAssign(@CompileTimeConstant s: String) {} }
 class Fn { operator fun invoke(@CompileTimeConstant s: String) {} }
 object Logger { fun tag(@CompileTimeConstant t: String) {} }
 interface Plain { fun take(k: String) }
+open class PlainBase { fun log(m: String) {} }
+class Local
 `
 
 // #1610: calls into other files, operator overloads and interface methods
@@ -148,6 +165,25 @@ class Screen {
 `)
 	if len(findings) != 0 {
 		t.Fatalf("expected no findings, got %v", findings)
+	}
+}
+
+// #1769 review: members, inherited members and implicit receivers resolve before imported top-level functions.
+func TestCompileTimeConstantAcrossFilesMembersBeforeImports(t *testing.T) {
+	findings := runCTCAcrossFiles(t, ctcCrossFileDecl, `package app
+
+import lib.Local
+import lib.PlainBase
+import lib.log
+
+class Child : PlainBase() { fun g(d: String) { log(d) } }
+fun Local.x(d: String) { log(d) }
+fun y(l: Local, d: String) { with(l) { log(d) } }
+fun z(p: Local, d: String) { p.apply { log(d) } }
+fun reported(d: String) { log(d) }
+`)
+	if len(findings) != 1 || findings[0].Line != 11 {
+		t.Fatalf("expected only the plain call on line 11, got %v", findings)
 	}
 }
 

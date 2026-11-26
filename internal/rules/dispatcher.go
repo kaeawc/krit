@@ -213,7 +213,7 @@ func NewDispatcher(rules []*api.Rule, resolver typeinfer.TypeResolver) *Dispatch
 
 	for _, group := range [][]*api.Rule{d.nodeDispatchRules, d.allNodeRules, d.lineRules} {
 		for _, r := range group {
-			if r.FileGate != nil || r.FileGateWithResolver != nil {
+			if r.FileGate != nil {
 				d.fileGatedRules = append(d.fileGatedRules, r)
 			}
 		}
@@ -535,7 +535,7 @@ func (d *Dispatcher) RunColumnsWithStats(file *scanner.File) (scanner.FindingCol
 				break
 			}
 		}
-		if running && !d.fileGateAllows(r, file) {
+		if running && !r.FileGate(file) {
 			for _, slot := range slots {
 				excluded[slot] = true
 			}
@@ -805,15 +805,6 @@ type fallbackAware interface {
 // hint behaviour: whatever the caller handed NewDispatcher is passed
 // through untouched. Rules that declare neither NeedsResolver nor
 // OptionalResolver keep their ctx.Resolver nil as before.
-// fileGateAllows evaluates a gated rule's FileGateWithResolver, or its FileGate.
-func (d *Dispatcher) fileGateAllows(r *api.Rule, file *scanner.File) bool {
-	if r.FileGateWithResolver != nil {
-		resolver, _ := d.resolveForRule(r)
-		return r.FileGateWithResolver(file, resolver)
-	}
-	return r.FileGate(file)
-}
-
 func (d *Dispatcher) resolveForRule(r *api.Rule) (typeinfer.TypeResolver, bool) {
 	base := d.typeResolver
 	hint := r.TypeInfo

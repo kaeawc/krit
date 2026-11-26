@@ -42,6 +42,12 @@ All notable changes to Krit will be documented in this file.
   (`internal/rules/testdata/slack_lint/dagger/`), except that a finding is anchored at the declaration rather than at a
   KDoc or comment before it. The detector's `BindsWrongParameterCount` and `RedundantBinds` are now Lint aliases of
   `BindsMismatchedArity` and `BindsReturnTypeMatchesParam` (#1359, #1360, #1361, #1362, #1363, #1364, #1365).
+- `WearableConfigurationAction`, `WearableActionDuplicate`, `WatchFaceForAndroidX`, `WearBackNavigation` and
+  `WearMaterialTheme`, ports of Android Lint 32.4.1's Wear OS watch face configuration, swipe-to-dismiss and
+  Compose `MaterialTheme` checks under their Lint IDs, severities and messages. Their findings match Lint on 22
+  recorded project fixtures, `tools:ignore` and `@file:Suppress` included. `scripts/lint-parity-record.sh` records
+  what Lint (AGP 9.4.1) reports for a fixture module, and `TestAndroidLintParityFixtures` replays krit on every
+  recorded fixture (#1291, #1292, #1293, #1294, #1295).
 - FIR sessions resolve Java sources: every `.java` file under the source dirs, generated source dirs and unpacked
   srcjars (same-module Java, view binding, BuildConfig, Wire-Java, kapt/KSP Java output) is given to K2 as a Java
   source root, so Kotlin that uses them is no longer gated `Unresolved reference` on an unbuilt checkout. The Java is

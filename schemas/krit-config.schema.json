@@ -14181,6 +14181,39 @@
             }
           }
         },
+        "WatchFaceForAndroidX": {
+          "description": "AndroidX watch faces must use action `WATCH_FACE_EDITOR` [precision: project-structure-aware] [noisiness: normal] [capabilities: manifest]\nCaveat: The androidx.wear.watchface:watchface dependency is read from the build scripts and version catalog, not the resolved classpath, and counts for every module of the scan.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable WatchFaceForAndroidX (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "WatchFaceFormatDeclaresHasNoCode": {
           "description": "The `hasCode` attribute should be set to `false` [precision: project-structure-aware] [noisiness: normal] [capabilities: manifest]",
           "type": "object",
@@ -14254,6 +14287,72 @@
           "properties": {
             "active": {
               "description": "Enable WatchFaceFormatMissingVersion (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "WearBackNavigation": {
+          "description": "Wear: Disabling Back navigation [precision: project-structure-aware] [noisiness: normal] [capabilities: resources]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable WearBackNavigation (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "WearMaterialTheme": {
+          "description": "Using not non-Wear `MaterialTheme` in a Wear OS project [precision: project-structure-aware] [noisiness: normal] [capabilities: concurrent, manifest, parsed-files]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable WearMaterialTheme (default: true).",
               "type": "boolean",
               "default": true
             },
@@ -14412,6 +14511,39 @@
             }
           }
         },
+        "WearableActionDuplicate": {
+          "description": "Duplicate watch face configuration activities found [precision: project-structure-aware] [noisiness: normal] [capabilities: manifest]\nCaveat: Each AndroidManifest.xml is checked on its own; Lint checks the merged manifest, so an activity or metadata declared only in a variant or library manifest is not seen.\nCaveat: The androidx.wear.watchface:watchface dependency is read from the build scripts and version catalog; the check is skipped only when they prove it absent.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable WearableActionDuplicate (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "WearableBindListener": {
           "description": "Usage of Android Wear BIND_LISTENER is deprecated [precision: project-structure-aware] [noisiness: normal] [capabilities: manifest]",
           "type": "object",
@@ -14419,6 +14551,39 @@
           "properties": {
             "active": {
               "description": "Enable WearableBindListener (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "WearableConfigurationAction": {
+          "description": "Wear configuration action metadata must match an activity [precision: project-structure-aware] [noisiness: normal] [capabilities: manifest]\nCaveat: Each AndroidManifest.xml is checked on its own; Lint checks the merged manifest, so an activity or metadata declared only in a variant or library manifest is not seen.\nCaveat: The androidx.wear.watchface:watchface dependency is read from the build scripts and version catalog; the check is skipped only when they prove it absent.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable WearableConfigurationAction (default: true).",
               "type": "boolean",
               "default": true
             },

@@ -1,0 +1,13 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-feature android:name="android.hardware.type.watch" />
+    <application android:label="Watch" android:hasCode="false">
+        <property
+            android:name="com.google.wear.watchface.format.version"
+            android:value="1" />
+        <service android:name=".MyWatchFaceService" android:exported="true">
+            <meta-data
+                android:name="com.google.android.wearable.watchface.wearableConfigurationAction"
+                android:value="com.example.watchface.CONFIG_DIGITAL" />
+        </service>
+    </application>
+</manifest>

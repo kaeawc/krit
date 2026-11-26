@@ -81,10 +81,11 @@ sources; run those as a whole-repository `bazel run @krit//:krit` step (see
 [Sharding rules by scope](hermetic-builds.md#sharding-rules-by-scope)).
 Reported paths are relative to the workspace root.
 
-krit skips files under test-data and test-resource directories
-(`testdata/`, `testData/`, `test-data/`, `src/test/resources/`, ...). A
-`krit_test` whose sources are all skipped fails instead of passing without
-checking anything. `krit_test` is a shell script, so it runs on Linux and
+`krit_test` names its sources explicitly, so krit analyzes them even under
+test-data and test-resource directories (`testdata/`, `src/test/resources/`,
+...); it still skips files in tool and cache directories such as `.gradle/`,
+`.idea/` and `.kotlin/`. A `krit_test` whose sources are all skipped fails
+instead of passing without checking anything. `krit_test` is a shell script, so it runs on Linux and
 macOS, not Windows.
 
 #### Type-aware krit_test

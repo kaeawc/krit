@@ -1,0 +1,184 @@
+package rules_test
+
+import (
+	"strings"
+	"testing"
+)
+
+// The parity case (testdata/slack_lint/denylist) runs without a resolver; these cover what the source resolver
+// adds and the lookalikes the case does not.
+
+// A View subclass declared in source inherits View.setOnClickListener; a local class named View does not.
+func TestDenyListedApiViewSubtypeThroughResolver(t *testing.T) {
+	const src = `package com.example
+
+import android.content.Context
+import android.view.View
+
+class MyButton(context: Context) : View(context)
+
+fun f(button: MyButton) {
+  button.setOnClickListener(null)
+}
+`
+	if got := runRuleWithSourceResolver(t, "DenyListedApi", src); len(got) != 1 {
+		t.Errorf("want one finding on a View subclass, got %v", got)
+	}
+	const lookalike = `package com.example
+
+class View {
+  fun setOnClickListener(listener: Any?) {}
+}
+
+fun f(view: View) {
+  view.setOnClickListener(null)
+}
+`
+	if got := runRuleWithSourceResolver(t, "DenyListedApi", lookalike); len(got) != 0 {
+		t.Errorf("want no finding on a local View class, got %v", got)
+	}
+}
+
+// RxJava 3 subjects inherit the base type's blocking methods, with that type's message.
+func TestDenyListedBlockingApiSubjectUsesBaseTypeMessage(t *testing.T) {
+	const src = `package com.example
+
+import io.reactivex.rxjava3.subjects.CompletableSubject
+import io.reactivex.rxjava3.subjects.SingleSubject
+
+fun f(single: SingleSubject<Int>, completable: CompletableSubject) {
+  single.blockingGet()
+  completable.blockingAwait()
+}
+`
+	got := runRuleByName(t, "DenyListedBlockingApi", src)
+	if len(got) != 2 {
+		t.Fatalf("want two findings, got %v", got)
+	}
+	if !strings.Contains(got[0].Message, "return this Single,") || !strings.Contains(got[1].Message, "return this Completable, a Disposable to grant control to the caller, or") {
+		t.Errorf("want the Single and Completable messages, got %q and %q", got[0].Message, got[1].Message)
+	}
+}
+
+// A receiver whose type the source does not show abstains, and so does an RxJava 2 type.
+func TestDenyListedBlockingApiNeedsRxJava3Receiver(t *testing.T) {
+	const src = `package com.example
+
+import io.reactivex.Single
+import io.reactivex.rxjava3.core.Observable
+
+fun f(old: Single<Int>, obs: Observable<Int>) {
+  old.blockingGet()
+  load().blockingGet()
+  obs.blockingFirst()
+}
+`
+	if got := runRuleByName(t, "DenyListedBlockingApi", src); len(got) != 1 || got[0].Line != 9 {
+		t.Errorf("want one finding, on obs.blockingFirst(), got %v", got)
+	}
+}
+
+// Kotlin resolves a same-scope function ahead of kotlin.runCatching and an imported top-level function.
+func TestDenyListedApiShadowedFunctions(t *testing.T) {
+	for _, tc := range []struct {
+		name, src string
+		want      int
+	}{
+		{"stdlib runCatching", "fun f() {\n  runCatching { 1 }\n}\n", 1},
+		{"member runCatching", "class C {\n  fun <T> runCatching(block: () -> T) = block()\n  fun f() {\n    runCatching { 1 }\n  }\n}\n", 0},
+		{"local runCatching", "fun f() {\n  fun <T> runCatching(block: () -> T) = block()\n  runCatching { 1 }\n}\n", 0},
+		{"rxSingle without an import", "fun <T> rxSingle(block: () -> T) = block()\n\nfun f() {\n  rxSingle { 1 }\n}\n", 0},
+		{"imported rxSingle", "import kotlinx.coroutines.rx3.rxSingle\n\nfun f() {\n  rxSingle { 1 }\n}\n", 1},
+		{"rxSingle with a dispatcher", "import kotlinx.coroutines.Dispatchers\nimport kotlinx.coroutines.rx3.rxSingle\n\nfun f() {\n  rxSingle(Dispatchers.IO) { 1 }\n}\n", 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := runRuleByName(t, "DenyListedApi", "package com.example\n\n"+tc.src); len(got) != tc.want {
+				t.Errorf("want %d findings, got %v", tc.want, got)
+			}
+		})
+	}
+}
+
+// Classes named like the listed ones but not imported from java.util or java.text are not them, in Kotlin or Java.
+func TestDenyListedApiLocalLookalikes(t *testing.T) {
+	const kotlin = `package com.example
+
+class Date {
+  val time = 0L
+  fun getTime() = time
+}
+
+object Calendar {
+  const val YEAR = 1
+  fun getInstance() = this
+}
+
+fun f() {
+  Date().time
+  Date().getTime()
+  Calendar.getInstance()
+  Calendar.YEAR
+}
+`
+	if got := runRuleByName(t, "DenyListedApi", kotlin); len(got) != 0 {
+		t.Errorf("Kotlin: want no finding, got %v", got)
+	}
+	const java = `package com.example;
+
+class Calendar {
+  static final int YEAR = 1;
+  static Calendar getInstance() { return new Calendar(); }
+}
+
+class LinkedList {}
+
+class J {
+  void f() {
+    Calendar.getInstance();
+    int y = Calendar.YEAR;
+    new LinkedList();
+  }
+}
+`
+	if got := runRuleByNameOnJava(t, "DenyListedApi", java); len(got) != 0 {
+		t.Errorf("Java: want no finding, got %v", got)
+	}
+}
+
+// Names in comments and strings are not references.
+func TestDenyListedApiIgnoresCommentsAndStrings(t *testing.T) {
+	const src = `package com.example
+
+import java.util.Calendar
+
+fun f(): String {
+  // Calendar.getInstance() and Calendar.YEAR
+  return "Calendar.getInstance() Calendar.YEAR"
+}
+`
+	if got := runRuleByName(t, "DenyListedApi", src); len(got) != 0 {
+		t.Errorf("want no finding, got %v", got)
+	}
+}
+
+// Lint matches the class that declares the resolved method: a Kotlin extension or scope function on a Date is not
+// one of Date's methods, while a DateFormat method called on a SimpleDateFormat is.
+func TestDenyListedApiOnlyDeclaredMembers(t *testing.T) {
+	const src = `package com.example
+
+import java.text.SimpleDateFormat
+import java.util.Date
+
+fun f(date: Date?, format: SimpleDateFormat) {
+  date?.let { it }
+  date?.also { }
+  format.format(date)
+  format.isLenient
+  format.javaClass
+}
+`
+	got := runRuleByName(t, "DenyListedApi", src)
+	if len(got) != 2 || got[0].Line != 9 || got[1].Line != 10 {
+		t.Errorf("want findings on format.format and format.isLenient only, got %v", got)
+	}
+}

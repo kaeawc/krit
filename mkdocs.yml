@@ -62,6 +62,7 @@ nav:
   - Hermetic and build-system runs: hermetic-builds.md
   - Kotlin scripts: kotlin-scripts.md
   - Rules: rules.md
+  - AndroidX Lint ports: androidx-lint-ports.md
   - Rule reference:
     - Categories: rules/categories.md
     - a11y: rules/a11y/index.md

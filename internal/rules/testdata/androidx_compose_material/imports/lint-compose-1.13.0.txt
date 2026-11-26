@@ -1,0 +1,7 @@
+src/com/example/JavaMixed.java:3:8: UsingMaterialAndMaterial3Libraries: Using a material import while also using the material3 library
+src/com/example/JavaMixed.java:4:8: UsingMaterialAndMaterial3Libraries: Using a material import while also using the material3 library
+src/com/example/JavaMixed.java:5:15: UsingMaterialAndMaterial3Libraries: Using a material import while also using the material3 library
+src/com/example/Mixed.kt:10:8: UsingMaterialAndMaterial3Libraries: Using a material import while also using the material3 library
+src/com/example/Mixed.kt:15:8: UsingMaterialAndMaterial3Libraries: Using a material import while also using the material3 library
+src/com/example/Mixed.kt:3:8: UsingMaterialAndMaterial3Libraries: Using a material import while also using the material3 library
+src/com/example/Mixed.kt:9:8: UsingMaterialAndMaterial3Libraries: Using a material import while also using the material3 library

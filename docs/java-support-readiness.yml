@@ -729,6 +729,10 @@ rules:
     status: supported
     fixtures:
       - tests/fixtures/android-lint/WrongCommentType/positive
+  CustomSplashScreen:
+    status: supported
+    fixtures:
+      - tests/fixtures/android-lint/CustomSplashScreen/positive
   UsableSpace:
     status: supported
     fixtures:

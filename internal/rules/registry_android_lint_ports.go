@@ -73,6 +73,7 @@ func registerAndroidLintPortRules() {
 	registerAndroidLintWearTileChecks()
 	registerAndroidLintSourceTextChecks()
 	registerAndroidLintResourceXMLChecks()
+	registerAndroidLintManifestResourceMiscChecks()
 }
 
 // lintRulesScanningTests lists the ports that also analyze test sources. Lint skips them by default for every detector

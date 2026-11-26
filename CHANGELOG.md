@@ -90,6 +90,10 @@ All notable changes to Krit will be documented in this file.
   with `androidx.compose.animation` 1.13.0 (`animation-android`, `animation-core-android`), under their Lint IDs.
   Their findings match the Lint CLI running those releases' `lint.jar` on the inputs under
   `internal/rules/testdata/androidx_compose_animation/` (#1307, #1308, #1309, #1313).
+- `ScopedStorage`, `SelectableText`, `CustomSplashScreen`, `VectorDrawableCompat` and `TranslucentOrientation`, ports
+  of Android Lint 32.4.1's `ScopedStorageDetector`, `TextViewDetector` (SelectableText), `SplashScreenDetector`,
+  `VectorDrawableCompatDetector` and `TranslucentViewDetector` under their Lint IDs. Findings match Lint on 20
+  recorded project fixtures (#1259, #1273, #1266, #1288, #1279).
 - `StringEscaping`, `InvalidNavigation`, `ValidRestrictions` and `RelativeClassResolution`, ports of Android Lint
   32.4.1's `StringEscapeDetector`, `StartDestinationDetector`, `RestrictionsDetector` and
   `RelativeClassAttributeDetector` under their Lint IDs and severities. Findings match Lint on 17 recorded project

@@ -1,0 +1,8 @@
+src/main/java/com/example/JSplash.java:5:14: CustomSplashScreen: The application should not provide its own launch screen
+src/main/java/com/example/JSplash.java:6:18: CustomSplashScreen: The application should not provide its own launch screen
+src/main/java/com/example/Splash.kt:11:7: CustomSplashScreen: The application should not provide its own launch screen
+src/main/java/com/example/Splash.kt:13:7: CustomSplashScreen: The application should not provide its own launch screen
+src/main/java/com/example/Splash.kt:15:7: CustomSplashScreen: The application should not provide its own launch screen
+src/main/java/com/example/Splash.kt:17:7: CustomSplashScreen: The application should not provide its own launch screen
+src/main/java/com/example/Splash.kt:21:7: CustomSplashScreen: The application should not provide its own launch screen
+src/main/java/com/example/Splash.kt:9:7: CustomSplashScreen: The application should not provide its own launch screen

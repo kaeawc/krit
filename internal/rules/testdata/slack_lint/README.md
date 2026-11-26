@@ -7,8 +7,9 @@ deliberate differences, each with a reason. The MoshiUsage ports have their own 
 `tests/fixtures/android-lint/MoshiUsage*/`.
 
 A case directory holds `checks.txt` (the Lint IDs it checks), sources under `src/main/java/`, and the expected
-files. `stubs/` holds minimal library annotations (Dagger, javax.inject) that Lint needs to resolve the sources;
-krit does not read them.
+files. `stubs/` holds minimal library sources (Dagger, javax.inject, RxAndroid's `AndroidSchedulers`) that Lint needs
+to resolve the sources; krit does not read them. A case that needs real libraries on Lint's classpath lists them in
+`jars.txt` as `group:artifact:version`.
 
 ## Regenerating `lint-0.11.1.txt`
 
@@ -30,4 +31,11 @@ export JAVA_HOME=$PWD/jdk LINT=$PWD/cmdline-tools/bin/lint \
   SLACK_LINT_JAR=$PWD/slack-lint-checks-0.11.1.jar KOTLIN_STDLIB_JAR=$PWD/kotlin-stdlib-2.2.21.jar
 cd internal/rules/testdata/slack_lint
 ./run-lint.sh dagger stubs/dagger > dagger/lint-0.11.1.txt
+
+# Cases with a jars.txt: download each listed artifact from Maven Central into one directory first.
+export LINT_JARS_DIR=$PWD/jars && mkdir -p "$LINT_JARS_DIR"
+while IFS=: read -r g a v; do
+  curl -fsSL -o "$LINT_JARS_DIR/$a-$v.jar" "https://repo1.maven.org/maven2/${g//.//}/$a/$v/$a-$v.jar"
+done < rx/jars.txt
+./run-lint.sh rx stubs/rxandroid > rx/lint-0.11.1.txt
 ```

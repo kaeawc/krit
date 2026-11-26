@@ -227,6 +227,7 @@ var javaSupportReadiness = JavaSupportMatrix{
 		"WorkerHasAPublicModifier":                {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/androidx_work_parity_test.go"}},
 		"RemoveWorkManagerInitializer":            {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/androidx_work_parity_test.go"}},
 		"SpecifyForegroundServiceType":            {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/androidx_work_parity_test.go"}},
+		"WearMaterialTheme":                       {Status: api.LanguageSupportSupported, Fixtures: []string{"tests/fixtures/android-lint/WearMaterialTheme/positive"}},
 	},
 }
 

@@ -122,7 +122,7 @@ func TestInvokeCached_AllCacheHits(t *testing.T) {
 		V:                  FirCacheVersion,
 		ContentHash:        hash,
 		FilePath:           ktFile,
-		ClosureFingerprint: CheckCacheFingerprint(nil, []string{ktFile}, nil, "", nil, nil, FileFacts{}),
+		ClosureFingerprint: CheckCacheFingerprint(tmp, nil, []string{ktFile}, nil, "", nil, nil, FileFacts{}),
 		Findings: []FirFinding{
 			{Path: ktFile, Line: 1, Col: 14, Rule: "CollectInOnCreateWithoutLifecycle", Severity: "warning", Message: "use repeatOnLifecycle", Confidence: 1.0},
 		},
@@ -203,7 +203,7 @@ func TestInvokeCached_HitsCarryErrorFilesAndRules(t *testing.T) {
 	}
 	files := []string{clean, broken}
 	rules := []string{"InjectDispatcher", "MagicNumber"}
-	fp := CheckCacheFingerprint(nil, files, nil, "", rules, nil, FileFacts{})
+	fp := CheckCacheFingerprint(tmp, nil, files, nil, "", rules, nil, FileFacts{})
 	cacheDir, _ := CacheDir(tmp)
 	resp := &CheckResponse{
 		Rules:      []string{"InjectDispatcher"},
@@ -244,7 +244,7 @@ func TestCheckCacheFingerprint_DependencyEditInvalidatesDependent(t *testing.T) 
 		t.Fatal(err)
 	}
 	cacheDir, _ := CacheDir(t.TempDir())
-	before := CheckCacheFingerprint([]string{src}, []string{dependent}, nil, "", []string{"R"}, nil, FileFacts{})
+	before := CheckCacheFingerprint("", []string{src}, []string{dependent}, nil, "", []string{"R"}, nil, FileFacts{})
 	WriteFreshEntriesForFingerprint(cacheDir, []string{dependent}, &CheckResponse{}, before)
 	if hits, _ := ClassifyFilesForFingerprint(cacheDir, []string{dependent}, before); len(hits) != 1 {
 		t.Fatalf("expected a hit before the dependency edit")
@@ -252,7 +252,7 @@ func TestCheckCacheFingerprint_DependencyEditInvalidatesDependent(t *testing.T) 
 	if err := os.WriteFile(dependency, []byte("open class Base { fun changed() {} }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	after := CheckCacheFingerprint([]string{src}, []string{dependent}, nil, "", []string{"R"}, nil, FileFacts{})
+	after := CheckCacheFingerprint("", []string{src}, []string{dependent}, nil, "", []string{"R"}, nil, FileFacts{})
 	if hits, misses := ClassifyFilesForFingerprint(cacheDir, []string{dependent}, after); len(hits) != 0 || len(misses) != 1 {
 		t.Fatalf("dependency edit must invalidate the dependent's entry; hits=%d misses=%d", len(hits), len(misses))
 	}
@@ -271,7 +271,7 @@ func TestInvokeCached_UnchangedSourceWritesCache(t *testing.T) {
 	if _, err := invokeCachedWith(run, "", files, nil, nil, nil, nil, FileFacts{}, root, false, false); err != nil {
 		t.Fatal(err)
 	}
-	fingerprint := CheckCacheFingerprint(nil, files, nil, "", nil, nil, FileFacts{})
+	fingerprint := CheckCacheFingerprint(root, nil, files, nil, "", nil, nil, FileFacts{})
 	cacheDir, err := CacheDir(root)
 	if err != nil {
 		t.Fatal(err)
@@ -298,7 +298,7 @@ func TestInvokeCached_RestoredSourceDoesNotWriteCache(t *testing.T) {
 				t.Fatal(err)
 			}
 			files, dirs := []string{requested}, []string{root}
-			before := CheckCacheFingerprint(dirs, files, nil, "", nil, nil, FileFacts{})
+			before := CheckCacheFingerprint(root, dirs, files, nil, "", nil, nil, FileFacts{})
 			run := func(_ string, _, _, _, _ []string, _ RuleConfigs, _ FileFacts, _, _ bool, _ ...CompileTarget) (*CheckResponse, error) {
 				if err := os.WriteFile(changed, []byte("fun modified() {}\n"), 0o644); err != nil {
 					return nil, err
@@ -319,7 +319,7 @@ func TestInvokeCached_RestoredSourceDoesNotWriteCache(t *testing.T) {
 			if !reflect.DeepEqual(result.Rules, []string{"MagicNumber"}) {
 				t.Fatalf("fresh response not returned: rules = %v", result.Rules)
 			}
-			after := CheckCacheFingerprint(dirs, files, nil, "", nil, nil, FileFacts{})
+			after := CheckCacheFingerprint(root, dirs, files, nil, "", nil, nil, FileFacts{})
 			if after != before {
 				t.Fatal("restored source changed the content fingerprint")
 			}
@@ -376,7 +376,7 @@ func TestInvokeCached_WholeCompileCrashIsNotCached(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			fingerprint := CheckCacheFingerprint(nil, files, nil, "", nil, nil, FileFacts{})
+			fingerprint := CheckCacheFingerprint(root, nil, files, nil, "", nil, nil, FileFacts{})
 			if hits, _ := ClassifyFilesForFingerprint(cacheDir, files, fingerprint); len(hits) != tc.wantCache {
 				t.Fatalf("cached %d files, want %d", len(hits), tc.wantCache)
 			}

@@ -1775,7 +1775,7 @@
           }
         },
         "CompileTimeConstant": {
-          "description": "Compile-time constant required [precision: ast-backed] [noisiness: normal]",
+          "description": "Compile-time constant required [precision: project-structure-aware] [noisiness: normal] [capabilities: cross-file, resolver]\nCaveat: Runs in the cross-file phase, so editor (LSP) and MCP single-file analysis do not report it.\nCaveat: Callees declared in other files resolve only for Kotlin callers and Kotlin source declarations (top-level functions, members of the receiver's type and its supertypes, and operator functions); Java methods in other files and library callees are not resolved (#1767).",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -14181,6 +14181,39 @@
             }
           }
         },
+        "WatchFaceForAndroidX": {
+          "description": "AndroidX watch faces must use action `WATCH_FACE_EDITOR` [precision: project-structure-aware] [noisiness: normal] [capabilities: manifest]\nCaveat: The androidx.wear.watchface:watchface dependency is read from the build scripts and version catalog, not the resolved classpath, and counts for every module of the scan.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable WatchFaceForAndroidX (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "WatchFaceFormatDeclaresHasNoCode": {
           "description": "The `hasCode` attribute should be set to `false` [precision: project-structure-aware] [noisiness: normal] [capabilities: manifest]",
           "type": "object",
@@ -14254,6 +14287,72 @@
           "properties": {
             "active": {
               "description": "Enable WatchFaceFormatMissingVersion (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "WearBackNavigation": {
+          "description": "Wear: Disabling Back navigation [precision: project-structure-aware] [noisiness: normal] [capabilities: resources]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable WearBackNavigation (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "WearMaterialTheme": {
+          "description": "Using not non-Wear `MaterialTheme` in a Wear OS project [precision: project-structure-aware] [noisiness: normal] [capabilities: concurrent, manifest, parsed-files]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable WearMaterialTheme (default: true).",
               "type": "boolean",
               "default": true
             },
@@ -14412,6 +14511,39 @@
             }
           }
         },
+        "WearableActionDuplicate": {
+          "description": "Duplicate watch face configuration activities found [precision: project-structure-aware] [noisiness: normal] [capabilities: manifest]\nCaveat: Each AndroidManifest.xml is checked on its own; Lint checks the merged manifest, so an activity or metadata declared only in a variant or library manifest is not seen.\nCaveat: The androidx.wear.watchface:watchface dependency is read from the build scripts and version catalog; the check is skipped only when they prove it absent.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable WearableActionDuplicate (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "WearableBindListener": {
           "description": "Usage of Android Wear BIND_LISTENER is deprecated [precision: project-structure-aware] [noisiness: normal] [capabilities: manifest]",
           "type": "object",
@@ -14419,6 +14551,39 @@
           "properties": {
             "active": {
               "description": "Enable WearableBindListener (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "WearableConfigurationAction": {
+          "description": "Wear configuration action metadata must match an activity [precision: project-structure-aware] [noisiness: normal] [capabilities: manifest]\nCaveat: Each AndroidManifest.xml is checked on its own; Lint checks the merged manifest, so an activity or metadata declared only in a variant or library manifest is not seen.\nCaveat: The androidx.wear.watchface:watchface dependency is read from the build scripts and version catalog; the check is skipped only when they prove it absent.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable WearableConfigurationAction (default: true).",
               "type": "boolean",
               "default": true
             },
@@ -18854,6 +19019,72 @@
             }
           }
         },
+        "UnusedContentLambdaTargetStateParameter": {
+          "description": "Detects AnimatedContent content lambdas that ignore the target state parameter. [precision: ast-backed] [noisiness: normal]\nCaveat: The content lambda must be passed as the trailing lambda or as `content = { }`.\nCaveat: An inner lambda without parameters hides an outer `it` only when it is passed to a known one-parameter lambda function (forEach, let, map, LazyListScope.items, ...) or a same-file function whose parameter type takes one value; Lint resolves every inner lambda.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable UnusedContentLambdaTargetStateParameter (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "UnusedCrossfadeTargetStateParameter": {
+          "description": "Detects Crossfade content lambdas that ignore the target state parameter, so the same content fades into itself. [precision: ast-backed] [noisiness: normal]\nCaveat: An inner lambda without parameters hides an outer `it` only when it is passed to a known one-parameter lambda function (forEach, let, map, LazyListScope.items, ...) or a same-file function whose parameter type takes one value; Lint resolves every inner lambda.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable UnusedCrossfadeTargetStateParameter (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "UnusedMaterial3ScaffoldPaddingParameter": {
           "description": "Detects material3 Scaffold content lambdas that ignore the padding parameter, so app bars can cover the content. [precision: ast-backed] [noisiness: normal]\nCaveat: The content lambda must be passed as the trailing lambda or as `content = { }`; a lambda at the content position without a label is not mapped.\nCaveat: An inner lambda without parameters hides an outer `it` only when it is passed to a known one-parameter lambda function (forEach, let, map, LazyListScope.items, ...) or a same-file function whose parameter type takes one value; Lint resolves every inner lambda.\nCaveat: Scaffold resolves through imports (including `import ... as Alias`) and the file's own package; a Scaffold declared in another file of the same package is not seen as shadowing a star import.",
           "type": "object",
@@ -18894,6 +19125,72 @@
           "properties": {
             "active": {
               "description": "Enable UnusedMaterialScaffoldPaddingParameter (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "UnusedTargetStateInContentKeyLambda": {
+          "description": "Detects AnimatedContent contentKey lambdas that ignore the target state parameter. [precision: ast-backed] [noisiness: normal]\nCaveat: The contentKey lambda must be passed as `contentKey = { }`.\nCaveat: An inner lambda without parameters hides an outer `it` only when it is passed to a known one-parameter lambda function (forEach, let, map, LazyListScope.items, ...) or a same-file function whose parameter type takes one value; Lint resolves every inner lambda.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable UnusedTargetStateInContentKeyLambda (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "UnusedTransitionTargetStateParameter": {
+          "description": "Detects Transition.animate* lambdas that compute their value without the target state parameter. [precision: ast-backed] [noisiness: normal]\nCaveat: The receiver must be proven to be a Transition: a variable declared as one or initialized by updateTransition/rememberTransition, a Transition extension's receiver (not through a with/apply/run lambda in between), or AnimatedVisibilityScope's `transition` inside an AnimatedVisibility or AnimatedContent lambda.\nCaveat: The state lambda must be the trailing lambda or `targetValueByState = { }` (or, for a same-file animate* extension, any lambda for a one-parameter function type).\nCaveat: An inner lambda without parameters hides an outer `it` only when it is passed to a known one-parameter lambda function (forEach, let, map, LazyListScope.items, ...) or a same-file function whose parameter type takes one value; Lint resolves every inner lambda.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable UnusedTransitionTargetStateParameter (default: true).",
               "type": "boolean",
               "default": true
             },

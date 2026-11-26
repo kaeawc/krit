@@ -34,11 +34,13 @@ krit {
 
 // CI passes -PkritBinary=<krit built from this checkout> so the plugin does
 // not download a release. Generators run during kritExportModel, so FIR
-// sees view binding, KSP and Wire sources on an unbuilt checkout.
+// sees view binding, KSP and Wire sources on an unbuilt checkout through the
+// CLI. The kritCheck and kritCheckAll runs pass -PkritExportGenerated=false:
+// those tasks run the generators themselves when FIR is on (#1642, #1686).
 gradle.lifecycle.beforeProject {
     pluginManager.withPlugin("dev.jasonpearson.krit") {
         extensions.configure<dev.jasonpearson.krit.gradle.KritExtension> {
-            exportGenerated.set(true)
+            exportGenerated.set(providers.gradleProperty("kritExportGenerated").map { it.toBoolean() }.orElse(true))
             providers.gradleProperty("kritBinary").orNull?.let { advanced.binary.set(file(it)) }
         }
     }

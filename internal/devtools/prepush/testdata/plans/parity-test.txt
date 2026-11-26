@@ -7,4 +7,5 @@ gofmt
 build
 vet
 lint
+gosec
 test parity:TestFindGoLinesHeaderPlacement parity:TestFirGoldenGoLines parity:TestFirGoldenGoLinesFixtureProject parity:TestFirGoldenGoLinesSingleFileProject parity:TestFirGoldenGoLinesTestWithoutAssertionNameTables parity:TestParseGoLines

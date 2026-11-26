@@ -1,0 +1,15 @@
+name: Maven Central mirror
+description: >-
+  Install a Gradle init script that tries Google's mirror of Maven Central
+  before Maven Central and the Gradle plugin portal, so GitHub runners'
+  shared IPs stop failing Gradle builds with 429 Too Many Requests. Bazel's
+  own downloads use scripts/bazel-ci-downloader.cfg instead.
+runs:
+  using: composite
+  steps:
+    - name: Install Gradle init script
+      shell: bash
+      run: |
+        init_d="${GRADLE_USER_HOME:-$HOME/.gradle}/init.d"
+        mkdir -p "$init_d"
+        cp "$GITHUB_ACTION_PATH/maven-mirror.gradle" "$init_d/"

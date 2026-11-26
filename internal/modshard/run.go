@@ -90,7 +90,7 @@ func Run(ctx context.Context, in Input) (Result, error) {
 		res.Reason = "incomplete input"
 		return res, nil
 	}
-	model, repoRoot, reason := loadModel(in.ScanPaths[0])
+	model, repoRoot, reason := loadModel(in.ScanPaths)
 	if model == nil {
 		res.Reason = reason
 		return res, nil
@@ -210,9 +210,10 @@ func coverageAcceptable(in Input, required, uncovered int) bool {
 	return required == 0 || float64(uncovered) <= maxUncovered*float64(required)
 }
 
-// loadModel finds and loads the Gradle model for the scan root, and the repository root it sits in.
-func loadModel(scanRoot string) (model *gradlemodel.Model, repoRoot, reason string) {
-	dir := gradlemodel.Discover(scanRoot)
+// loadModel finds and loads the Gradle model for the first scan path, and the repository root it sits
+// in. The model's directories are spelled like the scan paths (alignModelPaths).
+func loadModel(scanPaths []string) (model *gradlemodel.Model, repoRoot, reason string) {
+	dir := gradlemodel.Discover(scanPaths[0])
 	if dir == "" {
 		return nil, "", "no Gradle model"
 	}
@@ -220,6 +221,7 @@ func loadModel(scanRoot string) (model *gradlemodel.Model, repoRoot, reason stri
 	if err != nil || model == nil {
 		return nil, "", "Gradle model not loadable"
 	}
+	alignModelPaths(model, scanPaths)
 	return model, filepath.Dir(filepath.Dir(dir)), "" // <repo>/.krit/gradle-model
 }
 

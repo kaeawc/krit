@@ -252,6 +252,28 @@ func TestPrefetchRidesOnlyTheCheckersCompileContext(t *testing.T) {
 	}
 }
 
+// The oracle's roots spell the checker's own roots differently (relative to `.`, unclean); it is
+// still the checker's compile context (#1659). Order and repeats still count, as they do for
+// krit-fir's own check before it shares the compile.
+func TestPrefetchRidesTheSameRootsSpelledDifferently(t *testing.T) {
+	p := newPrefetchProject(t)
+	root := filepath.Dir(filepath.Dir(filepath.Dir(p.src)))
+	other := filepath.Join(root, "lib", "src", "main", "kotlin")
+	p.checker.SourceDirs = []string{p.src, other}
+	t.Chdir(root)
+	relSrc, err := filepath.Rel(root, p.src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prefetch := NewPrefetch(p.opts)
+	if prefetch.Rider(p.jar, []string{relSrc, other + string(filepath.Separator)}, []string{p.jar}, CompileTarget{}) == nil {
+		t.Fatal("Rider = nil for the checker's roots in another spelling")
+	}
+	if prefetch.Rider(p.jar, []string{other, relSrc}, []string{p.jar}, CompileTarget{}) != nil {
+		t.Fatal("rider for reordered roots, which krit-fir would not share a compile with")
+	}
+}
+
 // A JVM whose AOT cache registers no checkers answers with no rules; the
 // pass's own check carries the recovery for that.
 func TestPrefetchIgnoresAResponseWithoutCheckers(t *testing.T) {

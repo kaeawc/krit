@@ -32,12 +32,16 @@ func Isolator(scanPaths []string, modelDir string, modelDisabled, noCache bool, 
 		return nil
 	}
 	scanPaths = append([]string(nil), scanPaths...)
+	if logf == nil {
+		logf = func(string, ...any) {}
+	}
 	return func(ctx context.Context, jarPath string, gated []string, request []byte) ([]byte, []string, error) {
 		if jarPath == "" {
 			return nil, nil, nil
 		}
 		javaPath, err := oracle.JavaPath()
 		if err != nil {
+			logf("verbose: FIR source sets: not rechecking gated files: %v\n", err)
 			return nil, nil, nil
 		}
 		var cacheDir string
@@ -49,6 +53,7 @@ func Isolator(scanPaths []string, modelDir string, modelDisabled, noCache bool, 
 		} else {
 			repoDir := oracle.FindRepoDir(scanPaths)
 			if repoDir == "" {
+				logf("verbose: FIR source sets: not rechecking gated files: no project root above the scan paths for the cache\n")
 				return nil, nil, nil
 			}
 			cacheDir = filepath.Join(fsutil.ProjectStateDir(repoDir), "module-facts", "source-sets")
@@ -83,11 +88,16 @@ func CheckIsolated(ctx context.Context, in Input, gated []string) ([]byte, []str
 	if check == nil {
 		return nil, nil, nil
 	}
-	model, repoRoot := isolationModel(in)
+	model, repoRoot, reason := isolationModel(in)
 	if model == nil {
+		logf("verbose: FIR source sets: not rechecking %d gated files: %s\n", len(gated), reason)
 		return nil, nil, nil
 	}
 	all, _ := Plan(model, repoRoot, in.ScanPaths)
+	if len(all) == 0 {
+		logf("verbose: FIR source sets: not rechecking %d gated files: no Gradle source set under the scan paths %s\n", len(gated), strings.Join(in.ScanPaths, ", "))
+		return nil, nil, nil
+	}
 	units, skipped, unowned := isolationUnits(all, gated)
 	variants, beyond := variantUnits(model, all, skipped, unowned)
 	units = append(units, variants...)
@@ -220,21 +230,22 @@ func countProjects(units []Unit) int {
 }
 
 // isolationModel loads the scan's Gradle model: in.ModelDir when set, else the one discovered from the
-// first scan path. The repository root is where built dependency jars are looked up.
-func isolationModel(in Input) (*gradlemodel.Model, string) {
+// first scan path, with its directories spelled like the scan paths. The repository root is where built
+// dependency jars are looked up. reason says why there is no model.
+func isolationModel(in Input) (model *gradlemodel.Model, repoRoot, reason string) {
 	if in.ModelDir == "" {
-		model, repoRoot, _ := loadModel(in.ScanPaths[0])
-		return model, repoRoot
+		return loadModel(in.ScanPaths)
 	}
 	model, _, err := gradlemodel.Load(in.ModelDir)
-	if err != nil {
-		return nil, ""
+	if err != nil || model == nil {
+		return nil, "", "Gradle model " + in.ModelDir + " not loadable"
 	}
-	repoRoot := oracle.FindRepoDir(in.ScanPaths)
+	alignModelPaths(model, in.ScanPaths)
+	repoRoot = oracle.FindRepoDir(in.ScanPaths)
 	if repoRoot == "" {
 		repoRoot = filepath.Dir(filepath.Dir(in.ModelDir))
 	}
-	return model, repoRoot
+	return model, repoRoot, ""
 }
 
 // addUserClasspath appends to every unit the request's classpath entries that no model source set

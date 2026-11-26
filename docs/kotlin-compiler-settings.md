@@ -115,6 +115,14 @@ verbose: FIR settings: session 3: :feature:main [-opt-in=core.Exp -Xcontext-sens
 verbose: FIR settings: rechecked 3 files with their own source set's settings in 5s: 1 gated files now authoritative, 1 now gated on a missing opt-in, 0 kept the merged verdict
 ```
 
+When the split does not run, `-v` says why, for example
+`verbose: FIR settings: not split: no Gradle source set under the scan paths ...`.
+The source-set recheck logs `verbose: FIR source sets: not rechecking ...`
+the same way. Gradle records resolved paths (on macOS `/tmp` is
+`/private/tmp`), so before planning, the model's project and source
+directories are rewritten in the scan path's spelling when one is a symlink
+of the other (#1674).
+
 Group sessions run in the module worker JVMs (`KRIT_WORKER_JAVA`,
 `KRIT_WORKER_AOT`; see [module sharding](module-sharding.md)) and are cached
 by content under `.krit/module-facts/settings-groups`.

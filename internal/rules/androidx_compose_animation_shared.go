@@ -102,7 +102,7 @@ func (r *UnusedSharedTransitionModifierParameterRule) check(ctx *api.Context) {
 		!axlAnimationCallTargets(file, arg.Call, "SharedTransitionScope") {
 		return
 	}
-	for _, p := range axlUnreferencedLambdaParams(file, lambda, 1) {
+	for _, p := range axlUnreferencedLambdaParams(file, lambda) {
 		ctx.EmitAtNode(p.Node, "Supplied Modifier parameter should be used on the top most Composable. "+
 			"Otherwise, consider using `SharedTransitionLayout`.")
 	}

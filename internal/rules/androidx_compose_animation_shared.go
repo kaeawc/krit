@@ -255,7 +255,7 @@ func axlIsLazyItemsCall(file *scanner.File, call uint32) bool {
 // CustomizedLookaheadAnimationVisualDebugging from androidx.compose.animation, at the whole call.
 func (r *DisallowLookaheadAnimationVisualDebugRule) check(ctx *api.Context) {
 	file, node := ctx.File, ctx.Idx
-	if scanner.IsTestFile(file.Path) || acrIsInnerCallOfTrailingLambda(file, node) {
+	if scanner.IsTestFile(projectPath(ctx, file.Path)) || acrIsInnerCallOfTrailingLambda(file, node) {
 		return
 	}
 	if !axlAnimationCallTargets(file, node, "LookaheadAnimationVisualDebugging") &&
@@ -276,7 +276,7 @@ var axlArcPreferredTypes = map[string]bool{
 // an explicit type argument that is not Offset, IntOffset or DpOffset, at the constructor name.
 func (r *ArcAnimationSpecTypeIssueRule) check(ctx *api.Context) {
 	file, node := ctx.File, ctx.Idx
-	if scanner.IsTestFile(file.Path) || acrIsInnerCallOfTrailingLambda(file, node) {
+	if scanner.IsTestFile(projectPath(ctx, file.Path)) || acrIsInnerCallOfTrailingLambda(file, node) {
 		return
 	}
 	if !axlCallResolvesToClass(file, node, axlAnimationCorePackage, "ArcAnimationSpec") {

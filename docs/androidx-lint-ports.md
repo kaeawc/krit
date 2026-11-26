@@ -87,6 +87,23 @@ import, as it does in Kotlin.
   suspend lambdas (`launch { }`, `coroutineScope { }`, …) and declarations, local variables included. Only
   `finally` is checked and a `lifecycle.currentState.isAtLeast(…)` guard does not count (the detector looks for an
   `isAtLeast` on `Lifecycle` itself, which `Lifecycle.State` declares instead).
+## ConstraintLayout Compose
+
+`androidx.constraintlayout:constraintlayout-compose-android` 1.1.2 (Kotlin, production sources). Like the detector,
+the checks compare source text. In UAST a lambda's last statement is an implicit return, which the detector's
+statement scans skip, so the port skips it too: a `linkTo` (or a `constrain { }` block) written last in its lambda is
+not looked at.
+
+- `IncorrectReferencesDeclaration` reports `val (a, b) = createRefsFor("a", "b", "c")` when the number of string ids
+  differs from the destructured variables, at `createRefsFor`, when its implicit receiver is a `ConstraintSetScope` or
+  `MotionSceneScope` (inside `ConstraintSet { }` / `MotionScene { }`, or an extension on the scope), as Lint
+  requires. A spread array or a non-string id is not counted.
+- `IncorrectMatchParentUsage` reports `width = Dimension.matchParent` (or `height`) in a `constrain(ref) { }` block
+  that also links the same axis to something other than the matching parent anchor (`start.linkTo(button.end)`,
+  `centerHorizontallyTo(button)`), at `Dimension.matchParent`.
+- `IncorrectChainMarginsUsage` reports an element of `createHorizontalChain(...)` / `createVerticalChain(...)`
+  without `withChainParams` whose `constrain` block links it, with a margin, to its neighbour's opposite anchor (or
+  the parent's same anchor at the ends), at the element.
 ## Startup
 
 `androidx.startup:startup-runtime` 1.2.0 (Kotlin and Java). Both checks see every main-source class at once, so an

@@ -12,9 +12,12 @@ var mockIssues = []struct {
 	brief string
 }{
 	{mockDoNotMockAnything, "Do not add new mocks."},
+	{mockDoNotMockAutoValue, "AutoValue classes represent pure data classes, so mocking them should not be necessary."},
 	{mockDoNotMockDataClass, "data classes represent pure data classes, so mocking them should not be necessary."},
 	{mockDoNotMockObjectClass, "object classes are singletons, so mocking them should not be necessary"},
 	{mockDoNotMockPlatformTypes, "platform types should not be mocked"},
+	{mockDoNotMockRecordClass, "record classes represent pure data classes, so mocking them should not be necessary."},
+	{mockDoNotMockSealedClass, "sealed classes have a restricted type hierarchy, use a subtype instead"},
 }
 
 // MockDetectorRule is one MockDetector issue. Every rule reads the same
@@ -30,6 +33,12 @@ func (r *MockDetectorRule) Confidence() float64 { return api.ConfidenceHigh }
 func registerThirdPartyMockingRules() {
 	for _, issue := range mockIssues {
 		r := &MockDetectorRule{BaseRule: BaseRule{RuleName: issue.id, RuleSetName: moshiRuleSet, Sev: string(api.SeverityError), Desc: issue.brief}}
+		// DoNotMockAnything bans every mock. Lint keeps it disabled unless named, so it is not experimental (which
+		// --experimental would turn on) and is noisy (which --strict drops): only --enable-rules or krit.yml reach it.
+		maturity, noisiness := api.MaturityExperimental, api.NoisinessUnset
+		if issue.id == mockDoNotMockAnything {
+			maturity, noisiness = api.MaturityStable, api.NoisinessNoisy
+		}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.SeverityError,
 			Needs:          api.NeedsCrossFile,
@@ -40,7 +49,8 @@ func registerThirdPartyMockingRules() {
 			LintIssue:      true,
 			DefaultActive:  false,
 			OptInReason:    api.OptInReasonDomainSpecific,
-			Maturity:       api.MaturityExperimental,
+			Maturity:       maturity,
+			Noisiness:      noisiness,
 		})
 	}
 }

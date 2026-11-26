@@ -40,6 +40,14 @@ def named_values(text):
         owned = [f for f in files if vm.end() <= f[0] < end]
         if owned:
             vals[vm.group(1)] = owned
+            continue
+        # `val all = arrayOf(a, b)` refers to other values.
+        am = re.match(r'\s*arrayOf\(([^)]*)\)', text[vm.end():end])
+        if am:
+            body = re.sub(r'//[^\n]*', '', am.group(1))
+            refs = [r.strip() for r in body.split(",") if r.strip()]
+            if refs and all(r in vals for r in refs):
+                vals[vm.group(1)] = [f for r in refs for f in vals[r]]
     return vals
 
 

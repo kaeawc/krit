@@ -1278,6 +1278,8 @@ func runProjectParsePhase(ctx context.Context, args ProjectArgs, host ProjectHos
 			KotlinPaths: append([]string(nil), kotlinPaths...),
 			JavaFiles:   filesForPaths(javaPaths, scanner.LangJava),
 			Paths:       args.Paths,
+
+			ContentSkipped: true,
 		}, nil
 	}
 	allowCrossFile := warm.cross != nil
@@ -4010,7 +4012,7 @@ func previewPostParseBundleHit(args ProjectArgs, host ProjectHostState, parseRes
 	if host.FindingsBundleStore == nil || host.FindingsBundleCacheRoot == "" {
 		return nil
 	}
-	if len(args.CustomRuleJars) > 0 {
+	if len(args.CustomRuleJars) > 0 || parseResult.ContentSkipped {
 		return nil
 	}
 	// Cold runs (no prior manifest residing in the host) cannot hit
@@ -4115,6 +4117,12 @@ func computeRunFingerprint(args ProjectArgs, host ProjectHostState, parseResult 
 		return scanner.RunFingerprint{}, false
 	}
 	if len(args.CustomRuleJars) > 0 {
+		return scanner.RunFingerprint{}, false
+	}
+	// Without content, SourceSet hashes paths only, so every skipped-parse
+	// run would share one key and load the bundle of whichever earlier
+	// state saved it first.
+	if parseResult.ContentSkipped {
 		return scanner.RunFingerprint{}, false
 	}
 	rulesHash := projectRuleHashForArgs(args, false)

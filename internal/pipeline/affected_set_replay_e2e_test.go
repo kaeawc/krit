@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/kaeawc/krit/internal/config"
@@ -123,6 +124,155 @@ func TestRunProject_AffectedSetReplay_RegeneratesDependent(t *testing.T) {
 	// that failed to re-dispatch the dependent B would leave the stale finding.
 	if res2.FindingsCount != 0 {
 		t.Errorf("warm replay findings = %d, want 0 (Helper renamed; B's finding must be regenerated away)", res2.FindingsCount)
+	}
+}
+
+// A NeedsParsedFiles rule is promised every parsed file, so its verdict on an
+// affected file can rest on a file two reference hops away, outside the
+// affected set (#1817). Use.kt calls mid() in Mid.kt, which calls leaf() in
+// Leaf.kt; the rule reports Use.kt only while some parsed file carries the
+// marker, and only Leaf.kt does. An ABI edit to Use.kt makes {Use, Mid} the
+// affected set, and the replay must still match a clean scan.
+func TestRunProject_AffectedSetReplay_ParsedFilesRuleSeesWholeProject(t *testing.T) {
+	t.Setenv("KRIT_AFFECTED_SET_REPLAY", "on")
+	dir := t.TempDir()
+	write := func(name, content string) {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("Use.kt", "package p\n\nfun useMid(): Int = mid()\n")
+	write("Mid.kt", "package p\n\nfun mid(): Int = leaf()\n")
+	write("Leaf.kt", "package p\n\n// MARKER\nfun leaf(): Int = 1\n")
+	write("C.kt", "package p\n\nclass Unrelated1\n")
+	write("D.kt", "package p\n\nclass Unrelated2\n")
+	write("E.kt", "package p\n\nclass Unrelated3\n")
+	write("F.kt", "package p\n\nclass Unrelated4\n")
+
+	markerRule := api.FakeRule("MarkedUse",
+		api.WithNeeds(api.NeedsParsedFiles),
+		api.WithSeverity(api.SeverityWarning),
+		api.WithCheck(func(ctx *api.Context) {
+			marked := false
+			for _, f := range ctx.ParsedFiles {
+				if strings.Contains(string(f.Content), "MARKER") {
+					marked = true
+				}
+			}
+			if !marked {
+				return
+			}
+			for _, f := range ctx.ParsedFiles {
+				if strings.Contains(string(f.Content), "useMid") {
+					ctx.Emit(scanner.Finding{File: f.Path, Line: 3, Col: 1, Message: "uses a marked chain"})
+				}
+			}
+		}),
+	)
+	run := func(t *testing.T, tracker perf.Tracker, cacheRoot, bundleRoot string) ProjectResult {
+		t.Helper()
+		res, err := RunProject(context.Background(), ProjectInput{
+			Args: ProjectArgs{
+				Config:      config.NewConfig(),
+				Paths:       []string{dir},
+				ActiveRules: []*api.Rule{crossFileHelperRule(), markerRule},
+				Format:      "json",
+				Version:     "test",
+			},
+			Host: ProjectHostState{
+				Tracker:                 tracker,
+				CrossFileCacheDir:       scanner.CrossFileCacheDir(cacheRoot),
+				CrossFindingsCacheDir:   scanner.CrossFindingsCacheDir(cacheRoot),
+				FindingsBundleStore:     scanner.DiskFindingsBundleStore{},
+				FindingsBundleCacheRoot: bundleRoot,
+			},
+		})
+		if err != nil {
+			t.Fatalf("RunProject: %v", err)
+		}
+		return res
+	}
+
+	bundleRoot := t.TempDir()
+	if got := run(t, nil, dir, bundleRoot).FindingsCount; got != 1 {
+		t.Fatalf("cold run findings = %d, want 1", got)
+	}
+	// ABI edit to Use.kt only; Leaf.kt is two hops away.
+	write("Use.kt", "package p\n\nfun useMid(): Int = mid()\n\nfun added(): Int = 2\n")
+	tracker := perf.New(true)
+	warm := run(t, tracker, dir, bundleRoot)
+	if entry, found := findTiming(tracker.GetTimings(), "dispatchAffectedSetPath"); !found || entry.Attributes["reason"] != "hit" {
+		t.Fatalf("affected-set replay did not fire: %+v", entry.Attributes)
+	}
+	clean := run(t, nil, t.TempDir(), t.TempDir())
+	if warm.FindingsCount != clean.FindingsCount {
+		t.Fatalf("warm replay findings = %d, clean scan = %d", warm.FindingsCount, clean.FindingsCount)
+	}
+	// The cross-findings cache keys on the index fingerprint alone, so a
+	// replay that ran these rules on the affected subset stored its subset
+	// result under the full project's key, and every later run that read the
+	// cache served it.
+	if again := run(t, nil, dir, t.TempDir()); again.FindingsCount != clean.FindingsCount {
+		t.Fatalf("run over the replay's cross-findings cache = %d findings, clean scan = %d", again.FindingsCount, clean.FindingsCount)
+	}
+}
+
+// A rule panic during the replay leaves its regenerated rows missing while the
+// prior ones are dropped, so the replay must fall back to full dispatch rather
+// than serve (and cache) the loss.
+func TestRunProject_AffectedSetReplay_RulePanicFallsBack(t *testing.T) {
+	t.Setenv("KRIT_AFFECTED_SET_REPLAY", "on")
+	dir := t.TempDir()
+	bundleRoot := t.TempDir()
+	write := func(name, content string) {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("A.kt", "package p\n\nclass Helper\n")
+	write("B.kt", "package p\n\nclass Client {\n  fun make(): Helper = Helper()\n}\n")
+	write("C.kt", "package p\n\nclass Unrelated1\n")
+	write("D.kt", "package p\n\nclass Unrelated2\n")
+	write("E.kt", "package p\n\nclass Unrelated3\n")
+
+	panicRule := api.FakeRule("PanicsAfterEdit",
+		api.WithNeeds(api.NeedsParsedFiles),
+		api.WithSeverity(api.SeverityWarning),
+		api.WithCheck(func(ctx *api.Context) {
+			for _, f := range ctx.ParsedFiles {
+				if strings.Contains(string(f.Content), "added") {
+					panic("rule bug")
+				}
+			}
+		}),
+	)
+	run := func(t *testing.T, tracker perf.Tracker) {
+		t.Helper()
+		if _, err := RunProject(context.Background(), ProjectInput{
+			Args: ProjectArgs{
+				Config:      config.NewConfig(),
+				Paths:       []string{dir},
+				ActiveRules: []*api.Rule{crossFileHelperRule(), panicRule},
+				Format:      "json",
+				Version:     "test",
+			},
+			Host: ProjectHostState{
+				Tracker:                 tracker,
+				CrossFileCacheDir:       scanner.CrossFileCacheDir(dir),
+				FindingsBundleStore:     scanner.DiskFindingsBundleStore{},
+				FindingsBundleCacheRoot: bundleRoot,
+			},
+		}); err != nil {
+			t.Fatalf("RunProject: %v", err)
+		}
+	}
+
+	run(t, nil)
+	write("A.kt", "package p\n\nclass Helper\n\nfun added(): Int = 1\n")
+	tracker := perf.New(true)
+	run(t, tracker)
+	if entry, found := findTiming(tracker.GetTimings(), "dispatchAffectedSetPath"); !found || entry.Attributes["reason"] != replayBailRuleError {
+		t.Fatalf("affected-set replay reason = %+v, want %q", entry.Attributes, replayBailRuleError)
 	}
 }
 

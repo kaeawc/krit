@@ -3618,6 +3618,7 @@ const (
 	replayBailParseFailed     = "parse_failed"     // parseFilesByPath errored
 	replayBailParseIncomplete = "parse_incomplete" // a dependent never came back parsed
 	replayBailXMLChanged      = "xml_changed"      // XML inputs differ from the prior run
+	replayBailRuleError       = "rule_error"       // a rule panicked during the replay
 )
 
 // affectedSetReplayEnabled reports whether the affected-set replay dispatch
@@ -3784,13 +3785,32 @@ func tryAffectedSetDispatch(
 	if err != nil {
 		return DispatchResult{}, CrossFileResult{}, "", fmt.Errorf("dispatch (affected-set): %w", err)
 	}
-	c, err := CrossFilePhase{Workers: args.Workers}.Run(ctx, d)
+	// Project-scope rules are promised the complete project, so a verdict
+	// on an affected file can rest on a file outside the affected set (a
+	// NeedsParsedFiles rule following use site -> callee -> marker, #1817).
+	// As on the delta path, they run against the full parse set and replace
+	// all of their prior rows; per-file rows are replaced for the affected
+	// files only.
+	projectScopeIDs := projectScopeRuleIDs(args.ActiveRules)
+	perFile := dropFindingsByRule(scanner.FilterColumnsByFilePaths(&d.Findings, affectedSet), projectScopeIDs)
+	full := d
+	full.IndexResult = indexResult
+	full.Findings = scanner.FindingColumns{}
+	c, err := CrossFilePhase{Workers: args.Workers}.Run(ctx, full)
 	if err != nil {
 		return DispatchResult{}, CrossFileResult{}, "", fmt.Errorf("crossfile (affected-set): %w", err)
 	}
+	// A recorded rule panic leaves the regenerated rows incomplete while the
+	// prior ones are dropped; fall back so the full path reports it.
+	if len(d.Stats.Errors) > 0 || len(c.Stats.Errors) > 0 {
+		return DispatchResult{}, CrossFileResult{}, replayBailRuleError, nil
+	}
 
-	replacement := scanner.FilterColumnsByFilePaths(&c.Findings, affectedSet)
-	merged := scanner.ApplyDelta(priorBundle, &replacement, affected)
+	replacement := scanner.NewFindingCollector(perFile.Len() + c.Findings.Len())
+	replacement.AppendColumns(&perFile)
+	replacement.AppendColumns(&c.Findings)
+	base := dropFindingsByRule(*priorBundle, projectScopeIDs)
+	merged := scanner.ApplyDelta(&base, replacement.Columns(), affected)
 
 	d.Findings = merged
 	c.DispatchResult = d

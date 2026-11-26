@@ -608,6 +608,10 @@ func TestDaemonCompatibleFlags_PerfAllowed(t *testing.T) {
 		// AnalyzeProjectArgs.BasePath so daemon-side baseline IDs
 		// match in-process resolution.
 		{"--base-path", func(f *scanFlags) { *f.BasePath = "/tmp/base" }, true},
+		// --min-sdk / --target-sdk set a process-wide default the daemon
+		// must not keep, and the wire carries no SDK levels (#1682).
+		{"--min-sdk", func(f *scanFlags) { *f.MinSdk = 24 }, false},
+		{"--target-sdk", func(f *scanFlags) { *f.TargetSdk = 34 }, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -732,6 +732,12 @@ func daemonCompatibleFlags(f *scanFlags) bool {
 	if *f.GradleProjectOutputs != "" {
 		return false
 	}
+	// The analyze-project wire carries no SDK levels, and the default they set
+	// is process-wide (android.SetDefaultSDKLevels), which a daemon serving
+	// other scans must not keep.
+	if (f.MinSdk != nil && *f.MinSdk != 0) || (f.TargetSdk != nil && *f.TargetSdk != 0) {
+		return false
+	}
 	// A pooled FIR check daemon (KRIT_FIR_DAEMON_POOL) is chosen from this process's
 	// environment, which a delegated scan would not see.
 	if strings.TrimSpace(os.Getenv(firchecks.FirDaemonPoolEnv)) != "" {

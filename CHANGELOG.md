@@ -20,6 +20,11 @@ All notable changes to Krit will be documented in this file.
   mocked class through imports and the cross-file index, and runs the detector's checkers in its order. Findings match
   slack-lints' own detector tests (`internal/rules/testdata/slack_lint_upstream/`); a `mock()` whose type Lint infers
   from an enclosing call's parameter is not reported (#1375, #1376, #1377, #1380).
+- `--min-sdk N` / `--target-sdk N` set the Android SDK levels of files whose own `build.gradle(.kts)`, manifest or Gradle
+  version catalog declares none, for the Go rules (per-file and project-wide minSdk alike) and the FIR pass. They are
+  part of the analysis cache key. The Bazel rules pass them from `--@krit//:min_sdk_version` /
+  `--@krit//:target_sdk_version`, and an `android_binary`'s own `krit_aspect` action from its `manifest_values`, since
+  Bazel builds often declare the levels only there (#1682).
 - `UnusedMaterialScaffoldPaddingParameter`, `UnusedMaterial3ScaffoldPaddingParameter`, `ConflictingOnColor` and
   `UsingMaterialAndMaterial3Libraries`, ports of the Lint checks bundled with `androidx.compose.material` 1.13.0 and
   `androidx.compose.material3` 1.5.0, under their Lint IDs. Their findings match the Lint CLI running those releases'
@@ -469,6 +474,12 @@ All notable changes to Krit will be documented in this file.
   another module depends on material3: as in Lint, material3 must be imported in the file or declared by the file's
   own module. `UnusedMaterialScaffoldPaddingParameter` and `UnusedMaterial3ScaffoldPaddingParameter` now resolve
   aliased `Scaffold` imports (#1728).
+- `UnsafeImplicitIntentLaunch` evaluates intent actions named by framework constants (`Intent.ACTION_VIEW` and the
+  other `android.*` action constants, when the qualifier resolves to the framework class) and by project constants
+  declared in other files (`const val`, a Kotlin `val` with a constant initializer, a Java `static final` field,
+  top-level or in a class, object or companion object), so an implicit intent with such an action that matches a
+  non-exported component is reported as Lint reports it. A same-named parameter or local shadows a constant from
+  another file (#1624).
 - `CompileTimeConstant` only runs on files that mention `CompileTimeConstant`. Every finding needs an annotated
   declaration in the same file, so other files cannot be reported; the rule spent about 2s on element-x-android and
   0.7s on okhttp finding nothing. Lint ports can opt into the same gate by declaring `fileMentions()`.

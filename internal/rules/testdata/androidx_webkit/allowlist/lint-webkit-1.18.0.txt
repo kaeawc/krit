@@ -1,0 +1,4 @@
+src/com/example/Allow.kt:11:5: CrossOriginIsolatedAllowlist: Calling setCrossOriginIsolatedAllowlist enables potentially dangerous cross-origin isolated APIs (such as SharedArrayBuffer). Ensure only trusted origins are added to the allowlist.
+src/com/example/Allow.kt:12:5: CrossOriginIsolatedAllowlist: Calling setCrossOriginIsolatedAllowlist enables potentially dangerous cross-origin isolated APIs (such as SharedArrayBuffer). Ensure only trusted origins are added to the allowlist.
+src/com/example/Allow.kt:14:21: CrossOriginIsolatedAllowlist: Calling setCrossOriginIsolatedAllowlist enables potentially dangerous cross-origin isolated APIs (such as SharedArrayBuffer). Ensure only trusted origins are added to the allowlist.
+src/com/example/JavaAllow.java:8:9: CrossOriginIsolatedAllowlist: Calling setCrossOriginIsolatedAllowlist enables potentially dangerous cross-origin isolated APIs (such as SharedArrayBuffer). Ensure only trusted origins are added to the allowlist.

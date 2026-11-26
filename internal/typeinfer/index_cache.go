@@ -33,7 +33,9 @@ const (
 	// and lambdas under returns, call chains and arguments gained scopes.
 	// Bumped to 18 when scopes gained start offsets for post-guard type facts.
 	// Bumped to 19 when class bodies gained initializer scopes for primary-constructor parameters (#1673).
-	typeIndexCacheVersion = 19
+	// Bumped to 20 when ParamInfo gained Vararg and Annotations and top-level
+	// FunctionDecls with annotated parameters gained Params.
+	typeIndexCacheVersion = 20
 )
 
 var (

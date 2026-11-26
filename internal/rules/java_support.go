@@ -189,6 +189,8 @@ var javaSupportReadiness = JavaSupportMatrix{
 		"ExperimentalAnnotationRetention":         {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/androidx_lint_parity_test.go"}},
 		"UnsafeOptInUsageError":                   {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/androidx_lint_parity_test.go"}},
 		"UnsafeOptInUsageWarning":                 {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/androidx_lint_parity_test.go"}},
+		"MissingOnRenderProcessGone":              {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/androidx_lint_parity_test.go"}},
+		"CrossOriginIsolatedAllowlist":            {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/androidx_lint_parity_test.go"}},
 		"UsingMaterialAndMaterial3Libraries":      {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/androidx_lint_parity_test.go"}},
 		"ModifierNodeInspectableProperties":       {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/androidx_compose_ui_parity_test.go"}},
 		"MutatingSharedPrefs":                     {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/android_lint_parcel_binder_test.go"}},

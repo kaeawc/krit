@@ -109,6 +109,8 @@ jobs:
   #  2. the root aggregate kritCheckAll, then again: configuration cache
   #     reuse and an up-to-date task;
   #  3. per-project kritCheck.
+  # 2 and 3 run without exportGenerated: with FIR on, the check tasks run the
+  # generated-source producers themselves (#1642, #1686).
   gradle:
     needs: krit
     runs-on: ubuntu-latest
@@ -151,7 +153,7 @@ jobs:
         working-directory: ${{ env.SAMPLE }}
         run: |
           rm -rf .krit build ./*/build .krit-bin/kritcheck-*.log
-          ./gradlew kritCheckAll --configuration-cache --no-build-cache -PkritBinary="$PWD/.krit-bin/krit-verbose" \
+          ./gradlew kritCheckAll --configuration-cache --no-build-cache -PkritExportGenerated=false -PkritBinary="$PWD/.krit-bin/krit-verbose" \
             | tee "$RUNNER_TEMP/fir/gradle-kritCheckAll.gradle.log"
           cat .krit-bin/kritcheck-*.log > "$RUNNER_TEMP/fir/gradle-kritCheckAll.log"
           grep -E 'FIR verdict:|FIR gated' "$RUNNER_TEMP/fir/gradle-kritCheckAll.log" || true
@@ -166,7 +168,7 @@ jobs:
         working-directory: ${{ env.SAMPLE }}
         run: |
           rm -f .krit-bin/kritcheck-*.log
-          ./gradlew kritCheckAll --configuration-cache --no-build-cache -PkritBinary="$PWD/.krit-bin/krit-verbose" \
+          ./gradlew kritCheckAll --configuration-cache --no-build-cache -PkritExportGenerated=false -PkritBinary="$PWD/.krit-bin/krit-verbose" \
             | tee "$RUNNER_TEMP/fir/gradle-kritCheckAll-rerun.gradle.log"
           if grep -q 'Reusing configuration cache' "$RUNNER_TEMP/fir/gradle-kritCheckAll-rerun.gradle.log"; then reused=true; else reused=false; fi
           if compgen -G '.krit-bin/kritcheck-*.log' > /dev/null; then upToDate=false; else upToDate=true; fi
@@ -177,7 +179,7 @@ jobs:
         working-directory: ${{ env.SAMPLE }}
         run: |
           rm -rf .krit build ./*/build .krit-bin/kritcheck-*.log
-          ./gradlew kritCheck --configuration-cache --no-build-cache -PkritBinary="$PWD/.krit-bin/krit-verbose" \
+          ./gradlew kritCheck --configuration-cache --no-build-cache -PkritExportGenerated=false -PkritBinary="$PWD/.krit-bin/krit-verbose" \
             | tee "$RUNNER_TEMP/fir/gradle-kritCheck.gradle.log"
           cat .krit-bin/kritcheck-*.log > "$RUNNER_TEMP/fir/gradle-kritCheck.log"
           grep -E 'FIR verdict:|FIR gated' "$RUNNER_TEMP/fir/gradle-kritCheck.log" || true

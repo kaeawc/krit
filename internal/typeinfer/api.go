@@ -23,6 +23,8 @@ type ExtensionFuncInfo struct {
 // then used read-only during parallel rule execution. No locking needed
 // because indexing completes before any reads begin.
 type defaultResolver struct {
+	// fileInfos keeps each merged file's FileTypeInfo (FileTypeInfoOf).
+	fileInfos map[string]*FileTypeInfo
 	// Per-file import tables
 	imports map[string]*ImportTable // file path -> import table
 	// Per-file scope tables (top-level declarations)
@@ -53,6 +55,9 @@ type defaultResolver struct {
 	extensions []*ExtensionFuncInfo
 	// suspendFuncs holds names declared `suspend` in any indexed source file.
 	suspendFuncs map[string]bool
+	// paramAnnotatedFuncs maps an annotation simple name to the names of
+	// indexed functions and members with a parameter carrying it.
+	paramAnnotatedFuncs map[string]map[string]bool
 	// javaTopLevelNames lazily memoizes the set of top-level type
 	// names declared in a Java file, keyed by file path. Populated on
 	// first ResolveImport that needs it. Java files are not indexed by

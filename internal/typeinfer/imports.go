@@ -92,6 +92,26 @@ func extractImportsFlat(nodeIdx uint32, file *scanner.File, it *ImportTable) {
 	})
 }
 
+// extractPackageFlat returns a file's package name. Type resolution calls it
+// for every unqualified type reference, so it reads only the package header
+// rather than building the import table scanFileHeadersFlat returns.
 func extractPackageFlat(file *scanner.File) string {
-	return scanFileHeadersFlat(file).pkg
+	if file == nil || file.FlatTree == nil || file.FlatTree.Len() == 0 {
+		return ""
+	}
+	t := file.FlatTree
+	for child := t.FirstChildren[0]; child != 0; child = t.NextSibs[child] {
+		if !t.Node(child).IsNamed() {
+			continue
+		}
+		switch typ := file.FlatType(child); typ {
+		case "package_header":
+			return sourceheader.FirstHeaderLine(file.FlatNodeText(child), "package")
+		default:
+			if isTopLevelDeclarationType(typ) {
+				return ""
+			}
+		}
+	}
+	return ""
 }

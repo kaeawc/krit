@@ -54,12 +54,16 @@ internal object KritModelInputs {
         listOf("compile_r_class_jar"),
     )
 
+    /** The segments of `intermediates/<folder>/<component>/<task>/R.jar`. */
+    private const val R_CLASS_JAR_SEGMENTS = 5
+
     private fun rClassJarDirectories(entry: String): List<String> {
         val parts = entry.split('/')
-        if (parts.size < 5 || parts.last() != "R.jar" || parts[parts.size - 5] != "intermediates") return emptyList()
-        val group = R_CLASS_JAR_FOLDERS.firstOrNull { parts[parts.size - 4] in it } ?: return emptyList()
-        val intermediates = parts.subList(0, parts.size - 4).joinToString("/")
-        val component = parts[parts.size - 3]
+        if (parts.size < R_CLASS_JAR_SEGMENTS) return emptyList()
+        val (intermediatesName, folder, component, _, name) = parts.takeLast(R_CLASS_JAR_SEGMENTS)
+        if (name != "R.jar" || intermediatesName != "intermediates") return emptyList()
+        val group = R_CLASS_JAR_FOLDERS.firstOrNull { folder in it } ?: return emptyList()
+        val intermediates = parts.dropLast(R_CLASS_JAR_SEGMENTS - 1).joinToString("/")
         return group.map { "$intermediates/$it/$component" }
     }
 

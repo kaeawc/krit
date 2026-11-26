@@ -42,6 +42,58 @@ _WORKER_REQUIREMENTS = {
     "supports-workers": "1",
 }
 
+# The exec group of the Krit actions of large targets: with remote
+# execution, a platform's `krit_large.<key>` exec_properties (a bigger
+# worker pool, say) apply to them only. It has no constraints, so it
+# resolves to the same execution platform as the default group; it exists
+# only to carry those properties, since an aspect's actions never see a
+# target's own exec_properties.
+_LARGE_EXEC_GROUP = "krit_large"
+
+# Local scheduling estimates (Bazel's resource_set, memory in MB) by the
+# number of files a Krit action scans: small below 50, medium below
+# _large_sources (--@krit//:large_target_sources, 400 by default), large
+# from there. With FIR the action runs krit and a krit-fir JVM; Go-only it
+# runs krit alone. Measured peaks with a stdlib-only classpath were 366 MB
+# (2 files), 523 MB (50) and 642 MB (400) with FIR and 33-59 MB Go-only;
+# the estimates leave room for real classpaths. Bazel only accepts
+# top-level functions here.
+def _resources_fir_small(_os, _inputs):
+    return {"cpu": 1, "memory": 512}
+
+def _resources_fir_medium(_os, _inputs):
+    return {"cpu": 2, "memory": 1024}
+
+def _resources_fir_large(_os, _inputs):
+    return {"cpu": 2, "memory": 2048}
+
+def _resources_go_small(_os, _inputs):
+    return {"cpu": 1, "memory": 128}
+
+def _resources_go_medium(_os, _inputs):
+    return {"cpu": 2, "memory": 256}
+
+def _resources_go_large(_os, _inputs):
+    return {"cpu": 4, "memory": 512}
+
+_SMALL_SOURCES = 50
+
+_RESOURCES = {
+    (True, "small"): _resources_fir_small,
+    (True, "medium"): _resources_fir_medium,
+    (True, "large"): _resources_fir_large,
+    (False, "small"): _resources_go_small,
+    (False, "medium"): _resources_go_medium,
+    (False, "large"): _resources_go_large,
+}
+
+def _size(count, large):
+    if count >= large:
+        return "large"
+    if count >= _SMALL_SOURCES:
+        return "medium"
+    return "small"
+
 _VALIDATE = """\
 set -euo pipefail
 if [ "$(cat "$1")" != 0 ]; then
@@ -159,10 +211,13 @@ def _krit_aspect_impl(target, ctx):
     args.add("--")
     args.add_all(scan)
 
+    size = _size(len(scan), ctx.attr._large_sources[BuildSettingInfo].value)
     ctx.actions.run(
         executable = ctx.executable._krit,
         arguments = ["bazel-worker", args],
         execution_requirements = _WORKER_REQUIREMENTS if _flag(ctx, "_worker") else {},
+        exec_group = _LARGE_EXEC_GROUP if size == "large" else None,
+        resource_set = _RESOURCES[(_flag(ctx, "_fir"), size)],
         inputs = depset(inputs, transitive = transitive),
         outputs = [sarif, plain, status],
         mnemonic = "Krit",
@@ -222,10 +277,14 @@ Flags:
 - `--@krit//:fir=false`: Go-only analysis, without the JDK or krit-fir.
 - `--@krit//:worker=false`: no persistent worker; every action starts its
   own krit-fir JVM (as with `--strategy=Krit=sandboxed` or remote execution).
+- `--@krit//:large_target_sources=N` (400): actions that scan at least N
+  files run in the `krit_large` exec group, so an execution platform's
+  `krit_large.<key>` exec_properties apply to them only.
   With workers, `--worker_max_instances=Krit=N` bounds the JVMs (one per
   worker) and `--worker_sandboxing` sandboxes them.
 """,
     toolchains = [KT_TOOLCHAIN],
+    exec_groups = {_LARGE_EXEC_GROUP: exec_group()},
     requires = [krit_android_sdk_aspect],
     attrs = {
         "_krit": attr.label(
@@ -264,6 +323,10 @@ Flags:
         ),
         "_scope": attr.label(
             default = Label("//:scope"),
+            providers = [BuildSettingInfo],
+        ),
+        "_large_sources": attr.label(
+            default = Label("//:large_target_sources"),
             providers = [BuildSettingInfo],
         ),
     },

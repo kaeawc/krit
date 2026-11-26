@@ -177,6 +177,91 @@ for case in "settings_without_kotlinc_opts:'when' expression must be exhaustive"
 done
 echo "OK: krit_aspect"
 
+# A remote cache shares a Krit action between machines only if its key
+# names no machine-specific path: the command line, the params file, the
+# environment and the model.json the action reads must all be relative to
+# the execution root.
+echo "== krit_aspect action keys carry no absolute paths"
+# shellcheck disable=SC2086
+env -u KRIT_BAZEL_RELEASE -u KRIT_FIR_JAR $BAZEL aquery \
+  --lockfile_mode=off \
+  --noshow_progress \
+  --symlink_prefix=/ \
+  --aspects=@krit//:defs.bzl%krit_aspect \
+  --output_groups=krit \
+  --include_param_files \
+  --include_file_write_contents \
+  --output=jsonproto \
+  "${extra[@]}" 'mnemonic("^(Krit|FileWrite)$", //typed/... + //kotlin_settings/...)' > "$work/aquery.json"
+python3 - "$work/aquery.json" << 'PY'
+import json, re, sys
+graph = json.load(open(sys.argv[1]))
+# An absolute path at the start of a value or after "=", ":", "," or a quote;
+# "//pkg:name" labels are not paths.
+absolute = re.compile(r'(?:^|[=:,"\s])/(?!/)')
+krit, models, bad = 0, 0, []
+for action in graph.get("actions", []):
+    values = []
+    if action.get("mnemonic") == "Krit":
+        krit += 1
+        values += action.get("arguments", [])
+        values += [v.get("value", "") for v in action.get("environmentVariables", [])]
+        for params in action.get("paramFiles", []):
+            values += params.get("arguments", [])
+    elif '"sourceSets"' in action.get("fileContents", ""):
+        models += 1
+        values.append(action["fileContents"])
+    for value in values:
+        for line in value.splitlines():
+            if absolute.search(line):
+                bad.append(line.strip())
+if not krit or not models:
+    sys.exit("ERROR: aquery found %d Krit actions and %d models" % (krit, models))
+if bad:
+    sys.exit("ERROR: Krit action keys name absolute paths:\n  " + "\n  ".join(sorted(set(bad))))
+print("OK: %d Krit actions and %d models, no absolute paths" % (krit, models))
+PY
+
+# Compile avoidance: with rules_kotlin's ABI jars an implementation-only
+# edit of //typed/lib leaves its compile jar, and so //typed/app's Krit
+# action key, unchanged; only //typed/lib's own Krit action re-runs.
+echo "== an implementation-only edit of //typed/lib re-runs only its own Krit action"
+upstream="$repo_root/bazel/e2e/typed/lib/Upstream.kt"
+cp "$upstream" "$work/Upstream.kt.orig"
+trap 'cp "$work/Upstream.kt.orig" "$upstream"; rm -rf "$work"' EXIT
+abi=(--define=experimental_use_abi_jars=1)
+build "${extra[@]}" "${abi[@]}" //typed/... > /dev/null 2>&1 || build "${extra[@]}" "${abi[@]}" //typed/...
+sed -i.bak 's/"upstream"/"upstream, edited"/' "$upstream" && rm -f "$upstream.bak"
+build "${extra[@]}" "${abi[@]}" --execution_log_json_file="$log" //typed/... > /dev/null 2>&1 ||
+  build "${extra[@]}" "${abi[@]}" //typed/...
+cp "$work/Upstream.kt.orig" "$upstream"
+trap 'rm -rf "$work"' EXIT
+python3 - "$log" << 'PY'
+import json, sys
+text = open(sys.argv[1]).read()
+decoder, pos, ran = json.JSONDecoder(), 0, []
+while pos < len(text):
+    while pos < len(text) and text[pos].isspace():
+        pos += 1
+    if pos >= len(text):
+        break
+    entry, pos = decoder.raw_decode(text, pos)
+    if entry.get("mnemonic") == "Krit" and not (entry.get("cacheHit") or entry.get("remoteCacheHit")):
+        ran.append(entry.get("targetLabel", "?"))
+if not any(label.endswith("//typed/lib:lib") for label in ran):
+    sys.exit("ERROR: //typed/lib's Krit action did not re-run after its source changed: %s" % ran)
+if any(label.endswith("//typed/app:app") for label in ran):
+    sys.exit("ERROR: an implementation-only edit of //typed/lib re-ran //typed/app's Krit action")
+print("OK: compile avoidance (re-ran: %s)" % ", ".join(ran))
+PY
+
+# Large targets' actions run in the krit_large exec group; with a threshold
+# of one file every action does, and the build must still work.
+echo "== --@krit//:large_target_sources=1: every Krit action in the krit_large exec group"
+build "${extra[@]}" --@krit//:large_target_sources=1 //typed/... > /dev/null 2>&1 ||
+  build "${extra[@]}" --@krit//:large_target_sources=1 //typed/...
+echo "OK: krit_large"
+
 # Project-scope rules: per target, krit_aspect runs only the file-scope
 # rules (--@krit//:scope=file). With --@krit//:scope=all an action over
 # //project/lib alone calls usedApi dead code although //project/app calls

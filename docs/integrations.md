@@ -168,10 +168,11 @@ Each target with `JavaInfo` and `.kt`, `.kts` or `.java` files in `srcs`
 their test variants) gets `<target>.krit.sarif` and `<target>.krit.txt` in
 the `krit` output group, next to its other outputs in `bazel-bin`. A target
 tagged `no-krit` is skipped. The aspect does not propagate to dependencies:
-each target is analyzed once, against its deps' compile (header or ABI)
-jars and not their sources, so editing a library re-runs only the targets
-whose classpath changed. `.srcjar` files in `srcs` are compiled as
-generated-source context and not reported on.
+each target is analyzed once, against its deps' compile jars and not their
+sources, so editing a library re-runs only the targets whose classpath
+changed (see [Caching and remote execution](#caching-and-remote-execution)
+for keeping that to the library itself). `.srcjar` files in `srcs` are
+compiled as generated-source context and not reported on.
 
 The action compiles each target with its rules_kotlin settings (language
 and API version, `kotlinc_opts`, compiler plugins, KSP/kapt sources) and,
@@ -200,6 +201,7 @@ common --tool_java_runtime_version=remotejdk_21
 | `--@krit//:scope=all` | Run every rule per target, not only the file-scope ones (see below). |
 | `--@krit//:fir=false` | Go-only analysis, without the JDK or krit-fir. |
 | `--@krit//:worker=false` | No persistent worker: each Krit action starts its own krit-fir JVM. |
+| `--@krit//:large_target_sources=400` | Actions that scan at least this many files run in the `krit_large` exec group (see below). |
 
 The Krit actions run `krit bazel-worker` as Bazel
 [persistent workers](https://bazel.build/remote/persistent) (JSON protocol,
@@ -227,6 +229,55 @@ reports each rule's `scope`). A project-scope rule there would be wrong:
 DeadCode would report a function as unused when its only caller is in
 another target. `--@krit//:scope=all` runs every rule per target anyway,
 which suits a build with one target per module and no cross-target rules.
+
+#### Caching and remote execution
+
+A Krit action's key is its sources, its deps' compile jars, the Kotlin
+settings, krit, the krit-fir jar, the Java runtime, `krit.yml` and the
+baseline. Every path in its command line and in the model it reads is
+relative to the execution root, and the reports name workspace-relative
+paths, so a remote cache shares the action between machines.
+`scripts/bazel-e2e-local.sh` checks that no Krit action key names an
+absolute path. Two settings of yours decide whether that holds:
+
+- **ABI jars for Kotlin.** For `java_library` the compile jar is a header
+  jar, but rules_kotlin puts the full class jar into a `kt_jvm_library`'s
+  compile jar unless its toolchain makes ABI jars. Then any edit to a library
+  re-runs the Krit action (and the Kotlin compile) of every target above it.
+  Turn on compile avoidance with `experimental_use_abi_jars = True` in
+  `define_kt_toolchain`, or `--define=experimental_use_abi_jars=1`. An
+  implementation-only edit then re-runs only the library's own action. In
+  `scripts/bazel-worker-bench.sh`'s 24-target chain, an edit to the bottom
+  target re-ran 24 Krit actions without ABI jars and 1 with them.
+- **A hermetic JDK.** The Java runtime's files are inputs of every Krit
+  action, so a JDK that differs between machines (`local_jdk` mirrors the
+  machine's own) changes every key, and a `java_runtime` with an absolute
+  `java_home` puts that path into the action's environment. Use a
+  `remotejdk_*` runtime (above).
+
+For scheduling, Bazel gets an estimate of each action's CPU and memory from
+the number of files it scans. Below 50 files that is 1 CPU and 512 MB with
+FIR, from 50 files 2 CPUs and 1 GB, and from `--@krit//:large_target_sources`
+(400) files 2 CPUs and 2 GB. Go-only actions (`--@krit//:fir=false`) get a
+quarter of that memory, and 4 CPUs when large. The estimate applies to local
+execution (`resource_set`).
+
+For remote execution, an aspect's actions never see a target's own
+`exec_properties`, so the large actions run in their own exec group,
+`krit_large`. It resolves to the same execution platform as the other
+actions. A platform's `krit_large.`-prefixed `exec_properties` apply to the
+large actions only:
+
+```starlark
+platform(
+    name = "rbe",
+    parents = ["@rbe_config//config:platform"],
+    exec_properties = {
+        "krit_large.Pool": "large",
+        "krit_large.dockerMemory": "8g",
+    },
+)
+```
 
 ### krit_project_report
 

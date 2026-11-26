@@ -1,4 +1,4 @@
-load("@bazel_skylib//rules:common_settings.bzl", "bool_flag", "string_flag")
+load("@bazel_skylib//rules:common_settings.bzl", "bool_flag", "int_flag", "string_flag")
 load("@bazel_skylib//rules:native_binary.bzl", "native_binary")
 
 # `bazel run @krit//:krit -- <args>` runs the prebuilt binary for the host.
@@ -90,5 +90,15 @@ string_flag(
         "all",
         "file",
     ],
+    visibility = ["//visibility:public"],
+)
+
+# krit_aspect's Krit actions that scan at least this many files are "large":
+# they run in the `krit_large` exec group, so a remote execution platform's
+# `krit_large.<key>` exec_properties apply to them (a bigger worker, say),
+# and Bazel schedules them locally with more memory.
+int_flag(
+    name = "large_target_sources",
+    build_setting_default = 400,
     visibility = ["//visibility:public"],
 )

@@ -203,17 +203,18 @@ func (d *resXMLDoc) nameOffset(n *android.XMLNode) int { return int(n.StartByte)
 // StringEscaping
 // ---------------------------------------------------------------------------
 
-var stringEscapingNeedle = []byte("<string")
-
-// stringEscapingMayMatch reports whether a values file can hold a finding: an apostrophe, literal or as an entity, or
-// a \u escape.
+// stringEscapingMayMatch reports whether a values file can hold a finding: a <string>, <string-array> or <plurals>
+// with an apostrophe (literal or as an entity) or a \u escape.
 func stringEscapingMayMatch(data []byte) bool {
+	if !bytes.Contains(data, []byte("<string")) && !bytes.Contains(data, []byte("<plurals")) {
+		return false
+	}
 	return bytes.IndexByte(data, '\'') >= 0 || bytes.Contains(data, []byte("&apos;")) || bytes.Contains(data, []byte("&#")) ||
 		bytes.Contains(data, []byte(`\u`))
 }
 
 func (r *StringEscapingRule) check(ctx *api.Context) {
-	for _, doc := range resFolderFiles(ctx.ResourceIndex, "values", stringEscapingNeedle, stringEscapingMayMatch) {
+	for _, doc := range resFolderFiles(ctx.ResourceIndex, "values", nil, stringEscapingMayMatch) {
 		if doc.root.Tag != "resources" {
 			continue
 		}
@@ -244,11 +245,18 @@ func (r *StringEscapingRule) checkElement(ctx *api.Context, doc *resXMLDoc, el *
 // resFirstTextNode returns the decoded value of the element's first text or CDATA child (comments and child
 // elements are skipped over; a whitespace-only run counts) with the source byte offset of each decoded character.
 func resFirstTextNode(data []byte, el *android.XMLNode) ([]rune, []int, bool) {
-	start := bytes.IndexByte(data[el.StartByte:el.EndByte], '>')
-	if start < 0 || data[int(el.StartByte)+start-1] == '/' {
+	// The start tag ends at the first `>` after its last attribute; an attribute value may itself hold `>`.
+	from := el.StartByte
+	for _, a := range el.Attrs {
+		if a.EndByte > from && a.EndByte <= el.EndByte {
+			from = a.EndByte
+		}
+	}
+	start := bytes.IndexByte(data[from:el.EndByte], '>')
+	if start < 0 || data[int(from)+start-1] == '/' {
 		return nil, nil, false
 	}
-	i := int(el.StartByte) + start + 1
+	i := int(from) + start + 1
 	end := int(el.EndByte)
 	if closeTag := bytes.LastIndex(data[i:end], []byte("</")); closeTag >= 0 {
 		end = i + closeTag
@@ -477,12 +485,13 @@ func parseResourceURL(v string) (resourceURL, bool) {
 
 func (r *InvalidNavigationRule) check(ctx *api.Context) {
 	docs := resFolderFiles(ctx.ResourceIndex, "navigation", navigationNeedle)
+	roots := navigationRootIndex{idx: ctx.ResourceIndex}
 	for _, doc := range docs {
 		var visit func(n *android.XMLNode, ns resPrefixes)
 		visit = func(n *android.XMLNode, ns resPrefixes) {
 			ns = ns.with(n)
 			if n.Tag == "navigation" {
-				r.checkNavigation(ctx, doc, n, ns)
+				r.checkNavigation(ctx, doc, n, ns, &roots)
 			}
 			for _, c := range n.Children {
 				visit(c, ns)
@@ -492,7 +501,8 @@ func (r *InvalidNavigationRule) check(ctx *api.Context) {
 	}
 }
 
-func (r *InvalidNavigationRule) checkNavigation(ctx *api.Context, doc *resXMLDoc, n *android.XMLNode, ns resPrefixes) {
+func (r *InvalidNavigationRule) checkNavigation(ctx *api.Context, doc *resXMLDoc, n *android.XMLNode, ns resPrefixes,
+	index *navigationRootIndex) {
 	if len(n.Children) == 0 {
 		return
 	}
@@ -514,7 +524,7 @@ func (r *InvalidNavigationRule) checkNavigation(ctx *api.Context, doc *resXMLDoc
 			if !ok {
 				continue
 			}
-			roots := navigationResourceRoots(ctx.ResourceIndex, included.typ, included.name)
+			roots := index.roots(included.typ, included.name)
 			if len(roots) == 0 {
 				// The included graph lives in another module; Lint cannot check it.
 				return
@@ -537,16 +547,27 @@ func (r *InvalidNavigationRule) checkNavigation(ctx *api.Context, doc *resXMLDoc
 	ctx.Emit(doc.finding(doc.valueOffset(attr), "Invalid start destination "+attr.Value))
 }
 
-// navigationResourceRoots returns the root elements of every resource file of the type and name, across res
-// directories and qualifiers.
-func navigationResourceRoots(idx *android.ResourceIndex, typ, name string) []*android.XMLNode {
-	var out []*android.XMLNode
-	for _, doc := range resFolderFiles(idx, typ, nil) {
-		if strings.TrimSuffix(filepath.Base(doc.path), ".xml") == name {
-			out = append(out, doc.root)
-		}
+// navigationRootIndex reads each resource folder type once per check and finds root elements by file name, so a
+// graph with many <include>s doesn't re-read the folders for each.
+type navigationRootIndex struct {
+	idx    *android.ResourceIndex
+	byType map[string]map[string][]*android.XMLNode
+}
+
+func (x *navigationRootIndex) roots(typ, name string) []*android.XMLNode {
+	if x.byType == nil {
+		x.byType = map[string]map[string][]*android.XMLNode{}
 	}
-	return out
+	byName, ok := x.byType[typ]
+	if !ok {
+		byName = map[string][]*android.XMLNode{}
+		for _, doc := range resFolderFiles(x.idx, typ, nil) {
+			key := strings.TrimSuffix(filepath.Base(doc.path), ".xml")
+			byName[key] = append(byName[key], doc.root)
+		}
+		x.byType[typ] = byName
+	}
+	return byName[name]
 }
 
 func resStripIDPrefix(v string) string {
@@ -752,7 +773,7 @@ func readModuleIdentity(resDir string) moduleIdentity {
 		if err != nil {
 			continue
 		}
-		content := string(data)
+		content := gradleWithoutComments(string(data))
 		if m := gradleNamespaceRe.FindStringSubmatch(content); m != nil {
 			id.namespace = m[1]
 		}
@@ -760,7 +781,9 @@ func readModuleIdentity(resDir string) moduleIdentity {
 			id.applicationID = m[1]
 		}
 		info := readManifestGradleInfo(module)
-		id.library = info.isLibrary && !info.isApplication
+		// Decide from the plugins alone: info.isApplication also holds for any `applicationId` text, such as a
+		// library's testApplicationId.
+		id.library = info.isLibrary && !moduleAppliesApplicationPlugin(module, content)
 		if !id.library && id.applicationID == "" && info.isApplication {
 			id.applicationID = id.namespace
 		}
@@ -777,6 +800,31 @@ func readModuleIdentity(resDir string) moduleIdentity {
 		}
 	}
 	return id
+}
+
+// gradleWithoutComments blanks the comments of a build script, so a commented-out namespace or applicationId is not
+// read.
+func gradleWithoutComments(content string) string {
+	lines := strings.Split(content, "\n")
+	inBlock := false
+	for i, line := range lines {
+		lines[i], inBlock = blankGradleComments(line, inBlock)
+	}
+	return strings.Join(lines, "\n")
+}
+
+// moduleAppliesApplicationPlugin reports a build script that applies the Android application plugin, by id or
+// through a version-catalog alias.
+func moduleAppliesApplicationPlugin(module, content string) bool {
+	if strings.Contains(content, "com.android.application") || containsPluginSuffix(content, "application") {
+		return true
+	}
+	for _, id := range catalogPluginIDs(module, content) {
+		if id == "com.android.application" || strings.HasPrefix(id, "com.android.application.") {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *RelativeClassResolutionRule) check(ctx *api.Context) {

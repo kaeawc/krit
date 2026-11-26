@@ -1,0 +1,6 @@
+<resources>
+    <plurals name="items">
+        <item quantity="one">one item's</item>
+        <item quantity="other">%d items</item>
+    </plurals>
+</resources>

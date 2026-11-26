@@ -9,7 +9,7 @@ func (r *StringEscapingRule) Meta() api.RuleDescriptor {
 func (r *InvalidNavigationRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{ID: "InvalidNavigation", RuleSet: "android-lint", DefaultActive: true,
 		KnownLimitations: []string{
-			"An included graph is looked up in every res directory of the scan; Lint looks only in the module unless it runs a global analysis.",
+			"An included graph is looked up in the res directory being checked; one defined only in another source set or module is skipped (Lint looks across the module's source sets).",
 		}}
 }
 

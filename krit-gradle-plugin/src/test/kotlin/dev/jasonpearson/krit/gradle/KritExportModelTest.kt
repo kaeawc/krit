@@ -680,21 +680,49 @@ class KritExportModelTest {
     }
 
     @Test
-    fun `Android test R jar scan collects existing task outputs from both runtime folders`() {
-        val root = File(directory, "android-test-r-jar").also { it.mkdirs() }
-        File(root, "settings.gradle.kts").writeText("rootProject.name = \"android-test-r-jar\"\n")
+    fun `R jars created after the configuration cache entry keep it reusable`() {
+        // #1645: the R jar location is predicted, never listed while configuring, so the first
+        // build that runs the R tasks does not invalidate the configuration cache entry.
+        val root = File(directory, "r-jar-configuration-cache").also { it.mkdirs() }
+        File(root, "settings.gradle.kts").writeText("rootProject.name = \"r-jar-configuration-cache\"\n")
         File(root, "build.gradle.kts").writeText("plugins { id(\"com.android.library\"); id(\"dev.jasonpearson.krit\") }\n")
-        val otherJar = File(root,
-            "build/intermediates/compile_and_runtime_r_class_jar/debugAndroidTest/customTask/R.jar")
-        otherJar.parentFile.mkdirs()
-        otherJar.writeBytes(byteArrayOf())
-        runWithFakeAndroid(root, "kritExportModel", "-PfakeRJarKind=androidTest")
-        val fakeJar = File(root,
+        val first = runWithFakeAndroid(root, "kritExportModel", "--configuration-cache")
+        assertFalse(first.output.contains("Reusing configuration cache."), first.output)
+        val predicted = File(root,
             "build/intermediates/compile_and_runtime_not_namespaced_r_class_jar/debugAndroidTest/processDebugAndroidTestResources/R.jar")
-        assertTrue(fakeJar.isFile)
-        assertEquals(listOf(otherJar.canonicalPath, fakeJar.canonicalPath).sorted(),
-            sourceSets(File(root, ".krit/gradle-model/_root.json"))
-                .single { it["kind"] == "androidTest" }["generatedClasspath"])
+        val model = File(root, ".krit/gradle-model/_root.json")
+        assertEquals(listOf(predicted.canonicalPath),
+            sourceSets(model).single { it["kind"] == "androidTest" }["generatedClasspath"])
+        // What the R tasks write: the predicted jar, and one in AGP's other runtime folder.
+        listOf(predicted, File(root,
+            "build/intermediates/compile_and_runtime_r_class_jar/debugAndroidTest/customTask/R.jar"),
+            File(root, "build/intermediates/compile_r_class_jar/debug/generateDebugRFile/R.jar")).forEach {
+            it.parentFile.mkdirs()
+            it.writeBytes(byteArrayOf())
+        }
+        val second = runWithFakeAndroid(root, "kritExportModel", "--configuration-cache")
+        assertTrue(second.output.contains("Reusing configuration cache."), second.output)
+        assertEquals(listOf(predicted.canonicalPath),
+            sourceSets(model).single { it["kind"] == "androidTest" }["generatedClasspath"],
+            "the model keeps the prediction; krit finds other jars when it loads the model")
+    }
+
+    @Test
+    fun `kritCheck reruns when AGP writes the R jar next to the prediction`() {
+        val root = File(directory, "r-jar-check-key").also { it.mkdirs() }
+        fakeKrit(root)
+        File(root, "settings.gradle.kts").writeText("rootProject.name = \"r-jar-check-key\"\n")
+        File(root, "build.gradle.kts").writeText("plugins { id(\"com.android.library\"); id(\"dev.jasonpearson.krit\") }\n" +
+            "krit { advanced { binary.set(file(\"fake-krit\")) }; fir = false }\n")
+        File(root, "src/main/kotlin/A.kt").apply { parentFile.mkdirs(); writeText("class A\n") }
+        assertEquals(TaskOutcome.SUCCESS, runWithFakeAndroid(root, "kritCheck").task(":kritCheck")?.outcome)
+        assertEquals(TaskOutcome.UP_TO_DATE, runWithFakeAndroid(root, "kritCheck").task(":kritCheck")?.outcome)
+        File(root, "build/intermediates/compile_and_runtime_r_class_jar/debugAndroidTest/customTask/R.jar").apply {
+            parentFile.mkdirs()
+            writeBytes(byteArrayOf(1))
+        }
+        val rerun = runWithFakeAndroid(root, "kritCheck")
+        assertEquals(TaskOutcome.SUCCESS, rerun.task(":kritCheck")?.outcome, rerun.output)
     }
 
     @Test

@@ -120,6 +120,23 @@ They report only what the source proves:
 Not ported: `MoshiUsageNonMoshiClassInternal` and `MoshiUsageNonMoshiClassExternal`, which split on whether a type
 lives in Slack's own `slack.*` packages.
 
+Five single-node checks resolve the names they need through the file's imports and stay silent when a same-file
+declaration could shadow them:
+
+- `AvoidUsingNotNullOperator` reports every Kotlin `!!`, at the operator. It differs from detekt's
+  `UnsafeCallOnNullableType`, which needs type information and skips some receivers, so it is a separate rule.
+- `ExceptionMessage` reports kotlin's `check`, `checkNotNull`, `require` and `requireNotNull` without a `lazyMessage`
+  (trailing, positional or named), outside test sources. A call through an import alias (`import kotlin.require as req`)
+  is not checked.
+- `NullableConcurrentHashMap` reports a nullable key or value type argument of a `java.util.concurrent.ConcurrentHashMap`
+  variable type or constructor call; in Java, a type argument annotated `@…Nullable`.
+- `GuavaPreconditionsUsedInKotlin` reports Kotlin calls into `com.google.common.base.Preconditions`. Lint's quick fix,
+  which renames `checkState` to `check` and leaves the message argument in a position `check` does not accept, is not
+  ported.
+- `ParcelizeFunctionProperty` reports function-typed primary constructor parameters of a `@Parcelize` class, including
+  `kotlin.FunctionN` and same-file typealiases. As in Lint, `@IgnoredOnParcel` does not exempt them: it targets the
+  property, and the detector reads the parameter.
+
 The Dagger rules (`MustBeInModule`, `BindsMustBeAbstract`, `ProvidesMustNotBeAbstract`, `BindingReturnType`,
 `BindingReceiverParameter`) port `DaggerIssuesDetector` for Kotlin and Java `@Binds`/`@Provides` methods. As in
 Lint, a method gets at most one of the detector's issues, in the detector's order. Two of its IDs map onto existing
@@ -239,6 +256,21 @@ Gradle module (recorded with `scripts/lint-parity-record.sh`, AGP 9.4.1); `TestA
 - `WearMaterialTheme` (error, Kotlin and Java) reports an import of `androidx.compose.material.MaterialTheme` in such a
   module; a file belongs to the nearest module root above it, so a phone module nested in a Wear project is not
   checked. Lint compares the import text, so an aliased import and `MaterialTheme.*` count; Material 3 imports do not.
+
+- `SquareAndRoundTilePreviews` (warning) reports a tile service (a `<service>` with the
+  `androidx.wear.tiles.action.BIND_TILE_PROVIDER` action) without an `androidx.wear.tiles.PREVIEW` metadata ("Tiles
+  need preview assets", in any project). In a Wear module it also reads the binary drawables named by each
+  `@drawable/` preview in every source set's `drawable*` folders and reports, at the metadata's resource value, a
+  preview found only in folders whose name contains `round` or only in the others. This is Lint 32.4.1's behavior;
+  later Lint renamed the check `TilePreviews` and dropped the round/square requirement.
+- `TilePreviewImageFormat` (error) reports, at the same value, a preview image that is not square or is smaller than
+  384px in either dimension. PNG, JPEG and GIF headers are decoded; a WebP preview is 0x0, as it is for Lint, whose
+  `ImageIO` has no WebP reader; other formats are skipped.
+- `StartActivityAndCollapseDeprecated` (Kotlin and Java) reports the argument of `startActivityAndCollapse(Intent)` on
+  a `TileService`: an error from target SDK 34, a warning below. The receiver must be proven a `TileService` (an
+  implicit or `this` receiver in a class whose same-file supertype chain reaches it, or a receiver declared as one)
+  and the argument an `Intent` (a constructor call, a variable declared or initialized as one, or an `Intent` builder
+  call on one); the `PendingIntent` overload and same-named methods of other classes are not reported.
 
 Lint checks the merged manifest; krit checks each manifest file, so components declared only in a variant or library
 manifest are not seen, and the watch face dependency is read from build scripts and version catalogs.

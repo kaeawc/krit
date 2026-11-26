@@ -1495,11 +1495,12 @@ func loadWarmCrossFindings(args ProjectArgs, host ProjectHostState, warm warmAna
 	if !ok {
 		return false, nil
 	}
-	// Cross findings are only valid for the file set the index was built
-	// from. After a delete or rename every remaining file can still be a
-	// per-file cache hit (or a lexically irrelevant miss), so compare the
-	// indexed Kotlin/Java paths with the current ones before any reuse.
-	if !meta.CoversSourcePaths(crossIndexSourcePaths(args, warm)) {
+	// Cross findings are only valid for the files the index was built from.
+	// After a delete or rename every remaining file can still be a per-file
+	// cache hit (or a lexically irrelevant miss), and so can a file returned
+	// to an earlier version (#1820), so compare the indexed Kotlin/Java paths
+	// and contents with the current ones before any reuse.
+	if !meta.CoversSourcePaths(crossIndexSourcePaths(args, warm), warmSourceHash(warm)) {
 		return false, nil
 	}
 	// XML layouts, manifests and navigation graphs feed class references into
@@ -2215,9 +2216,10 @@ func runDispatchOrLoadBundle(
 		// cacheHitAffectedSetBundle: the single-file delta planner declined
 		// (multi-file edit, or an ABI change that drifts the CrossFile
 		// fingerprint), but the reference-level reverse-dependency index can
-		// still bound the work. Re-dispatch only the #608-safe affected set
-		// and ApplyDelta against the prior bundle. Opt-in
-		// (KRIT_AFFECTED_SET_REPLAY) and #608 gated inside.
+		// still bound the work. Re-run the per-file rules on the #608-safe
+		// affected set and the project-scope rules on the whole project, then
+		// ApplyDelta against the prior bundle. On by default
+		// (KRIT_AFFECTED_SET_REPLAY=0 turns it off) and #608 gated inside.
 		asStart := time.Now()
 		asD, asC, asReason, asErr := tryAffectedSetDispatchXMLStable(ctx, args, host, indexResult, parseResult, runFP, manifest)
 		// reason is "hit" when the path fired, else the bail label explaining
@@ -3223,11 +3225,19 @@ func xmlInputsFingerprint(host ProjectHostState, project *android.Project, kotli
 	// Module SDK levels come from build scripts the hashes above do not cover.
 	_, _ = h.Write([]byte{3})
 	_, _ = h.Write([]byte(sdkLevelsFingerprint(project)))
+	// Manifest rules read the res of every source set of a manifest's module (and a flat module's res), which
+	// project detection may not list in ResDirs.
+	_, _ = h.Write([]byte{4})
+	var moduleRes resDirFingerprints
+	for _, m := range manifests {
+		_, _ = h.Write([]byte(AndroidInput{Project: project}.manifestModuleFP(m, &moduleRes)))
+		_, _ = h.Write([]byte{0})
+	}
 	// Manifest and manifest-source rules also read the build scripts themselves (plugins, namespace, project
 	// dependencies) and the module graph of each manifest's build, settings file included, which can lie outside
 	// the scan paths. A Groovy build.gradle is not a source file the SourceSet hash covers (#1625, #1800).
 	if project != nil && (len(project.GradlePaths) > 0 || len(project.ManifestPaths) > 0) {
-		_, _ = h.Write([]byte{4})
+		_, _ = h.Write([]byte{5})
 		if fp, ok := buildFilesFingerprint(project, readsGraph); ok {
 			_, _ = h.Write([]byte(fp))
 		} else {
@@ -3384,12 +3394,37 @@ func tryDeltaDispatch(
 	if err != nil {
 		return DispatchResult{}, CrossFileResult{}, false, dispatchTimings{}, fmt.Errorf("dispatch (delta): %w", err)
 	}
-	// Project-scope rules (cross-file, parsed-files, module-index) are
-	// promised the complete project and may report on any file, so they
-	// run against the full parse set and replace ALL of their prior rows,
-	// not just the edited file's.
+	d, c, crossMs, reason, err := replayProjectScope(ctx, args, host, "delta", indexResult, manifest.contentHashes, d, priorBundle, []string{changedPath})
+	if err != nil || reason != "" {
+		return DispatchResult{}, CrossFileResult{}, false, dispatchTimings{}, err
+	}
+	return d, c, true, dispatchTimings{dispatchMs: dispatchMs, crossFileMs: crossMs}, nil
+}
+
+// replayProjectScope finishes a delta or affected-set replay once the per-file
+// rules have run on the replaced files (d is scoped to them). Project-scope
+// rules (cross-file, parsed-files, module-index) are promised the complete
+// project and may report on any file, so they run against the full index and
+// parse set and replace all of their prior rows; a verdict on a replaced file
+// can rest on a file outside the set (#1817). Per-file rows are replaced for
+// the replaced files only.
+//
+// The reason is "" when the merge succeeded, else why the replay declines:
+// those rules would run on a parse that misses a file the manifest tracks, or
+// a rule panicked, which leaves its regenerated rows missing while the prior
+// ones are dropped. The full path then reports the error and skips the bundle
+// save instead of caching the loss.
+func replayProjectScope(ctx context.Context, args ProjectArgs, host ProjectHostState, label string, indexResult IndexResult, tracked map[string]string, d DispatchResult, prior *scanner.FindingColumns, replaced []string) (DispatchResult, CrossFileResult, int64, string, error) {
 	projectScopeIDs := projectScopeRuleIDs(args.ActiveRules)
-	perFile := dropFindingsByRule(scanner.FilterColumnsByFilePaths(&d.Findings, map[string]bool{changedPath: true}), projectScopeIDs)
+	if len(projectScopeIDs) > 0 && indexResult.WarmCrossFindings == nil && !parseCoversTracked(indexResult.ParseResult, tracked) {
+		host.Reporter.Verbosef("verbose: %s replay declined: project-scope rules need every file parsed\n", label)
+		return DispatchResult{}, CrossFileResult{}, 0, replayBailPartialParse, nil
+	}
+	replacedSet := make(map[string]bool, len(replaced))
+	for _, p := range replaced {
+		replacedSet[p] = true
+	}
+	perFile := dropFindingsByRule(scanner.FilterColumnsByFilePaths(&d.Findings, replacedSet), projectScopeIDs)
 	full := d
 	full.IndexResult = indexResult
 	full.Findings = scanner.FindingColumns{}
@@ -3397,28 +3432,57 @@ func tryDeltaDispatch(
 	c, err := CrossFilePhase{Workers: args.Workers}.Run(ctx, full)
 	crossMs := time.Since(crossStart).Milliseconds()
 	if err != nil {
-		return DispatchResult{}, CrossFileResult{}, false, dispatchTimings{}, fmt.Errorf("crossfile (delta): %w", err)
+		return DispatchResult{}, CrossFileResult{}, 0, "", fmt.Errorf("crossfile (%s): %w", label, err)
 	}
-
-	// A rule panic recorded by either phase leaves a degraded result: its
-	// rows are missing from the regenerated set and the prior rows were
-	// dropped. Decline so the full path reports the error and skips the
-	// bundle save instead of caching the loss.
 	if len(d.Stats.Errors) > 0 || len(c.Stats.Errors) > 0 {
-		return DispatchResult{}, CrossFileResult{}, false, dispatchTimings{}, nil
+		host.Reporter.Verbosef("verbose: %s replay declined: rule panic in %s; running full dispatch\n", label, panickedRules(d.Stats.Errors, c.Stats.Errors))
+		return DispatchResult{}, CrossFileResult{}, 0, replayBailRuleError, nil
 	}
 
 	replacement := scanner.NewFindingCollector(perFile.Len() + c.Findings.Len())
 	replacement.AppendColumns(&perFile)
 	replacement.AppendColumns(&c.Findings)
-	base := dropFindingsByRule(*priorBundle, projectScopeIDs)
-	merged := scanner.ApplyDelta(&base, replacement.Columns(), []string{changedPath})
+	base := dropFindingsByRule(*prior, projectScopeIDs)
+	merged := scanner.ApplyDelta(&base, replacement.Columns(), replaced)
 
 	d.IndexResult = indexResult
 	d.Findings = merged
 	c.DispatchResult = d
 	c.Findings = merged
-	return d, c, true, dispatchTimings{dispatchMs: dispatchMs, crossFileMs: crossMs}, nil
+	return d, c, crossMs, "", nil
+}
+
+// parseCoversTracked reports whether every file the manifest tracks is in p.
+// The manifest records parsed files under their own paths and carries the
+// unparsed ones forward from the prior run, so a warm parse that holds only
+// cache misses leaves some tracked paths out.
+func parseCoversTracked(p ParseResult, tracked map[string]string) bool {
+	parsed := parsedPathSet(p)
+	for path := range tracked {
+		if !parsed[path] {
+			return false
+		}
+	}
+	return true
+}
+
+// panickedRules names the rules behind the recorded dispatch errors.
+func panickedRules(errs ...[]rules.DispatchError) string {
+	seen := map[string]bool{}
+	var names []string
+	for _, list := range errs {
+		for _, e := range list {
+			if e.RuleName != "" && !seen[e.RuleName] {
+				seen[e.RuleName] = true
+				names = append(names, e.RuleName)
+			}
+		}
+	}
+	if len(names) == 0 {
+		return "an unnamed rule"
+	}
+	sort.Strings(names)
+	return strings.Join(names, ", ")
 }
 
 // projectScopeRuleIDs returns the IDs of rules the cross-file phase runs
@@ -3643,6 +3707,8 @@ const (
 	replayBailParseFailed     = "parse_failed"     // parseFilesByPath errored
 	replayBailParseIncomplete = "parse_incomplete" // a dependent never came back parsed
 	replayBailXMLChanged      = "xml_changed"      // XML inputs differ from the prior run
+	replayBailRuleError       = "rule_error"       // a rule panicked during the replay
+	replayBailPartialParse    = "partial_parse"    // project-scope rules would run on a partial parse
 )
 
 // affectedSetReplayEnabled reports whether the affected-set replay dispatch
@@ -3739,13 +3805,15 @@ func unionAffected(affected []string, extra map[string]bool) []string {
 // fires for exactly one changed file with every fingerprint stable; an ABI
 // edit drifts the CrossFile fingerprint, so delta misses and we would
 // otherwise pay a full DispatchPhase. Instead we compute a #608-safe affected
-// set from the reference-level reverse-dependency index and re-dispatch only
-// those files, merging against the prior findings bundle with ApplyDelta.
+// set from the reference-level reverse-dependency index, re-run the per-file
+// rules on only those files and the project-scope rules on the whole project
+// (replayProjectScope), and merge against the prior findings bundle with
+// ApplyDelta.
 //
-// Correctness rests on two invariants:
+// Correctness rests on three invariants:
 //
 //  1. AffectedSetIncremental returns a true superset of every file whose
-//     findings can change. That requires the prior edges the edit removed,
+//     per-file findings can change. That requires the prior edges the edit removed,
 //     captured on the current index by the incremental overlay build
 //     (LastRemovedContributions). When the index did not go through that path
 //     (full build) LastRemovedContributions is nil and we must not run — a
@@ -3759,9 +3827,15 @@ func unionAffected(affected []string, extra map[string]bool) []string {
 //     file — yet ApplyDelta would still drop its prior rows, silently losing
 //     findings (#608). Those missing Kotlin/Java dependents are parsed on
 //     demand (parseFilesByPath) and merged into the dispatch input. Anything
-//     that still cannot be re-dispatched — a non-source affected file (XML
-//     referrer) or a source file that failed to parse (e.g. it was deleted) —
-//     forces a bail to full dispatch, which handles those cases correctly.
+//     that still cannot be re-dispatched — a non-source, non-XML affected file
+//     or a source file that failed to parse (e.g. it was deleted) — forces a
+//     bail to full dispatch, which handles those cases correctly. An affected
+//     XML referrer needs no dispatch: only the Android phase reports on XML,
+//     and it regenerates its own rows.
+//
+//  3. Project-scope rules see the whole project: their verdict on an affected
+//     file can rest on a file outside the affected set (#1817), so they run on
+//     the full parse set and replace all of their prior rows.
 func tryAffectedSetDispatch(
 	ctx context.Context,
 	args ProjectArgs,
@@ -3834,17 +3908,10 @@ func tryAffectedSetDispatch(
 	if err != nil {
 		return DispatchResult{}, CrossFileResult{}, "", fmt.Errorf("dispatch (affected-set): %w", err)
 	}
-	c, err := CrossFilePhase{Workers: args.Workers}.Run(ctx, d)
-	if err != nil {
-		return DispatchResult{}, CrossFileResult{}, "", fmt.Errorf("crossfile (affected-set): %w", err)
+	d, c, _, reason, err := replayProjectScope(ctx, args, host, "affected-set", indexResult, manifest.contentHashes, d, priorBundle, affected)
+	if err != nil || reason != "" {
+		return DispatchResult{}, CrossFileResult{}, reason, err
 	}
-
-	replacement := scanner.FilterColumnsByFilePaths(&c.Findings, affectedSet)
-	merged := scanner.ApplyDelta(priorBundle, &replacement, affected)
-
-	d.Findings = merged
-	c.DispatchResult = d
-	c.Findings = merged
 	return d, c, replayHit, nil
 }
 
@@ -4287,6 +4354,36 @@ func warmXMLFiles(host ProjectHostState, warm warmAnalysisCachePlan) []*scanner.
 		return host.XMLFilesLoader(build)
 	}
 	return build()
+}
+
+// warmSourceHash returns the current content hash lookup the warm
+// cross-findings reuse compares against the cross-file index meta. A per-file
+// cache hit supplies the hash the cache already holds for that content, so
+// nothing is re-read. A per-file miss returns "": the lexically-irrelevant-miss
+// check decides those. A path outside the per-file set (Java, when no rule
+// needs it before dispatch) is hashed from disk; a Java edit leaves every
+// Kotlin entry valid.
+func warmSourceHash(warm warmAnalysisCachePlan) func(string) string {
+	analyzed := make(map[string]bool, len(warm.filePaths))
+	for _, p := range warm.filePaths {
+		analyzed[p] = true
+	}
+	return func(path string) string {
+		if warm.result != nil {
+			if hash, ok := warm.result.CachedHashes[path]; ok {
+				return hash
+			}
+			if analyzed[path] {
+				return ""
+			}
+		}
+		hash, err := hashutil.Default().HashFile(path, nil)
+		if err != nil {
+			// Unreadable: report a hash no entry has, so reuse is refused.
+			return "unreadable-source-file"
+		}
+		return hash
+	}
 }
 
 // crossIndexSourcePaths returns the Kotlin and Java source paths the

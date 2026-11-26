@@ -15,6 +15,11 @@ All notable changes to Krit will be documented in this file.
   its inputs' hashes in the model, and krit warns, naming the file, when the build no longer matches. A model restored under another checkout path or Gradle user home is rebased when
   loaded (new `gradleUserHome` model field). New `krit { exportTests = false }` exports and resolves only production
   source sets (#1663).
+- PR mode for `--diff` (#1660): with a Gradle model, the type oracle and the FIR check compile only the modules that
+  hold the changed Kotlin files, with their dependencies as built jars or source context, instead of the whole
+  repository; every other file keeps Go's verdict. It falls back to the whole-repository compile when a module would
+  lose dependency context or the model is missing, and `--no-pr-mode` turns it off. The FIR summary line and
+  `summary.fir.outsidePr` say how many files stayed with Go.
 - `MissingOnRenderProcessGone`, `CrossOriginIsolatedAllowlist` (`androidx.webkit` 1.18.0) and
   `DontUseAccessibilityNodeInfoGetText` (`androidx.test.uiautomator` 2.4.1), under their Lint IDs, checked against
   the Lint CLI running those releases' `lint.jar` (`internal/rules/testdata/androidx_webkit/`,
@@ -34,6 +39,9 @@ All notable changes to Krit will be documented in this file.
   part of the analysis cache key. The Bazel rules pass them from `--@krit//:min_sdk_version` /
   `--@krit//:target_sdk_version`, and an `android_binary`'s own `krit_aspect` action from its `manifest_values`, since
   Bazel builds often declare the levels only there (#1682).
+- `LaunchDuringComposition`, `NoCollectCallFound` and `ContextCastToActivity`, ports of the Lint checks bundled with
+  `androidx.activity:activity-compose` 1.13.0, under their Lint IDs. Their findings match the Lint CLI running that
+  release's `lint.jar` on the inputs under `internal/rules/testdata/androidx_activity_compose/` (#1302, #1303, #1304).
 - `UnusedCrossfadeTargetStateParameter`, `UnusedContentLambdaTargetStateParameter`,
   `UnusedTargetStateInContentKeyLambda` and `UnusedTransitionTargetStateParameter`, ports of the Lint checks bundled
   with `androidx.compose.animation` 1.13.0 (`animation-android`, `animation-core-android`), under their Lint IDs.
@@ -64,6 +72,10 @@ All notable changes to Krit will be documented in this file.
   (`internal/rules/testdata/slack_lint/dagger/`), except that a finding is anchored at the declaration rather than at a
   KDoc or comment before it. The detector's `BindsWrongParameterCount` and `RedundantBinds` are now Lint aliases of
   `BindsMismatchedArity` and `BindsReturnTypeMatchesParam` (#1359, #1360, #1361, #1362, #1363, #1364, #1365).
+- `SquareAndRoundTilePreviews`, `TilePreviewImageFormat` and `StartActivityAndCollapseDeprecated`, ports of Android
+  Lint 32.4.1's Wear tile preview checks and its `TileService.startActivityAndCollapse(Intent)` check (Kotlin and
+  Java, error from target SDK 34, warning below). Findings match Lint on 22 recorded project fixtures, including
+  WebP and XML previews, round/square drawable folders, suppression and lookalike receivers (#1275, #1276, #1277).
 - `WearableConfigurationAction`, `WearableActionDuplicate`, `WatchFaceForAndroidX`, `WearBackNavigation` and
   `WearMaterialTheme`, ports of Android Lint 32.4.1's Wear OS watch face configuration, swipe-to-dismiss and
   Compose `MaterialTheme` checks under their Lint IDs, severities and messages. Their findings match Lint on 22
@@ -472,6 +484,11 @@ All notable changes to Krit will be documented in this file.
   `MoshiUsageClassVisibility`, `MoshiUsageBlankGenerator`, `MoshiUsageGenerateAdapterShouldBeTrue`, `MoshiUsageObject`,
   `MoshiUsageUnsupportedType`, `MoshiUsageUseData` and `MoshiUsageMissingPrimary` (#1385, #1388, #1398, #1402, #1410,
   #1419, #1420, #1422).
+- `AvoidUsingNotNullOperator`, `ExceptionMessage`, `NullableConcurrentHashMap`, `GuavaPreconditionsUsedInKotlin` and
+  `ParcelizeFunctionProperty`, five slack-lints 0.11.1 checks, in the opt-in `slack-lint` rule set. Their findings match
+  the Lint CLI running slack-lint-checks 0.11.1 on `internal/rules/testdata/slack_lint/kotlin_checks/`, except that a
+  nullable type argument of a `val` constructor parameter is reported once, where Lint reports it twice
+  (#1374, #1430, #1431, #1434, #1437).
 - `slack-lint` gains `MoshiUsageDetector`'s moshi-sealed checks for Kotlin: `MoshiUsageBlankTypeLabel`,
   `MoshiUsageSealedMustBeSealed`, `MoshiUsageDoubleTypeLabel`, `MoshiUsageGenericSealedSubtype`,
   `MoshiUsageMissingTypeLabel` and `MoshiUsageInappropriateTypeLabel`. Subtypes are matched to a sealed parent in the
@@ -499,6 +516,14 @@ All notable changes to Krit will be documented in this file.
   `MoshiUsageNonMoshiClassInternal`/`External` (#1384, #1395, #1396, #1404, #1407, #1408, #1409).
 
 ### Fixed
+- Gradle plugin: the configuration cache is reused after the first build that creates an Android module's R jar.
+  `kritExportModel` recorded the R jar by listing `build/intermediates` while configuring, which made the directory a
+  configuration input. It now records the path AGP writes the jar to, and krit looks the jar up when it loads the model
+  (#1645).
+- The resource index cache (`.krit/resource-cache`) kept everything a fresh parse finds. Indexes written by the
+  background writer dropped top-level `<item type="id">` declarations and each plural `<item>`'s position, so a warm
+  run lost `NotSiblingResource` findings on predeclared ids and reported plural-quantity findings on the `<plurals>`
+  line (#1830).
 - `MutableImplicitPendingIntent` follows more ways of building the intent, as Lint 32.4.1 does: `getActivities`
   intent arrays held in locals (`arrayOf`, a Java array initializer, and `arrayOfNulls(n)` / `new Intent[n]` of
   constant size whose elements are the last write to each index before the call), and `let`, `run` and `with`
@@ -572,6 +597,8 @@ All notable changes to Krit will be documented in this file.
   top-level or in a class, object or companion object), so an implicit intent with such an action that matches a
   non-exported component is reported as Lint reports it. A same-named parameter or local shadows a constant from
   another file (#1624).
+- `--diff` run from a subdirectory of the repository reported no findings: git's repository-relative paths were
+  resolved against the working directory.
 - Incremental FIR checking works again: the krit-fir shadow jar left out the IR manglers the JVM backend needs, so
   every incremental snapshot build failed, no `.krit/fir-incremental` bundle was written and every scan was a full
   compile, reported as `N requested files gated by compiler errors, no snapshot`. A full check now says under `-v`

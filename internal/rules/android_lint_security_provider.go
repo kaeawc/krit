@@ -1,7 +1,10 @@
 package rules
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -241,16 +244,141 @@ func lintManifestClass(m *manifest.Manifest, name string, classes *lintSourceInd
 
 func (r *ProviderReadPermissionOnlyRule) check(ctx *api.Context) {
 	classes := lintSourceClasses(ctx.ParsedFiles)
+	var apps []*manifest.Manifest
+	for _, m := range ctx.Manifests {
+		if m != nil && m.Root != nil && m.Path != "" && lookupManifestGradleInfo(m.Path).isApplication {
+			apps = append(apps, m)
+		}
+	}
+	builds := map[string]string{}
 	for _, m := range ctx.Manifests {
 		if m == nil || m.Root == nil {
 			continue
 		}
+		// A library module's providers reach Lint through the merged manifest of an app that depends on it
+		// (#1625): none when the scan holds no such app, and app-side tools:ignore or tools:node="remove" apply.
+		var consumers []*manifest.Manifest
+		library := manifestIsLibrary(m)
+		if library {
+			for _, app := range apps {
+				if providerAppDependsOn(app, m, builds) {
+					consumers = append(consumers, app)
+				}
+			}
+			if len(consumers) == 0 {
+				continue
+			}
+		}
 		for _, app := range m.Root.ChildrenByTag("application") {
 			for _, provider := range app.ChildrenByTag("provider") {
+				if library && providerMergedAway(r.RuleName, m, provider, consumers) {
+					continue
+				}
 				r.checkProvider(ctx, m, provider, classes)
 			}
 		}
 	}
+}
+
+// providerAppDependsOn reports whether app's build script declares a dependency on lib's module:
+// project(":...:<dir>") or the type-safe accessor projects.<...>.<dir in camel case>. The module is matched by its
+// directory name, so the check reads only build scripts, which the manifest-source cache key covers.
+func providerAppDependsOn(app, lib *manifest.Manifest, builds map[string]string) bool {
+	libDir := providerModuleDir(lib.Path)
+	if libDir == "" {
+		return false
+	}
+	name := filepath.Base(libDir)
+	build, ok := builds[app.Path]
+	if !ok {
+		if dir := providerModuleDir(app.Path); dir != "" {
+			for _, file := range []string{"build.gradle.kts", "build.gradle"} {
+				if data, err := os.ReadFile(filepath.Join(dir, file)); err == nil {
+					build = string(data)
+					break
+				}
+			}
+		}
+		builds[app.Path] = build
+	}
+	if build == "" {
+		return false
+	}
+	quoted := regexp.QuoteMeta(name)
+	if regexp.MustCompile(`project\(\s*(?:path\s*=\s*)?["']:?(?:[\w.-]+:)*` + quoted + `["']`).MatchString(build) {
+		return true
+	}
+	return regexp.MustCompile(`\bprojects\.(?:\w+\.)*` + regexp.QuoteMeta(providerAccessorName(name)) + `\b`).MatchString(build)
+}
+
+// providerAccessorName is Gradle's type-safe project accessor for a module directory name: feature-foo -> featureFoo.
+func providerAccessorName(dir string) string {
+	parts := strings.FieldsFunc(dir, func(r rune) bool { return r == '-' || r == '_' || r == '.' })
+	for i := 1; i < len(parts); i++ {
+		parts[i] = strings.ToUpper(parts[i][:1]) + parts[i][1:]
+	}
+	return strings.Join(parts, "")
+}
+
+// providerModuleDir returns the directory of the build script that owns a manifest, searching up to four levels, or "".
+func providerModuleDir(manifestPath string) string {
+	dir := filepath.Dir(manifestPath)
+	for i := 0; i < 4; i++ {
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return ""
+		}
+		dir = parent
+		for _, file := range []string{"build.gradle.kts", "build.gradle"} {
+			if _, err := os.Stat(filepath.Join(dir, file)); err == nil {
+				return dir
+			}
+		}
+	}
+	return ""
+}
+
+// providerMergedAway reports whether every consuming app's manifest declares the provider again with
+// tools:node="remove" or with a tools:ignore covering the rule, so no merged manifest reports it.
+func providerMergedAway(ruleID string, lib *manifest.Manifest, provider *manifest.Node, consumers []*manifest.Manifest) bool {
+	want := providerQualifiedName(lib, provider.AttrValue("android:name"))
+	for _, app := range consumers {
+		suppressed := false
+		for _, application := range app.Root.ChildrenByTag("application") {
+			for _, entry := range application.ChildrenByTag("provider") {
+				if providerQualifiedName(app, entry.AttrValue("android:name")) != want {
+					continue
+				}
+				if node := entry.AttrValue("tools:node"); node == "remove" || node == "removeAll" {
+					suppressed = true
+				}
+				for _, id := range strings.Split(entry.AttrValue("tools:ignore"), ",") {
+					if id = strings.TrimSpace(id); id == ruleID || id == "all" {
+						suppressed = true
+					}
+				}
+			}
+		}
+		if !suppressed {
+			return false
+		}
+	}
+	return true
+}
+
+// providerQualifiedName resolves a component name against its manifest's package.
+func providerQualifiedName(m *manifest.Manifest, name string) string {
+	pkg := ""
+	if m.Root != nil {
+		pkg = m.Root.AttrValue("package")
+	}
+	switch {
+	case strings.HasPrefix(name, "."):
+		return pkg + name
+	case !strings.Contains(name, ".") && pkg != "":
+		return pkg + "." + name
+	}
+	return name
 }
 
 func (r *ProviderReadPermissionOnlyRule) checkProvider(ctx *api.Context, m *manifest.Manifest, provider *manifest.Node,

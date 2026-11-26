@@ -485,6 +485,11 @@ All notable changes to Krit will be documented in this file.
   `ContextCompat.registerReceiver`, without `RECEIVER_NOT_EXPORTED` or a broadcast permission, as an unprotected
   component, and follows the incoming intent into helpers declared in other files: imported or same-package top-level
   functions and members of project classes or objects (`Launcher.launch(this, intent)`) (#1623).
+- `ProviderReadPermissionOnly` attributes providers declared in a library module's manifest the way Lint's merged
+  manifest does: they are reported only when the scan holds an application module whose build script depends on the
+  library (`project(":...:lib")` or `projects.lib`), and not when every such app removes the entry
+  (`tools:node="remove"`) or ignores the rule on it (`tools:ignore`). A library-only scan no longer reports them
+  (#1625).
 - The Lint ports' shared call parser is memoized per node for each file's dispatch pass, instead of re-parsing a call
   for every port that looks at it, and their import scan finds `import` keywords before running its regex. On
   element-x-android that cut about 1.3s of CPU from a `--no-fir` scan, with the same findings.

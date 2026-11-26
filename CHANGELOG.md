@@ -486,10 +486,18 @@ All notable changes to Krit will be documented in this file.
   component, and follows the incoming intent into helpers declared in other files: imported or same-package top-level
   functions and members of project classes or objects (`Launcher.launch(this, intent)`) (#1623).
 - `ProviderReadPermissionOnly` attributes providers declared in a library module's manifest the way Lint's merged
-  manifest does: they are reported only when the scan holds an application module whose build script depends on the
-  library (`project(":...:lib")` or `projects.lib`), and not when every such app removes the entry
-  (`tools:node="remove"`) or ignores the rule on it (`tools:ignore`). A library-only scan no longer reports them
-  (#1625).
+  manifest does: they are reported only when the scan holds an application module that depends on the library,
+  directly or through other modules, by non-test project dependencies in the Gradle module graph. They are not
+  reported when every such app removes the entry (`tools:node="remove"`) or ignores the rule on it, on its
+  `<application>` or on its `<manifest>` (`tools:ignore`), in any of its source-set manifests. Relative names resolve
+  against the module's Gradle `namespace`. A library-only scan no longer reports them; a library outside any known
+  module graph is still reported (#1625).
+- The project-dependency parser behind the module graph skips commented-out declarations and reads Groovy
+  `implementation project(':lib')`, `project(path: ':lib')`, `platform(project(...))` and type-safe accessors for
+  modules named with underscores or camel case.
+- Warm runs re-run manifest-source rules and replay no findings bundle after a Groovy `build.gradle` edit. The
+  manifest-source cache key and the findings-bundle fingerprint now hash every build script, which manifest rules read
+  from disk; before, only Kotlin DSL scripts were covered, as source files.
 - The Lint ports' shared call parser is memoized per node for each file's dispatch pass, instead of re-parsing a call
   for every port that looks at it, and their import scan finds `import` keywords before running its regex. On
   element-x-android that cut about 1.3s of CPU from a `--no-fir` scan, with the same findings.

@@ -32,6 +32,9 @@ type manifestGradleInfo struct {
 	minSdk              int // minSdk read from the build script; 0 when unset or defined elsewhere
 	versionCode         string
 	versionName         string
+	// namespace is the build script's `android { namespace = "..." }`, which supplies the package of a manifest
+	// without one; "" when unset or computed.
+	namespace string
 	// usesSplashScreenLibrary is true when the build script mentions the SplashScreen library or declares it through
 	// a version-catalog alias.
 	usesSplashScreenLibrary bool
@@ -88,6 +91,7 @@ func readManifestGradleInfo(dir string) manifestGradleInfo {
 	if cfg, err := android.ParseBuildGradleContent(content); err == nil && cfg != nil {
 		info.targetSdk = cfg.TargetSdkVersion
 		info.minSdk = cfg.MinSdkVersion
+		info.namespace = cfg.Namespace
 	}
 	if m := gradleVersionCodePattern.FindStringSubmatch(content); m != nil {
 		info.versionCode = m[1]

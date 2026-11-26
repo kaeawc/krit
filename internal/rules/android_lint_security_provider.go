@@ -1,15 +1,18 @@
 package rules
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"reflect"
-	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/android"
 	"github.com/kaeawc/krit/internal/filefacts"
 	"github.com/kaeawc/krit/internal/manifest"
+	"github.com/kaeawc/krit/internal/module"
 	"github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -244,80 +247,191 @@ func lintManifestClass(m *manifest.Manifest, name string, classes *lintSourceInd
 
 func (r *ProviderReadPermissionOnlyRule) check(ctx *api.Context) {
 	classes := lintSourceClasses(ctx.ParsedFiles)
-	var apps []*manifest.Manifest
-	for _, m := range ctx.Manifests {
-		if m != nil && m.Root != nil && m.Path != "" && lookupManifestGradleInfo(m.Path).isApplication {
-			apps = append(apps, m)
-		}
-	}
-	builds := map[string]string{}
+	var attribution *providerAttribution
 	for _, m := range ctx.Manifests {
 		if m == nil || m.Root == nil {
 			continue
 		}
-		// A library module's providers reach Lint through the merged manifest of an app that depends on it
-		// (#1625): none when the scan holds no such app, and app-side tools:ignore or tools:node="remove" apply.
-		var consumers []*manifest.Manifest
 		library := manifestIsLibrary(m)
-		if library {
-			for _, app := range apps {
-				if providerAppDependsOn(app, m, builds) {
-					consumers = append(consumers, app)
-				}
-			}
-			if len(consumers) == 0 {
-				continue
-			}
-		}
 		for _, app := range m.Root.ChildrenByTag("application") {
 			for _, provider := range app.ChildrenByTag("provider") {
-				if library && providerMergedAway(r.RuleName, m, provider, consumers) {
+				finding, ok := r.checkProvider(m, provider, classes)
+				if !ok {
 					continue
 				}
-				r.checkProvider(ctx, m, provider, classes)
+				// A library module's providers reach Lint through the merged manifest of an app that depends on
+				// it (#1625): none when the scan holds no such app, and app-side suppressions apply.
+				if library {
+					if attribution == nil {
+						attribution = newProviderAttribution(ctx.Manifests)
+					}
+					if !attribution.reported(r.RuleName, m, provider) {
+						continue
+					}
+				}
+				ctx.Emit(finding)
 			}
 		}
 	}
 }
 
-// providerAppDependsOn reports whether app's build script declares a dependency on lib's module:
-// project(":...:<dir>") or the type-safe accessor projects.<...>.<dir in camel case>. The module is matched by its
-// directory name, so the check reads only build scripts, which the manifest-source cache key covers.
-func providerAppDependsOn(app, lib *manifest.Manifest, builds map[string]string) bool {
-	libDir := providerModuleDir(lib.Path)
-	if libDir == "" {
+// providerAttribution decides which application modules of the scan merge a library manifest, from the Gradle
+// module graph: settings includes and the project dependencies of every build script, followed transitively. It
+// reads only settings files and build scripts, which the manifest-source cache key covers.
+type providerAttribution struct {
+	// modules maps an application module's directory to the manifests of its source sets (main, debug, flavors),
+	// which merge into one manifest.
+	modules map[string][]*manifest.Manifest
+	apps    []string
+	graphs  []*module.Graph
+	// consumers memoizes consumersOf by library module directory.
+	consumers map[string]providerConsumers
+}
+
+type providerConsumers struct {
+	apps []string
+	// decided is false when the library's module graph is unknown (no settings file, or the module is not in it).
+	decided bool
+}
+
+func newProviderAttribution(manifests []*manifest.Manifest) *providerAttribution {
+	a := &providerAttribution{modules: map[string][]*manifest.Manifest{}, consumers: map[string]providerConsumers{}}
+	for _, m := range manifests {
+		if m == nil || m.Root == nil || m.Path == "" || !lookupManifestGradleInfo(m.Path).isApplication {
+			continue
+		}
+		dir := providerModuleDir(m.Path)
+		if dir == "" {
+			continue
+		}
+		if a.modules[dir] == nil {
+			a.apps = append(a.apps, dir)
+		}
+		a.modules[dir] = append(a.modules[dir], m)
+	}
+	sort.Strings(a.apps)
+	return a
+}
+
+// reported reports whether a provider of a library manifest is in the merged manifest of an app of the scan and not
+// suppressed there. It is reported when the library's consumers can't be determined.
+func (a *providerAttribution) reported(ruleID string, lib *manifest.Manifest, provider *manifest.Node) bool {
+	if len(a.apps) == 0 {
 		return false
 	}
-	name := filepath.Base(libDir)
-	build, ok := builds[app.Path]
-	if !ok {
-		if dir := providerModuleDir(app.Path); dir != "" {
-			for _, file := range []string{"build.gradle.kts", "build.gradle"} {
-				if data, err := os.ReadFile(filepath.Join(dir, file)); err == nil {
-					build = string(data)
-					break
+	consumers := a.consumersOf(lib.Path)
+	if !consumers.decided {
+		return true
+	}
+	want := providerQualifiedName(lib, provider.AttrValue("android:name"))
+	for _, app := range consumers.apps {
+		if !a.suppressedIn(app, ruleID, want) {
+			return true
+		}
+	}
+	return false
+}
+
+// consumersOf lists the application modules whose non-test project dependencies reach the library module that owns
+// the manifest.
+func (a *providerAttribution) consumersOf(libManifest string) providerConsumers {
+	libDir := providerModuleDir(libManifest)
+	if c, ok := a.consumers[libDir]; ok {
+		return c
+	}
+	var c providerConsumers
+	if g := a.graphFor(libManifest); g != nil {
+		if libPath := g.FileToModule(libManifest); libPath != "" {
+			c.decided = true
+			for _, app := range a.apps {
+				if appPath := g.FileToModule(a.modules[app][0].Path); appPath != "" && providerReaches(g, appPath, libPath) {
+					c.apps = append(c.apps, app)
 				}
 			}
 		}
-		builds[app.Path] = build
 	}
-	if build == "" {
-		return false
-	}
-	quoted := regexp.QuoteMeta(name)
-	if regexp.MustCompile(`project\(\s*(?:path\s*=\s*)?["']:?(?:[\w.-]+:)*` + quoted + `["']`).MatchString(build) {
-		return true
-	}
-	return regexp.MustCompile(`\bprojects\.(?:\w+\.)*` + regexp.QuoteMeta(providerAccessorName(name)) + `\b`).MatchString(build)
+	a.consumers[libDir] = c
+	return c
 }
 
-// providerAccessorName is Gradle's type-safe project accessor for a module directory name: feature-foo -> featureFoo.
-func providerAccessorName(dir string) string {
-	parts := strings.FieldsFunc(dir, func(r rune) bool { return r == '-' || r == '_' || r == '.' })
-	for i := 1; i < len(parts); i++ {
-		parts[i] = strings.ToUpper(parts[i][:1]) + parts[i][1:]
+// graphFor returns the module graph, with dependencies, of the Gradle build that holds the file, or nil.
+func (a *providerAttribution) graphFor(path string) *module.Graph {
+	for _, g := range a.graphs {
+		if g.FileToModule(path) != "" {
+			return g
+		}
 	}
-	return strings.Join(parts, "")
+	g, err := module.DiscoverModules(context.Background(), path)
+	if err != nil || g == nil || g.BuildSystem != "" {
+		return nil
+	}
+	// A build script that can't be read only loses its edges.
+	_ = module.ParseAllDependencies(g)
+	a.graphs = append(a.graphs, g)
+	return g
+}
+
+// providerReaches reports whether from depends on to through project dependencies that merge into its manifest:
+// test configurations and test source sets don't.
+func providerReaches(g *module.Graph, from, to string) bool {
+	seen := map[string]bool{from: true}
+	queue := []string{from}
+	for len(queue) > 0 {
+		m := g.Modules[queue[0]]
+		queue = queue[1:]
+		if m == nil {
+			continue
+		}
+		for _, dep := range m.Dependencies {
+			if dep.Test || seen[dep.ModulePath] {
+				continue
+			}
+			if dep.ModulePath == to {
+				return true
+			}
+			seen[dep.ModulePath] = true
+			queue = append(queue, dep.ModulePath)
+		}
+	}
+	return false
+}
+
+// suppressedIn reports whether the app module's merged manifest drops the provider or ignores the rule on it: one
+// of its manifests declares it again with tools:node="remove" or a tools:ignore covering the rule, or sets such a
+// tools:ignore on <manifest> or <application>, which the merged provider inherits.
+func (a *providerAttribution) suppressedIn(app, ruleID, want string) bool {
+	for _, m := range a.modules[app] {
+		if providerIgnores(m.Root, ruleID) {
+			return true
+		}
+		for _, application := range m.Root.ChildrenByTag("application") {
+			if providerIgnores(application, ruleID) {
+				return true
+			}
+			for _, entry := range application.ChildrenByTag("provider") {
+				if providerQualifiedName(m, entry.AttrValue("android:name")) != want {
+					continue
+				}
+				if node := entry.AttrValue("tools:node"); node == "remove" || node == "removeAll" {
+					return true
+				}
+				if providerIgnores(entry, ruleID) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// providerIgnores reports whether the element's tools:ignore lists the rule or all.
+func providerIgnores(n *manifest.Node, ruleID string) bool {
+	for _, id := range android.ToolsIgnoreTokens(n.AttrValue("tools:ignore")) {
+		if id == ruleID || id == "all" {
+			return true
+		}
+	}
+	return false
 }
 
 // providerModuleDir returns the directory of the build script that owns a manifest, searching up to four levels, or "".
@@ -338,38 +452,14 @@ func providerModuleDir(manifestPath string) string {
 	return ""
 }
 
-// providerMergedAway reports whether every consuming app's manifest declares the provider again with
-// tools:node="remove" or with a tools:ignore covering the rule, so no merged manifest reports it.
-func providerMergedAway(ruleID string, lib *manifest.Manifest, provider *manifest.Node, consumers []*manifest.Manifest) bool {
-	want := providerQualifiedName(lib, provider.AttrValue("android:name"))
-	for _, app := range consumers {
-		suppressed := false
-		for _, application := range app.Root.ChildrenByTag("application") {
-			for _, entry := range application.ChildrenByTag("provider") {
-				if providerQualifiedName(app, entry.AttrValue("android:name")) != want {
-					continue
-				}
-				if node := entry.AttrValue("tools:node"); node == "remove" || node == "removeAll" {
-					suppressed = true
-				}
-				for _, id := range strings.Split(entry.AttrValue("tools:ignore"), ",") {
-					if id = strings.TrimSpace(id); id == ruleID || id == "all" {
-						suppressed = true
-					}
-				}
-			}
-		}
-		if !suppressed {
-			return false
-		}
-	}
-	return true
-}
-
-// providerQualifiedName resolves a component name against its manifest's package.
+// providerQualifiedName resolves a component name against its manifest's package: the module's Gradle namespace,
+// or the manifest's package attribute when the build script sets none.
 func providerQualifiedName(m *manifest.Manifest, name string) string {
 	pkg := ""
-	if m.Root != nil {
+	if m.Path != "" {
+		pkg = lookupManifestGradleInfo(m.Path).namespace
+	}
+	if pkg == "" && m.Root != nil {
 		pkg = m.Root.AttrValue("package")
 	}
 	switch {
@@ -381,33 +471,35 @@ func providerQualifiedName(m *manifest.Manifest, name string) string {
 	return name
 }
 
-func (r *ProviderReadPermissionOnlyRule) checkProvider(ctx *api.Context, m *manifest.Manifest, provider *manifest.Node,
-	classes *lintSourceIndex) {
+// checkProvider returns the finding for a provider protected only by android:readPermission whose class implements a
+// write method.
+func (r *ProviderReadPermissionOnlyRule) checkProvider(m *manifest.Manifest, provider *manifest.Node,
+	classes *lintSourceIndex) (scanner.Finding, bool) {
 	read, ok := provider.Attr("android:readPermission")
 	if !ok {
-		return
+		return scanner.Finding{}, false
 	}
 	if _, ok := provider.Attr("android:writePermission"); ok {
-		return
+		return scanner.Finding{}, false
 	}
 	if _, ok := provider.Attr("android:permission"); ok {
-		return
+		return scanner.Finding{}, false
 	}
 	fqn, cls := lintManifestClass(m, provider.AttrValue("android:name"), classes)
 	if cls == nil || scanner.IsTestFile(cls.file.Path) || !classes.extendsTarget(cls, contentProviderClasses) {
-		return
+		return scanner.Finding{}, false
 	}
 	methods := providerImplementedWriteMethods(cls.file, cls.idx)
 	if len(methods) == 0 {
-		return
+		return scanner.Finding{}, false
 	}
 	quoted := make([]string, len(methods))
 	for i, name := range methods {
 		quoted[i] = "`" + name + "`"
 	}
-	ctx.Emit(scanner.Finding{File: m.Path, Line: read.Line, Col: read.Col, Message: fqn + " implements {" +
+	return scanner.Finding{File: m.Path, Line: read.Line, Col: read.Col, Message: fqn + " implements {" +
 		strings.Join(quoted, ", ") + "} write APIs but does not protect them with a permission. Update the " +
-		"<provider> tag to use android:permission or android:writePermission"})
+		"<provider> tag to use android:permission or android:writePermission"}, true
 }
 
 // providerWriteArity is the parameter count of each ContentProvider write method Lint looks for.

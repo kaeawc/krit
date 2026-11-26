@@ -277,7 +277,7 @@ Findings and rule-dependent derived data. A different build never reads these:
 
 | Cache | Holds | Key inputs | Invalidated by |
 |---|---|---|---|
-| `cache/` (per-file analysis) | Per-file rule findings | File content hash, rule hash, oracle fact hash | Rule hash: rules, config, build, oracle jar, and project facts (module SDK levels, Gradle library facts) |
+| `cache/` (per-file analysis) | Per-file rule findings | File content hash and git blob ID, rule hash, oracle fact hash | Rule hash: rules, config, build, oracle jar, and project facts (module SDK levels, Gradle library facts) |
 | `findings-bundle-cache/` | Whole-run findings and delta manifests | Run fingerprint: rule hash, source set, cross-file structure, oracle facts, Gradle paths and library facts, compiler settings, XML inputs (manifests, resources, module SDK levels) | Any fingerprint field |
 | `cross-findings-cache/` | Cross-file rule findings | Cross-file index fingerprint, rule hash | Index fingerprint (sources, XML inputs, build), rule hash |
 | `cross-file-cache/` | Cross-file symbol and reference index | Source and XML content hashes, build, bloom library version | `CrossFileCacheVersion`, the shard version, the build |
@@ -331,6 +331,15 @@ each run by writing and stat-ing a file there, so a network or VM mount with
 a skewed clock is judged by its own clock; on that filesystem an mtime more
 than 2 s in the future is trusted too, since no write made now can reproduce
 it. Files on other filesystems are judged by the local clock.
+
+In a git checkout, `cache/` serves a file without a stat or a content hash
+only when git vouches for it: `git diff` reports the file unchanged from the
+index, and the index's blob ID equals the blob ID of the content the entry was
+computed from. That is what makes a `cache/` written at another commit safe
+to restore (a CI cache restored by prefix, or a checkout or pull between two
+runs): a file that changed between the commits has another blob ID and is
+re-analyzed. Dirty, unmerged, `--assume-unchanged`, skip-worktree, symlinked
+and submodule paths fall back to the stat and content-hash check.
 
 If a scan with the default cache disagrees with `--no-cache`, that is a bug in
 a key: run `krit --clear-cache` to recover, then report which cache held the

@@ -74,6 +74,7 @@ func init() {
 	registerAndroidxWebkitRules()
 	registerAndroidxComposeMaterialRules()
 	registerComposeLintsRules()
+	registerAndroidxComposeAnimationRules()
 	registerCoroutinesRules()
 	registerDatabaseRules()
 	registerDeadcodeRules()

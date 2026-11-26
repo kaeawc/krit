@@ -31,11 +31,19 @@ All notable changes to Krit will be documented in this file.
   part of the analysis cache key. The Bazel rules pass them from `--@krit//:min_sdk_version` /
   `--@krit//:target_sdk_version`, and an `android_binary`'s own `krit_aspect` action from its `manifest_values`, since
   Bazel builds often declare the levels only there (#1682).
+- `UnusedCrossfadeTargetStateParameter`, `UnusedContentLambdaTargetStateParameter`,
+  `UnusedTargetStateInContentKeyLambda` and `UnusedTransitionTargetStateParameter`, ports of the Lint checks bundled
+  with `androidx.compose.animation` 1.13.0 (`animation-android`, `animation-core-android`), under their Lint IDs.
+  Their findings match the Lint CLI running those releases' `lint.jar` on the inputs under
+  `internal/rules/testdata/androidx_compose_animation/` (#1307, #1308, #1309, #1313).
 - `UnusedMaterialScaffoldPaddingParameter`, `UnusedMaterial3ScaffoldPaddingParameter`, `ConflictingOnColor` and
   `UsingMaterialAndMaterial3Libraries`, ports of the Lint checks bundled with `androidx.compose.material` 1.13.0 and
   `androidx.compose.material3` 1.5.0, under their Lint IDs. Their findings match the Lint CLI running those releases'
   `lint.jar` on the inputs under `internal/rules/testdata/androidx_compose_material/`. The material3 import check needs
   a material3 import in the file or a material3 dependency in the build (#1457, #1458, #1459, #1461).
+- Gradle plugin: `kritCheckAll` and the per-variant / per-source-set `kritCheck<Name>` tasks run the generated-source
+  producers (Variant API and KGP roots, R-class, kapt stubs) when FIR is on, as `kritCheck` already did, so FIR no
+  longer gates generated-code users on a clean checkout without `exportGenerated` (#1642, #1686).
 - Compose lint parity, first batch of [compose-lints](https://github.com/slackhq/compose-lints) 1.6.1 ports:
   `ComposeCompositionLocalUsage` (with the `allowedCompositionLocals` option) and `ComposeCompositionLocalGetter`,
   under their Lint IDs, messages and severities, experimental and off by default. `ComposeNamingUppercase` and
@@ -482,6 +490,10 @@ All notable changes to Krit will be documented in this file.
   buffer request reads its own analyzer's memo instead of the last project run's. Before, adding
   `gradle/libs.versions.toml` left `InvalidFragmentVersionForActivityResult` and the Gradle catalog lookups on the
   catalog-less result until restart (#1784). CLI scans already built a fresh memo per run.
+- `UnsafeIntentLaunch` treats a receiver class registered at runtime with `Context.registerReceiver` or
+  `ContextCompat.registerReceiver`, without `RECEIVER_NOT_EXPORTED` or a broadcast permission, as an unprotected
+  component, and follows the incoming intent into helpers declared in other files: imported or same-package top-level
+  functions and members of project classes or objects (`Launcher.launch(this, intent)`) (#1623).
 - The Lint ports' shared call parser is memoized per node for each file's dispatch pass, instead of re-parsing a call
   for every port that looks at it, and their import scan finds `import` keywords before running its regex. On
   element-x-android that cut about 1.3s of CPU from a `--no-fir` scan, with the same findings.
@@ -489,6 +501,14 @@ All notable changes to Krit will be documented in this file.
   another module depends on material3: as in Lint, material3 must be imported in the file or declared by the file's
   own module. `UnusedMaterialScaffoldPaddingParameter` and `UnusedMaterial3ScaffoldPaddingParameter` now resolve
   aliased `Scaffold` imports (#1728).
+- `CompileTimeConstant` resolves Kotlin calls into other source files through the type index: top-level functions
+  (explicit import, same package, wildcard import), members of the receiver's type and its supertypes (including
+  interface methods), operator calls (`a[i]`, `a[i] = v`, `a += v`, `invoke`), and overrides that add the annotation
+  to a supertype method declared elsewhere. Inherited members are tried before imports, and calls under an
+  extension receiver or a `with`/`apply`/`run` block abstain. The type index now records parameter annotations. The
+  rule moves to the cross-file phase, whose findings cache is keyed by every file's content, so an edit to the
+  declaring file changes warm results; editor (LSP) and MCP single-file analysis no longer run it. Files that mention
+  neither the annotation nor such a function are skipped (part of #1151, #1610).
 - `UnsafeImplicitIntentLaunch` evaluates intent actions named by framework constants (`Intent.ACTION_VIEW` and the
   other `android.*` action constants, when the qualifier resolves to the framework class) and by project constants
   declared in other files (`const val`, a Kotlin `val` with a constant initializer, a Java `static final` field,

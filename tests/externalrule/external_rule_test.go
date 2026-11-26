@@ -262,7 +262,8 @@ func TestExternalRuleExample_EndToEnd(t *testing.T) {
 		var sarifLines []int
 		for _, run := range sarif.Runs {
 			for _, result := range run.Results {
-				if result.RuleID == ruleID && len(result.Locations) > 0 {
+				// SARIF rule IDs are <ruleSet>/<rule>.
+				if strings.HasSuffix(result.RuleID, "/"+ruleID) && len(result.Locations) > 0 {
 					sarifLines = append(sarifLines, result.Locations[0].PhysicalLocation.Region.StartLine)
 				}
 			}

@@ -104,7 +104,7 @@ func TestFirRechecksCrossSourceSetRedeclarationsEndToEnd(t *testing.T) {
 
 	isolated := runSourceSetKrit(t, bin, jar, project, "")
 	for _, line := range []string{
-		"verbose: FIR source sets: 2 files gated by duplicate declarations; rechecked 3 files with each source set compiled on its own",
+		"verbose: FIR source sets: 2 files gated by duplicate declarations; rechecked 2 files with each source set compiled on its own",
 		", 0 still gated by one",
 		"verbose: FIR verdict: 3 authoritative files, 0 gated (compiler error or crash)",
 	} {

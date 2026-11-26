@@ -490,7 +490,7 @@ type manifestSourceFacts struct {
 }
 
 func (f *manifestSourceFacts) preferenceActivities(files []*scanner.File) map[string]bool {
-	f.once.Do(func() { f.preferenceActivitySet = rules.ComputeActivityPreferenceFacts(files) })
+	f.once.Do(func() { f.preferenceActivitySet = rules.ComputeActivityPreferenceFactsForRun(files) })
 	return f.preferenceActivitySet
 }
 

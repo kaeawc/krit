@@ -1,0 +1,9 @@
+build
+.gradle
+.kotlin
+.krit
+app/build
+benchmark/build
+data/build
+model/build
+proto/build

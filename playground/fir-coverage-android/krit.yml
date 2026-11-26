@@ -1,0 +1,2 @@
+# krit config for the FIR coverage sample: the default rule set. The Gradle
+# and Bazel runs both read this file.

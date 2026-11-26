@@ -1,0 +1,29 @@
+load("@rules_kotlin//kotlin:core.bzl", "kt_ksp_plugin")
+load("@rules_kotlin//kotlin:jvm.bzl", "kt_jvm_library")
+
+# Gradle :data runs Moshi's KSP processor through com.google.devtools.ksp.
+kt_ksp_plugin(
+    name = "moshi_codegen",
+    processor_class = "com.squareup.moshi.kotlin.codegen.ksp.JsonClassSymbolProcessorProvider",
+    deps = [
+        "@maven//:com_squareup_moshi_moshi",
+        "@maven//:com_squareup_moshi_moshi_kotlin_codegen",
+    ],
+)
+
+kt_jvm_library(
+    name = "data",
+    srcs = glob(["src/main/kotlin/**/*.kt"]),
+    plugins = [":moshi_codegen"],
+    visibility = ["//visibility:public"],
+    exports = [
+        "//model",
+        "//proto",
+        "@maven//:com_squareup_moshi_moshi",
+    ],
+    deps = [
+        "//model",
+        "//proto",
+        "@maven//:com_squareup_moshi_moshi",
+    ],
+)

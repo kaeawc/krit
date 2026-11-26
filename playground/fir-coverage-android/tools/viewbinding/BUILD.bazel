@@ -1,0 +1,8 @@
+load("@rules_java//java:defs.bzl", "java_binary")
+
+java_binary(
+    name = "generator",
+    srcs = ["ViewBindingGenerator.java"],
+    main_class = "ViewBindingGenerator",
+    visibility = ["//visibility:public"],
+)

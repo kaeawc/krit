@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">FIR coverage sample</string>
+    <string name="refresh">Refresh</string>
+    <string name="version_label">Version %1$s</string>
+</resources>

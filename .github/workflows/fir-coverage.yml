@@ -1,0 +1,281 @@
+# FIR coverage end to end (#1579): analyze playground/fir-coverage-android, a
+# multi-module Android sample that builds with both Gradle and Bazel, through
+# krit's Gradle plugin and its Bazel module, and gate the share of files FIR
+# analyzes (authoritative) versus gates on compile errors. Thresholds live in
+# playground/fir-coverage-android/ci/fir-coverage-thresholds.json and only
+# ever go up. See playground/fir-coverage-android/README.md.
+name: FIR coverage
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/fir-coverage.yml"
+      - "playground/fir-coverage-android/**"
+      - "krit-gradle-plugin/**"
+      - "krit-settings-plugin/**"
+      - "bazel/**"
+      - "tools/krit-fir/**"
+      - "tools/krit-rule-api/**"
+      - "cmd/krit/**"
+      - "internal/firchecks/**"
+      - "internal/gradlemodel/**"
+      - "internal/oracle/**"
+      - "internal/cli/scan/**"
+      - "internal/javafacts/**"
+      - "go.mod"
+      - "go.sum"
+  pull_request:
+    paths:
+      - ".github/workflows/fir-coverage.yml"
+      - "playground/fir-coverage-android/**"
+      - "krit-gradle-plugin/**"
+      - "krit-settings-plugin/**"
+      - "bazel/**"
+      - "tools/krit-fir/**"
+      - "tools/krit-rule-api/**"
+      - "cmd/krit/**"
+      - "internal/firchecks/**"
+      - "internal/gradlemodel/**"
+      - "internal/oracle/**"
+      - "internal/cli/scan/**"
+      - "internal/javafacts/**"
+      - "go.mod"
+      - "go.sum"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fir-coverage-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  SAMPLE: playground/fir-coverage-android
+
+# `shell: bash` adds -o pipefail, so `cmd | tee` fails when cmd does.
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  # krit and the krit-fir jar from this checkout, shared by both build paths.
+  krit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - uses: ./.github/actions/go-cache
+        with:
+          family: linux
+      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v5
+        with:
+          distribution: zulu
+          java-version: "21"
+      - name: Build krit
+        run: go build -o dist/krit ./cmd/krit/
+      # Same key as the krit-fir jar caches in ci.yml.
+      - name: Cache krit-fir shadow jar
+        id: cache-krit-fir
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: tools/krit-fir/build/libs
+          key: krit-fir-jar-${{ hashFiles('tools/krit-fir/**/*.kt', 'tools/krit-fir/**/*.kts', 'tools/krit-rule-api/**/*.kt', 'tools/krit-rule-api/**/*.kts') }}
+      - uses: gradle/actions/setup-gradle@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d # v4
+        if: steps.cache-krit-fir.outputs.cache-hit != 'true'
+        with:
+          cache-cleanup: on-success
+          validate-wrappers: true
+      - name: Build krit-fir shadow jar
+        if: steps.cache-krit-fir.outputs.cache-hit != 'true'
+        working-directory: tools/krit-fir
+        run: ./gradlew --no-daemon shadowJar
+      - name: Stage binaries
+        run: cp tools/krit-fir/build/libs/krit-fir.jar dist/
+      - uses: actions/upload-artifact@de65e23aa2b7e23d713bb51fbfcb6d502f8667d8 # v4.6.2
+        with:
+          name: krit-bin
+          path: dist/
+          retention-days: 3
+
+  # krit-gradle-plugin's own TestKit suite (#1628): model export, task wiring
+  # and configuration-cache tests that the coverage runs below depend on.
+  krit-gradle-plugin-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v5
+        with:
+          distribution: zulu
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d # v4
+        with:
+          cache-cleanup: on-success
+          validate-wrappers: true
+      - name: Test krit-gradle-plugin
+        working-directory: krit-gradle-plugin
+        run: ./gradlew --no-daemon test --stacktrace
+      - name: Upload krit-gradle-plugin test reports
+        if: failure()
+        uses: actions/upload-artifact@de65e23aa2b7e23d713bb51fbfcb6d502f8667d8 # v4.6.2
+        with:
+          name: krit-gradle-plugin-test-reports
+          path: krit-gradle-plugin/build/reports/tests/test/
+
+  # Gradle plugin path, each from a clean checkout:
+  #  1. kritExportModel (with exportGenerated, so generators run), then the
+  #     whole-build CLI scan from the plugin README's CI recipe;
+  #  2. the root aggregate kritCheckAll, then again: configuration cache
+  #     reuse and an up-to-date task;
+  #  3. per-project kritCheck.
+  gradle:
+    needs: krit
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v5
+        with:
+          distribution: zulu
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d # v4
+        with:
+          cache-cleanup: on-success
+          validate-wrappers: true
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: krit-bin
+          path: ${{ env.SAMPLE }}/.krit-bin/dist
+      - name: Stage krit
+        working-directory: ${{ env.SAMPLE }}
+        run: |
+          chmod +x .krit-bin/dist/krit
+          cp ci/krit-verbose.sh .krit-bin/krit-verbose
+          echo "KRIT_FIR_JAR=$PWD/.krit-bin/dist/krit-fir.jar" >> "$GITHUB_ENV"
+          echo "KRIT_NO_JAR_DOWNLOAD=1" >> "$GITHUB_ENV"
+          echo "KRIT_NO_DAEMON_AUTOSTART=1" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/fir"
+      - name: kritExportModel, then the whole-build CLI scan
+        working-directory: ${{ env.SAMPLE }}
+        run: |
+          ./gradlew kritExportModel -PkritBinary="$PWD/.krit-bin/dist/krit"
+          .krit-bin/dist/krit --no-daemon --no-cache --fir -v -f json -o "$RUNNER_TEMP/fir/gradle-model-cli.json" . \
+            2> "$RUNNER_TEMP/fir/gradle-model-cli.log" || true
+          grep -E 'FIR verdict:|FIR gated|error' "$RUNNER_TEMP/fir/gradle-model-cli.log" || true
+          python3 ci/fir_coverage.py measure gradle-model-cli "$RUNNER_TEMP/fir/gradle-model-cli.result.json" \
+            "$RUNNER_TEMP/fir/gradle-model-cli.log"
+      # The CI entry point the plugin README recommends: one whole-build scan.
+      # --no-build-cache: a task restored from the build cache runs no krit.
+      - name: kritCheckAll (clean checkout, configuration cache)
+        working-directory: ${{ env.SAMPLE }}
+        run: |
+          rm -rf .krit build ./*/build .krit-bin/kritcheck-*.log
+          ./gradlew kritCheckAll --configuration-cache --no-build-cache -PkritBinary="$PWD/.krit-bin/krit-verbose" \
+            | tee "$RUNNER_TEMP/fir/gradle-kritCheckAll.gradle.log"
+          cat .krit-bin/kritcheck-*.log > "$RUNNER_TEMP/fir/gradle-kritCheckAll.log"
+          grep -E 'FIR verdict:|FIR gated' "$RUNNER_TEMP/fir/gradle-kritCheckAll.log" || true
+          python3 ci/fir_coverage.py measure gradle-kritCheckAll "$RUNNER_TEMP/fir/gradle-kritCheckAll.result.json" \
+            "$RUNNER_TEMP/fir/gradle-kritCheckAll.log"
+          cp -R .krit/gradle-model "$RUNNER_TEMP/fir/gradle-model"
+      # Nothing changed, so the second run must reuse the configuration cache
+      # and find kritCheckAll up to date (no krit process).
+      - name: kritCheckAll again (configuration cache reuse, up to date)
+        working-directory: ${{ env.SAMPLE }}
+        run: |
+          rm -f .krit-bin/kritcheck-*.log
+          ./gradlew kritCheckAll --configuration-cache --no-build-cache -PkritBinary="$PWD/.krit-bin/krit-verbose" \
+            | tee "$RUNNER_TEMP/fir/gradle-kritCheckAll-rerun.gradle.log"
+          if grep -q 'Reusing configuration cache' "$RUNNER_TEMP/fir/gradle-kritCheckAll-rerun.gradle.log"; then reused=true; else reused=false; fi
+          if compgen -G '.krit-bin/kritcheck-*.log' > /dev/null; then upToDate=false; else upToDate=true; fi
+          echo "{\"name\": \"gradle-configuration-cache\", \"passed\": $reused}" > "$RUNNER_TEMP/fir/gradle-configuration-cache.check.json"
+          echo "{\"name\": \"gradle-up-to-date\", \"passed\": $upToDate}" > "$RUNNER_TEMP/fir/gradle-up-to-date.check.json"
+      # Per-project kritCheck: one krit process per project.
+      - name: kritCheck (per project)
+        working-directory: ${{ env.SAMPLE }}
+        run: |
+          rm -rf .krit build ./*/build .krit-bin/kritcheck-*.log
+          ./gradlew kritCheck --configuration-cache --no-build-cache -PkritBinary="$PWD/.krit-bin/krit-verbose" \
+            | tee "$RUNNER_TEMP/fir/gradle-kritCheck.gradle.log"
+          cat .krit-bin/kritcheck-*.log > "$RUNNER_TEMP/fir/gradle-kritCheck.log"
+          grep -E 'FIR verdict:|FIR gated' "$RUNNER_TEMP/fir/gradle-kritCheck.log" || true
+          python3 ci/fir_coverage.py measure gradle-kritCheck "$RUNNER_TEMP/fir/gradle-kritCheck.result.json" \
+            "$RUNNER_TEMP/fir/gradle-kritCheck.log"
+      - uses: actions/upload-artifact@de65e23aa2b7e23d713bb51fbfcb6d502f8667d8 # v4.6.2
+        if: always()
+        with:
+          name: fir-coverage-gradle
+          path: ${{ runner.temp }}/fir/
+          retention-days: 14
+
+  # Bazel path: build every target (KSP, Wire and view binding codegen,
+  # compiler plugin and opt-in options, android_binary), run krit_test, and
+  # build again, which must be a full action-cache hit. krit_test is Go-only
+  # until the FIR aspect lands (#1587), so this path reports no FIR runs.
+  bazel:
+    needs: krit
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: bazel-contrib/setup-bazel@f34d6a05eae3c24acab7fa54587492daeaeffdab # 0.19.2
+        with:
+          bazelisk-cache: true
+          disk-cache: fir-coverage-android
+          repository-cache: true
+          cache-save: ${{ github.event_name != 'pull_request' }}
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: krit-bin
+          path: ${{ env.SAMPLE }}/.krit-bin/dist
+      - name: Stage krit
+        run: |
+          chmod +x "$SAMPLE/.krit-bin/dist/krit"
+          mkdir -p "$RUNNER_TEMP/fir"
+      - name: bazel build //...
+        working-directory: ${{ env.SAMPLE }}
+        run: bazel build --keep_going //... 2>&1 | tee "$RUNNER_TEMP/fir/bazel-build.log"
+      - name: bazel test (krit_test)
+        working-directory: ${{ env.SAMPLE }}
+        run: |
+          rc=0
+          bazel test //:krit_test --test_output=all 2>&1 | tee "$RUNNER_TEMP/fir/bazel-krit-test.log" || rc=$?
+          python3 ci/fir_coverage.py measure bazel "$RUNNER_TEMP/fir/bazel.result.json" "$RUNNER_TEMP/fir/bazel-krit-test.log"
+          exit "$rc"
+      - name: bazel build //... again (action cache hit)
+        working-directory: ${{ env.SAMPLE }}
+        run: |
+          bazel build //... 2>&1 | tee "$RUNNER_TEMP/fir/bazel-rebuild.log"
+          # "INFO: N processes: N internal." means no action ran again.
+          if grep -Eq 'INFO: [0-9]+ process(es)?: [0-9]+ internal\.$' "$RUNNER_TEMP/fir/bazel-rebuild.log"; then hit=true; else hit=false; fi
+          echo "{\"name\": \"bazel-action-cache\", \"passed\": $hit}" > "$RUNNER_TEMP/fir/bazel-action-cache.check.json"
+      - uses: actions/upload-artifact@de65e23aa2b7e23d713bb51fbfcb6d502f8667d8 # v4.6.2
+        if: always()
+        with:
+          name: fir-coverage-bazel
+          path: ${{ runner.temp }}/fir/
+          retention-days: 14
+
+  report:
+    needs: [gradle, bazel]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: playground/fir-coverage-android/ci
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: fir-coverage-*
+          path: results
+          merge-multiple: true
+      - name: Coverage table and thresholds
+        run: |
+          mapfile -t files < <(find results \( -name '*.result.json' -o -name '*.check.json' \) | sort)
+          python3 "$SAMPLE/ci/fir_coverage.py" report "$SAMPLE/ci/fir-coverage-thresholds.json" "${files[@]}" \
+            | tee -a "$GITHUB_STEP_SUMMARY"

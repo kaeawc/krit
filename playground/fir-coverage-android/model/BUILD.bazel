@@ -1,0 +1,27 @@
+load("@rules_kotlin//kotlin:core.bzl", "kt_compiler_plugin", "kt_kotlinc_options")
+load("@rules_kotlin//kotlin:jvm.bzl", "kt_jvm_library")
+
+# Gradle :model applies org.jetbrains.kotlin.plugin.serialization and opts in
+# to ExperimentalSampleApi for the whole module; these are the same settings.
+kt_compiler_plugin(
+    name = "serialization_plugin",
+    compile_phase = True,
+    id = "org.jetbrains.kotlin.serialization",
+    stubs_phase = True,
+    deps = ["@rules_kotlin//kotlin/compiler:kotlinx-serialization-compiler-plugin"],
+)
+
+kt_kotlinc_options(
+    name = "kotlinc_options",
+    x_optin = ["dev.krit.firsample.model.ExperimentalSampleApi"],
+)
+
+kt_jvm_library(
+    name = "model",
+    srcs = glob(["src/main/kotlin/**/*.kt"]),
+    kotlinc_opts = ":kotlinc_options",
+    plugins = [":serialization_plugin"],
+    visibility = ["//visibility:public"],
+    exports = ["@maven//:org_jetbrains_kotlinx_kotlinx_serialization_json_jvm"],
+    deps = ["@maven//:org_jetbrains_kotlinx_kotlinx_serialization_json_jvm"],
+)

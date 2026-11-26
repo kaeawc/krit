@@ -1,0 +1,16 @@
+# Bazel side of the dual-build sample. CI adds a disk cache and a
+# repository cache (see .github/workflows/fir-coverage.yml).
+common --lockfile_mode=off
+common --java_language_version=17
+common --java_runtime_version=remotejdk_21
+common --tool_java_language_version=17
+common --tool_java_runtime_version=remotejdk_21
+
+# protobuf (a rules_android and rules_kotlin dependency) needs C++17.
+common --cxxopt=-std=c++17
+common --host_cxxopt=-std=c++17
+
+# Android SDK from $ANDROID_HOME (preinstalled on GitHub's Ubuntu runners).
+common --repo_env=ANDROID_HOME
+
+test --test_output=errors

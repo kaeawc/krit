@@ -86,8 +86,9 @@ func (r *UnusedTransitionTargetStateParameterRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{ID: "UnusedTransitionTargetStateParameter", RuleSet: "compose", DefaultActive: true,
 		KnownLimitations: append([]string{
 			"The receiver must be proven to be a Transition: a variable declared as one or initialized by " +
-				"updateTransition/rememberTransition, a Transition extension's receiver, or AnimatedVisibilityScope's " +
-				"`transition` inside an AnimatedVisibility or AnimatedContent lambda.",
+				"updateTransition/rememberTransition, a Transition extension's receiver (not through a with/apply/run " +
+				"lambda in between), or AnimatedVisibilityScope's `transition` inside an AnimatedVisibility or " +
+				"AnimatedContent lambda.",
 			"The state lambda must be the trailing lambda or `targetValueByState = { }` (or, for a same-file " +
 				"animate* extension, any lambda for a one-parameter function type).",
 		}, axlTargetStateLimitations...)}
@@ -101,13 +102,18 @@ func axlReportUnusedTargetState(ctx *api.Context, lambda uint32) {
 }
 
 // axlAnimationCallTargets reports whether call is the androidx.compose.animation function name: a simple or fully
-// qualified callee, or an extension call (`transition.Crossfade { }`) whose name is imported from the package.
+// qualified callee, an import alias of it (`import ...Crossfade as Fade`), or an extension call
+// (`transition.Crossfade { }`) whose name is imported from the package.
 func axlAnimationCallTargets(file *scanner.File, call uint32, name string) bool {
 	if acrCallTargets(file, call, axlAnimationPackage, name) {
 		return true
 	}
 	callee, _, hasReceiver := acrCallCallee(file, call)
-	return hasReceiver && callee == name && acrNameResolvesTo(file, axlAnimationPackage, name)
+	if callee == "" || !acrSimpleNameRefersTo(file, callee, axlAnimationPackage, name) {
+		return false
+	}
+	return hasReceiver || (callee != name && !acrFunctionNameShadowed(file, call, callee) &&
+		!acrFileDeclaresTopLevel(file, callee))
 }
 
 // check mirrors CrossfadeDetector: the first lambda argument of a Crossfade call (content, or contentKey when it
@@ -242,13 +248,33 @@ func axlTakesTransitionState(file *scanner.File, arg acrLambdaArgument, name str
 }
 
 // axlReceiverIsTransition proves that a call's receiver (or, with no receiver, the implicit one) is an
-// androidx.compose.animation.core.Transition.
+// androidx.compose.animation.core.Transition. An implicit or `this` receiver is the enclosing Transition extension's,
+// unless a with/apply/run lambda in between brings a closer receiver whose members could take the call.
 func axlReceiverIsTransition(file *scanner.File, call, receiver uint32) bool {
 	if receiver == 0 || file.FlatType(receiver) == "this_expression" {
 		fn := axlEnclosingFunction(file, call)
-		return fn != 0 && axlTypeIsTransition(file, acrFunctionReceiverType(file, fn))
+		return fn != 0 && !axlReceiverLambdaBetween(file, call, fn) &&
+			axlTypeIsTransition(file, acrFunctionReceiverType(file, fn))
 	}
 	return axlExprIsTransition(file, receiver, 0)
+}
+
+// axlReceiverScopeFunctions are the stdlib scope functions whose lambda has a receiver.
+var axlReceiverScopeFunctions = map[string]bool{"with": true, "apply": true, "run": true}
+
+// axlReceiverLambdaBetween reports whether a lambda passed to with/apply/run encloses node inside fn.
+func axlReceiverLambdaBetween(file *scanner.File, node, fn uint32) bool {
+	for p, ok := file.FlatParent(node); ok && p != fn; p, ok = file.FlatParent(p) {
+		if file.FlatType(p) != "lambda_literal" {
+			continue
+		}
+		if arg, ok := acrLambdaArgumentOf(file, p); ok {
+			if name, _, _ := acrCallCallee(file, arg.Call); axlReceiverScopeFunctions[name] {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // axlEnclosingFunction returns the nearest enclosing function declaration, or 0.

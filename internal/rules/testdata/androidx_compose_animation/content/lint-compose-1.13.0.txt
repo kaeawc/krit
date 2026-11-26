@@ -1,3 +1,6 @@
+src/com/example/Alias.kt:10:16: UnusedCrossfadeTargetStateParameter: Target state parameter `it` is not used
+src/com/example/Alias.kt:12:20: UnusedContentLambdaTargetStateParameter: Target state parameter `it` is not used
+src/com/example/Alias.kt:13:33: UnusedTargetStateInContentKeyLambda: Target state parameter `it` is not used
 src/com/example/Content.kt:12:21: UnusedCrossfadeTargetStateParameter: Target state parameter `it` is not used
 src/com/example/Content.kt:13:23: UnusedCrossfadeTargetStateParameter: Target state parameter `state` is not used
 src/com/example/Content.kt:14:64: UnusedCrossfadeTargetStateParameter: Target state parameter `_` is not used

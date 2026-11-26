@@ -182,3 +182,61 @@ fun f(date: Date?, format: SimpleDateFormat) {
 		t.Errorf("want findings on format.format and format.isLenient only, got %v", got)
 	}
 }
+
+// CodeRabbit on #1829: a gate word is the bare name, a Java variable named like a listed class is a value, a member
+// beats the runCatching extension, an aliased constructor is still the listed class, and an inherited
+// blockingGet() without a receiver passes the blocking gate.
+func TestDenyListedApiReviewEdgeCases(t *testing.T) {
+	const spaced = `package com.example
+
+import io.reactivex.rxjava3.core.Observable
+
+fun f(source: Observable<Int>) = source.hide ()
+`
+	if got := runRuleByName(t, "DenyListedApi", spaced); len(got) != 1 {
+		t.Errorf("spaced hide (): want one finding, got %v", got)
+	}
+	const javaValue = `package com.example;
+
+import java.util.Date;
+
+class J {
+  String use(Object Date) { return Date.toString(); }
+}
+`
+	if got := runRuleByNameOnJava(t, "DenyListedApi", javaValue); len(got) != 0 {
+		t.Errorf("a parameter named Date: want no finding, got %v", got)
+	}
+	const member = `package com.example
+
+class Local {
+  fun runCatching(block: () -> Unit) = block()
+}
+
+fun f(x: Local) = x.runCatching {}
+`
+	if got := runRuleWithSourceResolver(t, "DenyListedApi", member); len(got) != 0 {
+		t.Errorf("a member runCatching: want no finding, got %v", got)
+	}
+	const alias = `package com.example
+
+import java.util.LinkedList as LL
+
+fun f() = LL<Int>()
+`
+	if got := runRuleByName(t, "DenyListedApi", alias); len(got) != 1 {
+		t.Errorf("an aliased LinkedList constructor: want one finding, got %v", got)
+	}
+	const inherited = `package com.example;
+
+import io.reactivex.rxjava3.core.Single;
+import io.reactivex.rxjava3.core.SingleObserver;
+
+abstract class Cached extends Single<Integer> {
+  Integer now() { return blockingGet(); }
+}
+`
+	if got := runRuleByNameOnJava(t, "DenyListedBlockingApi", inherited); len(got) != 1 {
+		t.Errorf("an inherited blockingGet(): want one finding, got %v", got)
+	}
+}

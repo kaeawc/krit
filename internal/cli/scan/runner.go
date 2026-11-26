@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -90,7 +89,6 @@ func (r *runner) projectInput() pipeline.ProjectInput {
 			GeneratedSourceDirs: r.f.modelGeneratedSourceDirs,
 			GradleModelDir:      *r.f.GradleModel,
 			NoGradleModel:       *r.f.NoGradleModel,
-			ModuleRootCeiling:   moduleRootCeiling(*r.f.BasePath),
 			EditorConfigEnabled: *r.f.EditorConfig,
 			Workers:             *r.f.Jobs,
 			StartTime:           r.start,
@@ -163,17 +161,4 @@ func (r *runner) applyProjectAnalysis(analysis pipeline.ProjectAnalysisResult) {
 		reportDispatchProfile(analysis.DispatchResult.FileTimings, phaseWorkerCount("ruleExecution", *r.f.Jobs, len(r.sourceFiles)), dispatchDuration)
 	}
 	r.allFindings = analysis.CrossFileResult.Findings.Findings()
-}
-
-// moduleRootCeiling is the explicit --base-path, absolute: module discovery
-// for a file scan path looks no higher for the build root. The daemon gets
-// the same value through AnalyzeProjectArgs.BasePath.
-func moduleRootCeiling(basePath string) string {
-	if basePath == "" {
-		return ""
-	}
-	if abs, err := filepath.Abs(basePath); err == nil {
-		return abs
-	}
-	return basePath
 }

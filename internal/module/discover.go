@@ -21,26 +21,16 @@ var settingsFiles = []string{"settings.gradle.kts", "settings.gradle"}
 // filesystem. A root without a settings file that holds several
 // independent builds gets each build's modules under its directory path.
 // Returns nil when rootDir has no settings file and no build scripts.
-// A rootDir that names a file is handled as DiscoverModulesFrom does
-// without a ceiling.
+// A rootDir that names a file (a scan path such as src/A.kt) is
+// discovered from the build that holds the file, see buildRoot; a file in
+// no build has no modules (nil, nil), and no directory tree is walked for it.
 func DiscoverModules(ctx context.Context, rootDir string) (*Graph, error) {
-	return DiscoverModulesFrom(ctx, rootDir, "")
-}
-
-// DiscoverModulesFrom discovers the modules of the build at path. When path
-// names a file (a scan path such as src/A.kt) that is the build holding the
-// file: the nearest directory above it with a Gradle settings file or a
-// Bazel workspace file (MODULE.bazel, WORKSPACE, ...), looking no higher
-// than a repository root (a directory with .git) or than ceiling, when
-// ceiling is a directory that holds the file. A file in no such build has
-// no modules (nil, nil), and no directory tree is walked for it.
-func DiscoverModulesFrom(ctx context.Context, path, ceiling string) (*Graph, error) {
-	rootDir, err := filepath.Abs(path)
+	rootDir, err := filepath.Abs(rootDir)
 	if err != nil {
 		return nil, err
 	}
 	if info, err := os.Stat(rootDir); err == nil && !info.IsDir() {
-		rootDir = buildRoot(filepath.Dir(rootDir), ceiling)
+		rootDir = buildRoot(filepath.Dir(rootDir))
 		if rootDir == "" {
 			return nil, nil
 		}
@@ -202,23 +192,24 @@ func relocateDeclaredModules(declared []*Module, buildDirs []string, claimed map
 
 // buildRoot returns the nearest directory at or above dir that holds a
 // Gradle settings file or a Bazel workspace file, or "" when there is none
-// at or below a repository root (a directory with .git) or ceiling (when
-// that is a directory). It checks a few names per level rather than
-// reading each directory, so a large ancestor such as /tmp stays cheap.
-func buildRoot(dir, ceiling string) string {
-	if ceiling != "" {
-		if abs, err := filepath.Abs(ceiling); err == nil {
-			ceiling = abs
-		}
-		if info, err := os.Stat(ceiling); err != nil || !info.IsDir() {
-			ceiling = ""
-		}
-	}
+// below a repository root (a directory with .git) or a Bazel execution
+// root. It checks a few names per level rather than reading each
+// directory, so a large ancestor such as /tmp stays cheap.
+//
+// An execution root (output_base/execroot/<repo>, in a sandbox too) ends
+// the search with no build: unsandboxed it links MODULE.bazel next to the
+// real bazel-out tree, which discovery would otherwise walk, and above it
+// is Bazel's output base, not the build. Krit actions' file scan paths sit
+// below it.
+func buildRoot(dir string) string {
 	for d := dir; ; {
+		if filepath.Base(filepath.Dir(d)) == "execroot" {
+			return ""
+		}
 		if isBuildRoot(d) {
 			return d
 		}
-		if _, err := os.Stat(filepath.Join(d, ".git")); err == nil || d == ceiling {
+		if _, err := os.Stat(filepath.Join(d, ".git")); err == nil {
 			return ""
 		}
 		parent := filepath.Dir(d)

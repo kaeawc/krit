@@ -256,11 +256,10 @@ reports, since the two scopes partition the rules.
 Module-aware rules (module dependency rules) need krit's module graph. For
 file scan paths krit discovers it from the nearest directory above the
 **first** file that has a Gradle settings file or a Bazel `MODULE.bazel` /
-`WORKSPACE`, looking no higher than a repository root (`.git`) or
-`--base-path`. A file in no such build has no module graph. This action runs
-with `--base-path .`, the execution root, so discovery stays inside the
-sandbox; the sandbox holds no BUILD files, though, so the graph is empty here
-and those rules find nothing yet (#1694).
+`WORKSPACE`, looking no higher than a repository root (`.git`) or a Bazel
+execution root. A file in no such build has no module graph. This action's
+files sit below the execution root, which holds no BUILD files in a sandbox,
+so the graph is empty here and those rules find nothing yet (#1694).
 
 ### Exporting a model for krit, the LSP and MCP
 

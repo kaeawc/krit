@@ -148,11 +148,6 @@ type ProjectArgs struct {
 	// output. Empty means OutputPhase falls back to the first scan
 	// path.
 	BasePath string
-	// ModuleRootCeiling is the --base-path directory, when set: module
-	// discovery for a file scan path looks no higher for the build root.
-	// In a Bazel action that is the execroot, so discovery stays in the
-	// sandbox.
-	ModuleRootCeiling string
 	// AbsolutePaths reports finding paths as absolute instead of relative to
 	// BasePath.
 	AbsolutePaths bool
@@ -1106,6 +1101,7 @@ func runProjectIndexPhase(ctx context.Context, args ProjectArgs, host ProjectHos
 		buildCodeIndex = true
 	}
 	indexInput := IndexInput{
+		CustomRuleJars:           len(args.CustomRuleJars) > 0,
 		ParseResult:              parseResult,
 		Preparse:                 host.Preparse,
 		PrebuiltResolver:         host.PrebuiltResolver,
@@ -1145,7 +1141,6 @@ func runProjectIndexPhase(ctx context.Context, args ProjectArgs, host ProjectHos
 		SkipBaseResolver:    warm.cross != nil,
 		ModuleParentTracker: moduleTracker,
 		ModuleScanRoot:      scanRoot,
-		ModuleRootCeiling:   args.ModuleRootCeiling,
 		ModuleJobsFlag:      args.Workers,
 		ModuleHasAwareRule:  hasModuleAwareRule,
 		GradleModelDir:      args.GradleModelDir,

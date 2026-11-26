@@ -158,6 +158,9 @@ type IndexInput struct {
 	// false, the oracle block is skipped entirely (matches --no-type-oracle
 	// or absence of a base resolver in the CLI).
 	OracleEnabled bool
+	// CustomRuleJars reports whether custom rule jars run; they read the
+	// module graph.
+	CustomRuleJars bool
 	// BaseResolver is the source-level typeinfer resolver the CLI pre-built
 	// before wrapping in oracle.CompositeResolver. When nil, no oracle wiring
 	// happens (there is nothing to wrap).
@@ -367,12 +370,9 @@ type IndexInput struct {
 	// children. The caller End()-s it so moduleRuleExecution can nest
 	// under the same parent.
 	ModuleParentTracker perf.Tracker
-	// ModuleScanRoot is the root path passed to module.DiscoverModulesFrom.
+	// ModuleScanRoot is the root path passed to module.DiscoverModules.
 	// Empty means "use Paths[0] or '.'".
 	ModuleScanRoot string
-	// ModuleRootCeiling bounds the build-root search for a file
-	// ModuleScanRoot (see module.DiscoverModulesFrom).
-	ModuleRootCeiling string
 	// ModuleJobsFlag is the -jobs flag value used by
 	// phaseWorkerCount("moduleAwareAnalysis", ...).
 	ModuleJobsFlag int
@@ -621,7 +621,7 @@ func resolverFingerprint(files []*scanner.File) string {
 
 // discoverModuleGraph performs a best-effort module discovery when
 // SkipModules is false and BuildModuleIndex is not set.
-func (p IndexPhase) discoverModuleGraph(ctx context.Context, in IndexInput) *module.Graph {
+func (p IndexPhase) discoverModuleGraph(ctx context.Context, in IndexInput, resolver typeinfer.TypeResolver) *module.Graph {
 	if p.SkipModules || in.BuildModuleIndex {
 		return nil
 	}
@@ -632,11 +632,13 @@ func (p IndexPhase) discoverModuleGraph(ctx context.Context, in IndexInput) *mod
 			scanRoot = in.Paths[0]
 		}
 	}
-	// A file scan path (krit_aspect, a file-scope pre-commit run) would
-	// discover the whole build above it for a graph that only the oracle
-	// and custom rule jars read; skip it, as module-aware rules discover
-	// their own graph in runModuleIndexBuild.
-	if info, err := os.Stat(scanRoot); err == nil && !info.IsDir() {
+	// For a file scan path (krit_aspect, a file-scope pre-commit run) the
+	// whole build above it would be discovered; skip that unless something
+	// reads the graph: the oracle's cross-module smart-cast filter
+	// (attachOracleModules) or custom rule jars. Module-aware rules
+	// discover their own graph in runModuleIndexBuild.
+	_, oracleResolver := resolver.(*oracle.CompositeResolver)
+	if info, err := os.Stat(scanRoot); err == nil && !info.IsDir() && !oracleResolver && !in.CustomRuleJars {
 		return nil
 	}
 	graph, err := module.DiscoverModules(ctx, scanRoot)
@@ -838,7 +840,7 @@ func (p IndexPhase) Run(ctx context.Context, in IndexInput) (IndexResult, error)
 	})
 
 	track("discoverModuleGraph", func() {
-		if graph := p.discoverModuleGraph(ctx, in); graph != nil {
+		if graph := p.discoverModuleGraph(ctx, in, result.Resolver); graph != nil {
 			result.Graph = graph
 		}
 	})
@@ -1843,7 +1845,7 @@ func (p IndexPhase) runModuleIndexBuild(ctx context.Context, in IndexInput, resu
 		modErr error
 	)
 	moduleTracker.TrackVoid("moduleDiscovery", func() {
-		graph, modErr = module.DiscoverModulesFrom(ctx, scanRoot, in.ModuleRootCeiling)
+		graph, modErr = module.DiscoverModules(ctx, scanRoot)
 	})
 	if modErr != nil {
 		in.warnf("warning: module discovery failed, module-aware rules are skipped: %v\n", modErr)

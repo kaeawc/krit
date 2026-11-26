@@ -206,17 +206,16 @@ func TestRunProjectAnalysis_ModuleAwareRule_RunsWithoutTracker(t *testing.T) {
 
 // A file scan path (as every Bazel rule and pre-commit hook passes) inside a
 // Gradle build still discovers the build's modules, so module-aware rules
-// run (#1548, #1669). --base-path (ModuleRootCeiling) bounds the search: a
-// build above it, as above a Bazel sandbox's execroot, is not found (#1704).
+// run (#1548, #1669), whatever --base-path is: the Gradle plugin's
+// per-module kritCheck sets it to the subproject directory (#1704).
 func TestRunProjectAnalysis_ModuleAwareRule_RunsForFileScanPath(t *testing.T) {
 	for _, tc := range []struct {
-		name    string
-		ceiling func(root string) string
-		wantRun bool
+		name     string
+		basePath func(root string) string
 	}{
-		{"no ceiling", func(string) string { return "" }, true},
-		{"ceiling at the build root", func(root string) string { return root }, true},
-		{"ceiling below the build root", func(root string) string { return filepath.Join(root, "app") }, false},
+		{"no base path", func(string) string { return "" }},
+		{"base path at the build root", func(root string) string { return root }},
+		{"base path at the subproject", func(root string) string { return filepath.Join(root, "app") }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
@@ -248,16 +247,16 @@ func TestRunProjectAnalysis_ModuleAwareRule_RunsForFileScanPath(t *testing.T) {
 				},
 			}
 			args := ProjectArgs{
-				Config:            config.NewConfig(),
-				Paths:             []string{ktPath},
-				ActiveRules:       []*api.Rule{rule},
-				ModuleRootCeiling: tc.ceiling(dir),
+				Config:      config.NewConfig(),
+				Paths:       []string{ktPath},
+				ActiveRules: []*api.Rule{rule},
+				BasePath:    tc.basePath(dir),
 			}
 			if _, err := RunProjectAnalysis(context.Background(), ProjectInput{Args: args}); err != nil {
 				t.Fatalf("RunProjectAnalysis: %v", err)
 			}
-			if ran := calls > 0; ran != tc.wantRun {
-				t.Fatalf("module-aware rule ran = %v, want %v", ran, tc.wantRun)
+			if calls == 0 {
+				t.Fatal("module-aware rule did not run for a file scan path")
 			}
 		})
 	}

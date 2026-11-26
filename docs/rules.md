@@ -257,6 +257,21 @@ Gradle module (recorded with `scripts/lint-parity-record.sh`, AGP 9.4.1); `TestA
   module; a file belongs to the nearest module root above it, so a phone module nested in a Wear project is not
   checked. Lint compares the import text, so an aliased import and `MaterialTheme.*` count; Material 3 imports do not.
 
+- `SquareAndRoundTilePreviews` (warning) reports a tile service (a `<service>` with the
+  `androidx.wear.tiles.action.BIND_TILE_PROVIDER` action) without an `androidx.wear.tiles.PREVIEW` metadata ("Tiles
+  need preview assets", in any project). In a Wear module it also reads the binary drawables named by each
+  `@drawable/` preview in every source set's `drawable*` folders and reports, at the metadata's resource value, a
+  preview found only in folders whose name contains `round` or only in the others. This is Lint 32.4.1's behavior;
+  later Lint renamed the check `TilePreviews` and dropped the round/square requirement.
+- `TilePreviewImageFormat` (error) reports, at the same value, a preview image that is not square or is smaller than
+  384px in either dimension. PNG, JPEG and GIF headers are decoded; a WebP preview is 0x0, as it is for Lint, whose
+  `ImageIO` has no WebP reader; other formats are skipped.
+- `StartActivityAndCollapseDeprecated` (Kotlin and Java) reports the argument of `startActivityAndCollapse(Intent)` on
+  a `TileService`: an error from target SDK 34, a warning below. The receiver must be proven a `TileService` (an
+  implicit or `this` receiver in a class whose same-file supertype chain reaches it, or a receiver declared as one)
+  and the argument an `Intent` (a constructor call, a variable declared or initialized as one, or an `Intent` builder
+  call on one); the `PendingIntent` overload and same-named methods of other classes are not reported.
+
 Lint checks the merged manifest; krit checks each manifest file, so components declared only in a variant or library
 manifest are not seen, and the watch face dependency is read from build scripts and version catalogs.
 

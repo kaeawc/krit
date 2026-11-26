@@ -1,0 +1,8 @@
+src/main/java/com/example/tiles/JOuter.java:9:50: StartActivityAndCollapseDeprecated: TileService#startActivityAndCollapse(Intent) is deprecated. Use TileService#startActivityAndCollapse(PendingIntent) instead.
+src/main/java/com/example/tiles/Receivers.kt:17:40: StartActivityAndCollapseDeprecated: TileService#startActivityAndCollapse(Intent) is deprecated. Use TileService#startActivityAndCollapse(PendingIntent) instead.
+src/main/java/com/example/tiles/Receivers.kt:21:51: StartActivityAndCollapseDeprecated: TileService#startActivityAndCollapse(Intent) is deprecated. Use TileService#startActivityAndCollapse(PendingIntent) instead.
+src/main/java/com/example/tiles/Receivers.kt:25:72: StartActivityAndCollapseDeprecated: TileService#startActivityAndCollapse(Intent) is deprecated. Use TileService#startActivityAndCollapse(PendingIntent) instead.
+src/main/java/com/example/tiles/Receivers.kt:29:40: StartActivityAndCollapseDeprecated: TileService#startActivityAndCollapse(Intent) is deprecated. Use TileService#startActivityAndCollapse(PendingIntent) instead.
+src/main/java/com/example/tiles/Receivers.kt:33:34: StartActivityAndCollapseDeprecated: TileService#startActivityAndCollapse(Intent) is deprecated. Use TileService#startActivityAndCollapse(PendingIntent) instead.
+src/main/java/com/example/tiles/Receivers.kt:38:39: StartActivityAndCollapseDeprecated: TileService#startActivityAndCollapse(Intent) is deprecated. Use TileService#startActivityAndCollapse(PendingIntent) instead.
+src/main/java/com/example/tiles/Receivers.kt:51:30: StartActivityAndCollapseDeprecated: TileService#startActivityAndCollapse(Intent) is deprecated. Use TileService#startActivityAndCollapse(PendingIntent) instead.

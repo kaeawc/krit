@@ -230,6 +230,7 @@ var javaSupportReadiness = JavaSupportMatrix{
 		"RemoveWorkManagerInitializer":            {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/androidx_work_parity_test.go"}},
 		"SpecifyForegroundServiceType":            {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/androidx_work_parity_test.go"}},
 		"WearMaterialTheme":                       {Status: api.LanguageSupportSupported, Fixtures: []string{"tests/fixtures/android-lint/WearMaterialTheme/positive"}},
+		"StartActivityAndCollapseDeprecated":      {Status: api.LanguageSupportSupported, Fixtures: []string{"tests/fixtures/android-lint/StartActivityAndCollapseDeprecated/positive"}},
 	},
 }
 

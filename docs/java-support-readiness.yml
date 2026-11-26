@@ -694,6 +694,10 @@ rules:
     status: supported
     fixtures:
       - tests/fixtures/android-lint/WearMaterialTheme/positive
+  StartActivityAndCollapseDeprecated:
+    status: supported
+    fixtures:
+      - tests/fixtures/android-lint/StartActivityAndCollapseDeprecated/positive
   UsableSpace:
     status: supported
     fixtures:

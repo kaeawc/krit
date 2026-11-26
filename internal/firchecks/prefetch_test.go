@@ -274,6 +274,24 @@ func TestPrefetchRidesTheSameRootsSpelledDifferently(t *testing.T) {
 	}
 }
 
+// PR mode (#1660): the pass checks only the changed files, and the plan the
+// oracle's compile carries says so too.
+func TestPassPlansOnlyTheChangedFilesInPRMode(t *testing.T) {
+	p := newPrefetchProject(t)
+	p.opts.Only = []string{p.b}
+	plan, ok := planPass(p.opts)
+	if !ok || !slices.Equal(plan.requested, []string{p.b}) || plan.outsidePR != 1 {
+		t.Fatalf("requested = %v, outsidePR = %d", plan.requested, plan.outsidePR)
+	}
+	p.opts.Only = []string{}
+	if plan, _ := planPass(p.opts); len(plan.requested) != 0 || plan.outsidePR != 2 {
+		t.Fatalf("an empty change set checks nothing: %v", plan.requested)
+	}
+	if request, _ := NewPrefetch(p.opts).Rider(p.jar, p.checker.SourceDirs, p.checker.Classpath, CompileTarget{}).Prepare(); request != nil {
+		t.Fatal("prepared a request with no changed file")
+	}
+}
+
 // A JVM whose AOT cache registers no checkers answers with no rules; the
 // pass's own check carries the recovery for that.
 func TestPrefetchIgnoresAResponseWithoutCheckers(t *testing.T) {

@@ -68,6 +68,13 @@ const maxContextFiles = 3000
 // module edges are dropped. Only modules with a source root under one of scanPaths are returned.
 // missing counts the dependency projects whose built jar is absent.
 func Plan(model *gradlemodel.Model, repoRoot string, scanPaths []string) (units []Unit, missing int) {
+	return planWith(model, repoRoot, scanPaths, nil)
+}
+
+// planWith is Plan with the projects whose built jar is stale: their sources changed since the
+// build (PR mode's changed files, #1660), so a module depending on them compiles their sources as
+// context instead of a jar that predates the change.
+func planWith(model *gradlemodel.Model, repoRoot string, scanPaths []string, stale map[string]bool) (units []Unit, missing int) {
 	specs := firchecks.ModuleSpecsFromModel(model)
 	byID := make(map[string]*firchecks.ModuleSpec, len(specs))
 	for i := range specs {
@@ -78,7 +85,10 @@ func Plan(model *gradlemodel.Model, repoRoot string, scanPaths []string) (units 
 		if j, ok := jars[project]; ok {
 			return j
 		}
-		j := builtJar(repoRoot, project)
+		j := ""
+		if !stale[project] {
+			j = builtJar(repoRoot, project)
+		}
 		jars[project] = j
 		return j
 	}

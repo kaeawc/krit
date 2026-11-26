@@ -293,6 +293,16 @@ promotion match the in-process flow. The wire addition was shared with
 `--rule-audit` / `--baseline-audit`; see "Audits that ship with the
 analysis" above for the response-shape rationale.
 
+### `--diff` (PR mode)
+
+`--diff REF` stays in-process unless `--no-pr-mode` is given (#1660). PR mode
+compiles only the modules that hold the changed Kotlin files for the type
+oracle and the FIR check (`runPRModules` in `internal/pipeline/index.go`),
+and the analyze-project wire carries no changed-file list. To route it, the
+wire would need the PR file list and the daemon's index phase would need to
+pass it through as `IndexInput.PRFiles`. With `--no-pr-mode` the scan is
+eligible as before and the daemon applies the `--diff` filter itself.
+
 ## Rule-set filters and reproducible output
 
 ### `--only-scope`, `--exclude-scope`, `--max-cost`

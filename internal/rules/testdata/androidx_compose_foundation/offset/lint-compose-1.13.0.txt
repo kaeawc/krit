@@ -1,0 +1,7 @@
+src/com/example/Offset.kt:25:18: UseOfNonLambdaOffsetOverload: State backed values should use the lambda overload of Modifier.offset
+src/com/example/Offset.kt:26:18: UseOfNonLambdaOffsetOverload: State backed values should use the lambda overload of Modifier.offset
+src/com/example/Offset.kt:27:18: UseOfNonLambdaOffsetOverload: State backed values should use the lambda overload of Modifier.offset
+src/com/example/Offset.kt:28:18: UseOfNonLambdaOffsetOverload: State backed values should use the lambda overload of Modifier.offset
+src/com/example/Offset.kt:29:18: UseOfNonLambdaOffsetOverload: State backed values should use the lambda overload of Modifier.offset
+src/com/example/Offset.kt:30:18: UseOfNonLambdaOffsetOverload: State backed values should use the lambda overload of Modifier.offset
+src/com/example/Offset.kt:33:18: UseOfNonLambdaOffsetOverload: State backed values should use the lambda overload of Modifier.offset

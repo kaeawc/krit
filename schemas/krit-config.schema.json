@@ -18953,6 +18953,39 @@
             }
           }
         },
+        "TextFieldBufferInternalAppend": {
+          "description": "Detects TextFieldBuffer.append in androidx.compose.foundation code, which drops hardware-source tracking. [precision: ast-backed] [noisiness: normal]\nCaveat: Only applies to code in androidx.compose.foundation packages, as in Lint.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable TextFieldBufferInternalAppend (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "UnnecessaryComposedModifier": {
           "description": "Detects Modifier.composed factories that call no @Composable function, which only adds cost. [precision: ast-backed] [noisiness: normal]\nCaveat: A factory that calls a function declared in another file (other than known Compose Modifier factories and Kotlin stdlib functions), reads `.current`, or reads a property of an object other than Modifier, Color, Alignment or Arrangement is assumed to call a @Composable function, so it is not reported.",
           "type": "object",
@@ -19019,6 +19052,39 @@
             }
           }
         },
+        "UnusedBoxWithConstraintsScope": {
+          "description": "Detects BoxWithConstraints whose content never uses the constraints, so a Box would avoid subcomposition. [precision: ast-backed] [noisiness: normal]\nCaveat: Scope use is a `this`, a read of maxWidth, maxHeight, minWidth, minHeight or constraints, a call of a same-file BoxWithConstraintsScope extension, or an invocation of a value typed with a BoxWithConstraintsScope receiver; such extensions declared in other files are not seen.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable UnusedBoxWithConstraintsScope (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "UnusedMaterial3ScaffoldPaddingParameter": {
           "description": "Detects material3 Scaffold content lambdas that ignore the padding parameter, so app bars can cover the content. [precision: ast-backed] [noisiness: normal]\nCaveat: The content lambda must be passed as the trailing lambda or as `content = { }`; a lambda at the content position without a label is not mapped.\nCaveat: An inner lambda without parameters hides an outer `it` only when it is passed to a known one-parameter lambda function (forEach, let, map, LazyListScope.items, ...) or a same-file function whose parameter type takes one value; Lint resolves every inner lambda.\nCaveat: Scaffold resolves through imports (including `import ... as Alias`) and the file's own package; a Scaffold declared in another file of the same package is not seen as shadowing a star import.",
           "type": "object",
@@ -19059,6 +19125,39 @@
           "properties": {
             "active": {
               "description": "Enable UnusedMaterialScaffoldPaddingParameter (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "UseOfNonLambdaOffsetOverload": {
+          "description": "Detects Modifier.offset(x, y) with State-backed arguments, where the lambda overload offset { } avoids recomposition. [precision: ast-backed] [noisiness: normal]\nCaveat: An argument is State-backed when it reads a value declared or initialized as a State, MutableState or Animatable (mutableStateOf, remember { ... }, animate*AsState, derivedStateOf, collectAsState, Animatable(...)), the .value of one, or a local delegated `by` one; values typed only in other files are not proven.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable UseOfNonLambdaOffsetOverload (default: true).",
               "type": "boolean",
               "default": true
             },

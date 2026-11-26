@@ -1,0 +1,3 @@
+src/com/example/Box.kt:16:24: UnusedBoxWithConstraintsScope: BoxWithConstraints scope is not used
+src/com/example/Box.kt:23:34: UnusedBoxWithConstraintsScope: BoxWithConstraints scope is not used
+src/com/example/Box.kt:24:34: UnusedBoxWithConstraintsScope: BoxWithConstraints scope is not used

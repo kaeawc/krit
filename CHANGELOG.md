@@ -12,6 +12,10 @@ All notable changes to Krit will be documented in this file.
   its inputs' hashes in the model, and krit warns, naming the file, when the build no longer matches. A model restored under another checkout path or Gradle user home is rebased when
   loaded (new `gradleUserHome` model field). New `krit { exportTests = false }` exports and resolves only production
   source sets (#1663).
+- `UseOfNonLambdaOffsetOverload`, `UnusedBoxWithConstraintsScope` and `TextFieldBufferInternalAppend`, ports of the
+  Lint checks bundled with `androidx.compose.foundation` 1.13.0, under their Lint IDs. Their findings match the Lint
+  CLI running that release's `lint.jar` on the inputs under `internal/rules/testdata/androidx_compose_foundation/`
+  (#1438, #1439, #1440).
 - Gradle plugin: `kritCheck` with custom rule jars writes every enabled report from one krit run (one
   `--report FORMAT=PATH` each), like every other scan, instead of analyzing once per report (#1634).
 - `DoNotMockAnything`, `DoNotMockPlatformTypes`, `DoNotMockDataClass` and `DoNotMockObjectClass`, slack-lints 0.11.1's

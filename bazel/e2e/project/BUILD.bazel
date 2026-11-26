@@ -1,0 +1,23 @@
+load("@krit//:defs.bzl", "krit_project_report")
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+
+exports_files(["krit.yml"])
+
+# krit's project-scope rules (here DeadCode, enabled in krit.yml) over the
+# binary and everything it depends on: //project/lib's usedApi is called
+# from //project/app and is not reported; unusedApi is. A krit_aspect action
+# over //project/lib alone (with --@krit//:scope=all) would report both; see
+# scripts/bazel-e2e-local.sh.
+krit_project_report(
+    name = "project_report",
+    config = "krit.yml",
+    fail_on_findings = "false",
+    deps = ["//project/app"],
+)
+
+sh_test(
+    name = "project_report_test",
+    srcs = ["project_report_test.sh"],
+    args = ["$(rootpaths :project_report)"],
+    data = [":project_report"],
+)

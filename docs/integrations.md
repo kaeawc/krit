@@ -175,10 +175,11 @@ generated-source context and not reported on.
 
 The action compiles each target with its rules_kotlin settings (language
 and API version, `kotlinc_opts`, compiler plugins, KSP/kapt sources) and,
-for Android targets, `android.jar`, the R class jars, the manifest and the
-resources, as [type-aware krit_test](#type-aware-krit_test) does. A target
-with only a manifest or resources (an `android_library` without `srcs`) is
-analyzed too. It reads only declared
+for Android targets, `android.jar` and the R class jars, as
+[type-aware krit_test](#type-aware-krit_test) does. The manifest and
+resource rules are project-scope:
+[krit_project_report](#krit_project_report) runs them (or every target's
+action with `--@krit//:scope=all`). It reads only declared
 inputs (sources, classpath, plugin jars, krit, the krit-fir jar, the Java
 runtime, `krit.yml`, the baseline), runs no daemon,
 uses a scratch `$HOME` and never downloads anything. A FIR pass that cannot
@@ -196,6 +197,7 @@ common --tool_java_runtime_version=remotejdk_21
 | `--@krit//:config=//:krit.yml` | `krit.yml` for every action (`--config`). |
 | `--@krit//:baseline=//:krit-baseline.xml` | Baseline of known findings (`--baseline`). |
 | `--@krit//:fail_on_findings` | Adds a [validation action](https://bazel.build/extending/rules#validation_actions) per target that fails the build when the target has findings, printing them. It runs with Bazel's default `--run_validations`. |
+| `--@krit//:scope=all` | Run every rule per target, not only the file-scope ones (see below). |
 | `--@krit//:fir=false` | Go-only analysis, without the JDK or krit-fir. |
 | `--@krit//:worker=false` | No persistent worker: each Krit action starts its own krit-fir JVM. |
 
@@ -217,9 +219,43 @@ each action starts and stops its own JVM.
 Put the flags in `.bazelrc` under a config, e.g.
 `build:krit --aspects=@krit//:defs.bzl%krit_aspect --output_groups=+krit`,
 then `bazel build --config=krit //...`. Other rules can read a target's
-reports through the `KritReportInfo` provider. Like `krit_test`, each action
-sees one target: cross-module rules (dead code, unused resources) need a
-whole-repository run.
+reports through the `KritReportInfo` provider.
+
+Each action sees one target, so by default it runs only krit's
+**file-scope** rules (`--only-scope file`; `krit --list-rules --format json`
+reports each rule's `scope`). A project-scope rule there would be wrong:
+DeadCode would report a function as unused when its only caller is in
+another target. `--@krit//:scope=all` runs every rule per target anyway,
+which suits a build with one target per module and no cross-target rules.
+
+### krit_project_report
+
+`krit_project_report` runs the **project-scope** rules (cross-file and
+module rules such as DeadCode, rules over all parsed files, Android manifest
+and resource rules) once over a whole build:
+
+```starlark
+load("@krit//:defs.bzl", "krit_project_report")
+
+krit_project_report(
+    name = "krit_project",
+    deps = ["//app:binary"],
+)
+```
+
+It collects the main repository's `srcs`, `manifest` and `resource_files` of
+`deps` and of everything they depend on (`deps`, `exports`, `runtime_deps`,
+`associates`) and runs one Go-only krit action (no JVM) that writes
+`krit_project.krit.sarif` and `.krit.txt`. Bazel caches it until one of those
+files, or the config, changes. `config` defaults to `--@krit//:config`;
+`fail_on_findings` (`auto`, `true`, `false`) adds a validation action, `auto`
+following `--@krit//:fail_on_findings`. `srcs` adds files outside the graph.
+Together with `krit_aspect` it reports what one whole-repository krit run
+reports, since the two scopes partition the rules.
+
+Module-aware rules (module dependency rules) still need krit's module
+discovery, which does not run when krit is given files rather than
+directories, so they are skipped here for now.
 
 ### Exporting a model for krit, the LSP and MCP
 

@@ -2,6 +2,7 @@ exports_files([
     "krit_binary.bzl",
     "krit_aspect.bzl",
     "krit_model_aspect.bzl",
+    "krit_project.bzl",
     "krit_test.bzl",
     "android.bzl",
     "kotlin.bzl",

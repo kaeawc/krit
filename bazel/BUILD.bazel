@@ -1,4 +1,4 @@
-load("@bazel_skylib//rules:common_settings.bzl", "bool_flag")
+load("@bazel_skylib//rules:common_settings.bzl", "bool_flag", "string_flag")
 load("@bazel_skylib//rules:native_binary.bzl", "native_binary")
 
 # `bazel run @krit//:krit -- <args>` runs the prebuilt binary for the host.
@@ -77,5 +77,18 @@ native_binary(
 bool_flag(
     name = "worker",
     build_setting_default = True,
+    visibility = ["//visibility:public"],
+)
+
+# Which rules krit_aspect's per-target actions run: "file" (the file-scope
+# rules; krit_project_report runs the project-scope ones over the whole
+# build) or "all".
+string_flag(
+    name = "scope",
+    build_setting_default = "file",
+    values = [
+        "all",
+        "file",
+    ],
     visibility = ["//visibility:public"],
 )

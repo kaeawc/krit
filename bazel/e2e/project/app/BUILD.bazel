@@ -1,0 +1,9 @@
+load("@rules_kotlin//kotlin:jvm.bzl", "kt_jvm_binary")
+
+kt_jvm_binary(
+    name = "app",
+    srcs = ["Main.kt"],
+    main_class = "project.app.MainKt",
+    visibility = ["//project:__subpackages__"],
+    deps = ["//project/lib"],
+)

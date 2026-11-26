@@ -55,6 +55,9 @@ fi
 def _exec_path(f):
     return f.path
 
+def _string(ctx, attr):
+    return getattr(ctx.attr, attr)[BuildSettingInfo].value
+
 def _flag(ctx, attr):
     return getattr(ctx.attr, attr)[BuildSettingInfo].value
 
@@ -92,6 +95,15 @@ def _krit_aspect_impl(target, ctx):
         "--reproducible",
         "--base-path",
         ".",
+    ]
+
+    # File-scope rules only, by default: a project-scope rule (cross-file,
+    # module, Android manifest and resource rules) sees one target here and
+    # would report, say, a declaration as unused that another target uses.
+    # krit_project_report runs those once over the whole build.
+    if _string(ctx, "_scope") == "file":
+        krit_args += ["--only-scope", "file"]
+    krit_args += [
         "--report",
         "sarif=" + sarif.path,
         "--report",
@@ -205,6 +217,8 @@ Flags:
 - `--@krit//:config=//:krit.yml` and `--@krit//:baseline=//:baseline.xml`.
 - `--@krit//:fail_on_findings`: a validation action fails the build when a
   target has findings (with the default `--run_validations`).
+- `--@krit//:scope=all`: also run krit's project-scope rules in each
+  target's action (the default `file` leaves them to krit_project_report).
 - `--@krit//:fir=false`: Go-only analysis, without the JDK or krit-fir.
 - `--@krit//:worker=false`: no persistent worker; every action starts its
   own krit-fir JVM (as with `--strategy=Krit=sandboxed` or remote execution).
@@ -246,6 +260,10 @@ Flags:
         ),
         "_worker": attr.label(
             default = Label("//:worker"),
+            providers = [BuildSettingInfo],
+        ),
+        "_scope": attr.label(
+            default = Label("//:scope"),
             providers = [BuildSettingInfo],
         ),
     },

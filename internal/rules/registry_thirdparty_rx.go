@@ -5,6 +5,9 @@ import (
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
+// slackLintRuleSet is the rule set the slack-lints ports register in (the MoshiUsage rules call it moshiRuleSet).
+const slackLintRuleSet = "slack-lint"
+
 // RxLintRule is one of slack-lints' Rx checks.
 type RxLintRule struct {
 	FlatDispatchBase
@@ -36,7 +39,7 @@ func registerThirdPartyRxRules() {
 			[]scanner.Language{scanner.LangKotlin}, []string{"call_expression"},
 			nil, rxEmitFileGate, checkRxDoesNotEmit},
 	} {
-		r := &RxLintRule{BaseRule: BaseRule{RuleName: rule.id, RuleSetName: moshiRuleSet, Sev: string(rule.sev), Desc: rule.brief}}
+		r := &RxLintRule{BaseRule: BaseRule{RuleName: rule.id, RuleSetName: slackLintRuleSet, Sev: string(rule.sev), Desc: rule.brief}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: rule.sev,
 			NodeTypes:          rule.nodes,

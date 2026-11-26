@@ -440,11 +440,12 @@ All notable changes to Krit will be documented in this file.
   `MoshiUsageNonMoshiClassInternal`/`External` (#1384, #1395, #1396, #1404, #1407, #1408, #1409).
 
 ### Fixed
-- `MutableImplicitPendingIntent` follows more ways of building the intent, as Lint does: `getActivities` intents from
-  `listOf(...)`/`mutableListOf(...)`/`arrayListOf(...)` with `toTypedArray()`, local intent arrays and lists, and
-  `arrayOfNulls<Intent>(n)` filled by indexed assignments, plus `let { ...; it }`, `run { ...; this }` and
-  `with(intent) { ...; this }` blocks that return the intent. Any other use of the intent or the array before the
-  `PendingIntent` call still makes the rule abstain (#1622).
+- `MutableImplicitPendingIntent` follows more ways of building the intent, as Lint 32.4.1 does: `getActivities`
+  intent arrays held in locals (`arrayOf`, a Java array initializer, and `arrayOfNulls(n)` / `new Intent[n]` of
+  constant size whose elements are the last write to each index before the call), and `let`, `run` and `with`
+  blocks whose every statement is an Intent method call on `it` or the receiver. Any other use of the intent or the
+  array before the `PendingIntent` call, including a write in a nested lambda, still makes the rule abstain
+  (#1622).
 - The Lint ports' shared call parser is memoized per node for each file's dispatch pass, instead of re-parsing a call
   for every port that looks at it, and their import scan finds `import` keywords before running its regex. On
   element-x-android that cut about 1.3s of CPU from a `--no-fir` scan, with the same findings.

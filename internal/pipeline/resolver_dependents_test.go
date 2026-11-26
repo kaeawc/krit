@@ -160,14 +160,33 @@ func TestResolverRuleCacheFollowsOtherFilesDeclarations(t *testing.T) {
 
 			h.write("BaseView.kt", baseViewNotView)
 			n := h.wantWarmMatchesCold("BaseView stops extending View")
-			if want := map[bool]int{true: 2, false: 3}[withIndex]; n != want {
-				// With the index: MyView, and SubView through it; Unrelated
-				// stays cached. Without it every cached file is re-analyzed.
-				t.Fatalf("re-analyzed %d cached files, want %d", n, want)
+			if n != 2 {
+				// MyView, and SubView through it; Unrelated stays cached
+				// (without a code index, the parsed files' tokens narrow it).
+				t.Fatalf("re-analyzed %d cached files, want 2", n)
 			}
 
 			h.write("BaseView.kt", baseViewIsView)
 			h.wantWarmMatchesCold("BaseView extends View again")
+
+			// Supertypes swapped between two classes in BaseView.kt: the
+			// file declares and references the same names as before.
+			h.write("BaseView.kt", "package p\n\nopen class BaseView : Plain() {\n    fun helper(): Int = 1\n}\n\nopen class Plain : View()\n")
+			h.wantWarmMatchesCold("supertype moved within BaseView.kt")
+			h.write("BaseView.kt", "package p\n\nopen class BaseView {\n    fun helper(): Int = 1\n}\n\nopen class Plain : View()\n")
+			h.wantWarmMatchesCold("supertype swapped back out")
+
+			// A supertype edit and a body edit to the middle of the chain in
+			// one run: SubView names only MyView, which is re-analyzed, not
+			// cached, and must still carry the change through.
+			h.write("BaseView.kt", baseViewIsView)
+			h.wantWarmMatchesCold("restore")
+			h.write("BaseView.kt", baseViewNotView)
+			h.write("MyView.kt", strings.Replace(myView, "BaseView()", "BaseView() {\n    fun x() = 1\n}", 1))
+			h.wantWarmMatchesCold("supertype edit plus a body edit in the chain")
+			h.write("BaseView.kt", baseViewIsView)
+			h.write("MyView.kt", strings.Replace(myView, "BaseView()", "BaseView() {\n    fun x() = 2\n}", 1))
+			h.wantWarmMatchesCold("and back")
 
 			if err := os.Remove(filepath.Join(h.dir, "BaseView.kt")); err != nil {
 				t.Fatal(err)

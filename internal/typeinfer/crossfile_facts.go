@@ -2,6 +2,7 @@ package typeinfer
 
 import (
 	"encoding/json"
+	"slices"
 	"sort"
 	"strings"
 
@@ -171,4 +172,86 @@ func (r *defaultResolver) FileTypeInfoOf(path string) *FileTypeInfo {
 		return nil
 	}
 	return r.fileInfos[path]
+}
+
+// NamesDependingOn returns the lookup names of info's declarations whose
+// types mention a name in names, simple or qualified: classes with such a
+// supertype, aliases to such a type, and functions and extensions returning
+// it or (for extensions) receiving it. When names' declarations change, what
+// lookups of these resolve to can change too, so invalidation that follows
+// type dependencies through a file expands only these, not every name the
+// file declares (a member's simple name like "load" is referenced almost
+// everywhere).
+func (info *FileTypeInfo) NamesDependingOn(names map[string]bool) []string {
+	if info == nil || len(names) == 0 {
+		return nil
+	}
+	d := dependents{names: names}
+	for _, ci := range info.Classes {
+		if ci != nil && d.anyMentioned(ci.Supertypes, ci.DirectSupertypes) {
+			d.add(ci.FQN)
+			d.add(ci.Name)
+		}
+	}
+	for name, target := range info.TypeAliases {
+		if d.typeMentioned(target) {
+			d.add(name)
+		}
+	}
+	for name, ret := range info.Functions {
+		if d.typeMentioned(ret) {
+			d.add(name)
+		}
+	}
+	for _, ext := range info.Extensions {
+		if ext != nil && !ext.FileLocal && (d.mentioned(ext.ReceiverType) || d.typeMentioned(ext.ReturnType)) {
+			d.add(ext.Name)
+		}
+	}
+	sort.Strings(d.out)
+	return slices.Compact(d.out)
+}
+
+// dependents collects NamesDependingOn's result.
+type dependents struct {
+	names map[string]bool
+	out   []string
+}
+
+// mentioned reports whether n, or its simple name, is in d.names.
+func (d *dependents) mentioned(n string) bool {
+	if n == "" {
+		return false
+	}
+	if d.names[n] {
+		return true
+	}
+	i := strings.LastIndexByte(n, '.')
+	return i >= 0 && d.names[n[i+1:]]
+}
+
+func (d *dependents) typeMentioned(t *ResolvedType) bool {
+	return t != nil && (d.mentioned(t.Name) || d.mentioned(t.FQN))
+}
+
+func (d *dependents) anyMentioned(lists ...[]string) bool {
+	for _, list := range lists {
+		for _, n := range list {
+			if d.mentioned(n) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// add records n and its simple name.
+func (d *dependents) add(n string) {
+	if n == "" {
+		return
+	}
+	d.out = append(d.out, n)
+	if i := strings.LastIndexByte(n, '.'); i >= 0 && i+1 < len(n) {
+		d.out = append(d.out, n[i+1:])
+	}
 }

@@ -69,3 +69,18 @@ func TestChangedNamesIsPerDeclaration(t *testing.T) {
 		t.Fatalf("B becoming a subtype of A changed %v, want both A and B", got)
 	}
 }
+
+func TestNamesDependingOnFollowsTypesOnly(t *testing.T) {
+	info := IndexFileParallel(parseTestFile(t, "package p\n\nclass Sub : Hub() {\n    fun load() {}\n    fun onCreate() {}\n}\n\nclass Other\n\ntypealias H = Hub\n\nfun makeHub(): Hub = Hub()\n"))
+	got := info.NamesDependingOn(map[string]bool{"Hub": true})
+	for _, want := range []string{"Sub", "p.Sub", "H", "makeHub"} {
+		if !slices.Contains(got, want) {
+			t.Errorf("NamesDependingOn(Hub) = %v, missing %q", got, want)
+		}
+	}
+	for _, unwanted := range []string{"Other", "load", "onCreate"} {
+		if slices.Contains(got, unwanted) {
+			t.Errorf("NamesDependingOn(Hub) = %v, must not expand %q", got, unwanted)
+		}
+	}
+}

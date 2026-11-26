@@ -229,9 +229,10 @@ type Cache struct {
 	// serialised.
 	filesMu sync.RWMutex
 
-	// store, when non-nil, backs all reads and writes instead of the
-	// in-memory Files map.  Entries are persisted per-file so Save becomes
-	// a no-op.  Set via AttachStore after loading.
+	// store, when non-nil, holds the findings instead of the in-memory
+	// Files map, persisted per file; Files then only carries declaration
+	// facts (FileEntry.Decls), which Save writes. Set via AttachStore after
+	// loading.
 	backingStore     *store.FileStore
 	storeRuleSetHash [16]byte
 
@@ -335,8 +336,9 @@ func LoadFromDir(dir string) *Cache {
 
 // Save writes the cache file atomically to the given path.
 // It writes to a temporary file first, then renames for crash safety
-// and safe concurrent access.  When a store is attached, Save is a no-op
-// because entries are persisted individually on each UpdateEntry call.
+// and safe concurrent access.  When a store is attached, findings are
+// persisted individually on each UpdateEntry call and Save writes only the
+// declaration facts, or nothing when there are none.
 //
 // Save holds Cache.filesMu read-locked across encodeBinary so concurrent
 // writers cannot tear the map mid-iteration. The compressed byte buffer
@@ -360,10 +362,11 @@ func (c *Cache) Save(cacheFilePath string) error {
 // persisted individually on UpdateEntry, so there is nothing to flush.
 // Pair with WriteSnapshot, which performs the actual atomic disk write.
 func (c *Cache) EncodeSnapshot() (data []byte, shouldWrite bool, err error) {
-	if c.backingStore != nil {
+	c.filesMu.RLock()
+	if c.backingStore != nil && !c.hasDeclEntries() {
+		c.filesMu.RUnlock()
 		return nil, false, nil
 	}
-	c.filesMu.RLock()
 	data, err = encodeBinary(c)
 	c.filesMu.RUnlock()
 	if err != nil {
@@ -552,9 +555,10 @@ func ParseRuleSetHash(hexStr string) [16]byte {
 // through s instead of the in-memory Files map.  ruleSetHash must be the
 // parsed form of ComputeCacheKeyHash (use ParseRuleSetHash).
 //
-// Once attached, CheckFiles consults the store; UpdateEntryColumns writes to
-// the store; Save becomes a no-op.  The existing JSON file is no longer read
-// after AttachStore — the first warm run regenerates entries in the store.
+// Once attached, CheckFiles consults the store; UpdateEntryColumns writes
+// findings to the store and declaration facts to Files, which Save writes.
+// The cache file's findings are no longer read after AttachStore — the first
+// warm run regenerates entries in the store.
 func (c *Cache) AttachStore(s *store.FileStore, ruleSetHash [16]byte) {
 	c.backingStore = s
 	c.storeRuleSetHash = ruleSetHash
@@ -905,12 +909,23 @@ func (c *Cache) PriorDecls(path string) (DeclFacts, bool) {
 	return e.Decls, ok
 }
 
+// hasDeclEntries reports whether any entry records declaration facts; the
+// caller holds filesMu.
+func (c *Cache) hasDeclEntries() bool {
+	for _, e := range c.Files {
+		if e.Decls.Hash != "" {
+			return true
+		}
+	}
+	return false
+}
+
 // VanishedDecls returns the declaration facts of entries for files that are
 // not in present (absolute paths): a deleted declaration can change how
 // cached files resolve. The cache header ties entries to the scan paths, so
 // an entry outside the current file set belongs to a deleted file.
 func (c *Cache) VanishedDecls(present map[string]bool) []DeclFacts {
-	if c == nil || c.backingStore != nil {
+	if c == nil {
 		return nil
 	}
 	c.filesMu.RLock()
@@ -947,6 +962,16 @@ func (c *Cache) updateEntry(path string, content []byte, columns scanner.Finding
 			Kind:        store.KindIncremental,
 		}
 		_ = c.backingStore.Put(key, data)
+		if decls.Hash != "" {
+			// The store holds findings by content; the cache file keeps only
+			// the declaration facts the next run's #1778 pass compares. The
+			// entry has no content hash and an mtime no file has, so a run
+			// without the store never serves it as a hit.
+			abs, _ := filepath.Abs(path)
+			c.filesMu.Lock()
+			c.Files[abs] = FileEntry{ModTime: racyModTime, Decls: decls}
+			c.filesMu.Unlock()
+		}
 		c.mutated.Store(true)
 		return
 	}

@@ -3327,6 +3327,12 @@ func tryDeltaDispatch(
 	if !manifest.enabled || manifest.manifestKey == "" {
 		return DispatchResult{}, CrossFileResult{}, false, dispatchTimings{}, nil
 	}
+	if len(indexResult.ResolverInvalidated) > 0 {
+		// A declaration change in the edited file reaches other files'
+		// resolver-backed findings; replaying their prior verdicts would
+		// serve them stale (#1778).
+		return DispatchResult{}, CrossFileResult{}, false, dispatchTimings{}, nil
+	}
 	prior, ok := loadBundleManifest(host, manifest.manifestKey)
 	if !ok {
 		return DispatchResult{}, CrossFileResult{}, false, dispatchTimings{}, nil
@@ -3691,6 +3697,27 @@ func tryAffectedSetDispatchXMLStable(
 	return tryAffectedSetDispatch(ctx, args, host, indexResult, parseResult, manifest)
 }
 
+// unionAffected adds the paths in extra that affected does not already name,
+// as spelled or absolute.
+func unionAffected(affected []string, extra map[string]bool) []string {
+	if len(extra) == 0 {
+		return affected
+	}
+	have := make(map[string]bool, len(affected)*2)
+	for _, p := range affected {
+		have[p] = true
+		have[absOrSelf(p)] = true
+	}
+	for p := range extra {
+		if !have[p] && !have[absOrSelf(p)] {
+			affected = append(affected, p)
+			have[p] = true
+		}
+	}
+	sort.Strings(affected)
+	return affected
+}
+
 // tryAffectedSetDispatch generalizes tryDeltaDispatch from a single changed
 // file to the multi-file warm+ABI regime. The conservative delta planner only
 // fires for exactly one changed file with every fingerprint stable; an ABI
@@ -3758,6 +3785,10 @@ func tryAffectedSetDispatch(
 	}
 
 	affected := scanner.AffectedSetIncremental(current, changedPaths, removed)
+	// The reference hop above misses files that resolve through an
+	// unchanged file (MyView : MidView : BaseView) and new subtypes of a
+	// sealed or abstract type; the resolver pass found those (#1778).
+	affected = unionAffected(affected, indexResult.ResolverInvalidated)
 	if len(affected) == 0 {
 		return DispatchResult{}, CrossFileResult{}, replayBailEmptyAffected, nil
 	}

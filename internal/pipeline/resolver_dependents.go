@@ -1,6 +1,8 @@
 package pipeline
 
 import (
+	"strings"
+
 	"github.com/kaeawc/krit/internal/cache"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
@@ -55,7 +57,9 @@ func rulesReadResolver(rules []*api.Rule) bool {
 
 // invalidateResolverDependents drops from ir.CacheResult every cached file
 // whose resolver-backed findings a declaration change in another file can
-// reach, so dispatch re-analyzes it. It returns how many it dropped.
+// reach, so dispatch re-analyzes it, and records them on
+// ir.ResolverInvalidated for the bundle replay paths. It returns how many it
+// dropped.
 func invalidateResolverDependents(ir *IndexResult) int {
 	res := ir.CacheResult
 	if res == nil || res.TotalCached == 0 || ir.Cache == nil || !rulesReadResolver(ir.ActiveRules) {
@@ -65,7 +69,12 @@ func invalidateResolverDependents(ir *IndexResult) int {
 	if len(seeds) == 0 {
 		return 0
 	}
-	return dropCached(ir, res, resolverDependents(ir, res, seeds), parsed)
+	affected := resolverDependents(ir, res, seeds)
+	n := dropCached(ir, res, affected, parsed)
+	if n > 0 {
+		ir.ResolverInvalidated = affected
+	}
+	return n
 }
 
 // changedDeclarationNames returns the lookup names whose declarations changed
@@ -112,30 +121,39 @@ func changedNamesOf(c *cache.Cache, infos fileTypeInfoProvider, path string) []s
 	}
 }
 
-// resolverDependents returns the cached files that reference a seed name,
-// transitively: an affected file's own declarations resolve differently
-// (their supertypes moved), so whatever names them is reached too. Without
-// a reference index every cached file is.
+// referenceIndex answers which files mention a name.
+type referenceIndex interface {
+	ReferenceFiles(name string) map[string]bool
+}
+
+// resolverDependents returns the cached files a change to the seed names can
+// reach. Every file that references a seed is reached, cached or not; its
+// declarations whose types mention a seed (a subclass, an alias, a function
+// returning it) resolve differently now, so their names join the seeds and
+// whatever names them is reached in turn. Names a file merely declares
+// (members such as "load" are referenced almost everywhere) are not followed.
 func resolverDependents(ir *IndexResult, res *cache.Result, seeds map[string]bool) map[string]bool {
-	affected := map[string]bool{}
-	if ir.CodeIndex == nil {
-		for path := range res.CachedPaths {
-			affected[path] = true
-		}
-		return affected
+	var refs referenceIndex
+	if ir.CodeIndex != nil {
+		refs = ir.CodeIndex
+	} else {
+		refs = newTokenReferenceIndex(ir.KotlinFiles, ir.JavaFiles)
 	}
+	infos := resolverFileInfos(ir.Resolver)
+	affected := map[string]bool{}
 	frontier := declNameKeys(seeds)
 	for len(frontier) > 0 {
 		name := frontier[len(frontier)-1]
 		frontier = frontier[:len(frontier)-1]
-		for ref := range ir.CodeIndex.ReferenceFiles(name) {
-			path, ok := cachedPathFor(res, ref)
-			if !ok || affected[path] {
-				continue
+		for ref := range refs.ReferenceFiles(name) {
+			if path, ok := cachedPathFor(res, ref); ok {
+				affected[path] = true
 			}
-			affected[path] = true
-			prior, _ := ir.Cache.PriorDecls(path)
-			for n := range prior.Names {
+			var info *typeinfer.FileTypeInfo
+			if infos != nil {
+				info = infos.FileTypeInfoOf(ref)
+			}
+			for _, n := range info.NamesDependingOn(seeds) {
 				if !seeds[n] {
 					seeds[n] = true
 					frontier = append(frontier, n)
@@ -144,6 +162,63 @@ func resolverDependents(ir *IndexResult, res *cache.Result, seeds map[string]boo
 		}
 	}
 	return affected
+}
+
+// tokenReferenceIndex maps every identifier-shaped token of the parsed files
+// to the files containing it: a coarse stand-in for the code index when no
+// cross-file rule built one. Tokens in comments and strings count too, which
+// only re-analyzes more.
+type tokenReferenceIndex map[string]map[string]bool
+
+func newTokenReferenceIndex(fileSets ...[]*scanner.File) tokenReferenceIndex {
+	idx := tokenReferenceIndex{}
+	for _, files := range fileSets {
+		for _, f := range files {
+			if f == nil {
+				continue
+			}
+			forEachIdentifier(f.Content, func(tok string) {
+				set := idx[tok]
+				if set == nil {
+					set = map[string]bool{}
+					idx[tok] = set
+				}
+				set[f.Path] = true
+			})
+		}
+	}
+	return idx
+}
+
+func (idx tokenReferenceIndex) ReferenceFiles(name string) map[string]bool {
+	if i := strings.LastIndexByte(name, '.'); i >= 0 {
+		name = name[i+1:] // a file names a declaration by its simple name
+	}
+	return idx[name]
+}
+
+// forEachIdentifier calls fn for each distinct [A-Za-z_][A-Za-z0-9_]* token.
+func forEachIdentifier(content []byte, fn func(string)) {
+	seen := map[string]bool{}
+	start := -1
+	isStart := func(c byte) bool { return c == '_' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' }
+	isPart := func(c byte) bool { return isStart(c) || c >= '0' && c <= '9' }
+	for i := 0; i <= len(content); i++ {
+		if i < len(content) && (start >= 0 && isPart(content[i]) || start < 0 && isStart(content[i])) {
+			if start < 0 {
+				start = i
+			}
+			continue
+		}
+		if start >= 0 {
+			tok := string(content[start:i])
+			if !seen[tok] {
+				seen[tok] = true
+				fn(tok)
+			}
+			start = -1
+		}
+	}
 }
 
 // dropCached removes affected files from the cache hits so dispatch

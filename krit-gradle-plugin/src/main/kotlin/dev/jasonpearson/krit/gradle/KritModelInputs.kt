@@ -44,7 +44,8 @@ internal object KritModelInputs {
     private fun normalize(value: Any?, root: String?, classpath: Boolean): Any? = when (value) {
         is Map<*, *> -> value.entries.associate { (key, entry) ->
             // The user home only locates the jars; their identity is kept by $GRADLE_CACHES.
-            key.toString() to if (key == "gradleUserHome") GRADLE_USER_HOME else normalize(entry, root, key in CLASSPATH_KEYS)
+            key.toString() to
+                if (key == "gradleUserHome") GRADLE_USER_HOME else normalize(entry, root, key in CLASSPATH_KEYS)
         }
         is List<*> -> value.map { normalize(it, root, classpath) }
         // Content is tracked by classpath(); here each entry keeps its identity (many

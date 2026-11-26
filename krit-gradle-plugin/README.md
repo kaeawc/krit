@@ -179,7 +179,8 @@ Set `fir = false` to pass `--no-fir` to `kritCheck` when FIR is unavailable.
 `sourceDirs` and `generatedSourceDirs` come from the build's own source-set APIs: AGP's
 Variant API for Android (`variant.sources.java.all` and `variant.sources.kotlin.all`,
 AGP 8.0+), and the Kotlin plugin's `kotlin` and `generatedKotlin` source sets for JVM and
-Kotlin Multiplatform. Those include every root a generator registered with the build,
+Kotlin Multiplatform. A Kotlin Multiplatform Android target (`androidTarget()`) gets both:
+its `androidDebug` compilation also takes the Variant API roots of AGP's `debug` component. Those include every root a generator registered with the build,
 such as view binding and data binding, BuildConfig, AIDL, SQLDelight, Wire and KSP, so
 the model lists generated roots even before they exist.
 

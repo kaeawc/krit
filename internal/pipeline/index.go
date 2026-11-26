@@ -919,28 +919,12 @@ func GradleProjectIndex(dir string, noModel bool, scanRoot string, logf func(str
 	})
 }
 
-// gradleModelIdentity names the content of the model files in modelDir, for keys
-// of cached output that carries the model's project attribution; "" without one.
+// gradleModelIdentity is gradlemodel.Identity of modelDir; "" without one.
 func gradleModelIdentity(modelDir string) string {
 	if modelDir == "" {
 		return ""
 	}
-	entries, err := os.ReadDir(modelDir)
-	if err != nil {
-		return ""
-	}
-	var b strings.Builder
-	for _, entry := range entries {
-		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
-			continue
-		}
-		sum, err := hashutil.Default().HashFile(filepath.Join(modelDir, entry.Name()), nil)
-		if err != nil {
-			return "unreadable"
-		}
-		b.WriteString(entry.Name() + "=" + sum + ";")
-	}
-	return hashutil.HashHex([]byte(b.String()))[:16]
+	return gradlemodel.Identity(modelDir)
 }
 
 // attachOracleModules gives the oracle resolver the Gradle module of each file, so a compiler verdict that rests

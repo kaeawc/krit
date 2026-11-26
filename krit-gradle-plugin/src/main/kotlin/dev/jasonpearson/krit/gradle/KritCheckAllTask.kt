@@ -252,7 +252,8 @@ abstract class KritCheckAllTask @Inject constructor(
             val width = rows.maxOf { label(it).length }
             fun plural(n: Int, word: String) = "$n $word" + if (n == 1) "" else "s"
             return "krit: findings by project\n" + rows.joinToString("\n") { row ->
-                "  ${label(row).padEnd(width)}  ${row.findings} (${plural(row.errors, "error")}, ${plural(row.warnings, "warning")})"
+                val counts = "${plural(row.errors, "error")}, ${plural(row.warnings, "warning")}"
+                "  ${label(row).padEnd(width)}  ${row.findings} ($counts)"
             }
         }
 

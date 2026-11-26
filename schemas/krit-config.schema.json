@@ -16980,6 +16980,39 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "ArcAnimationSpecTypeIssue": {
+          "description": "Detects ArcAnimationSpec used for values other than the 2D offsets it is designed for. [precision: ast-backed] [noisiness: normal]\nCaveat: As in Lint, only an explicit type argument is checked; `ArcAnimationSpec()` with an inferred type is not.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable ArcAnimationSpecTypeIssue (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "AutoboxingStateCreation": {
           "description": "Detects mutableStateOf holding a non-null Int, Long, Float or Double, where mutableIntStateOf and friends avoid autoboxing. [precision: ast-backed] [noisiness: normal]\nCaveat: The state type is taken from an explicit type argument, the declared type of the property it initializes, or a literal or same-file typed argument; other inferred types are not checked.",
           "type": "object",
@@ -17930,6 +17963,39 @@
             }
           }
         },
+        "ConstantContentStateKeyInItemsCall": {
+          "description": "Detects shared elements in LazyList items keyed by a constant rememberSharedContentState key, so all items share one key. [precision: ast-backed] [noisiness: normal]\nCaveat: The key must fold to a constant from literals, + concatenation and same-file constants.\nCaveat: The call between sharedElement/sharedBounds and items must be a same-file @Composable function or an upper-case function imported from androidx.compose.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable ConstantContentStateKeyInItemsCall (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "CoroutineCreationDuringComposition": {
           "description": "Detects launch, async and launchIn calls made directly in composition instead of inside a LaunchedEffect. [precision: ast-backed] [noisiness: normal]\nCaveat: A lambda counts as composition only when the file proves its parameter is @Composable: a same-file declaration, a @Composable-annotated or -typed variable, or a known Compose content API (Column, Box, Scaffold, CompositionLocalProvider, lazy item content, ...).\nCaveat: Receivers must be proven by a same-file declaration or initializer; values typed only by inference across files are not checked.",
           "type": "object",
@@ -17937,6 +18003,39 @@
           "properties": {
             "active": {
               "description": "Enable CoroutineCreationDuringComposition (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "DisallowLookaheadAnimationVisualDebug": {
+          "description": "Detects LookaheadAnimationVisualDebugging debugging wrappers left in production code. [precision: ast-backed] [noisiness: normal]\nCaveat: Lint's quick fix, which unwraps the content lambda, is not ported.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable DisallowLookaheadAnimationVisualDebug (default: true).",
               "type": "boolean",
               "default": true
             },
@@ -19125,6 +19224,39 @@
           "properties": {
             "active": {
               "description": "Enable UnusedMaterialScaffoldPaddingParameter (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "UnusedSharedTransitionModifierParameter": {
+          "description": "Detects SharedTransitionScope content lambdas that ignore the Modifier parameter meant for the top-most composable. [precision: ast-backed] [noisiness: normal]\nCaveat: Lint's quick fix, which moves the Modifier onto the single top-level layout composable, is not ported.\nCaveat: An inner lambda without parameters hides an outer `it` only when it is passed to a known one-parameter lambda function (forEach, let, map, LazyListScope.items, ...) or a same-file function whose parameter type takes one value; Lint resolves every inner lambda.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable UnusedSharedTransitionModifierParameter (default: true).",
               "type": "boolean",
               "default": true
             },

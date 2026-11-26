@@ -207,13 +207,15 @@ The Krit actions run `krit bazel-worker` as Bazel
 `supports-workers`). Each worker keeps one krit-fir JVM warm between the
 actions it runs, while every action is still a fresh krit process with
 empty per-run state and incremental FIR state off, so no target's sources
-or results reach another action. A krit-fir JVM is set up for one compile
-target (sources, classpath, Kotlin settings), so the warm path is the edit
-loop: a target analyzed again with an unchanged classpath. On a 24-target
-benchmark (`scripts/bazel-worker-bench.sh`) that took a Krit action from
-4.6 s to 0.6 s, while a full build of distinct targets runs about as fast as
-one JVM per action. Each worker holds at most one JVM, which stops with the
-worker; `--worker_max_instances=Krit=N` bounds them. With workers off
+or results reach another action. The worker's JVM serves every target with
+the same Kotlin compiler settings, plugins and JDK: each action sends its
+own sources and classpath, and krit-fir builds a new compiler session for
+them in the warm JVM. A target with other settings starts a new JVM, which
+replaces the old one. On a 24-target benchmark (`scripts/bazel-worker-bench.sh`,
+4 cores, `--jobs=2`) the Krit actions of a full build took 7.0 s instead of
+82.8 s with one JVM per action (mean 0.54 s against 6.69 s), and an edited
+target's action 0.5 s instead of 5.0 s. Each worker holds at most one JVM,
+which stops with the worker; `--worker_max_instances=Krit=N` bounds them. With workers off
 (`--@krit//:worker=false`, `--strategy=Krit=sandboxed`, remote execution)
 each action starts and stops its own JVM.
 

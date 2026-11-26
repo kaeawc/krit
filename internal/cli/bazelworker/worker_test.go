@@ -14,6 +14,8 @@ import (
 	"sync"
 	"syscall"
 	"testing"
+
+	"github.com/kaeawc/krit/internal/firchecks"
 )
 
 // fakeScan records each scan and exits with the code its first argument names.
@@ -204,6 +206,7 @@ func TestScanEnvPointsStateIntoScratch(t *testing.T) {
 	t.Setenv("JAVA_HOME", "rel/jdk")
 	t.Setenv("KRIT_FIR_JAR", "rel/krit-fir.jar")
 	t.Setenv("KRIT_STATE_DIR", "/elsewhere")
+	t.Setenv(firchecks.FirDaemonPoolEnv, "gradle-0")
 	s, err := newScratch()
 	if err != nil {
 		t.Fatal(err)
@@ -220,6 +223,10 @@ func TestScanEnvPointsStateIntoScratch(t *testing.T) {
 	if env["KRIT_STATE_DIR"] != "/state" || env["KRIT_FIR_INCREMENTAL"] != "0" || env["KRIT_NO_JAR_DOWNLOAD"] != "1" ||
 		env["KRIT_DAEMON_PARENT_PID"] != strconv.Itoa(os.Getpid()) {
 		t.Fatalf("env = %v", env)
+	}
+	// One pool slot of the worker's own: one JVM serves every target (#1666).
+	if env[firchecks.FirDaemonPoolEnv] != "bazel-worker" {
+		t.Fatalf("%s = %q, want the worker's slot", firchecks.FirDaemonPoolEnv, env[firchecks.FirDaemonPoolEnv])
 	}
 	for _, name := range []string{"HOME", "TMPDIR", "KRIT_HOME"} {
 		if !strings.HasPrefix(env[name], s.dir) {

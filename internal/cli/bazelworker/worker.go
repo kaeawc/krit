@@ -8,10 +8,13 @@
 // request is a fresh `krit` process with an empty state directory of its
 // own, so no Go-side cache or result outlives a request, but consecutive
 // requests share the worker's krit-fir daemon (with incremental FIR state
-// off), which keeps the JVM and the compiler warm. A daemon serves one
-// compile target, so the warm path is a target analyzed again with an
-// unchanged classpath (an edit to its own sources); the worker keeps only
-// its newest daemon, so it never holds more than one JVM. The daemon
+// off), which keeps the JVM and the compiler warm. The scans run in one
+// krit-fir daemon pool slot (firchecks.FirDaemonPoolEnv), so one daemon
+// serves every compile target with the same compiler settings, JDK and
+// jar: each request carries its target's sources and classpath, and
+// krit-fir rebuilds its session for them. A target with other settings
+// starts another daemon; the worker keeps only its newest one, so it never
+// holds more than one JVM. The daemon
 // watches the worker's PID (KRIT_DAEMON_PARENT_PID) and stops when it
 // exits, however it exits; the worker also stops it on EOF, SIGTERM and
 // SIGINT.
@@ -42,6 +45,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/kaeawc/krit/internal/firchecks"
 	"github.com/kaeawc/krit/internal/selfexec"
 )
 
@@ -260,6 +264,7 @@ func (s *scratch) env(state string) []string {
 		"HOME": true, "TMPDIR": true, "KRIT_HOME": true, "KRIT_STATE_DIR": true,
 		"KRIT_BUILDID_CACHE_BASE": true, "JAVA_HOME": true, "KRIT_FIR_JAR": true,
 		"KRIT_FIR_INCREMENTAL": true, "KRIT_DAEMON_PARENT_PID": true,
+		firchecks.FirDaemonPoolEnv: true,
 	}
 	var env []string
 	for _, kv := range os.Environ() {
@@ -279,6 +284,10 @@ func (s *scratch) env(state string) []string {
 		// The shared daemon keeps no incremental FIR state between
 		// requests: each target is compiled from its own inputs only.
 		"KRIT_FIR_INCREMENTAL=0",
+		// One warm JVM for every target of the worker: the daemon retargets
+		// its session to each request's sources and classpath. KRIT_HOME is
+		// the worker's own, so the slot is too.
+		firchecks.FirDaemonPoolEnv+"=bazel-worker",
 		// The daemons stop when the worker does, even when Bazel kills it.
 		"KRIT_DAEMON_PARENT_PID="+strconv.Itoa(os.Getpid()),
 		"JAVA_HOME="+s.javaHome,

@@ -33,10 +33,11 @@ KritReportInfo = provider(
 # it reads and writes only its declared inputs and outputs: no $HOME, no
 # network (the krit-fir jar is an input and downloads are off). krit exits 1
 # when it reports findings; that still succeeds and is written to the status
-# file for the validation. A krit-fir daemon serves one compile target, so
-# the worker pays off when a target is analyzed again with an unchanged
-# classpath; singleplex workers (one action each at a time) let it keep only
-# its newest daemon, so it holds at most one JVM.
+# file for the validation. One krit-fir daemon serves every target with the
+# same compiler settings, rebuilding its session for each action's sources
+# and classpath, so a build of many targets pays for one JVM per worker;
+# singleplex workers (one action each at a time) let it keep only its
+# newest daemon, so it holds at most one JVM.
 _WORKER_REQUIREMENTS = {
     "requires-worker-protocol": "json",
     "supports-workers": "1",

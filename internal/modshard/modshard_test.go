@@ -257,11 +257,11 @@ func TestPruneRemovesOldUnreferencedFactsOnly(t *testing.T) {
 
 func TestWorkerHeapStaysWithinBounds(t *testing.T) {
 	for _, workers := range []int{1, 4, 8, 14, 64} {
-		if h := workerHeapMB(workers); h < 1536 || h > 5120 {
+		if h := workerHeapMB(workers, 1); h < 1536 || h > 5120 {
 			t.Errorf("workers=%d: heap %dMB outside [1536, 5120]", workers, h)
 		}
 	}
-	if workerHeapMB(0) != 5120 {
+	if workerHeapMB(0, 1) != 5120 {
 		t.Error("no workers should fall back to the default cap")
 	}
 }
@@ -472,11 +472,83 @@ func TestWorkerHeapMBUsesAvailableMemory(t *testing.T) {
 	t.Cleanup(func() { totalMemoryMB = prev })
 	// A 16 GB sandbox with two workers gets 40% split between them.
 	totalMemoryMB = func() int { return 16384 }
-	if got := workerHeapMB(2); got != 16384*40/100/2 {
-		t.Errorf("workerHeapMB(2) = %d, want %d", got, 16384*40/100/2)
+	if got := workerHeapMB(2, 1); got != 16384*40/100/2 {
+		t.Errorf("workerHeapMB(2, 1) = %d, want %d", got, 16384*40/100/2)
+	}
+	// One JVM compiling both modules gets the two workers' share (#1656).
+	if got := workerHeapMB(2, 2); got != 16384*40/100/2*2 {
+		t.Errorf("workerHeapMB(2, 2) = %d, want %d", got, 16384*40/100/2*2)
+	}
+	// 16 CPUs and 16 GB: eight compiles on two JVMs of four threads. 40% would give each compile
+	// 819 MB, so each keeps the 1.5 GB floor a JVM per compile had.
+	if got := workerHeapMB(8, 4); got != 4*1536 {
+		t.Errorf("16 GB, 8 compiles: a 4-thread JVM gets %d MB, want %d", got, 4*1536)
+	}
+	// 8 CPUs and 4 GB: four compiles on one JVM still get the floor each.
+	totalMemoryMB = func() int { return 4096 }
+	if got := workerHeapMB(4, 4); got != 4*1536 {
+		t.Errorf("4 GB, 4 compiles: the JVM gets %d MB, want %d", got, 4*1536)
+	}
+	// Plenty of memory still caps a JVM at a few GB per thread.
+	totalMemoryMB = func() int { return 1 << 20 }
+	if got := workerHeapMB(3, 3); got != 3*5120 {
+		t.Errorf("workerHeapMB(3, 3) with plenty of memory = %d, want %d", got, 3*5120)
 	}
 	totalMemoryMB = func() int { return 0 }
-	if got := workerHeapMB(2); got != 5120 {
+	if got := workerHeapMB(2, 1); got != 5120 {
 		t.Errorf("workerHeapMB with unknown memory = %d, want 5120", got)
+	}
+	if got := workerHeapMB(4, 2); got != 2*5120 {
+		t.Errorf("workerHeapMB(4, 2) with unknown memory = %d, want %d", got, 2*5120)
+	}
+}
+
+// Each concurrent compile gets the heap a JVM per compile got before #1656, however the compiles
+// are packed onto threads.
+func TestWorkerHeapPerCompileMatchesAJVMPerCompile(t *testing.T) {
+	prev := totalMemoryMB
+	t.Cleanup(func() { totalMemoryMB = prev })
+	perJVM := func(total, workers int) int { return max(1536, min(5120, total*40/100/workers)) }
+	for _, total := range []int{2048, 4096, 8192, 16384, 32768, 65536, 262144} {
+		totalMemoryMB = func() int { return total }
+		for parallel := 1; parallel <= 8; parallel++ {
+			for _, threads := range workerLayout(parallel) {
+				if got, want := workerHeapMB(parallel, threads), threads*perJVM(total, parallel); got != want {
+					t.Errorf("%d MB, %d compiles: a %d-thread JVM gets %d MB, want %d", total, parallel, threads, got, want)
+				}
+			}
+		}
+	}
+}
+
+// Concurrent module compiles go to as few worker JVMs as the per-JVM thread cap allows, and exactly
+// as many compiles run as were asked for (#1656).
+func TestWorkerLayoutPacksCompilesIntoFewJVMs(t *testing.T) {
+	t.Setenv("KRIT_WORKER_THREADS", "")
+	for _, c := range []struct {
+		parallel int
+		want     []int
+	}{
+		{0, []int{1}}, {1, []int{1}}, {2, []int{2}}, {4, []int{4}}, {5, []int{3, 2}}, {7, []int{4, 3}}, {8, []int{4, 4}}, {9, []int{3, 3, 3}},
+	} {
+		if got := workerLayout(c.parallel); !slices.Equal(got, c.want) {
+			t.Errorf("workerLayout(%d) = %v, want %v", c.parallel, got, c.want)
+		}
+	}
+	t.Setenv("KRIT_WORKER_THREADS", "1")
+	if got := workerLayout(3); !slices.Equal(got, []int{1, 1, 1}) {
+		t.Errorf("KRIT_WORKER_THREADS=1: %v, want a JVM per compile", got)
+	}
+}
+
+// A JVM with more threads gets a larger share of the modules.
+func TestWeightedShardsFollowThreadCounts(t *testing.T) {
+	var units []Unit
+	for i := range 20 {
+		units = append(units, Unit{Spec: firchecks.ModuleSpec{ID: string(rune('a' + i))}, Files: 7})
+	}
+	groups := weightedShards(units, []int{3, 2})
+	if len(groups[0])+len(groups[1]) != len(units) || len(groups[0]) != 12 || len(groups[1]) != 8 {
+		t.Fatalf("3:2 threads split 20 equal modules %d:%d, want 12:8", len(groups[0]), len(groups[1]))
 	}
 }

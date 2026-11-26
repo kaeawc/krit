@@ -9,8 +9,11 @@ import (
 
 // axlParityRoots are the testdata directories of the AndroidX Lint ports checked by TestAndroidxLintParity.
 var axlParityRoots = []string{
+	"androidx_compose_animation",
 	"androidx_compose_material",
 	"androidx_constraintlayout",
+	"androidx_uiautomator",
+	"androidx_webkit",
 }
 
 // TestAndroidxLintParity checks the AndroidX Lint ports against the real detectors.
@@ -22,7 +25,8 @@ var axlParityRoots = []string{
 //
 // divergences.txt, when present, lists where krit deliberately differs, one finding per line with ` # reason`:
 // `- finding` is a Lint line krit does not report and `+ finding` is a krit line Lint does not report. krit must
-// report exactly Lint's findings with those adjustments.
+// report exactly Lint's findings with those adjustments. dependencies.txt, when present, lists the `group:name`
+// artifacts the project declares, for checks that, like Lint, run only when the artifact shipping them is one.
 func TestAndroidxLintParity(t *testing.T) {
 	for _, root := range axlParityRoots {
 		dir := filepath.Join("testdata", root)

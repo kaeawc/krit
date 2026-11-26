@@ -1,14 +1,12 @@
 package cache
 
 import (
-	"context"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"hash"
 	"math"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -135,6 +133,24 @@ type FileEntry struct {
 	// oracle facts changed is not served as a stale hit; the store-backed path
 	// folds the same hash into its key instead (foldOracleBlobHash).
 	OracleBlobHash string `json:"-"`
+	// GitBlob is the git object ID of the content the findings were
+	// computed from, or "" outside a git checkout. The git-clean shortcut
+	// serves the entry only while it equals the file's index blob.
+	GitBlob string `json:"-"`
+	// Decls records what the file contributed to the resolution of other
+	// files when the entry was written (typeinfer.CrossFileFacts), so the
+	// next run can tell which cached files a declaration change can reach
+	// (#1778). Zero when the run had no resolver or the file has none.
+	Decls DeclFacts `json:"-"`
+}
+
+// DeclFacts is a file's contribution to cross-file resolution
+// (typeinfer.CrossFileFacts): Hash identifies the declarations other files
+// can see, Names maps each name a lookup for them goes by to a hash of what
+// that lookup sees.
+type DeclFacts struct {
+	Hash  string
+	Names map[string]string
 }
 
 type fileEntryJSON struct {
@@ -142,6 +158,9 @@ type fileEntryJSON struct {
 	ModTime        int64                   `json:"modTime"`
 	Size           int64                   `json:"size"`
 	OracleBlobHash string                  `json:"oracleBlobHash,omitempty"`
+	GitBlob        string                  `json:"gitBlob,omitempty"`
+	DeclHash       string                  `json:"declHash,omitempty"`
+	DeclNames      map[string]string       `json:"declNames,omitempty"`
 	Findings       []scanner.Finding       `json:"findings,omitempty"`
 	Columns        *scanner.FindingColumns `json:"columns,omitempty"`
 }
@@ -153,6 +172,9 @@ func (e FileEntry) MarshalJSON() ([]byte, error) {
 		ModTime:        e.ModTime,
 		Size:           e.Size,
 		OracleBlobHash: e.OracleBlobHash,
+		GitBlob:        e.GitBlob,
+		DeclHash:       e.Decls.Hash,
+		DeclNames:      e.Decls.Names,
 	}
 	if e.Columns.Len() > 0 {
 		clone := e.Columns.Clone()
@@ -173,6 +195,8 @@ func (e *FileEntry) UnmarshalJSON(data []byte) error {
 	e.ModTime = payload.ModTime
 	e.Size = payload.Size
 	e.OracleBlobHash = payload.OracleBlobHash
+	e.GitBlob = payload.GitBlob
+	e.Decls = DeclFacts{Hash: payload.DeclHash, Names: payload.DeclNames}
 	e.Columns = scanner.FindingColumns{}
 	if payload.Columns != nil {
 		e.Columns = payload.Columns.Clone()
@@ -205,9 +229,10 @@ type Cache struct {
 	// serialised.
 	filesMu sync.RWMutex
 
-	// store, when non-nil, backs all reads and writes instead of the
-	// in-memory Files map.  Entries are persisted per-file so Save becomes
-	// a no-op.  Set via AttachStore after loading.
+	// store, when non-nil, holds the findings instead of the in-memory
+	// Files map, persisted per file; Files then only carries declaration
+	// facts (FileEntry.Decls), which Save writes. Set via AttachStore after
+	// loading.
 	backingStore     *store.FileStore
 	storeRuleSetHash [16]byte
 
@@ -215,6 +240,11 @@ type Cache struct {
 	// The daemon's periodic-flush goroutine reads this via
 	// MutatedSinceFlush to skip Save on idle ticks.
 	mutated atomic.Bool
+
+	// gitHexLen is the object ID length of the git repository the last
+	// CheckFiles call read (40 or 64), or 0 when it found none. Entries are
+	// stamped with a GitBlob only inside a git checkout.
+	gitHexLen atomic.Int32
 }
 
 // Result holds the outcome of checking files against the cache.
@@ -306,8 +336,9 @@ func LoadFromDir(dir string) *Cache {
 
 // Save writes the cache file atomically to the given path.
 // It writes to a temporary file first, then renames for crash safety
-// and safe concurrent access.  When a store is attached, Save is a no-op
-// because entries are persisted individually on each UpdateEntry call.
+// and safe concurrent access.  When a store is attached, findings are
+// persisted individually on each UpdateEntry call and Save writes only the
+// declaration facts, or nothing when there are none.
 //
 // Save holds Cache.filesMu read-locked across encodeBinary so concurrent
 // writers cannot tear the map mid-iteration. The compressed byte buffer
@@ -331,10 +362,11 @@ func (c *Cache) Save(cacheFilePath string) error {
 // persisted individually on UpdateEntry, so there is nothing to flush.
 // Pair with WriteSnapshot, which performs the actual atomic disk write.
 func (c *Cache) EncodeSnapshot() (data []byte, shouldWrite bool, err error) {
-	if c.backingStore != nil {
+	c.filesMu.RLock()
+	if c.backingStore != nil && !c.hasDeclEntries() {
+		c.filesMu.RUnlock()
 		return nil, false, nil
 	}
-	c.filesMu.RLock()
 	data, err = encodeBinary(c)
 	c.filesMu.RUnlock()
 	if err != nil {
@@ -523,9 +555,10 @@ func ParseRuleSetHash(hexStr string) [16]byte {
 // through s instead of the in-memory Files map.  ruleSetHash must be the
 // parsed form of ComputeCacheKeyHash (use ParseRuleSetHash).
 //
-// Once attached, CheckFiles consults the store; UpdateEntryColumns writes to
-// the store; Save becomes a no-op.  The existing JSON file is no longer read
-// after AttachStore — the first warm run regenerates entries in the store.
+// Once attached, CheckFiles consults the store; UpdateEntryColumns writes
+// findings to the store and declaration facts to Files, which Save writes.
+// The cache file's findings are no longer read after AttachStore — the first
+// warm run regenerates entries in the store.
 func (c *Cache) AttachStore(s *store.FileStore, ruleSetHash [16]byte) {
 	c.backingStore = s
 	c.storeRuleSetHash = ruleSetHash
@@ -587,9 +620,13 @@ func (c *Cache) CheckFilesWithOracle(filePaths []string, ruleHash string, blobHa
 	if !c.headerMatches(ruleHash, scanPaths) {
 		return result
 	}
-	dirtyPaths, dirtyOK := gitDirtyPathSet(scanPaths)
-	result.GitDirtyPathsKnown = dirtyOK
-	result.GitDirtyPathCount = len(dirtyPaths)
+	git, gitOK := readGitWorktree(scanPaths)
+	result.GitDirtyPathsKnown = gitOK
+	result.GitDirtyPathCount = git.dirtyCount
+	if gitOK && git.hexLen == 0 {
+		git.hexLen = 40 // an empty index: assume SHA-1 until git shows otherwise
+	}
+	c.gitHexLen.Store(int32(git.hexLen))
 
 	for _, path := range filePaths {
 		abs, _ := filepath.Abs(path)
@@ -606,7 +643,7 @@ func (c *Cache) CheckFilesWithOracle(filePaths []string, ruleHash string, blobHa
 		if blobHash != nil && entry.OracleBlobHash != blobHash(path) {
 			continue
 		}
-		if dirtyOK && !dirtyPaths[abs] {
+		if entry.GitBlob != "" && git.blobs[abs] == entry.GitBlob {
 			result.CachedPaths[path] = true
 			result.CachedHashes[path] = entry.Hash
 			collector.AppendColumns(&entry.Columns)
@@ -738,60 +775,6 @@ func (c *Cache) ShouldSkipFullSaveForSmallDelta(result *Result, maxMisses int) b
 	return misses > 0 && misses <= maxMisses && result.TotalCached > 0
 }
 
-func gitDirtyPathSet(scanPaths []string) (map[string]bool, bool) {
-	if len(scanPaths) == 0 {
-		return nil, false
-	}
-	rawRoot := scanPaths[0]
-	if abs, err := filepath.Abs(rawRoot); err == nil {
-		rawRoot = abs
-	}
-	root := normalizeAbsPath(rawRoot)
-	if info, err := os.Stat(root); err == nil && !info.IsDir() {
-		root = filepath.Dir(root)
-		rawRoot = filepath.Dir(rawRoot)
-	}
-	gitBin, err := exec.LookPath("git")
-	if err != nil {
-		return nil, false
-	}
-	ctx := context.Background()
-	topBytes, err := exec.CommandContext(ctx, gitBin, "-C", root, "rev-parse", "--show-toplevel").Output()
-	if err != nil {
-		return nil, false
-	}
-	rawTop := strings.TrimSpace(string(topBytes))
-	if rawTop == "" {
-		return nil, false
-	}
-	top := normalizeAbsPath(rawTop)
-	// The scanner feeds tracked files here on Git-backed runs. Avoid
-	// expanding untracked files because large Android checkouts can have
-	// megabytes of ignored/generated strays, and unchanged tracked files are
-	// the hot path this shortcut is meant to protect.
-	out, err := exec.CommandContext(ctx, gitBin, "-C", top, "diff", "--name-only", "-z", "--diff-filter=ACMR", "HEAD", "--").Output()
-	if err != nil {
-		return nil, false
-	}
-	dirty := make(map[string]bool)
-	addDirtyRelPaths(dirty, rawTop, string(out))
-	addDirtyRelPaths(dirty, top, string(out))
-	addDirtyRelPaths(dirty, rawRoot, string(out))
-	return dirty, true
-}
-
-func addDirtyRelPaths(dirty map[string]bool, top, out string) {
-	for _, rel := range strings.Split(out, "\x00") {
-		if rel == "" {
-			continue
-		}
-		path := filepath.Join(top, filepath.FromSlash(rel))
-		if abs, err := filepath.Abs(path); err == nil {
-			dirty[abs] = true
-		}
-	}
-}
-
 // absPath returns filepath.Abs(path) but short-circuits when path is
 // already absolute. CheckFilesIncremental iterates tens of thousands
 // of paths per call on warm daemons; skipping the Getwd+Clean for the
@@ -892,28 +875,86 @@ func (c *Cache) UpdateEntryColumns(path string, columns *scanner.FindingColumns)
 }
 
 // UpdateEntryColumnsWithOracle updates a per-file entry using blobHash in the
-// store key. Empty blobHash preserves the historical content-only key.
+// store key. Empty blobHash preserves the historical content-only key. The
+// file is read again to identify the content; UpdateEntryFromContent avoids
+// that when the analyzed bytes are at hand.
 func (c *Cache) UpdateEntryColumnsWithOracle(path string, columns *scanner.FindingColumns, blobHash string) {
-	if columns == nil {
-		c.updateEntry(path, scanner.FindingColumns{}, blobHash)
-		return
-	}
-	c.updateEntry(path, columns.Clone(), blobHash)
+	c.UpdateEntryFromContent(path, nil, columns, blobHash, DeclFacts{})
 }
 
-func (c *Cache) updateEntry(path string, columns scanner.FindingColumns, blobHash ...string) {
-	if c.backingStore != nil {
-		fh, err := computeFileHash32(path)
-		if err != nil {
+// UpdateEntryFromContent records columns as the findings for content, the
+// bytes the analysis read from path. The entry is keyed by those bytes, not
+// by whatever path holds by now, so an edit between the analysis and this
+// call cannot pair the old findings with the new content. A nil content
+// reads path. decls is the file's contribution to cross-file resolution
+// (see FileEntry.Decls).
+func (c *Cache) UpdateEntryFromContent(path string, content []byte, columns *scanner.FindingColumns, blobHash string, decls DeclFacts) {
+	cols := scanner.FindingColumns{}
+	if columns != nil {
+		cols = columns.Clone()
+	}
+	c.updateEntry(path, content, cols, decls, blobHash)
+}
+
+// PriorDecls returns the declaration facts recorded for path by the run
+// that wrote its entry.
+func (c *Cache) PriorDecls(path string) (DeclFacts, bool) {
+	if c == nil {
+		return DeclFacts{}, false
+	}
+	abs := absPath(path)
+	c.filesMu.RLock()
+	defer c.filesMu.RUnlock()
+	e, ok := c.Files[abs]
+	return e.Decls, ok
+}
+
+// hasDeclEntries reports whether any entry records declaration facts; the
+// caller holds filesMu.
+func (c *Cache) hasDeclEntries() bool {
+	for _, e := range c.Files {
+		if e.Decls.Hash != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// VanishedDecls returns the declaration facts of entries for files that are
+// not in present (absolute paths): a deleted declaration can change how
+// cached files resolve. The cache header ties entries to the scan paths, so
+// an entry outside the current file set belongs to a deleted file.
+func (c *Cache) VanishedDecls(present map[string]bool) []DeclFacts {
+	if c == nil {
+		return nil
+	}
+	c.filesMu.RLock()
+	defer c.filesMu.RUnlock()
+	var out []DeclFacts
+	for path, e := range c.Files {
+		if len(e.Decls.Names) > 0 && !present[path] {
+			out = append(out, e.Decls)
+		}
+	}
+	return out
+}
+
+func (c *Cache) updateEntry(path string, content []byte, columns scanner.FindingColumns, decls DeclFacts, blobHash ...string) {
+	if content == nil {
+		var err error
+		if content, err = os.ReadFile(path); err != nil {
 			return
 		}
+	}
+	analyzed := hashutil.HashBytes(content)
+	if c.backingStore != nil {
 		data, err := json.Marshal(columns)
 		if err != nil {
 			return
 		}
-		keyHash := fh
+		keyHash := analyzed
 		if len(blobHash) > 0 {
-			keyHash = foldOracleBlobHash(fh, blobHash[0])
+			keyHash = foldOracleBlobHash(analyzed, blobHash[0])
 		}
 		key := store.Key{
 			FileHash:    keyHash,
@@ -921,6 +962,16 @@ func (c *Cache) updateEntry(path string, columns scanner.FindingColumns, blobHas
 			Kind:        store.KindIncremental,
 		}
 		_ = c.backingStore.Put(key, data)
+		if decls.Hash != "" {
+			// The store holds findings by content; the cache file keeps only
+			// the declaration facts the next run's #1778 pass compares. The
+			// entry has no content hash and an mtime no file has, so a run
+			// without the store never serves it as a hit.
+			abs, _ := filepath.Abs(path)
+			c.filesMu.Lock()
+			c.Files[abs] = FileEntry{ModTime: racyModTime, Decls: decls}
+			c.filesMu.Unlock()
+		}
 		c.mutated.Store(true)
 		return
 	}
@@ -933,20 +984,35 @@ func (c *Cache) updateEntry(path string, columns scanner.FindingColumns, blobHas
 	if len(blobHash) > 0 {
 		oracleBlobHash = blobHash[0]
 	}
-	// Compute hash outside the lock — SHA-256 + file I/O can be tens of
-	// milliseconds on large files and would otherwise stall every reader.
+	// The stat vouches for the analyzed bytes only if it is old enough to
+	// prove the file's content (see hashutil.StatTrustedNow) and that content
+	// is still what was analyzed. Otherwise record an mtime no file has, so
+	// the next run compares content hashes. Hashing happens outside the lock:
+	// file I/O can take tens of milliseconds and would stall every reader.
+	analyzedHex := hex.EncodeToString(analyzed[:])
 	modTime := info.ModTime().UnixMilli()
 	if !hashutil.StatTrustedNow(info) {
 		modTime = racyModTime
+	} else if current, err := hashutil.Default().HashFile(path, nil); err != nil || current != analyzedHex {
+		modTime = racyModTime
 	}
 	entry := FileEntry{
-		Hash:           ComputeFileHash(path),
+		Hash:           analyzedHex[:16],
 		ModTime:        modTime,
-		Size:           info.Size(),
+		Size:           int64(len(content)),
 		Columns:        columns,
 		OracleBlobHash: oracleBlobHash,
+		Decls:          decls,
+	}
+	if hexLen := int(c.gitHexLen.Load()); hexLen != 0 {
+		entry.GitBlob = gitBlobID(content, hexLen)
 	}
 	c.filesMu.Lock()
+	if prev, ok := c.Files[abs]; ok && entry.GitBlob == "" && prev.Hash == entry.Hash {
+		// Same content as the previous entry, so its blob ID still holds
+		// (a daemon run that never read git state keeps the shortcut).
+		entry.GitBlob = prev.GitBlob
+	}
 	c.Files[abs] = entry
 	c.filesMu.Unlock()
 	c.mutated.Store(true)

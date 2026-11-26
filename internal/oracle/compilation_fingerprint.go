@@ -40,7 +40,8 @@ func CompilationSources(sourceDirs []string) []string {
 
 // CompilationFingerprint identifies the inputs a whole-compilation backend's
 // facts depend on: every source path with its content hash, and each
-// classpath entry and the backend jar by path, size, and modification time.
+// classpath entry and the backend jar by path and content (a directory by
+// path, size, and modification time).
 // Adding, deleting, or editing a source, or changing the classpath or the jar,
 // changes the fingerprint. An unreadable source contributes a marker rather
 // than failing, the same way classification skips it, so one bad file cannot
@@ -63,14 +64,28 @@ func CompilationFingerprint(sources, classpath []string, jarPath string) string 
 	for _, entry := range append(append([]string(nil), classpath...), jarPath) {
 		_, _ = h.Write([]byte(entry))
 		_, _ = h.Write([]byte{0})
-		if fi, err := os.Stat(entry); err == nil {
-			_, _ = h.Write([]byte(strconv.FormatInt(fi.Size(), 10)))
-			_, _ = h.Write([]byte{0})
-			_, _ = h.Write([]byte(strconv.FormatInt(fi.ModTime().UnixNano(), 10)))
-		}
+		_, _ = h.Write([]byte(classpathEntryIdentity(entry)))
 		_, _ = h.Write([]byte{0})
 	}
 	return hex.EncodeToString(h.Sum(nil))
+}
+
+// classpathEntryIdentity is a regular file's content hash, a directory's size
+// and modification time, or "" when entry is missing. It never mixes a stat
+// into a file's identity, so the fingerprint is the same in every process for
+// the same bytes.
+func classpathEntryIdentity(entry string) string {
+	fi, err := os.Stat(entry)
+	if err != nil {
+		return ""
+	}
+	if fi.IsDir() {
+		return strconv.FormatInt(fi.Size(), 10) + "\x00" + strconv.FormatInt(fi.ModTime().UnixNano(), 10)
+	}
+	if hx, err := ContentHash(entry); err == nil {
+		return hx
+	}
+	return "unreadable"
 }
 
 // staleCompilationHit returns the path of a hit that was not computed against

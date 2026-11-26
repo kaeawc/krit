@@ -6,8 +6,13 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/kaeawc/krit/internal/testutil"
 )
 
+// writeTemp writes content to a fresh file dated an hour ago, like an
+// unchanged source on a warm run: only a stat older than RacyWindow is
+// memoized.
 func writeTemp(t *testing.T, content string) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -15,7 +20,88 @@ func writeTemp(t *testing.T, content string) string {
 	if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
 		t.Fatalf("write: %v", err)
 	}
+	old := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(p, old, old); err != nil {
+		t.Fatalf("chtimes: %v", err)
+	}
 	return p
+}
+
+func TestMemo_SameTickRewriteOfFreshFileIsRehashed(t *testing.T) {
+	cases := map[string]func(m *Memo, p string) string{
+		"HashFile": func(m *Memo, p string) string {
+			hx, err := m.HashFile(p, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return hx
+		},
+		"HashFileRaw": func(m *Memo, p string) string {
+			raw, err := m.HashFileRaw(p, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return string(raw[:])
+		},
+		"HashContent": func(m *Memo, p string) string {
+			b, err := os.ReadFile(p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return m.HashContent(p, b)
+		},
+	}
+	for name, hash := range cases {
+		t.Run(name, func(t *testing.T) {
+			p := filepath.Join(t.TempDir(), "A.kt")
+			if err := os.WriteFile(p, []byte("fun b() = 2"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			m := NewMemo()
+			before := hash(m, p)
+			testutil.RewriteKeepingStat(t, p, "fun b() = 3")
+			if hash(m, p) == before {
+				t.Fatal("a same-size rewrite within one mtime tick of a fresh file served the stale hash")
+			}
+			if m.Len() != 0 {
+				t.Errorf("a file modified within RacyWindow was memoized: %d entries", m.Len())
+			}
+		})
+	}
+}
+
+func TestMemo_OldFileStillMemoized(t *testing.T) {
+	p := writeTemp(t, "fun b() = 2")
+	m := NewMemo()
+	before, _ := m.HashFile(p, nil)
+	// An old stat proves the content: a real rewrite would carry a new mtime,
+	// so the memo may (and, for warm-scan speed, must) serve the entry.
+	testutil.RewriteKeepingStat(t, p, "fun b() = 3")
+	if got, _ := m.HashFile(p, nil); got != before {
+		t.Fatalf("an old, unchanged stat must hit the memo")
+	}
+	if hits, misses := m.Stats(); hits != 1 || misses != 1 {
+		t.Errorf("stats = (%d,%d); want (1,1)", hits, misses)
+	}
+}
+
+func TestStatTrusted(t *testing.T) {
+	at := time.Unix(1_000_000, 0)
+	for _, tc := range []struct {
+		mtime time.Time
+		want  bool
+	}{
+		{at.Add(-time.Hour), true},
+		{at.Add(-RacyWindow - time.Nanosecond), true},
+		{at.Add(-RacyWindow), false},
+		{at.Add(-time.Millisecond), false},
+		{at, false},
+		{at.Add(time.Hour), false}, // future-dated: clock skew or a restored archive
+	} {
+		if got := StatTrusted(tc.mtime, at); got != tc.want {
+			t.Errorf("StatTrusted(at%+v) = %v, want %v", tc.mtime.Sub(at), got, tc.want)
+		}
+	}
 }
 
 func TestMemo_HashFile_HitAfterFirstCall(t *testing.T) {

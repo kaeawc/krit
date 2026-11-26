@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -21,11 +22,47 @@ func (l SDKLevels) IsZero() bool { return l.MinSdk == 0 && l.TargetSdk == 0 }
 
 // ResolveSDKLevels returns the SDK levels of the source file at sourcePath:
 // those of the nearest ancestor directory whose build.gradle(.kts) or
-// AndroidManifest.xml declares a minSdk or a targetSdk. The walk follows
-// sourcePath as spelled, so a relative path is never resolved above the
-// working directory.
+// AndroidManifest.xml declares a minSdk or a targetSdk, with each level
+// none declares taken from DefaultSDKLevels. The walk follows sourcePath as
+// spelled, so a relative path is never resolved above the working
+// directory.
 func ResolveSDKLevels(sourcePath string) SDKLevels {
-	return sdkLevelsAbove(filepath.Dir(sourcePath))
+	return withDefaultSDKLevels(sdkLevelsAbove(filepath.Dir(sourcePath)))
+}
+
+// defaultSDKLevels holds the levels SetDefaultSDKLevels set.
+var defaultSDKLevels atomic.Pointer[SDKLevels]
+
+// SetDefaultSDKLevels sets the SDK levels of files whose directories declare
+// none: a build's own setting that lives outside the sources, such as a
+// Bazel android_binary's manifest_values (krit --min-sdk / --target-sdk). It
+// is process-wide, so only a one-shot scan sets it, before analysis; the
+// daemon never does. The zero value clears it.
+func SetDefaultSDKLevels(levels SDKLevels) {
+	if levels.IsZero() {
+		defaultSDKLevels.Store(nil)
+		return
+	}
+	defaultSDKLevels.Store(&levels)
+}
+
+// DefaultSDKLevels returns the levels SetDefaultSDKLevels set.
+func DefaultSDKLevels() SDKLevels {
+	if levels := defaultSDKLevels.Load(); levels != nil {
+		return *levels
+	}
+	return SDKLevels{}
+}
+
+func withDefaultSDKLevels(levels SDKLevels) SDKLevels {
+	def := DefaultSDKLevels()
+	if levels.MinSdk == 0 {
+		levels.MinSdk = def.MinSdk
+	}
+	if levels.TargetSdk == 0 {
+		levels.TargetSdk = def.TargetSdk
+	}
+	return levels
 }
 
 // SDKLevelResolver is ResolveSDKLevels memoized per directory, for resolving many files in one pass.
@@ -68,6 +105,10 @@ func WarmSDKLevels(sourcePaths []string) {
 
 // Resolve returns ResolveSDKLevels(sourcePath).
 func (r *SDKLevelResolver) Resolve(sourcePath string) SDKLevels {
+	return withDefaultSDKLevels(r.resolveDeclared(sourcePath))
+}
+
+func (r *SDKLevelResolver) resolveDeclared(sourcePath string) SDKLevels {
 	dir := filepath.Dir(sourcePath)
 	if dir == "" || dir == "." {
 		return SDKLevels{}

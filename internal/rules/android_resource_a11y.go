@@ -141,10 +141,7 @@ const (
 )
 
 func (r *LabelForResourceRule) check(ctx *api.Context) {
-	projectMin := 0
-	if facts := librarymodel.EnsureFacts(ctx.LibraryFacts); facts != nil {
-		projectMin = facts.Profile.MinSdkVersion
-	}
+	projectMin := profileOrDefaultMinSdk(librarymodel.EnsureFacts(ctx.LibraryFacts))
 	for _, layout := range ctx.ResourceIndex.AllLayouts() {
 		// An unknown minSdk counts as modern.
 		minSdk := resourceModuleMinSdk(layout.FilePath)

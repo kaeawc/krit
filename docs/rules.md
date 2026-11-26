@@ -120,6 +120,17 @@ They report only what the source proves:
 Not ported: `MoshiUsageNonMoshiClassInternal` and `MoshiUsageNonMoshiClassExternal`, which split on whether a type
 lives in Slack's own `slack.*` packages.
 
+The Dagger rules (`MustBeInModule`, `BindsMustBeAbstract`, `ProvidesMustNotBeAbstract`, `BindingReturnType`,
+`BindingReceiverParameter`) port `DaggerIssuesDetector` for Kotlin and Java `@Binds`/`@Provides` methods. As in
+Lint, a method gets at most one of the detector's issues, in the detector's order. Two of its IDs map onto existing
+rules instead: `BindsWrongParameterCount` is a Lint alias of `BindsMismatchedArity`, and `RedundantBinds` of
+`BindsReturnTypeMatchesParam`. Differences from Lint:
+
+- a finding on a whole method is anchored at its first annotation or modifier. Lint starts the location at a KDoc,
+  Javadoc or comment directly above it, which would put the finding outside the range a `@SuppressLint` on the
+  method covers;
+- `BindingReturnType` abstains on a Kotlin expression body without a declared type, unless the body is `Unit`.
+
 The `DoNotMock*` rules port `MockDetector` and, as in Lint, look only at test sources (`src/test`, `src/androidTest`
 and the other test source sets). A mock site is a call to one of the detector's default factories
 (`org.mockito.Mockito.mock`/`spy`, `org.mockito.kotlin.mock`/`spy`, `slack.test.mockito.mock`) or a field annotated
@@ -200,6 +211,32 @@ guidance.
   into FIR helper facts when source analysis is not enough.
 
 See `internal/rules/` for implementations and `tests/fixtures/` for positive/negative examples.
+
+## Android Lint Wear Checks
+
+Ports of Android Lint 32.4.1's Wear OS detectors under their Lint IDs, severities and messages. Each has project
+fixtures under `tests/fixtures/android-lint/<RuleID>/` with `lint-32.4.1.txt`, the findings Lint reported for the same
+Gradle module (recorded with `scripts/lint-parity-record.sh`, AGP 9.4.1); `TestAndroidLintParityFixtures` in
+`cmd/krit` replays krit on each and requires the same file, line, column and message.
+
+- `WearableConfigurationAction` (warning) reads each `AndroidManifest.xml` of a project that may depend on
+  `androidx.wear.watchface:watchface` and is not a Watch Face Format project. With the
+  `wearableConfigurationAction` metadata set to `WATCH_FACE_EDITOR` and no intent filter for that action it reports
+  "Watch face configuration activity is missing" at the metadata name. Below minSdk 30 it also reports an editor
+  intent filter without the `WEARABLE_CONFIGURATION` category, and an editor intent filter without the metadata.
+- `WearableActionDuplicate` (warning) reports a second intent filter for the editor action. Like Lint, the finding
+  (and the `tools:ignore` that silences it) sits on the first such `<action>`.
+- `WatchFaceForAndroidX` (warning) reports `wearableConfigurationAction` metadata whose value is not
+  `WATCH_FACE_EDITOR`, at the value (or the element when the value is missing), only when the build scripts declare
+  `androidx.wear.watchface:watchface`. Lint 32.4.1 does not skip Watch Face Format projects here, so krit does not.
+- `WearBackNavigation` (warning) reports `<item name="android:windowSwipeToDismiss">false</item>` in any values
+  folder of a module whose manifest declares the `android.hardware.type.watch` feature.
+- `WearMaterialTheme` (error, Kotlin and Java) reports an import of `androidx.compose.material.MaterialTheme` in such a
+  module; a file belongs to the nearest module root above it, so a phone module nested in a Wear project is not
+  checked. Lint compares the import text, so an aliased import and `MaterialTheme.*` count; Material 3 imports do not.
+
+Lint checks the merged manifest; krit checks each manifest file, so components declared only in a variant or library
+manifest are not seen, and the watch face dependency is read from build scripts and version catalogs.
 
 ## AndroidX Library Lint Checks
 

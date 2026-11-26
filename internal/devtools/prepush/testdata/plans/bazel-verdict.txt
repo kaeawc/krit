@@ -1,0 +1,16 @@
+# FIR verdict-merge changes can break the bazel-e2e export_model step, which
+# asserts merged verdicts of a krit scan outside Bazel (#1783), so they plan
+# bazele2e (skipped without bazel, java and a krit-fir jar) and the FIR warm
+# matrix.
+internal/firchecks/verdict.go
+---
+merge
+gofmt
+build
+vet
+lint
+gosec
+oraclefp
+test ./internal/firchecks
+bazele2e
+warmclean

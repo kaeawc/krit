@@ -1,7 +1,12 @@
 package dev.jasonpearson.krit.fir.support
 
 import dev.jasonpearson.krit.fir.checkers.declaringSourcePath
+import org.jetbrains.kotlin.KtFakeSourceElementKind
+import org.jetbrains.kotlin.fir.symbols.SymbolInternals
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
+import org.jetbrains.kotlin.fir.expressions.FirBlock
+import org.jetbrains.kotlin.fir.expressions.FirElvisExpression
+import org.jetbrains.kotlin.fir.expressions.FirWhenExpression
 import org.jetbrains.kotlin.fir.expressions.FirExpression
 import org.jetbrains.kotlin.fir.expressions.FirPropertyAccessExpression
 import org.jetbrains.kotlin.fir.expressions.FirSmartCastExpression
@@ -50,6 +55,55 @@ private fun reliesOnOtherModule(cast: FirSmartCastExpression): Boolean {
     }
     return false
 }
+
+/**
+ * True when this expression is non-null only through a stable smart cast that relies on a property of another
+ * Gradle module (#1672): the cast itself (`a.team.profile` after `a.team.profile != null`), or an implicitly typed
+ * local `val` whose inferred type comes from one (`val p = a.team.profile`, then `p?.fields`). The check compiles
+ * the scan's modules as one, where such a property is stable; the module's own build rejects the cast, so there
+ * the type stays nullable and a redundant-null-safety verdict does not hold.
+ */
+context(context: CheckerContext)
+fun FirExpression.reliesOnCrossModuleSmartCast(): Boolean = reliesOnCrossModuleSmartCast(this, depth = 0)
+
+@OptIn(SymbolInternals::class)
+context(context: CheckerContext)
+private fun reliesOnCrossModuleSmartCast(expression: FirExpression, depth: Int): Boolean {
+    var current: FirExpression? = expression
+    while (current != null) {
+        current = when (current) {
+            is FirSmartCastExpression -> {
+                if (current.isStable && reliesOnOtherModule(current)) return true
+                current.originalExpression
+            }
+            is FirPropertyAccessExpression -> {
+                val symbol = current.calleeReference.toResolvedPropertySymbol()
+                return symbol != null && depth < MAX_LOCAL_INITIALIZER_DEPTH && symbol.isLocal && symbol.isVal &&
+                    // An explicit type states the nullability itself, so no smart cast decides it.
+                    symbol.fir.returnTypeRef.source?.kind is KtFakeSourceElementKind &&
+                    symbol.fir.initializer?.let { initializerReliesOnCrossModuleSmartCast(it, depth + 1) } == true
+            }
+            else -> null
+        }
+    }
+    return false
+}
+
+// Whether the value an initializer produces rests on such a cast: the expressions whose type becomes the local's
+// (the initializer itself, the results of `if`/`when` branches and blocks, both sides of `?:`). A call's argument
+// does not decide its result type, so it is not followed, and neither is a lambda.
+context(context: CheckerContext)
+private fun initializerReliesOnCrossModuleSmartCast(initializer: FirExpression, depth: Int): Boolean =
+    resultExpressions(initializer).any { reliesOnCrossModuleSmartCast(it, depth) }
+
+private fun resultExpressions(expression: FirExpression): List<FirExpression> = when (expression) {
+    is FirWhenExpression -> expression.branches.flatMap { resultExpressions(it.result) }
+    is FirBlock -> (expression.statements.lastOrNull() as? FirExpression)?.let(::resultExpressions).orEmpty()
+    is FirElvisExpression -> resultExpressions(expression.lhs) + resultExpressions(expression.rhs)
+    else -> listOf(expression)
+}
+
+private const val MAX_LOCAL_INITIALIZER_DEPTH = 3
 
 private val sourceSetRoot = Regex("/src/[A-Za-z0-9_]+/(?:kotlin|java)/")
 

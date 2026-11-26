@@ -175,6 +175,37 @@ for case in "settings_without_kotlinc_opts:'when' expression must be exhaustive"
       ;;
   esac
 done
+# A target whose srcs include a generated srcjar (#1688, #1632): its own
+# file, in a Gradle-style src/main/kotlin, compiles against the srcjar's
+# sources, so the action is not degraded and FIR reports the finding.
+echo "== krit_aspect on //srcjar (a generated srcjar in srcs)"
+build "${extra[@]}" //srcjar/... > /dev/null 2>&1 || build "${extra[@]}" //srcjar/...
+# shellcheck disable=SC2086
+grep -q "srcjar/src/main/kotlin/d/UsesGen.kt:5:.*UnnecessarySafeCall" \
+  "$($BAZEL info "${extra[@]}" bazel-bin 2> /dev/null)/srcjar/srcjar.krit.txt" || {
+  # shellcheck disable=SC2086
+  cat "$($BAZEL info "${extra[@]}" bazel-bin 2> /dev/null)/srcjar/srcjar.krit.txt" >&2
+  echo "ERROR: krit_aspect did not report //srcjar's FIR finding through the srcjar" >&2
+  exit 1
+}
+# A minSdk set only by the build (#1682): with --@krit//:min_sdk_version=24
+# the SDK_INT >= 21 check of //sdk is obsolete; without it the level is
+# unknown and krit reports nothing.
+echo "== --@krit//:min_sdk_version reaches krit_aspect's actions"
+sdk_report() {
+  build "${extra[@]}" "$@" //sdk > /dev/null 2>&1 || build "${extra[@]}" "$@" //sdk
+  # shellcheck disable=SC2086
+  cat "$($BAZEL info "${extra[@]}" bazel-bin 2> /dev/null)/sdk/sdk.krit.txt"
+}
+if sdk_report | grep -q ObsoleteSdkInt; then
+  echo "ERROR: //sdk reported ObsoleteSdkInt without a minSdk" >&2
+  exit 1
+fi
+sdk_report --@krit//:min_sdk_version=24 | grep -q "sdk/Levels.kt:5:.*ObsoleteSdkInt.*always >= 24" || {
+  sdk_report --@krit//:min_sdk_version=24 >&2
+  echo "ERROR: --@krit//:min_sdk_version=24 did not reach //sdk's Krit action" >&2
+  exit 1
+}
 echo "OK: krit_aspect"
 
 # A remote cache shares a Krit action between machines only if its key
@@ -367,6 +398,11 @@ if not runners or any("worker" not in r for r in runners):
 print("OK: persistent worker (%s)" % ", ".join(runners))
 PY
 
+# One worker JVM serves every target (#1666): its reports must match one
+# JVM per action on targets that share file and declaration names.
+echo "== persistent worker: one JVM for every target, the same reports as one-shot"
+BAZEL="$BAZEL" bash "$repo_root/scripts/bazel-worker-parity.sh" ${extra[@]+"${extra[@]}"}
+
 # export_model: a krit model of the Bazel graph for scans outside Bazel. A
 # plain krit run in the workspace then finds .krit/bazel-model and gets the
 # targets' classpath and Kotlin settings: the FIR-only findings of //typed/app
@@ -389,11 +425,18 @@ if grep -l '@@WORKSPACE@@\|@@EXECROOT@@' "${models[@]}"; then
 fi
 scan_home="$work/scan-home"
 mkdir -p "$scan_home"
+# Outside Bazel, Settings.kt is gated: :settings shares kotlin_settings/ with
+# :annotation, so no settings-group session applies its kotlinc_opts (#1775).
+# Its line-32 finding is then Go's, which fir.requireAuthoritativeRules
+# withholds by default (#1675); keep it until #1775 makes the file compile.
+scan_config="$work/export-model-krit.yml"
+cat krit.yml > "$scan_config"
+printf 'fir:\n  requireAuthoritativeRules: []\n' >> "$scan_config"
 rc=0
 scan="$(env -u KRIT_BAZEL_LOCAL_DIST HOME="$scan_home" KRIT_FIR_JAR="$DIST/krit-fir.jar" \
   KRIT_NO_JAR_DOWNLOAD=1 KRIT_NO_DAEMON_AUTOSTART=1 \
   "$DIST/krit" --no-daemon --no-cache --no-fir-daemon --fail-on-degraded -f plain --base-path . \
-  typed/app/Consumer.kt kotlin_settings/Settings.kt 2>&1)" || rc=$?
+  --config "$scan_config" typed/app/Consumer.kt kotlin_settings/Settings.kt 2>&1)" || rc=$?
 printf '%s\n' "$scan"
 if [ "$rc" != 1 ]; then
   echo "ERROR: krit exited $rc; want 1 (findings)" >&2

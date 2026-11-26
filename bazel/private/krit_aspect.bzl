@@ -10,7 +10,7 @@ the build when a target has findings.
 load("@bazel_skylib//rules:common_settings.bzl", "BuildSettingInfo")
 load("@rules_java//java/common:java_common.bzl", "java_common")
 load("@rules_java//java/common:java_info.bzl", "JavaInfo")
-load(":android.bzl", "android_inputs", "krit_android_sdk_aspect", "resource_dirs_build_file")
+load(":android.bzl", "android_inputs", "krit_android_sdk_aspect", "resource_dirs_build_file", "sdk_level_args")
 load(":kotlin.bzl", "KT_TOOLCHAIN")
 load(":model.bzl", "krit_model_json", "label_name", "target_source_set")
 
@@ -33,10 +33,11 @@ KritReportInfo = provider(
 # it reads and writes only its declared inputs and outputs: no $HOME, no
 # network (the krit-fir jar is an input and downloads are off). krit exits 1
 # when it reports findings; that still succeeds and is written to the status
-# file for the validation. A krit-fir daemon serves one compile target, so
-# the worker pays off when a target is analyzed again with an unchanged
-# classpath; singleplex workers (one action each at a time) let it keep only
-# its newest daemon, so it holds at most one JVM.
+# file for the validation. One krit-fir daemon serves every target with the
+# same compiler settings, rebuilding its session for each action's sources
+# and classpath, so a build of many targets pays for one JVM per worker;
+# singleplex workers (one action each at a time) let it keep only its
+# newest daemon, so it holds at most one JVM.
 _WORKER_REQUIREMENTS = {
     "requires-worker-protocol": "json",
     "supports-workers": "1",
@@ -158,6 +159,11 @@ def _krit_aspect_impl(target, ctx):
     # krit_project_report runs those once over the whole build.
     if _string(ctx, "_scope") == "file":
         krit_args += ["--only-scope", "file"]
+    krit_args += sdk_level_args(
+        _flag(ctx, "_min_sdk"),
+        _flag(ctx, "_target_sdk"),
+        getattr(ctx.rule.attr, "manifest_values", None) or {},
+    )
     krit_args += [
         "--report",
         "sarif=" + sarif.path,
@@ -330,6 +336,14 @@ Flags:
         ),
         "_large_sources": attr.label(
             default = Label("//:large_target_sources"),
+            providers = [BuildSettingInfo],
+        ),
+        "_min_sdk": attr.label(
+            default = Label("//:min_sdk_version"),
+            providers = [BuildSettingInfo],
+        ),
+        "_target_sdk": attr.label(
+            default = Label("//:target_sdk_version"),
             providers = [BuildSettingInfo],
         ),
     },

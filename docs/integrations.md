@@ -203,19 +203,22 @@ common --tool_java_runtime_version=remotejdk_21
 | `--@krit//:fir=false` | Go-only analysis, without the JDK or krit-fir. |
 | `--@krit//:worker=false` | No persistent worker: each Krit action starts its own krit-fir JVM. |
 | `--@krit//:large_target_sources=400` | Actions that scan at least this many files run in the `krit_large` exec group (see below). |
+| `--@krit//:min_sdk_version=N`, `--@krit//:target_sdk_version=N` | The Android `minSdk` / `targetSdk` of sources whose own manifest declares none (`krit --min-sdk` / `--target-sdk`). Bazel builds often set them only on the `android_binary`; an `android_binary`'s own action uses its `manifest_values` when they are numbers. `krit_project_report` reads them too, and `krit_test` takes the krit flags in `args`. |
 
 The Krit actions run `krit bazel-worker` as Bazel
 [persistent workers](https://bazel.build/remote/persistent) (JSON protocol,
 `supports-workers`). Each worker keeps one krit-fir JVM warm between the
 actions it runs, while every action is still a fresh krit process with
 empty per-run state and incremental FIR state off, so no target's sources
-or results reach another action. A krit-fir JVM is set up for one compile
-target (sources, classpath, Kotlin settings), so the warm path is the edit
-loop: a target analyzed again with an unchanged classpath. On a 24-target
-benchmark (`scripts/bazel-worker-bench.sh`) that took a Krit action from
-4.6 s to 0.6 s, while a full build of distinct targets runs about as fast as
-one JVM per action. Each worker holds at most one JVM, which stops with the
-worker; `--worker_max_instances=Krit=N` bounds them. With workers off
+or results reach another action. The worker's JVM serves every target with
+the same Kotlin compiler settings, plugins and JDK: each action sends its
+own sources and classpath, and krit-fir builds a new compiler session for
+them in the warm JVM. A target with other settings starts a new JVM, which
+replaces the old one. On a 24-target benchmark (`scripts/bazel-worker-bench.sh`,
+4 cores, `--jobs=2`) the Krit actions of a full build took 7.0 s instead of
+82.8 s with one JVM per action (mean 0.54 s against 6.69 s), and an edited
+target's action 0.5 s instead of 5.0 s. Each worker holds at most one JVM,
+which stops with the worker; `--worker_max_instances=Krit=N` bounds them. With workers off
 (`--@krit//:worker=false`, `--strategy=Krit=sandboxed`, remote execution)
 each action starts and stops its own JVM.
 
@@ -457,6 +460,17 @@ a daemon serves the scan:
 - `--absolute-paths` reports every file as absolute instead.
 
 Baselines and `--fix` are unaffected: they match and edit files on disk.
+
+### Baseline IDs
+
+A baseline entry names a finding as `Rule:file:$Rule$message`, where `file` is
+the finding's path relative to the base path above. Both sides are made
+absolute (and, if needed, symlink-resolved) first, so the ID is the same
+whether the scan runs in-process or through the daemon, with or without FIR,
+from a cold or a warm `.krit/`, and whether `--base-path` is `.` or absolute.
+A baseline created in CI therefore matches a local daemon run. Matching also
+accepts the file's base name, so baselines written by Krit versions that fell
+back to base names keep working.
 
 ### JSON finding fields
 

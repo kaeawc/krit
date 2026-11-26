@@ -21,12 +21,12 @@ import, as it does in Kotlin.
 (Kotlin, and Java for the import check):
 
 - `UnusedMaterialScaffoldPaddingParameter` and `UnusedMaterial3ScaffoldPaddingParameter` report each parameter of a
-  `Scaffold` content lambda that the lambda never refers to, at the parameter, or at the lambda for an unused
-  implicit `it`: `Scaffold { Text("x") }` and `Scaffold { padding -> Text("x") }`. A name inside an inner lambda that
-  declares a parameter of the same name does not count, nor does `it` inside an inner lambda with its own `it`.
-  Krit knows an inner lambda has its own `it` when it is passed to a one-parameter lambda function such as
-  `forEach`, `let`, `map` or `LazyListScope.items`, or to a same-file function whose parameter type takes one value;
-  any other inner lambda is assumed not to rebind `it`, so krit stays quiet where Lint may report. Destructured
+  `Scaffold` content lambda that the lambda never refers to, at the parameter, or at the lambda for an unused implicit
+  `it`: `Scaffold { Text("x") }` and `Scaffold { padding -> Text("x") }`, also through an import alias. A name inside
+  an inner lambda that declares a parameter of the same name does not count, nor does `it` inside an inner lambda with
+  its own `it`. Krit knows an inner lambda has its own `it` when it is passed to a one-parameter lambda function such
+  as `forEach`, `let`, `map` or `LazyListScope.items`, or to a same-file function whose parameter type takes one
+  value; any other inner lambda is assumed not to rebind `it`, so krit stays quiet where Lint may report. Destructured
   parameters are skipped, as in Lint. The content must be the trailing lambda or `content = { }`.
 - `ConflictingOnColor` reports the 'on' colors of a `Colors(...)`, `lightColors(...)` or `darkColors(...)` call when
   background colors with the same value (`primary`, `primaryVariant`, `secondary`, `secondaryVariant`,
@@ -36,7 +36,29 @@ import, as it does in Kotlin.
   whose 'on' color is left to the library default conflicts with every explicit 'on' color in its group.
 - `UsingMaterialAndMaterial3Libraries` reports an `androidx.compose.material` import (a class, member, star or static
   import) outside the `icons`, `ripple` and `pullrefresh` packages and the `ExperimentalMaterialApi` import, once the
-  code uses material3: the same file imports from `androidx.compose.material3`, or the Gradle build declares
-  `androidx.compose.material3:material3`. Lint runs it only in modules that depend on material3, while krit reads the
-  dependency anywhere in the build, so a material-only module of a build that also uses material3 is reported.
+  code uses material3: the same file imports from `androidx.compose.material3`, or the build file of the file's own
+  Gradle module (the nearest directory with a `build.gradle(.kts)`) declares `androidx.compose.material3:material3`.
+  As in Lint, which runs the check only in modules that depend on material3, a material-only module of a build whose
+  other modules use material3 is not reported, however the other modules declare their dependencies. A material3
+  dependency added by a convention plugin or arriving through another project module is not seen; one read from a
+  Bazel `MODULE.bazel`/`WORKSPACE` counts for the whole build.
   Fully qualified references such as `androidx.compose.material.Button()` are not reported, as in Lint.
+
+## Compose animation
+
+`androidx.compose.animation:animation-android` and `animation-core-android` 1.13.0 (Kotlin). The unused-parameter
+checks share the Scaffold checks' reference and shadowing rules above, and resolve import aliases
+(`import androidx.compose.animation.Crossfade as Fade`) as Lint does.
+
+- `UnusedCrossfadeTargetStateParameter` reports an unused parameter of the first lambda passed to `Crossfade`, as
+  Lint does: the content lambda, or the `contentKey` lambda of `Transition.Crossfade` when it comes first.
+- `UnusedContentLambdaTargetStateParameter` and `UnusedTargetStateInContentKeyLambda` report an unused parameter of
+  `AnimatedContent`'s `content` lambda (trailing or `content = { }`) and of its `contentKey = { }` lambda.
+- `UnusedTransitionTargetStateParameter` reports an unused state parameter of a `Transition.animate*` call
+  (`animateFloat`, `animateDp`, `animateColor`, `animateValue` and the other library extensions) in the trailing or
+  `targetValueByState = { }` lambda, and of any one-parameter lambda of a same-file `animate*` extension. The
+  receiver must be proven to be an `androidx.compose.animation.core.Transition`: a variable declared as one or
+  initialized by `updateTransition`/`rememberTransition`, the receiver of a `Transition` extension (unless a
+  `with`/`apply`/`run` lambda in between brings a closer implicit receiver), or
+  `AnimatedVisibilityScope.transition` inside an `AnimatedVisibility` or `AnimatedContent` lambda. Lint checks
+  every `animate*` call on a resolved `Transition`.

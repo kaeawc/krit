@@ -9,6 +9,7 @@ Krit is a Go-first static analyzer for Kotlin, Java, and Android projects. It pa
 - Rules that need project context must declare the right capability (`NeedsCrossFile`, `NeedsModuleIndex`, `NeedsParsedFiles`, `NeedsManifest`, `NeedsResources`, `NeedsGradle`, `NeedsTypeInfo`, etc.) so the dispatcher/pipeline can provide indexes, Android data, or type info.
 - New rules require positive and negative fixtures under `tests/fixtures/`; fixable rules also need fixable fixtures.
 - Auto-fixes must be ktfmt-compatible and declare a safety level: `FixCosmetic`, `FixIdiomatic`, or `FixSemantic`.
+- Do not read a new input (manifest, flag, config value, Gradle/Bazel fact) without adding it to the key of every cache that stores the output. Keys must be content-based and stable across processes. Add a cold-then-warm test that changes only that input and compares with `--no-cache`. See CLAUDE.md "Rule Implementation Guardrails".
 
 ## Review Guidance
 - When reviewing PRs, do not report code-quality, security, correctness, style, or idiom issues in `tests/fixtures/negative/**` or `tests/fixtures/fixable/**`. These files intentionally contain suspicious, non-idiomatic, unsafe, invalid, or fixable code so Krit rules and autofixes can be tested.

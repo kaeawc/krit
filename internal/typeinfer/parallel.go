@@ -314,6 +314,8 @@ func (r *defaultResolver) mergeFileResults(results []*FileTypeInfo) {
 		}
 		r.fileExtensions[fi.Path] = fi.Extensions
 
+		r.recordParamAnnotations(fi)
+
 		for _, name := range fi.SuspendFunctions {
 			if r.suspendFuncs == nil {
 				r.suspendFuncs = make(map[string]bool)

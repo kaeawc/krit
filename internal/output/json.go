@@ -61,6 +61,9 @@ type JSONFinding struct {
 	// fixable / fixLevel semantics, which remain tied to the rule's single
 	// autofix slot. Order mirrors the order the rule emitted them.
 	SuggestedFixes []JSONSuggestedFix `json:"suggestedFixes,omitempty"`
+	// Project is the Gradle project whose sources hold File, set when the
+	// scan loaded a Gradle model (see ProjectAttribution); "" is omitted.
+	Project string `json:"project,omitempty"`
 }
 
 // JSONSuggestedFix is one suggested fix attached to a finding. It is
@@ -100,6 +103,9 @@ type JSONSummary struct {
 	// Fir is present when the FIR pass ran: how many files it analyzed and
 	// gated, and why it gated them.
 	Fir *FirCoverage `json:"fir,omitempty"`
+	// ByProject counts findings per Gradle project when the scan loaded a
+	// Gradle model; "" holds findings outside every project.
+	ByProject map[string]ProjectCounts `json:"byProject,omitempty"`
 }
 
 // FirDegraded describes a scan that ran without the FIR compiler pass.
@@ -120,7 +126,7 @@ func FormatJSONColumns(w io.Writer, columns *scanner.FindingColumns, version str
 	perfRuleStats ...[]rules.RuleExecutionStat) error {
 	return formatJSONColumnsImpl(w, columns, version, fileCount, ruleCount, start,
 		perfTimings, activeRules, experiments, cacheStats, caches, cacheBudget, true,
-		nil, nil, nil, perfRuleStats...)
+		nil, nil, nil, nil, perfRuleStats...)
 }
 
 // FormatJSONColumnsCompact writes columnar findings as JSON with no
@@ -138,7 +144,7 @@ func FormatJSONColumnsCompact(w io.Writer, columns *scanner.FindingColumns, vers
 	perfRuleStats ...[]rules.RuleExecutionStat) error {
 	return formatJSONColumnsImpl(w, columns, version, fileCount, ruleCount, start,
 		perfTimings, activeRules, experiments, cacheStats, caches, cacheBudget, false,
-		nil, nil, nil, perfRuleStats...)
+		nil, nil, nil, nil, perfRuleStats...)
 }
 
 // JSONOptions carries optional report fields for FormatJSONColumnsWithOptions.
@@ -151,6 +157,9 @@ type JSONOptions struct {
 	FirDegraded *FirDegraded
 	// FirCoverage, when non-nil, is reported as summary.fir.
 	FirCoverage *FirCoverage
+	// Projects, when non-nil, attributes findings to Gradle projects:
+	// each finding's project and summary.byProject.
+	Projects *ProjectAttribution
 	// Reproducible drops everything that varies between runs of the same
 	// inputs: durationMs is written as 0, and cache statistics and perf
 	// timings are omitted. The output is then byte-identical across runs
@@ -173,7 +182,7 @@ func FormatJSONColumnsWithOptions(w io.Writer, columns *scanner.FindingColumns, 
 	}
 	return formatJSONColumnsImpl(w, columns, version, fileCount, ruleCount, start,
 		perfTimings, activeRules, experiments, cacheStats, caches, cacheBudget, !opts.Compact,
-		opts.BaselineSuppressed, opts.FirDegraded, opts.FirCoverage, perfRuleStats...)
+		opts.BaselineSuppressed, opts.FirDegraded, opts.FirCoverage, opts.Projects, perfRuleStats...)
 }
 
 func formatJSONColumnsImpl(w io.Writer, columns *scanner.FindingColumns, version string,
@@ -187,6 +196,7 @@ func formatJSONColumnsImpl(w io.Writer, columns *scanner.FindingColumns, version
 	baselineSuppressed *int,
 	firDegraded *FirDegraded,
 	firCoverage *FirCoverage,
+	projects *ProjectAttribution,
 	perfRuleStats ...[]rules.RuleExecutionStat) error {
 
 	cols := normalizedFindingColumns(columns)
@@ -209,7 +219,7 @@ func formatJSONColumnsImpl(w io.Writer, columns *scanner.FindingColumns, version
 	byRuleSet := make(map[string]int)
 	byRule := make(map[string]int)
 	fixableCount := 0
-	findingsJSON := buildJSONFindings(columns, fixLevels, efforts, byRuleSet, byRule, &fixableCount, indent)
+	findingsJSON := buildJSONFindings(columns, fixLevels, efforts, byRuleSet, byRule, &fixableCount, indent, projects)
 
 	summary := JSONSummary{
 		Total:     cols.Len(),
@@ -220,6 +230,7 @@ func formatJSONColumnsImpl(w io.Writer, columns *scanner.FindingColumns, version
 		BaselineSuppressed: baselineSuppressed,
 		FirDegraded:        firDegraded,
 		Fir:                firCoverage,
+		ByProject:          projects.ByProject(columns),
 	}
 	var perfRuleStatsArg []rules.RuleExecutionStat
 	if len(perfRuleStats) > 0 {
@@ -431,10 +442,21 @@ func BuildFindingsArrayCompact(columns *scanner.FindingColumns,
 	byRuleSet, byRule map[string]int,
 	fixableCount *int,
 ) []byte {
-	return []byte(buildJSONFindings(columns, fixLevels, efforts, byRuleSet, byRule, fixableCount, false))
+	return []byte(buildJSONFindings(columns, fixLevels, efforts, byRuleSet, byRule, fixableCount, false, nil))
 }
 
-func buildJSONFindings(columns *scanner.FindingColumns, fixLevels, efforts map[string]string, byRuleSet, byRule map[string]int, fixableCount *int, indent bool) json.RawMessage {
+// BuildFindingsArrayCompactWithProjects is BuildFindingsArrayCompact with each
+// finding's Gradle project (#1635); a nil attribution adds none.
+func BuildFindingsArrayCompactWithProjects(columns *scanner.FindingColumns,
+	fixLevels, efforts map[string]string,
+	byRuleSet, byRule map[string]int,
+	fixableCount *int,
+	projects *ProjectAttribution,
+) []byte {
+	return []byte(buildJSONFindings(columns, fixLevels, efforts, byRuleSet, byRule, fixableCount, false, projects))
+}
+
+func buildJSONFindings(columns *scanner.FindingColumns, fixLevels, efforts map[string]string, byRuleSet, byRule map[string]int, fixableCount *int, indent bool, projects *ProjectAttribution) json.RawMessage {
 	cols := normalizedFindingColumns(columns)
 	if cols.Len() == 0 {
 		return json.RawMessage("[]")
@@ -487,6 +509,7 @@ func buildJSONFindings(columns *scanner.FindingColumns, fixLevels, efforts map[s
 		}
 		finding.Effort = efforts[rule]
 		finding.SuggestedFixes = buildSuggestedFixes(&cols, row)
+		finding.Project = projects.ProjectOf(finding.File)
 		byRuleSet[ruleSet]++
 		byRule[rule]++
 

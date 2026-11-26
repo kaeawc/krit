@@ -5,6 +5,13 @@ All notable changes to Krit will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Module-shard FIR sessions (source-set isolation, per-settings-group sessions) put the upstream project outputs from
+  `--gradle-project-outputs` on the classpath, ahead of a jar at a conventional build path, instead of compiling those
+  projects from source again (#1681).
+- Per-project attribution for whole-build scans: with a Gradle model loaded, JSON findings carry `project` and
+  `summary.byProject` counts findings, errors and warnings per Gradle project (files outside every project under `""`);
+  SARIF has the same in each result's `properties.project` and `runs[0].properties.byProject`. The Gradle plugin's
+  `kritCheckAll` logs the counts (#1635, #1651).
 - Gradle model: Kotlin Multiplatform Android targets record the generated roots AGP's Variant API registers for their
   component (view binding, BuildConfig, AIDL, `addGeneratedSourceDirectory`), and `kritCheck`/`exportGenerated` run
   their producers, as plain Android modules already did (#1643).
@@ -99,6 +106,11 @@ All notable changes to Krit will be documented in this file.
   (`internal/rules/testdata/slack_lint/dagger/`), except that a finding is anchored at the declaration rather than at a
   KDoc or comment before it. The detector's `BindsWrongParameterCount` and `RedundantBinds` are now Lint aliases of
   `BindsMismatchedArity` and `BindsReturnTypeMatchesParam` (#1359, #1360, #1361, #1362, #1363, #1364, #1365).
+- `TrimLambda`, `TextConcatSpace` and `WrongCommentType`, ports of Android Lint 32.4.1's `TrimDetector`,
+  `TextConcatDetector` and `WrongCommentTypeDetector` (Kotlin; Kotlin and Java; Kotlin and Java) under their Lint IDs,
+  with Lint's autofixes for `TrimLambda` and `WrongCommentType`. Findings match Lint on 11 recorded project fixtures,
+  including Kotlin comment binding, escapes and templates at concatenation joints, and suppression (#1280, #1272,
+  #1299).
 - `SquareAndRoundTilePreviews`, `TilePreviewImageFormat` and `StartActivityAndCollapseDeprecated`, ports of Android
   Lint 32.4.1's Wear tile preview checks and its `TileService.startActivityAndCollapse(Intent)` check (Kotlin and
   Java, error from target SDK 34, warning below). Findings match Lint on 22 recorded project fixtures, including
@@ -541,10 +553,19 @@ All notable changes to Krit will be documented in this file.
   `MoshiUsageSerializedName`, `MoshiUsageRedundantSiteTarget` and `MoshiUsageSnakeCase`. Unlike Lint 9.4, krit
   reports `@SerializedName` on a constructor property and does not report `@Json(ignore = true)` members as
   duplicates of Moshi's unset name (#1386, #1390, #1401, #1414, #1416, #1417).
+- `CastingViewContextToActivity`, `ArgInFormattedQuantityStringRes` and `SpanMarkPointMissingMask`, slack-lints 0.11.1's
+  Android source checks, in the opt-in `slack-lint` rule set for Kotlin and Java. Findings match the Lint CLI with
+  `android.jar` on the classpath (`internal/rules/testdata/slack_lint/android_ui/`), except that a mask inside
+  parentheses, `(flags & Spanned.SPAN_POINT_MARK_MASK) == ...` (the only form Java allows), is not reported
+  (#1356, #1357, #1424).
 - `slack-lint` gains `MoshiUsageAdaptedByRequiresAdapter` and `MoshiUsageAdaptedByRequiresKeep` for moshix
   `@AdaptedBy` adapters declared in the project (Kotlin or Java, followed through project base classes), and
   `MoshiUsageQualifierRetention` and `MoshiUsageQualifierTarget` for Kotlin and Java `@JsonQualifier` annotation
   classes (#1382, #1383, #1405, #1406).
+- `FullyQualifiedResource`, `MissingResourceImportAlias` and `WrongResourceImportAlias`, slack-lints 0.11.1's R class
+  import-alias checks for Kotlin, in the opt-in `slack-lint` rule set. Their `importAliases` option takes the
+  `package.R as Alias` entries of Lint's `import-aliases`. Findings match the Lint CLI with that option set in
+  `lint.xml` (`internal/rules/testdata/slack_lint/resource_aliases/`) (#1425, #1426, #1427).
 - `slack-lint` gains `MoshiUsageDetector`'s constructor-property type checks for Kotlin: `MoshiUsageArray`,
   `MoshiUsageMutableCollections`, `MoshiUsageNonMoshiClassCollection`, `MoshiUsageNonMoshiClassMap`,
   `MoshiUsageNonMoshiClassPlatform`, `MoshiUsageEnumPropertyCouldBeMoshi` and `MoshiUsageEnumPropertyDefaultUnknown`.
@@ -554,6 +575,9 @@ All notable changes to Krit will be documented in this file.
   `MoshiUsageNonMoshiClassInternal`/`External` (#1384, #1395, #1396, #1404, #1407, #1408, #1409).
 
 ### Fixed
+- `--no-cache` skips every cache that can change findings. A one-shot scan read the cross-file findings cache, so a
+  stale entry replayed into the run warm results are checked against; it now skips that cache and also the cross-file
+  index, resource index, file-walk and incremental oracle caches. Only the parse cache stays on (#1818).
 - Gradle plugin: the configuration cache is reused after the first build that creates an Android module's R jar.
   `kritExportModel` recorded the R jar by listing `build/intermediates` while configuring, which made the directory a
   configuration input. It now records the path AGP writes the jar to, and krit looks the jar up when it loads the model
@@ -577,6 +601,29 @@ All notable changes to Krit will be documented in this file.
   `ContextCompat.registerReceiver`, without `RECEIVER_NOT_EXPORTED` or a broadcast permission, as an unprotected
   component, and follows the incoming intent into helpers declared in other files: imported or same-package top-level
   functions and members of project classes or objects (`Launcher.launch(this, intent)`) (#1623).
+- `ProviderReadPermissionOnly` attributes providers declared in a library module's manifest the way Lint's merged
+  manifest does: they are reported only when the scan holds an application module that depends on the library,
+  directly or through other modules, by project dependencies in the Gradle module graph that merge a manifest (not test,
+  `compileOnly`, `lintChecks`, `kapt`, `ksp` or `annotationProcessor` ones). They are not reported when every such
+  app removes the entry (`tools:node="remove"`) or ignores the rule on it, on its `<application>` or on its
+  `<manifest>` (`tools:ignore`), in any of its source-set manifests. Relative names resolve against the module's
+  Gradle `namespace`. A library-only scan no longer reports them; a library outside any known module graph, or in a
+  build with a module mapped outside its root, is still reported (#1625).
+- The project-dependency parser behind the module graph skips commented-out declarations and reads Groovy
+  `implementation project(':lib')`, `project(path: ':lib')`, `platform(project(...))` and type-safe accessors for
+  modules named with underscores or camel case.
+- Warm runs re-run manifest-source rules and replay no findings bundle after a Groovy `build.gradle` edit. The
+  manifest-source cache key and the findings-bundle fingerprint now hash every build script, which manifest rules read
+  from disk; before, only Kotlin DSL scripts were covered, as source files. For a build whose module graph
+  `ProviderReadPermissionOnly` reads (one holding a manifest with `android:readPermission`), they also hash the
+  settings file and every module build script the scan didn't, so editing an intermediate module or the settings file
+  outside the scan re-runs them: `krit app lib`, an explicit file list, or a gitignored or dot-directory module. They
+  also hash, present or missing, each manifest's own build-script candidates (`build.gradle.kts` and `build.gradle`
+  in the four directories above it, where the rule reads whether a module is an app and its namespace), so a build
+  with no settings file scanned as `krit app/src lib/src` re-runs them when an app module's plugin changes. They also
+  hash each module's version-catalog search (every directory it globs for `gradle/*.versions.toml`, with what it
+  found, and the catalogs found), so changing the plugin id behind an `alias(libs.plugins...)`, or creating a nearer
+  catalog, re-runs them too. The graph is discovered once per run and only when an active rule reads it.
 - `UnsafeNativeCodeLocation` reads the assets folders of every source set of the module (`src/debug/assets`,
   `src/<flavor>/assets`, ...) and the `res/raw*` folders of the other source sets' res directories, not only those
   beside `src/main/res`; test source sets are skipped. The resource cache key now covers those assets folders, so an

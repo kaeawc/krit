@@ -29,6 +29,11 @@ func (r *runner) runProjectAnalysis(ctx context.Context) (int, error) {
 }
 
 func (r *runner) projectInput() pipeline.ProjectInput {
+	// --no-cache is the fresh baseline warm runs are checked against, so it
+	// skips every cache that serves findings, as the daemon does (#1818).
+	// applyNoCache already set NoCrossFileCache for a parsed command line;
+	// the NoCache check covers runners built from flags directly.
+	noCrossFindings := *r.f.NoCrossFileCache || *r.f.NoCache
 	host := pipeline.ProjectHostState{
 		Reporter:               r.reporter,
 		Tracker:                r.tracker,
@@ -42,7 +47,7 @@ func (r *runner) projectInput() pipeline.ProjectInput {
 			JavaSemanticFactsLoader: runJavaSemanticFacts,
 		},
 		CrossFileCacheDir:     resolveCrossFileCacheDir(r.paths, *r.f.NoCrossFileCache),
-		CrossFindingsCacheDir: resolveCrossFindingsCacheDir(r.paths, *r.f.NoCrossFileCache),
+		CrossFindingsCacheDir: resolveCrossFindingsCacheDir(r.paths, noCrossFindings),
 		AnalysisCache:         r.sess.AnalysisCache,
 		AnalysisCacheFilePath: r.cacheFilePath,
 		AnalysisCacheLookup:   r.useCache && r.sess.AnalysisCache != nil,

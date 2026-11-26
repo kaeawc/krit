@@ -3,6 +3,7 @@ package rules
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -41,5 +42,55 @@ junit = { module = "junit:junit", version = "4.13" }
 	}
 	if isLibraryOrTestModuleManifest(filepath.Join(root, "app/src/main/AndroidManifest.xml")) {
 		t.Error("a module applying alias(libs.plugins.android.application) should not be a library module")
+	}
+}
+
+// Cache keys hash ManifestBuildScriptCandidates for the build script lookupManifestGradleInfo reads (#1800), so every
+// script it can read must be a candidate: each candidate alone is read, and a script past the last one is not.
+func TestManifestBuildScriptCandidatesCoverTheLookup(t *testing.T) {
+	const rel = "outer/m/app/src/main/AndroidManifest.xml"
+	candidates := ManifestBuildScriptCandidates(filepath.Join("/r", rel))
+	want := []string{"/r/outer/m/app/src", "/r/outer/m/app", "/r/outer/m", "/r/outer"}
+	if len(candidates) != 2*len(want) {
+		t.Fatalf("candidates = %v, want both script names in each of %v", candidates, want)
+	}
+	for i, dir := range want {
+		if candidates[2*i] != filepath.Join(dir, "build.gradle.kts") || candidates[2*i+1] != filepath.Join(dir, "build.gradle") {
+			t.Fatalf("candidates = %v, want both script names in each of %v", candidates, want)
+		}
+	}
+	for i := range candidates {
+		root := t.TempDir()
+		manifest := filepath.Join(root, rel)
+		got := ManifestBuildScriptCandidates(manifest)[i]
+		writeModuleFile(t, root, rel, "<manifest/>")
+		writeModuleFile(t, root, strings.TrimPrefix(got, root+string(filepath.Separator)), "plugins { id(\"com.android.application\") }\n")
+		if !lookupManifestGradleInfo(manifest).isApplication {
+			t.Errorf("a build script only at %s is not read", got)
+		}
+	}
+	root := t.TempDir()
+	writeModuleFile(t, root, rel, "<manifest/>")
+	writeModuleFile(t, root, "build.gradle.kts", "plugins { id(\"com.android.application\") }\n")
+	if lookupManifestGradleInfo(filepath.Join(root, rel)).found {
+		t.Error("a build script past the last candidate is read")
+	}
+}
+
+// VersionCatalogSearch, which versionCatalogsFor and the cache keys share (#1800), globs from the module directory
+// upward and stops at the first directory with a catalog.
+func TestVersionCatalogSearchStopsAtTheNearestCatalog(t *testing.T) {
+	root := t.TempDir()
+	writeModuleFile(t, root, "gradle/libs.versions.toml", "")
+	writeModuleFile(t, root, "gradle/more.versions.toml", "")
+	writeModuleFile(t, root, "gradle/notes.toml", "")
+	module := filepath.Join(root, "group", "app")
+	searched, matches := VersionCatalogSearch(module, VersionCatalogGlob)
+	if want := []string{module, filepath.Dir(module), root}; strings.Join(searched, "|") != strings.Join(want, "|") {
+		t.Fatalf("searched = %v, want %v", searched, want)
+	}
+	want := []string{filepath.Join(root, "gradle", "libs.versions.toml"), filepath.Join(root, "gradle", "more.versions.toml")}
+	if strings.Join(matches, "|") != strings.Join(want, "|") {
+		t.Fatalf("matches = %v, want %v", matches, want)
 	}
 }

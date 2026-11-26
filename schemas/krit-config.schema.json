@@ -12135,6 +12135,39 @@
             }
           }
         },
+        "TextConcatSpace": {
+          "description": "Missing space in text concatenation? [precision: ast-backed] [noisiness: normal]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable TextConcatSpace (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "TextFieldsResource": {
           "description": "Missing `inputType` [precision: project-structure-aware] [noisiness: normal] [capabilities: resources]",
           "type": "object",
@@ -12342,6 +12375,39 @@
               "description": "Enable TooManyViewsResource (default: false).",
               "type": "boolean",
               "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "TrimLambda": {
+          "description": "Unnecessary lambda with `trim()` [fixable: semantic] [precision: ast-backed] [noisiness: normal]\nCaveat: Without type information the receiver must be a string literal or a variable or parameter declared as String or CharSequence; a file that declares its own trim or isWhitespace function is skipped.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable TrimLambda (default: true).",
+              "type": "boolean",
+              "default": true
             },
             "excludes": {
               "description": "Glob patterns for paths to exclude from this rule.",
@@ -15543,6 +15609,39 @@
               "description": "Enable WrongCaseResource (default: false).",
               "type": "boolean",
               "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "WrongCommentType": {
+          "description": "Wrong Comment Type [fixable: cosmetic] [precision: ast-backed] [noisiness: normal]\nCaveat: Doc tags are recognized textually (a lowercase `@tag` at the start of a comment line, a `[text](url)` link in a KDoc description, `{@link}`, `{@linkplain}` or `{@inheritDoc}` in a Javadoc description) rather than with the KDoc and Javadoc parsers Lint uses.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable WrongCommentType (default: true).",
+              "type": "boolean",
+              "default": true
             },
             "excludes": {
               "description": "Glob patterns for paths to exclude from this rule.",
@@ -32466,6 +32565,39 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "ArgInFormattedQuantityStringRes": {
+          "description": "Count value in formatted string resource. [precision: type-aware] [noisiness: normal] [capabilities: resolver]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable ArgInFormattedQuantityStringRes (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "AvoidUsingNotNullOperator": {
           "description": "Avoid using the !! operator in Kotlin [precision: ast-backed] [noisiness: normal]",
           "type": "object",
@@ -32572,6 +32704,39 @@
           "properties": {
             "active": {
               "description": "Enable BindsMustBeAbstract (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "CastingViewContextToActivity": {
+          "description": "Unsafe cast of `Context` to `Activity` [precision: type-aware] [noisiness: normal] [capabilities: resolver]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable CastingViewContextToActivity (default: false).",
               "type": "boolean",
               "default": false
             },
@@ -32862,6 +33027,46 @@
             }
           }
         },
+        "FullyQualifiedResource": {
+          "description": "Resources should use an import alias instead of being fully qualified. [precision: ast-backed] [noisiness: normal]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable FullyQualifiedResource (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "importAliases": {
+              "description": "R classes and their import aliases, as `package.R as Alias` entries (slack-lints `import-aliases`; comma-separated entries are split too).",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "GuavaPreconditionsUsedInKotlin": {
           "description": "Kotlin precondition checks should use the Kotlin standard library checks [precision: ast-backed] [noisiness: normal]",
           "type": "object",
@@ -32881,6 +33086,46 @@
             },
             "ignoreAnnotated": {
               "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "MissingResourceImportAlias": {
+          "description": "Missing import alias for R class. [precision: ast-backed] [noisiness: normal]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable MissingResourceImportAlias (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "importAliases": {
+              "description": "R classes and their import aliases, as `package.R as Alias` entries (slack-lints `import-aliases`; comma-separated entries are split too).",
               "type": "array",
               "items": {
                 "type": "string"
@@ -34446,6 +34691,39 @@
             }
           }
         },
+        "SpanMarkPointMissingMask": {
+          "description": "Check that Span flags use the bitwise mask SPAN_POINT_MARK_MASK when being compared to. [precision: ast-backed] [noisiness: normal]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable SpanMarkPointMissingMask (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "SubscribeOnMain": {
           "description": "subscribeOn called with the main thread scheduler. [precision: ast-backed] [noisiness: normal]",
           "type": "object",
@@ -34465,6 +34743,46 @@
             },
             "ignoreAnnotated": {
               "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "WrongResourceImportAlias": {
+          "description": "Wrong import alias for this R class. [precision: ast-backed] [noisiness: normal]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable WrongResourceImportAlias (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "importAliases": {
+              "description": "R classes and their import aliases, as `package.R as Alias` entries (slack-lints `import-aliases`; comma-separated entries are split too).",
               "type": "array",
               "items": {
                 "type": "string"

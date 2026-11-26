@@ -147,7 +147,7 @@ Krit XML baselines use the `SmellBaseline` document shape with `ManuallySuppress
 
 ## Cache location
 
-Generated repo-local state lives under `.krit/` by default. The incremental analysis cache uses `.krit/cache/`; parse, resource, type, file-walk, and library-profile indexes use sibling directories under the same root. The FIR checker cache uses `.krit/fir-cache/`; krit-fir also persists its incremental-checking state, the type oracle's per-file facts and the binary snapshot in `.krit/fir-incremental/` (the three most recent compile keys are kept) so a restarted daemon or a one-shot run starts warm. Incremental FIR checking is on by default; set `KRIT_FIR_INCREMENTAL=0` to compile the whole module on every FIR check instead. `--cache-dir DIR` only overrides the incremental analysis cache; `--no-cache` skips the incremental analysis cache, the FIR checker cache and the FIR incremental bundle.
+Generated repo-local state lives under `.krit/` by default. The incremental analysis cache uses `.krit/cache/`; parse, resource, type, file-walk, and library-profile indexes use sibling directories under the same root. The FIR checker cache uses `.krit/fir-cache/`; krit-fir also persists its incremental-checking state, the type oracle's per-file facts and the binary snapshot in `.krit/fir-incremental/` (the three most recent compile keys are kept) so a restarted daemon or a one-shot run starts warm. Incremental FIR checking is on by default; set `KRIT_FIR_INCREMENTAL=0` to compile the whole module on every FIR check instead. `--cache-dir DIR` only overrides the incremental analysis cache; `--no-cache` skips every cache that can change findings: the incremental analysis cache, the cross-file index and findings caches, the findings bundle, the Android findings, resource, file-walk, type-index, library-profile and oracle caches, the FIR checker cache and the FIR incremental bundle. Only the parse cache stays on.
 
 Set `KRIT_STATE_DIR` to move all of that generated state, including the type oracle output, out of the project. This lets a scan run over a read-only source tree. Each project root gets its own `<name>-<hash>/.krit/` subdirectory, so several projects can share one `KRIT_STATE_DIR`. Inputs kept under `.krit/`, such as an exported Gradle model, are still read from the project. A daemon keeps its socket, lock, PID file and log in `<project>/.krit/`, so with `KRIT_STATE_DIR` set a scan neither starts nor reuses a daemon unless `--daemon-socket` names one, and `krit daemon start` still needs a writable project directory.
 Per-user state (installed jars, JVM AOT/CDS archives and the daemon registry) lives under `~/.krit/`; set `KRIT_HOME` to move it. With `KRIT_HOME` set, the per-user cache (helper logs, compiled Java helpers and krit-fir's binary snapshots), which otherwise lives in the OS user cache directory, moves to `$KRIT_HOME/user-cache/`. Sandboxed runners, such as build-system actions, can point both variables at directories the action owns, together with `HOME`, `TMPDIR` and `KRIT_BUILDID_CACHE_BASE`. The JVM ignores `TMPDIR`, so also set `JAVA_TOOL_OPTIONS=-Djava.io.tmpdir=<dir>` to keep krit-fir's temporary files inside them.
@@ -216,6 +216,19 @@ continues. Missing jars may be unbuilt project module outputs; build those
 modules or rerun `kritExportModel`.
 For an explicit model location use `--gradle-model DIR`. An empty exported
 classpath is valid.
+
+With a Gradle model loaded, JSON and SARIF reports also say which project each
+finding belongs to: the project whose directory or source root holds its file,
+the deepest one when they nest. JSON findings carry `project`, and SARIF results
+`properties.project`. JSON `summary.byProject` and SARIF
+`runs[0].properties.byProject` count findings per project. Every project in
+the model is listed, and findings outside every project count under `""`:
+
+```json
+"byProject": {":app": {"findings": 3, "errors": 1, "warnings": 2},
+              ":lib": {"findings": 0, "errors": 0, "warnings": 0},
+              "":     {"findings": 1, "errors": 0, "warnings": 1}}
+```
 
 To get `kritExportModel` and `kritCheck` in every Kotlin/Android module of a
 multi-module build, apply the settings plugin once. Both plugins are on Maven

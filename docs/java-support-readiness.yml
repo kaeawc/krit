@@ -706,6 +706,14 @@ rules:
     status: supported
     fixtures:
       - tests/fixtures/android-lint/StartActivityAndCollapseDeprecated/positive
+  TextConcatSpace:
+    status: supported
+    fixtures:
+      - tests/fixtures/android-lint/TextConcatSpace/positive
+  WrongCommentType:
+    status: supported
+    fixtures:
+      - tests/fixtures/android-lint/WrongCommentType/positive
   UsableSpace:
     status: supported
     fixtures:

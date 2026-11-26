@@ -116,6 +116,6 @@ func BenchmarkBuildJSONFindings_PreSorted(b *testing.B) {
 		byRuleSet := make(map[string]int)
 		byRule := make(map[string]int)
 		fixableCount := 0
-		_ = buildJSONFindings(cols, fixLevels, efforts, byRuleSet, byRule, &fixableCount, false)
+		_ = buildJSONFindings(cols, fixLevels, efforts, byRuleSet, byRule, &fixableCount, false, nil)
 	}
 }

@@ -120,6 +120,45 @@ They report only what the source proves:
 Not ported: `MoshiUsageNonMoshiClassInternal` and `MoshiUsageNonMoshiClassExternal`, which split on whether a type
 lives in Slack's own `slack.*` packages.
 
+The R class import-alias checks (Kotlin only, as import aliases are a Kotlin feature) read the `importAliases` option,
+Lint's `import-aliases`: entries such as `slack.l10n.R as L10nR`.
+
+```yaml
+slack-lint:
+  FullyQualifiedResource:
+    active: true
+    importAliases: ["slack.l10n.R as L10nR"]
+```
+
+- `FullyQualifiedResource` reports a fully qualified R class (`slack.l10n.R.string.app_name`) other than `android.R`,
+  naming the configured alias when there is one. Every segment before `R` must be a package segment (lower-case), so
+  unlike Lint `Outer.R.x` (a nested `object R`) and `Build.VERSION_CODES.R` are not reported.
+- `MissingResourceImportAlias` reports `import other.module.R` without an alias. Lint treats an import from the
+  module's own package as local; krit does not read the module's namespace and uses Lint's fallback, so an import
+  whose package is a prefix of the file's package is local. This differs from Lint in both directions: the module's
+  own R is reported when its namespace is not a prefix of the file's package (`namespace = "slack.features.home"`
+  with `package com.app.home` and `import slack.features.home.R`), and another module's R is not reported when its
+  package happens to be such a prefix. As in Lint, of the imports that have a configured alias only the file's last
+  one is reported.
+- `WrongResourceImportAlias` reports the file's first R class import whose alias differs from the configured one, so
+  it reports nothing until `importAliases` is set.
+
+Three Android source checks prove their receiver before reporting:
+
+- `CastingViewContextToActivity` reports `view.getContext() as Activity` (also `as?` and a Java cast) when the
+  receiver's type is a `View` subtype, or the call is an implicit `getContext()` in a Kotlin or Java `View` subclass.
+  As in Lint, the Kotlin property form `view.context` and a parenthesized call are not reported. Unlike Lint, an
+  `is Activity` / `instanceof Activity` check is not reported: it is not a cast.
+- `ArgInFormattedQuantityStringRes` reports format arguments of `Resources.getQuantityString` that are not a
+  `getFormattedCount()` call (in Java, also a local initialized by one). The receiver must be typed `Resources` (or a
+  project subclass), or be Android's accessor (`context.resources`, `getResources()`, an unqualified `resources`)
+  on a Context, View or Fragment, so a project's own `getQuantityString` wrapper is not reported.
+- `SpanMarkPointMissingMask` reports `==`/`!=` against a `Spanned` mark-point flag (`SPAN_EXCLUSIVE_EXCLUSIVE`, ...)
+  whose other side does not mask with `SPAN_POINT_MARK_MASK` (a bitwise `and`/`&`; `or`/`|` does not mask). A
+  parameter or local named like the flag shadows its static import. Unlike Lint, krit looks inside parentheses, so
+  the correctly masked `(flags & Spanned.SPAN_POINT_MARK_MASK) == Spanned.SPAN_EXCLUSIVE_EXCLUSIVE` is not
+  reported. Lint's quick fix, which inserts the mask, is not ported.
+
 `SubscribeOnMain` reports `subscribeOn(AndroidSchedulers.mainThread())`, or `immediateMainThread()`, on RxJava 3's
 `Observable`, `Flowable`, `Single`, `Maybe` and `Completable`. Lint resolves the receiver's type; krit requires the file
 to import from RxJava 3 and not from RxJava 1/2 or Reactor, which also declare `subscribeOn`. As in Lint, a scheduler
@@ -297,6 +336,28 @@ Gradle module (recorded with `scripts/lint-parity-record.sh`, AGP 9.4.1); `TestA
 
 Lint checks the merged manifest; krit checks each manifest file, so components declared only in a variant or library
 manifest are not seen, and the watch face dependency is read from build scripts and version catalogs.
+
+## Android Lint Source Text Checks
+
+Ports of Android Lint 32.4.1 source checks, with project fixtures and recorded Lint output under
+`tests/fixtures/android-lint/<RuleID>/`:
+
+- `TrimLambda` (info, Kotlin, autofix) reports the lambda of `s.trim { it <= ' ' }` or `s.trim { it.isWhitespace() }`
+  (implicit or single named parameter, parentheses allowed) on a `String` or `CharSequence`, with or without
+  parentheses around it. The fix removes the lambda as Lint's quick fix does; it is `FixSemantic` because
+  `<= ' '` and `isWhitespace()` disagree on some characters. Without type information the receiver must be a string
+  literal or a variable declared as `String`/`CharSequence`, and a file declaring its own `trim` or `isWhitespace` is
+  skipped.
+- `TextConcatSpace` (warning, Kotlin and Java) reports a `+` of two string literals on different lines where the left
+  one ends with a word after a space, has at least two words, and the right one starts with a letter, at the right
+  literal (Kotlin: its text; Java: its opening quote). Like Lint, a Kotlin escape or template at the joint ends the
+  match.
+- `WrongCommentType` (warning, Kotlin and Java, autofix `/*` → `/**`) reports a block comment on a non-private class,
+  object, function, property with a backing field, `val`/`var` constructor parameter, accessor or enum entry that
+  holds a doc tag: a lowercase `@tag` at a line start (in Kotlin, not when the tag's text contains a period), a
+  `[text](url)` link in a KDoc description, or `{@link}`/`{@linkplain}`/`{@inheritDoc}` in a Javadoc description.
+  Kotlin binds the run of comments before a declaration to it and Lint reads the first, so a line comment first
+  hides a tagged block comment after it; Java uses the nearest comment.
 
 ## AndroidX Library Lint Checks
 

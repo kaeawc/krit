@@ -34,6 +34,7 @@ the same library versions.
 | `gradle-up-to-date` | That second `kritCheckAll` is up to date: krit does not run. |
 | `bazel-action-cache` | A second `bazel build //...` runs no actions. |
 | `bazel-krit_aspect-cache` | After `bazel clean`, every Krit action of a second aspect build is a disk-cache hit. |
+| `findings-parity` | `kritCheckAll`'s SARIF and `krit_aspect`'s per-target SARIFs report the same findings, keyed by rule, sample-relative path and line, and at least one (#1677). `app/.../ParityProbe.kt` holds known findings: two from source alone, and a safe call and Elvis that rest on `:model`'s types, so FIR must resolve the full classpath on both sides. The report lists the keys only one side has. |
 
 The Gradle runs use `ci/krit-verbose.sh` as the krit binary. The plugin runs
 krit with `-q`; the wrapper runs it with `-v` instead, to capture the `FIR verdict`

@@ -2,11 +2,11 @@ package dev.jasonpearson.krit.fir.support
 
 import dev.jasonpearson.krit.fir.checkers.declaringSourcePath
 import org.jetbrains.kotlin.KtFakeSourceElementKind
-import org.jetbrains.kotlin.fir.FirElement
-import org.jetbrains.kotlin.fir.expressions.FirAnonymousFunctionExpression
 import org.jetbrains.kotlin.fir.symbols.SymbolInternals
-import org.jetbrains.kotlin.fir.visitors.FirVisitorVoid
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
+import org.jetbrains.kotlin.fir.expressions.FirBlock
+import org.jetbrains.kotlin.fir.expressions.FirElvisExpression
+import org.jetbrains.kotlin.fir.expressions.FirWhenExpression
 import org.jetbrains.kotlin.fir.expressions.FirExpression
 import org.jetbrains.kotlin.fir.expressions.FirPropertyAccessExpression
 import org.jetbrains.kotlin.fir.expressions.FirSmartCastExpression
@@ -89,23 +89,18 @@ private fun reliesOnCrossModuleSmartCast(expression: FirExpression, depth: Int):
     return false
 }
 
-// Whether the value an initializer produces rests on such a cast. Lambdas are their own scope.
+// Whether the value an initializer produces rests on such a cast: the expressions whose type becomes the local's
+// (the initializer itself, the results of `if`/`when` branches and blocks, both sides of `?:`). A call's argument
+// does not decide its result type, so it is not followed, and neither is a lambda.
 context(context: CheckerContext)
-private fun initializerReliesOnCrossModuleSmartCast(initializer: FirExpression, depth: Int): Boolean {
-    var found = false
-    initializer.accept(object : FirVisitorVoid() {
-        override fun visitElement(element: FirElement) {
-            if (found || element is FirAnonymousFunctionExpression) return
-            if (element is FirExpression && (element is FirSmartCastExpression || element is FirPropertyAccessExpression) &&
-                reliesOnCrossModuleSmartCast(element, depth)
-            ) {
-                found = true
-                return
-            }
-            element.acceptChildren(this)
-        }
-    })
-    return found
+private fun initializerReliesOnCrossModuleSmartCast(initializer: FirExpression, depth: Int): Boolean =
+    resultExpressions(initializer).any { reliesOnCrossModuleSmartCast(it, depth) }
+
+private fun resultExpressions(expression: FirExpression): List<FirExpression> = when (expression) {
+    is FirWhenExpression -> expression.branches.flatMap { resultExpressions(it.result) }
+    is FirBlock -> (expression.statements.lastOrNull() as? FirExpression)?.let(::resultExpressions).orEmpty()
+    is FirElvisExpression -> resultExpressions(expression.lhs) + resultExpressions(expression.rhs)
+    else -> listOf(expression)
 }
 
 private const val MAX_LOCAL_INITIALIZER_DEPTH = 3

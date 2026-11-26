@@ -56,6 +56,14 @@ class CrossModuleSmartCastFilesTest {
             if (account.team.profile == null) return 0
             return account.team.profile?.fields?.size ?: 0
         }
+
+        fun viaCall(account: Account): Int {
+            if (account.team.profile == null) return 0
+            val name = describe(account.team.profile)
+            return name?.length ?: 0
+        }
+
+        fun describe(profile: demo.lib.Profile?): String = "profile"
     """.trimIndent()
 
     private val rules = setOf("UnnecessarySafeCall", "UselessElvisOnNonNull", "UnnecessaryNotNullOperator", "UselessCallOnNotNull")
@@ -71,7 +79,8 @@ class CrossModuleSmartCastFilesTest {
             "lib/src/main/kotlin/demo/lib/Account.kt" to model,
             "src/main/kotlin/demo/Profiles.kt" to use("demo"),
         )
-        assertEquals(emptyList(), findings(sources))
+        // A call's result type is its declared one, whatever its argument smart-casts to, so `name` is a String.
+        assertEquals(listOf("UnnecessarySafeCall" to 40), findings(sources))
     }
 
     // UnnecessaryNotNullOperator and UselessCallOnNotNull read the declared type through smart casts, so `profile!!`
@@ -82,7 +91,7 @@ class CrossModuleSmartCastFilesTest {
             "lib/src/main/kotlin/demo/lib/Profiles.kt" to use("demo.lib.use"),
         )
         assertEquals(
-            listOf("UnnecessarySafeCall" to 8, "UselessElvisOnNonNull" to 16, "UnnecessarySafeCall" to 34),
+            listOf("UnnecessarySafeCall" to 8, "UselessElvisOnNonNull" to 16, "UnnecessarySafeCall" to 34, "UnnecessarySafeCall" to 40),
             findings(sources),
         )
     }

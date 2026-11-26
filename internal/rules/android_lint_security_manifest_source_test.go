@@ -862,3 +862,87 @@ class Shadow(private val context: Context) {
 		t.Fatalf("findings %v, want %s", lines, want)
 	}
 }
+
+// #1623: receivers registered at runtime without protection count as unprotected components, and the incoming
+// intent is followed into helpers declared in other files.
+func TestUnsafeIntentLaunchRuntimeReceiversAndCrossFileHelpers(t *testing.T) {
+	manifest := `<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.example">
+    <application>
+        <activity android:name=".MainActivity" android:exported="true" />
+    </application>
+</manifest>
+`
+	sources := map[string]string{
+		"com/example/Receivers.kt": `package com.example
+
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+
+class DynamicReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) { context.startActivity(intent) }
+}
+class NotExportedReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) { context.startActivity(intent) }
+}
+class PermissionReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) { context.startActivity(intent) }
+}
+
+class Registrar(private val context: Context) {
+    fun register() {
+        context.registerReceiver(DynamicReceiver(), IntentFilter("com.example.A"))
+        context.registerReceiver(NotExportedReceiver(), IntentFilter("com.example.B"), Context.RECEIVER_NOT_EXPORTED)
+        context.registerReceiver(PermissionReceiver(), IntentFilter("com.example.C"), "com.example.PERM", null)
+    }
+}
+`,
+		"com/example/MainActivity.kt": `package com.example
+
+import android.app.Activity
+import android.os.Bundle
+import com.other.relaunchElsewhere
+
+class MainActivity : Activity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        Launcher.launch(this, intent)
+    }
+    fun viaTopLevel() { relaunch(this, intent) }
+    fun viaNoLaunch() { Launcher.inspect(intent) }
+    fun viaOtherPackage() { relaunchElsewhere(intent) }
+}
+`,
+		"com/example/Launcher.kt": `package com.example
+
+import android.content.Context
+import android.content.Intent
+
+object Launcher {
+    fun launch(context: Context, i: Intent) { context.startActivity(i) }
+    fun inspect(i: Intent) = i.action
+}
+
+fun relaunch(context: Context, i: Intent) { context.startActivity(i) }
+`,
+		"com/other/Other.kt": `package com.other
+
+import android.content.Intent
+
+fun relaunchElsewhere(i: Intent) = i.action
+`,
+	}
+	got := manifestSourceFindings(t, "UnsafeIntentLaunch", manifest, sources)
+	var locs []string
+	for _, row := range got {
+		loc, _, _ := strings.Cut(row, " ")
+		file, rest, _ := strings.Cut(loc, ":")
+		line, _, _ := strings.Cut(rest, ":")
+		locs = append(locs, file+":"+line)
+	}
+	want := []string{"com/example/MainActivity.kt:10", "com/example/MainActivity.kt:12", "com/example/Receivers.kt:9"}
+	if strings.Join(locs, ",") != strings.Join(want, ",") {
+		t.Fatalf("findings %v, want %v\n%s", locs, want, strings.Join(got, "\n"))
+	}
+}

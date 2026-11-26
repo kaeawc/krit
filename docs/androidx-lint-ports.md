@@ -60,3 +60,21 @@ import, as it does in Kotlin.
 - `TextFieldBufferInternalAppend` reports `append` on a `TextFieldBuffer` (declared as one, or the implicit receiver of
   `with(buffer)`, a `TextFieldBuffer` extension or an `edit { }` block) in files whose package is
   `androidx.compose.foundation` or below. It guards AndroidX's own code, as in Lint, so it never fires in apps.
+## Compose animation
+
+`androidx.compose.animation:animation-android` and `animation-core-android` 1.13.0 (Kotlin). The unused-parameter
+checks share the Scaffold checks' reference and shadowing rules above, and resolve import aliases
+(`import androidx.compose.animation.Crossfade as Fade`) as Lint does.
+
+- `UnusedCrossfadeTargetStateParameter` reports an unused parameter of the first lambda passed to `Crossfade`, as
+  Lint does: the content lambda, or the `contentKey` lambda of `Transition.Crossfade` when it comes first.
+- `UnusedContentLambdaTargetStateParameter` and `UnusedTargetStateInContentKeyLambda` report an unused parameter of
+  `AnimatedContent`'s `content` lambda (trailing or `content = { }`) and of its `contentKey = { }` lambda.
+- `UnusedTransitionTargetStateParameter` reports an unused state parameter of a `Transition.animate*` call
+  (`animateFloat`, `animateDp`, `animateColor`, `animateValue` and the other library extensions) in the trailing or
+  `targetValueByState = { }` lambda, and of any one-parameter lambda of a same-file `animate*` extension. The
+  receiver must be proven to be an `androidx.compose.animation.core.Transition`: a variable declared as one or
+  initialized by `updateTransition`/`rememberTransition`, the receiver of a `Transition` extension (unless a
+  `with`/`apply`/`run` lambda in between brings a closer implicit receiver), or
+  `AnimatedVisibilityScope.transition` inside an `AnimatedVisibility` or `AnimatedContent` lambda. Lint checks
+  every `animate*` call on a resolved `Transition`.

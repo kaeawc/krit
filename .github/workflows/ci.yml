@@ -232,6 +232,7 @@ jobs:
         with:
           cache-cleanup: on-success
           validate-wrappers: true
+      - uses: ./.github/actions/maven-mirror
       # Custom rule jars run inside the krit-fir JVM. Its shadow jar bundles
       # the Kotlin compiler, so cache the output instead of paying the build
       # on every PR. The cache key matches every other krit-fir jar cache in
@@ -276,6 +277,7 @@ jobs:
         with:
           cache-cleanup: on-success
           validate-wrappers: true
+      - uses: ./.github/actions/maven-mirror
       # Cache key matches the `external-rule-example` job above.
       - name: Cache krit-fir shadow jar
         id: cache-krit-fir
@@ -307,6 +309,7 @@ jobs:
         with:
           cache-cleanup: on-success
           validate-wrappers: true
+      - uses: ./.github/actions/maven-mirror
       # Publish krit-rule-api to mavenLocal so the functional test in the
       # custom-rule-plugin can resolve the SPI jar with a known version.
       - name: Stage krit-rule-api to mavenLocal
@@ -334,6 +337,7 @@ jobs:
         with:
           cache-cleanup: on-success
           validate-wrappers: true
+      - uses: ./.github/actions/maven-mirror
       # TestKit functional tests: configuration cache, Isolated Projects and
       # the root kritCheckAll, against a fake krit binary.
       - name: Validate krit-gradle-plugin
@@ -358,6 +362,7 @@ jobs:
         with:
           cache-cleanup: on-success
           validate-wrappers: true
+      - uses: ./.github/actions/maven-mirror
       # The settings plugin's functional test spins up a multi-project Gradle
       # build that auto-applies `dev.jasonpearson.krit` (the host plugin).
       # `settings.gradle.kts` composite-builds `../krit-gradle-plugin`, so a
@@ -492,6 +497,7 @@ jobs:
         with:
           cache-cleanup: on-success
           validate-wrappers: true
+      - uses: ./.github/actions/maven-mirror
       # --continue reports the failures of every task, not just the first.
       - name: Validate krit-fir (${{ matrix.shard }})
         working-directory: tools/krit-fir
@@ -545,6 +551,7 @@ jobs:
         with:
           cache-cleanup: on-success
           validate-wrappers: true
+      - uses: ./.github/actions/maven-mirror
       # TestFirCheckerExceptionIsIsolatedToRuleAndFileEndToEnd adds a
       # test-only throwing probe rule from krit-fir's compiled test classes to
       # a copy of the shadow jar. Build them on every run (the jar cache below
@@ -710,6 +717,7 @@ jobs:
         with:
           cache-cleanup: on-success
           validate-wrappers: true
+      - uses: ./.github/actions/maven-mirror
       - name: Cache krit-fir shadow jar
         id: cache-krit-fir
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
@@ -880,6 +888,7 @@ jobs:
         with:
           distribution: zulu
           java-version: "21"
+      - uses: ./.github/actions/maven-mirror
       # Cache key matches the `external-rule-example` job above.
       - name: Cache krit-fir shadow jar
         id: cache-krit-fir

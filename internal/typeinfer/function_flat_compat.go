@@ -2,6 +2,7 @@ package typeinfer
 
 import (
 	"reflect"
+	"strings"
 
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -16,6 +17,11 @@ type FunctionDecl struct {
 	// ScopeStart and ScopeEnd bound the byte range of the file that can call a
 	// FileLocal declaration; ScopeEnd is 0 when the whole file can.
 	ScopeStart, ScopeEnd uint32
+	// Params is recorded only for top-level functions with at least one
+	// annotated parameter, the only case ParamAnnotationIndex consumers
+	// need; nil otherwise, so indexing does not resolve every parameter
+	// type. Members record theirs in ClassInfo.Members.
+	Params []ParamInfo
 }
 
 // visibleAt reports whether a call at offset in path can reach a declaration in
@@ -34,6 +40,61 @@ func visibleAt(fileLocal bool, scopeStart, scopeEnd uint32, declPath, path strin
 type functionDeclRef struct {
 	Path string
 	FunctionDecl
+}
+
+// HasFunctionWithAnnotatedParam implements ParamAnnotationIndex.
+func (r *defaultResolver) HasFunctionWithAnnotatedParam(annotation, name string) bool {
+	return r.paramAnnotatedFuncs[annotation][name]
+}
+
+// FunctionNamesWithAnnotatedParam implements ParamAnnotationIndex.
+func (r *defaultResolver) FunctionNamesWithAnnotatedParam(annotation string) []string {
+	names := r.paramAnnotatedFuncs[annotation]
+	if len(names) == 0 {
+		return nil
+	}
+	return sortedKeys(names)
+}
+
+// TopLevelFunctionParams implements ParamAnnotationIndex.
+func (r *defaultResolver) TopLevelFunctionParams(fqn, path string, offset uint32) [][]ParamInfo {
+	var out [][]ParamInfo
+	for _, d := range r.functionDecls[fqn] {
+		if d.Params != nil && visibleAt(d.FileLocal, d.ScopeStart, d.ScopeEnd, d.Path, path, offset) {
+			out = append(out, d.Params)
+		}
+	}
+	return out
+}
+
+// recordParamAnnotations adds the names of fi's functions and members that
+// have annotated parameters to the HasFunctionWithAnnotatedParam gate. Like
+// suspendFuncs, entries are never removed on re-index; the gate only decides
+// whether a call is worth resolving.
+func (r *defaultResolver) recordParamAnnotations(fi *FileTypeInfo) {
+	add := func(params []ParamInfo, name string) {
+		for _, p := range params {
+			for _, a := range p.Annotations {
+				if r.paramAnnotatedFuncs == nil {
+					r.paramAnnotatedFuncs = make(map[string]map[string]bool)
+				}
+				if r.paramAnnotatedFuncs[a] == nil {
+					r.paramAnnotatedFuncs[a] = make(map[string]bool)
+				}
+				r.paramAnnotatedFuncs[a][name] = true
+			}
+		}
+	}
+	for key, decls := range fi.FunctionDecls {
+		for _, d := range decls {
+			add(d.Params, key[strings.LastIndexByte(key, '.')+1:])
+		}
+	}
+	for _, ci := range fi.Classes {
+		for _, m := range ci.Members {
+			add(m.Params, m.Name)
+		}
+	}
 }
 
 func (r *defaultResolver) HasFunction(fqn string) bool {
@@ -61,6 +122,9 @@ func (r *defaultResolver) indexFunctionFlat(funcIdx uint32, file *scanner.File, 
 	retType := r.extractFunctionReturnTypeFlat(funcIdx, file, it)
 	decl := FunctionDecl{Type: retType}
 	decl.FileLocal, decl.ScopeStart, decl.ScopeEnd = flatDeclarationVisibility(file, funcIdx)
+	if parent, ok := file.FlatParent(funcIdx); ok && file.FlatType(parent) == "source_file" && flatFunctionHasAnnotatedParam(file, funcIdx) {
+		decl.Params = r.extractFunctionParamsFlat(funcIdx, file, it)
+	}
 	r.addFunctionDecl(file.Path, funcName, decl)
 	if pkg != "" {
 		r.addFunctionDecl(file.Path, pkg+"."+funcName, decl)

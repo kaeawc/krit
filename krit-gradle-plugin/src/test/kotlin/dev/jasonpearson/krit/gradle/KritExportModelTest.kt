@@ -353,6 +353,17 @@ class KritExportModelTest {
         val check = runWithFakeAndroid(root, ":app:kritCheck", "-PfakeGeneratedSources", "-PdeferAndroidVariants", "--configuration-cache")
         assertEquals(TaskOutcome.SUCCESS, check.task(":app:generateDebugFakeSources")?.outcome, check.output)
         assertEquals(null, check.task(":app:compileDebugKotlin"), "generators only, never a compile")
+        // #1642: so does the per-variant kritCheckDebug, and not with its own fir off.
+        File(root, "app/build").deleteRecursively()
+        val variant = runWithFakeAndroid(root, ":app:kritCheckDebug",
+            "-PfakeGeneratedSources", "-PdeferAndroidVariants", "--configuration-cache")
+        assertEquals(TaskOutcome.SUCCESS, variant.task(":app:generateDebugFakeSources")?.outcome, variant.output)
+        build.appendText("tasks.withType<dev.jasonpearson.krit.gradle.KritCheckTask>()" +
+            ".matching { it.name == \"kritCheckDebug\" }.configureEach { fir = false }\n")
+        File(root, "app/build").deleteRecursively()
+        val variantNoFir = runWithFakeAndroid(root, ":app:kritCheckDebug",
+            "-PfakeGeneratedSources", "-PdeferAndroidVariants", "--configuration-cache")
+        assertEquals(null, variantNoFir.task(":app:generateDebugFakeSources"), variantNoFir.output)
     }
 
     private fun fakeKrit(root: File): File = File(root, "fake-krit").apply {
@@ -395,6 +406,11 @@ class KritExportModelTest {
         val check = run(root, "kritCheck", "--configuration-cache")
         assertEquals(TaskOutcome.SUCCESS, check.task(":generateFakeSources")?.outcome, check.output)
         assertTrue(File(generatedRoot, "com/example/Gen.java").isFile)
+        // kritBaseline records what kritCheck reports, so it runs them too.
+        File(root, "build").deleteRecursively()
+        val baseline = run(root, "kritBaseline", "--configuration-cache")
+        assertEquals(TaskOutcome.SUCCESS, baseline.task(":generateFakeSources")?.outcome, baseline.output)
+        assertTrue(baseline.task(":kritExportModel") != null, baseline.output)
 
         build.appendText("krit { fir = false }\n")
         File(root, "build").deleteRecursively()
@@ -621,6 +637,29 @@ class KritExportModelTest {
             assertEquals(listOf(File(root, "build/intermediates/${expected[entry["kind"]]}").canonicalPath),
                 entry["generatedClasspath"])
         }
+    }
+
+    // #1643: a KMP Android target's compilation (androidDebug) is AGP's `debug` component, so the
+    // generated roots AGP's Variant API registers for it are in the model and run by kritCheck.
+    @Test
+    fun `KMP Android compilations take the AGP Variant API generated roots`() {
+        val root = File(directory, "kmp-android-generated").also { it.mkdirs() }
+        fakeKrit(root)
+        File(root, "settings.gradle.kts").writeText("rootProject.name = \"kmp-android-generated\"\n")
+        File(root, "build.gradle.kts").writeText("""
+            plugins { id("com.android.library"); id("org.jetbrains.kotlin.multiplatform"); id("dev.jasonpearson.krit") }
+            krit { advanced { binary.set(file("fake-krit")) } }
+        """.trimIndent())
+        File(root, "android.jar").writeBytes(byteArrayOf())
+        val args = arrayOf("-PfakeAndroidKmp", "-PfakeGeneratedSources", "-PdeferAndroidVariants")
+        runWithFakePlugin(root, FakeKmpPlugin::class.java, "org.jetbrains.kotlin.multiplatform", "kritExportModel", *args)
+        val sets = sourceSets(File(root, ".krit/gradle-model/_root.json"))
+        val main = sets.single { it["platform"] == "android" && it["kind"] == "main" }
+        assertEquals("androidDebug", main["name"])
+        assertEquals(listOf(modelPath(File(root, "build/generated/source/fake/debug"))), main["generatedSourceDirs"], main.toString())
+        assertEquals(1, sets.count { it["platform"] == "android" && it["kind"] == "main" }, "no duplicate Android spec")
+        val check = runWithFakePlugin(root, FakeKmpPlugin::class.java, "org.jetbrains.kotlin.multiplatform", "kritCheck", *args)
+        assertEquals(TaskOutcome.SUCCESS, check.task(":generateDebugFakeSources")?.outcome, check.output)
     }
 
     @Test

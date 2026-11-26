@@ -229,6 +229,9 @@ func (c *ResourceIndexCache) ensureEntryDir(dir string) error {
 	return nil
 }
 
+// cloneResourceIndex deep-copies idx for the asynchronous cache write. Every
+// field must be copied: one it skips is missing from each index a later run
+// loads (#1830). TestCloneResourceIndexCopiesEveryField checks them all.
 func cloneResourceIndex(idx *ResourceIndex) *ResourceIndex {
 	if idx == nil {
 		return nil
@@ -287,7 +290,9 @@ func cloneResourceIndex(idx *ResourceIndex) *ResourceIndex {
 		out.Plurals[k] = cloneStringMap(v)
 	}
 	for _, def := range idx.PluralDefinitions {
-		out.PluralDefinitions = append(out.PluralDefinitions, PluralDefinition{Name: def.Name, FilePath: def.FilePath, Line: def.Line, Quantities: cloneStringMap(def.Quantities)})
+		def.Quantities = cloneStringMap(def.Quantities)
+		def.QuantityPos = maps.Clone(def.QuantityPos)
+		out.PluralDefinitions = append(out.PluralDefinitions, def)
 	}
 	out.StringDefinitions = append(out.StringDefinitions, idx.StringDefinitions...)
 	maps.Copy(out.PluralSources, idx.PluralSources)
@@ -300,6 +305,7 @@ func cloneResourceIndex(idx *ResourceIndex) *ResourceIndex {
 	maps.Copy(out.Booleans, idx.Booleans)
 	maps.Copy(out.IDs, idx.IDs)
 	out.ExtraTexts = append(out.ExtraTexts, idx.ExtraTexts...)
+	out.AliasItems = append(out.AliasItems, idx.AliasItems...)
 	out.TypographyTexts = append(out.TypographyTexts, idx.TypographyTexts...)
 	out.VectorDrawables = append(out.VectorDrawables, idx.VectorDrawables...)
 	return out

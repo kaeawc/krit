@@ -898,10 +898,17 @@ func LoadCurrentCrossFileCacheMeta(dir string) (CrossFileCacheMeta, bool) {
 }
 
 // CoversSourcePaths reports whether the Kotlin/Java source files recorded in
-// the metadata are exactly paths. A deleted or added source file changes the
-// index even when every remaining file is unchanged, so cross-file results
-// computed under this fingerprint are only valid for the same file set.
-func (m CrossFileCacheMeta) CoversSourcePaths(paths []string) bool {
+// the metadata are exactly paths, with the recorded content wherever hashOf
+// knows a path's current content hash. A deleted or added source file changes
+// the index even when every remaining file is unchanged, and so does a file
+// returned to an earlier version that every per-file cache still holds (#1820),
+// so cross-file results computed under this fingerprint are only valid for
+// the same files.
+//
+// hashOf returns the current hex content hash or a prefix of at least 16
+// characters of it (the per-file analysis cache keeps 16), or "" to skip the
+// content check for that path. A nil hashOf compares paths only.
+func (m CrossFileCacheMeta) CoversSourcePaths(paths []string, hashOf func(path string) string) bool {
 	want := make(map[string]struct{}, len(paths))
 	for _, p := range paths {
 		want[p] = struct{}{}
@@ -913,6 +920,11 @@ func (m CrossFileCacheMeta) CoversSourcePaths(paths []string) bool {
 		}
 		if _, ok := want[e.Path]; !ok {
 			return false
+		}
+		if hashOf != nil {
+			if current := hashOf(e.Path); current != "" && (len(current) < 16 || !strings.HasPrefix(e.Hash, current)) {
+				return false
+			}
 		}
 		n++
 	}

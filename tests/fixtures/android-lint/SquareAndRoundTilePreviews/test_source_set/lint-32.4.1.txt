@@ -1,0 +1,1 @@
+src/main/AndroidManifest.xml:11:85: SquareAndRoundTilePreviews: Tiles need a preview asset in both drawable-round and drawable

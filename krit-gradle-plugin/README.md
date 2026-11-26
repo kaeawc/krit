@@ -157,7 +157,11 @@ paths appear in `generatedSourceDirs` even before files exist. Each file also re
 `rootDir` and `gradleUserHome`, the build root and Gradle user home it was exported
 under. krit rebases paths under them when the model is read somewhere else (see
 [CI recipe: skip Gradle](#ci-recipe-skip-gradle-when-the-build-has-not-changed)). Android generated
-class jars are discovered best-effort from compile artifact views. Missing values
+class jars are discovered best-effort from compile artifact views. A module's own R
+jar is recorded at the path AGP's R task writes it to, predicted from AGP's version
+and task names; the export never lists the build directory, so building the R jar
+does not invalidate the configuration cache. krit looks for the jar when it loads the
+model, under AGP's other R-jar folder names too. Missing values
 are empty lists or an empty `jvmTarget` string.
 
 ```kotlin

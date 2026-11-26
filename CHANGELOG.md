@@ -19,6 +19,11 @@ All notable changes to Krit will be documented in this file.
   `androidx.lifecycle:lifecycle-livedata-core` and `lifecycle-runtime` 2.11.1, under their Lint IDs. Their findings
   match the Lint CLI running those releases' `lint.jar` on the inputs under
   `internal/rules/testdata/androidx_lifecycle_runtime/` (#1451, #1452).
+- PR mode for `--diff` (#1660): with a Gradle model, the type oracle and the FIR check compile only the modules that
+  hold the changed Kotlin files, with their dependencies as built jars or source context, instead of the whole
+  repository; every other file keeps Go's verdict. It falls back to the whole-repository compile when a module would
+  lose dependency context or the model is missing, and `--no-pr-mode` turns it off. The FIR summary line and
+  `summary.fir.outsidePr` say how many files stayed with Go.
 - `MissingOnRenderProcessGone`, `CrossOriginIsolatedAllowlist` (`androidx.webkit` 1.18.0) and
   `DontUseAccessibilityNodeInfoGetText` (`androidx.test.uiautomator` 2.4.1), under their Lint IDs, checked against
   the Lint CLI running those releases' `lint.jar` (`internal/rules/testdata/androidx_webkit/`,
@@ -38,6 +43,9 @@ All notable changes to Krit will be documented in this file.
   part of the analysis cache key. The Bazel rules pass them from `--@krit//:min_sdk_version` /
   `--@krit//:target_sdk_version`, and an `android_binary`'s own `krit_aspect` action from its `manifest_values`, since
   Bazel builds often declare the levels only there (#1682).
+- `LaunchDuringComposition`, `NoCollectCallFound` and `ContextCastToActivity`, ports of the Lint checks bundled with
+  `androidx.activity:activity-compose` 1.13.0, under their Lint IDs. Their findings match the Lint CLI running that
+  release's `lint.jar` on the inputs under `internal/rules/testdata/androidx_activity_compose/` (#1302, #1303, #1304).
 - `UnusedCrossfadeTargetStateParameter`, `UnusedContentLambdaTargetStateParameter`,
   `UnusedTargetStateInContentKeyLambda` and `UnusedTransitionTargetStateParameter`, ports of the Lint checks bundled
   with `androidx.compose.animation` 1.13.0 (`animation-android`, `animation-core-android`), under their Lint IDs.
@@ -503,6 +511,10 @@ All notable changes to Krit will be documented in this file.
   `MoshiUsageNonMoshiClassInternal`/`External` (#1384, #1395, #1396, #1404, #1407, #1408, #1409).
 
 ### Fixed
+- Gradle plugin: the configuration cache is reused after the first build that creates an Android module's R jar.
+  `kritExportModel` recorded the R jar by listing `build/intermediates` while configuring, which made the directory a
+  configuration input. It now records the path AGP writes the jar to, and krit looks the jar up when it loads the model
+  (#1645).
 - `MutableImplicitPendingIntent` follows more ways of building the intent, as Lint 32.4.1 does: `getActivities`
   intent arrays held in locals (`arrayOf`, a Java array initializer, and `arrayOfNulls(n)` / `new Intent[n]` of
   constant size whose elements are the last write to each index before the call), and `let`, `run` and `with`
@@ -518,6 +530,15 @@ All notable changes to Krit will be documented in this file.
   `ContextCompat.registerReceiver`, without `RECEIVER_NOT_EXPORTED` or a broadcast permission, as an unprotected
   component, and follows the incoming intent into helpers declared in other files: imported or same-package top-level
   functions and members of project classes or objects (`Launcher.launch(this, intent)`) (#1623).
+- `UnsanitizedFilenameFromContentProvider` proves a Cursor local whose type is inferred from its initializer:
+  `ContentResolver.query`, `SQLiteDatabase.query`/`rawQuery` and their variants (also through `!!` or an Elvis that
+  returns or throws), or a call to a function or method in the same file declared to return `Cursor`, in Kotlin and
+  Java (`var`). The receiver is resolved to the declaration visible at the call (an earlier local in the same or an
+  enclosing block, a nearer parameter, a member of an enclosing class), so a same-named declaration in a sibling
+  block, a nested function, lambda or another class no longer decides its type, and a `contentResolver` declared with
+  another type is not taken for `Context.contentResolver`. A helper call resolves to the innermost local function,
+  enclosing-class member or top-level function with that name and a matching argument count; overloads that disagree
+  on the return type abstain (#1621).
 - `JavascriptInterface` reads Kotlin accessor use-site targets: a property annotated `@get:JavascriptInterface` or
   `@set:JavascriptInterface`, or whose getter or setter carries the annotation, counts as an annotated bridge method,
   and a private one is reported as `Must be public`, as Lint sees the accessor methods through UAST. `@field:` does
@@ -549,6 +570,12 @@ All notable changes to Krit will be documented in this file.
   top-level or in a class, object or companion object), so an implicit intent with such an action that matches a
   non-exported component is reported as Lint reports it. A same-named parameter or local shadows a constant from
   another file (#1624).
+- `--diff` run from a subdirectory of the repository reported no findings: git's repository-relative paths were
+  resolved against the working directory.
+- Incremental FIR checking works again: the krit-fir shadow jar left out the IR manglers the JVM backend needs, so
+  every incremental snapshot build failed, no `.krit/fir-incremental` bundle was written and every scan was a full
+  compile, reported as `N requested files gated by compiler errors, no snapshot`. A full check now says under `-v`
+  whether it left a snapshot (`snapshot built without 9 files with compiler errors`) or why not, with counts (#1599).
 - The dispatch phase appends each file's findings to the run's findings once, instead of rebuilding all findings so far
   for every file that has any, under a lock all workers share. Rule execution on a 12,000-file synthetic project went
   from 16-17s to 5s (total 21s to 10s), and on element-x-android from 9.1-9.5s to 7.3-7.9s, with the same findings.

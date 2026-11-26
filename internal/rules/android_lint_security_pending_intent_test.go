@@ -193,6 +193,10 @@ class Target
 class P(private val context: Context) {
     fun arrays(n: Int) {
         PendingIntent.getActivities(context, 0, listOf(Intent("a")).toTypedArray(), FLAG_MUTABLE)
+        PendingIntent.getActivities(context, 0, mutableListOf(Intent("a")).toTypedArray(), FLAG_MUTABLE)
+        PendingIntent.getActivities(context, 0, arrayListOf(Intent("a")).toTypedArray(), FLAG_MUTABLE)
+        val list = listOf(Intent("b"))
+        PendingIntent.getActivities(context, 0, list.toTypedArray(), FLAG_MUTABLE)
         val arr = arrayOf(Intent("c"))
         PendingIntent.getActivities(context, 0, arr, FLAG_MUTABLE) // report
         val explicitArr = arrayOf(Intent(context, Target::class.java))
@@ -258,6 +262,17 @@ class J {
         Intent[] explicit = new Intent[1];
         explicit[0] = new Intent(context, J.class);
         PendingIntent.getActivities(context, 0, explicit, PendingIntent.FLAG_MUTABLE);
+        Intent[] deferred = new Intent[1];
+        Runnable later = () -> { deferred[0] = new Intent("z"); };
+        PendingIntent.getActivities(context, 0, deferred, PendingIntent.FLAG_MUTABLE);
+        Intent[] overwritten = new Intent[1];
+        overwritten[0] = new Intent("w");
+        overwritten[0] = new Intent(context, J.class);
+        PendingIntent.getActivities(context, 0, overwritten, PendingIntent.FLAG_MUTABLE);
+        Intent[] lastWins = new Intent[1];
+        lastWins[0] = new Intent(context, J.class);
+        lastWins[0] = new Intent("v");
+        PendingIntent.getActivities(context, 0, lastWins, PendingIntent.FLAG_MUTABLE); // report
     }
 }
 `

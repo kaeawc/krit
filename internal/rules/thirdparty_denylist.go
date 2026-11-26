@@ -311,52 +311,14 @@ func denyArgText(call lintCall, i int) string {
 // to.
 func denyCallOwners(ctx *api.Context, call lintCall) []string {
 	file := ctx.File
-	imp := lintImportsOf(file)
-	full, imported := imp.bySimple[call.Name]
 	if call.ReceiverNode == 0 {
-		if !denyMemberNames[call.Name] && !denyMentionsAllMemberOwner(file) {
-			return nil
-		}
-		if file.Language == scanner.LangKotlin && slackFunctionShadows(file, call.Idx, call.Name, imported) {
-			return nil
-		}
-		// A top-level function of the file's package in another file also wins over a default import.
-		if file.Language == scanner.LangKotlin && !imported && ctx.Resolver != nil && moshiFilePackage(file) != "" &&
-			ctx.Resolver.HasFunction(moshiFilePackage(file)+"."+call.Name) {
-			return nil
-		}
-		// A statically imported function, or a Kotlin top-level one.
-		if imported {
-			if dot := strings.LastIndexByte(full, '.'); dot > 0 && full[dot+1:] == call.Name {
-				return []string{full[:dot]}
-			}
-			return nil
-		}
-		owners := append([]string(nil), imp.stars...)
-		switch file.Language {
-		case scanner.LangKotlin:
-			owners = append(owners, "kotlin")
-		case scanner.LangJava:
-			if cls := denyEnclosingJavaSuperclass(file, call.Idx); cls != "" {
-				owners = append(owners, cls)
-			}
-		}
-		return owners
+		return denyUnqualifiedOwners(ctx, call)
 	}
 	// A static call through the class name, unless the name is a variable or parameter in scope (`Object Date`).
 	if fqn := denyClassFQN(file, call.ReceiverText); fqn != "" && !denyNamesVariable(file, call.ReceiverNode) {
 		return []string{fqn}
 	}
-	var owners []string
-	if file.Language == scanner.LangKotlin {
-		// An extension function: through its import, an on-demand import of its package, or kotlin's default import.
-		for _, e := range denyEntries {
-			if e.topLevel && e.member == call.Name && (full == e.owner+"."+call.Name || e.owner == "kotlin" || denyHasStar(imp, e.owner)) &&
-				!denyReceiverDeclaresMember(ctx, call) {
-				owners = append(owners, e.owner)
-			}
-		}
-	}
+	owners := denyExtensionOwners(ctx, call)
 	if !denyMemberNames[call.Name] && !denyMentionsAllMemberOwner(file) {
 		return owners
 	}
@@ -365,6 +327,65 @@ func denyCallOwners(ctx *api.Context, call lintCall) []string {
 	}
 	if typ := denyReceiverType(ctx, call.ReceiverNode); typ != "" {
 		owners = append(owners, denyMethodOwner(ctx, typ))
+	}
+	return owners
+}
+
+// denyUnqualifiedOwners returns the owners of a call without a receiver: a statically imported function, a Kotlin
+// top-level function of an on-demand-imported package or kotlin's default import (unless a declaration in scope or
+// in the file's package shadows it), or a Java superclass's method.
+func denyUnqualifiedOwners(ctx *api.Context, call lintCall) []string {
+	file := ctx.File
+	imp := lintImportsOf(file)
+	full, imported := imp.bySimple[call.Name]
+	if !denyMemberNames[call.Name] && !denyMentionsAllMemberOwner(file) {
+		return nil
+	}
+	if file.Language == scanner.LangKotlin && (slackFunctionShadows(file, call.Idx, call.Name, imported) ||
+		(!imported && denyPackageDeclaresFunction(ctx, call.Name))) {
+		return nil
+	}
+	if imported {
+		if dot := strings.LastIndexByte(full, '.'); dot > 0 && full[dot+1:] == call.Name {
+			return []string{full[:dot]}
+		}
+		return nil
+	}
+	owners := append([]string(nil), imp.stars...)
+	switch file.Language {
+	case scanner.LangKotlin:
+		owners = append(owners, "kotlin")
+	case scanner.LangJava:
+		if cls := denyEnclosingJavaSuperclass(file, call.Idx); cls != "" {
+			owners = append(owners, cls)
+		}
+	}
+	return owners
+}
+
+// denyPackageDeclaresFunction reports whether the file's package declares a top-level function called name in any
+// file, which wins over a default import.
+func denyPackageDeclaresFunction(ctx *api.Context, name string) bool {
+	pkg := moshiFilePackage(ctx.File)
+	return ctx.Resolver != nil && pkg != "" && ctx.Resolver.HasFunction(pkg+"."+name)
+}
+
+// denyExtensionOwners returns the packages of the listed Kotlin extension functions a qualified call can be: through
+// its import, an on-demand import of its package, or kotlin's default import, unless the receiver's class declares
+// the member itself.
+func denyExtensionOwners(ctx *api.Context, call lintCall) []string {
+	file := ctx.File
+	if file.Language != scanner.LangKotlin {
+		return nil
+	}
+	imp := lintImportsOf(file)
+	full := imp.bySimple[call.Name]
+	var owners []string
+	for _, e := range denyEntries {
+		if e.topLevel && e.member == call.Name && (full == e.owner+"."+call.Name || e.owner == "kotlin" || denyHasStar(imp, e.owner)) &&
+			!denyReceiverDeclaresMember(ctx, call) {
+			owners = append(owners, e.owner)
+		}
 	}
 	return owners
 }

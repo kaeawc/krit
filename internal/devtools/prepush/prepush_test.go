@@ -93,7 +93,7 @@ func TestPlanHonorsSkip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
-	if got, want := strings.Join(trimLines(string(out)), " "), "gofmt build vet oraclefp warmclean"; got != want {
+	if got, want := strings.Join(trimLines(string(out)), " "), "gofmt build vet gosec oraclefp warmclean"; got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
 }
@@ -248,5 +248,23 @@ func assertCheckoutUntouched(t *testing.T, dir string) {
 	cmd.Dir = dir
 	if out, err := cmd.Output(); err != nil || strings.TrimSpace(string(out)) != "feature" {
 		t.Errorf("checkout moved off its branch: %q %v", out, err)
+	}
+}
+
+// TestCIGosecExcludesAreReadable keeps the hook's gosec step tied to ci.yml:
+// if the CI step's format changes, the hook would silently run gosec with
+// no exclusions and fail on findings CI accepts.
+func TestCIGosecExcludesAreReadable(t *testing.T) {
+	requireBashAndGit(t)
+	root := repoRoot(t)
+	cmd := exec.Command("bash", "-c", "source scripts/pre-push.sh && ci_gosec_excludes")
+	cmd.Dir = root
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := strings.TrimSpace(string(out))
+	if !strings.HasPrefix(got, "G") || !strings.Contains(got, ",") {
+		t.Fatalf("ci_gosec_excludes = %q; update the sed pattern in scripts/pre-push.sh to match ci.yml's gosec step", got)
 	}
 }

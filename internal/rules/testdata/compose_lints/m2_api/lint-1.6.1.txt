@@ -1,0 +1,11 @@
+src/com/example/Material.kt:14:5: ComposeM2Api: Compose Material 2 (M2) is succeeded by Material 3 (M3). Please use M3 APIs. See https://slackhq.github.io/compose-lints/rules/#use-material-3 for more information.
+src/com/example/Material.kt:15:5: ComposeM2Api: Compose Material 2 (M2) is succeeded by Material 3 (M3). Please use M3 APIs. See https://slackhq.github.io/compose-lints/rules/#use-material-3 for more information.
+src/com/example/Material.kt:16:39: ComposeM2Api: Compose Material 2 (M2) is succeeded by Material 3 (M3). Please use M3 APIs. See https://slackhq.github.io/compose-lints/rules/#use-material-3 for more information.
+src/com/example/Material.kt:16:9: ComposeM2Api: Compose Material 2 (M2) is succeeded by Material 3 (M3). Please use M3 APIs. See https://slackhq.github.io/compose-lints/rules/#use-material-3 for more information.
+src/com/example/Material.kt:18:18: ComposeM2Api: Compose Material 2 (M2) is succeeded by Material 3 (M3). Please use M3 APIs. See https://slackhq.github.io/compose-lints/rules/#use-material-3 for more information.
+src/com/example/Material.kt:19:18: ComposeM2Api: Compose Material 2 (M2) is succeeded by Material 3 (M3). Please use M3 APIs. See https://slackhq.github.io/compose-lints/rules/#use-material-3 for more information.
+src/com/example/Material.kt:21:5: ComposeM2Api: Compose Material 2 (M2) is succeeded by Material 3 (M3). Please use M3 APIs. See https://slackhq.github.io/compose-lints/rules/#use-material-3 for more information.
+src/com/example/More.kt:12:18: ComposeM2Api: Compose Material 2 (M2) is succeeded by Material 3 (M3). Please use M3 APIs. See https://slackhq.github.io/compose-lints/rules/#use-material-3 for more information.
+src/com/example/More.kt:18:22: ComposeM2Api: Compose Material 2 (M2) is succeeded by Material 3 (M3). Please use M3 APIs. See https://slackhq.github.io/compose-lints/rules/#use-material-3 for more information.
+src/com/example/More.kt:19:17: ComposeM2Api: Compose Material 2 (M2) is succeeded by Material 3 (M3). Please use M3 APIs. See https://slackhq.github.io/compose-lints/rules/#use-material-3 for more information.
+src/com/example/More.kt:20:21: ComposeM2Api: Compose Material 2 (M2) is succeeded by Material 3 (M3). Please use M3 APIs. See https://slackhq.github.io/compose-lints/rules/#use-material-3 for more information.

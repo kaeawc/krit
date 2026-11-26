@@ -1,12 +1,16 @@
 package rules_test
 
 import (
+	"context"
+	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
 	"github.com/kaeawc/krit/internal/rules/api"
+	"github.com/kaeawc/krit/internal/scanner"
 )
 
 // TestComposeLintsParity checks the compose-lint-checks (slackhq/compose-lints) ports against the real detectors.
@@ -64,17 +68,17 @@ func TestComposeLintsParity(t *testing.T) {
 					t.Errorf("known-false-negatives.txt lists %q, which Lint does not report", fn)
 				}
 			}
-			got := runParityChecks(t, dir, checks)
+			got := runComposeLintsChecks(t, dir, checks)
 			if len(aliases) > 0 {
 				for i, line := range got {
 					got[i] = composeLintsLocation(line)
 				}
-				sortStrings(got)
+				sort.Strings(got)
 				for _, line := range parityLines(readOptionalParityFile(t, filepath.Join(dir, "krit-only.txt"))) {
 					loc, _, _ := strings.Cut(line, " # ")
 					want = append(want, strings.TrimSpace(loc))
 				}
-				sortStrings(want)
+				sort.Strings(want)
 			}
 			if strings.Join(got, "\n") != strings.Join(want, "\n") {
 				t.Errorf("krit findings differ from compose-lints 1.6.1 (minus known false negatives)\n--- want\n%s\n--- got\n%s",
@@ -84,20 +88,58 @@ func TestComposeLintsParity(t *testing.T) {
 	}
 }
 
+// runComposeLintsChecks runs the checks over a case's Kotlin files like runParityChecks, giving cross-file rules
+// all of the case's files at once.
+func runComposeLintsChecks(t *testing.T, dir string, checks []string) []string {
+	t.Helper()
+	var files []*scanner.File
+	err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() || filepath.Ext(path) != ".kt" {
+			return err
+		}
+		file, err := scanner.ParseFile(context.Background(), path)
+		if err == nil {
+			files = append(files, file)
+		}
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []string
+	for _, check := range checks {
+		var rule *api.Rule
+		for _, r := range api.Registry {
+			if r.ID == check {
+				rule = r
+			}
+		}
+		if rule == nil {
+			t.Fatalf("rule %q not found in registry", check)
+		}
+		var findings []scanner.Finding
+		if rule.Needs.Has(api.NeedsCrossFile) {
+			findings = runCrossFileRuleOnFiles(rule, files...)
+		} else {
+			for _, file := range files {
+				findings = append(findings, runRuleByNameOnFile(t, check, file)...)
+			}
+		}
+		for _, f := range findings {
+			rel, _ := filepath.Rel(dir, f.File)
+			out = append(out, fmt.Sprintf("%s:%d:%d: %s: %s", filepath.ToSlash(rel), f.Line, f.Col, f.Rule, f.Message))
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
 // composeLintsLocation trims a `path:line:column: ID: message` parity line to `path:line:column`.
 func composeLintsLocation(line string) string {
 	if i := strings.Index(line, ": "); i >= 0 {
 		return line[:i]
 	}
 	return line
-}
-
-func sortStrings(s []string) {
-	for i := 1; i < len(s); i++ {
-		for j := i; j > 0 && s[j] < s[j-1]; j-- {
-			s[j], s[j-1] = s[j-1], s[j]
-		}
-	}
 }
 
 // applyComposeLintsOptions applies the string-list options in a case's krit-options.txt to the registered rules and

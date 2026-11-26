@@ -1,11 +1,14 @@
 package rules_test
 
 import (
+	"context"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/kaeawc/krit/internal/rules"
 	"github.com/kaeawc/krit/internal/rules/api"
+	"github.com/kaeawc/krit/internal/scanner"
 )
 
 // TestComposeLintsNamingLintIDsSuppressTheirDirection checks that each compose-lints naming ID silences only the
@@ -111,4 +114,105 @@ class Shadow {
 			t.Errorf("%s: expected no findings, got %v", rule, got)
 		}
 	}
+}
+
+// TestComposeLintsCrossFileFixtures runs the project-scope ports over their fixtures, which TestPositiveFixtures
+// and TestNegativeFixtures skip.
+func TestComposeLintsCrossFileFixtures(t *testing.T) {
+	for _, rule := range []string{"ComposePreviewPublic", "ComposePreviewNaming"} {
+		r := findComposeLintsRule(t, rule)
+		pos := parseFixture(t, "positive", rule)
+		if got := runCrossFileRuleOnFiles(r, pos); len(got) == 0 {
+			t.Errorf("%s: expected findings on the positive fixture", rule)
+		}
+		neg := parseFixture(t, "negative", rule)
+		if got := runCrossFileRuleOnFiles(r, neg); len(got) != 0 {
+			t.Errorf("%s: expected no findings on the negative fixture, got %v", rule, got)
+		}
+	}
+}
+
+func TestComposePreviewPublicSuppressLint(t *testing.T) {
+	const src = `
+package test
+
+import android.annotation.SuppressLint
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.tooling.preview.Preview
+
+%s
+@Preview
+@Composable
+fun ScreenPreview() {}
+`
+	r := findComposeLintsRule(t, "ComposePreviewPublic")
+	if got := runCrossFileRuleOnFiles(r, parseInline(t, strings.Replace(src, "%s", "", 1))); len(got) != 1 {
+		t.Fatalf("expected 1 finding without suppression, got %d", len(got))
+	}
+	if got := runCrossFileRuleOnFiles(r, parseInline(t, strings.Replace(src, "%s", `@SuppressLint("ComposePreviewPublic")`, 1))); len(got) != 0 {
+		t.Errorf("@SuppressLint must suppress ComposePreviewPublic, got %d findings", len(got))
+	}
+}
+
+// TestComposePreviewPublicCrossFileMultipreview checks that a multipreview declared in another file counts, and that
+// a same-named annotation in another package does not.
+func TestComposePreviewPublicCrossFileMultipreview(t *testing.T) {
+	annotations := parseInlineWithName(t, "Previews.kt", `
+package com.example.tooling
+
+import androidx.compose.ui.tooling.preview.Preview
+
+@Preview
+annotation class DevicePreviews
+`)
+	other := parseInlineWithName(t, "Other.kt", `
+package com.example.other
+
+annotation class DevicePreviews
+`)
+	screen := parseInlineWithName(t, "Screen.kt", `
+package com.example.ui
+
+import androidx.compose.runtime.Composable
+import com.example.tooling.DevicePreviews
+
+@DevicePreviews
+@Composable
+fun ScreenPreview() {}
+`)
+	lookalike := parseInlineWithName(t, "Lookalike.kt", `
+package com.example.ui2
+
+import androidx.compose.runtime.Composable
+import com.example.other.DevicePreviews
+
+@DevicePreviews
+@Composable
+fun NotAPreview() {}
+`)
+	r := findComposeLintsRule(t, "ComposePreviewPublic")
+	got := runCrossFileRuleOnFiles(r, annotations, other, screen, lookalike)
+	if len(got) != 1 || !strings.HasSuffix(got[0].File, "Screen.kt") {
+		t.Errorf("expected exactly one finding in Screen.kt, got %v", got)
+	}
+}
+
+func findComposeLintsRule(t *testing.T, id string) *api.Rule {
+	t.Helper()
+	for _, r := range api.Registry {
+		if r.ID == id {
+			return r
+		}
+	}
+	t.Fatalf("rule %q not registered", id)
+	return nil
+}
+
+func parseFixture(t *testing.T, kind, rule string) *scanner.File {
+	t.Helper()
+	file, err := scanner.ParseFile(context.Background(), filepath.Join(fixtureRoot(t), kind, "compose", rule+".kt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return file
 }

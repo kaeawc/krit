@@ -14,7 +14,10 @@ import (
 // per-file cache entry holding it, stays valid when the checkout moves
 // (#1814).
 func projectPath(ctx *api.Context, path string) string {
-	return scanner.RootRelativePath(projectRoot(ctx), path)
+	if ctx == nil {
+		return path
+	}
+	return ctx.Facts.ProjectPath(path)
 }
 
 // projectRoot returns the project root the run recorded, or "".
@@ -29,7 +32,7 @@ func projectRoot(ctx *api.Context) string {
 // that a configured test marker spelled as an absolute path inside the
 // project root still matches (scanner.IsTestFileIn).
 func isProjectTestFile(ctx *api.Context, path string) bool {
-	return scanner.IsTestFileIn(projectRoot(ctx), path)
+	return scanner.IsTestFileAt(projectRoot(ctx), path, projectPath(ctx, path))
 }
 
 // projectPathMarkers returns configured path markers ready to match a

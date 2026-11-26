@@ -75,7 +75,12 @@ func IsTestFile(path string) bool {
 // ("/work/repo/spec/") still matches, in its root-relative form
 // (RootRelativeMarker). An empty root matches path as given.
 func IsTestFileIn(root, path string) bool {
-	rel := RootRelativePath(root, path)
+	return IsTestFileAt(root, path, RootRelativePath(root, path))
+}
+
+// IsTestFileAt is IsTestFileIn for a caller that already holds
+// rel = RootRelativePath(root, path).
+func IsTestFileAt(root, path, rel string) bool {
 	if IsTestFile(rel) {
 		return true
 	}

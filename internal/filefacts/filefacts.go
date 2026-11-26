@@ -67,6 +67,8 @@ type Cache struct {
 	// projectRoot is the root of the project this run scans, or "". Set
 	// before rules run; see SetProjectRoot.
 	projectRoot string
+	// projectPaths memoizes ProjectPath under projectRoot: path -> string.
+	projectPaths sync.Map
 }
 
 type stringSlotKey struct {
@@ -138,9 +140,25 @@ func NewCache() *Cache { return &Cache{} }
 // the checkout, which differ between machines and CI agents (#1814). Call it
 // before any rule runs.
 func (c *Cache) SetProjectRoot(root string) {
-	if c != nil {
+	if c != nil && c.projectRoot != root {
 		c.projectRoot = root
+		c.projectPaths.Clear()
 	}
+}
+
+// ProjectPath returns scanner.RootRelativePath(c.ProjectRoot(), path),
+// memoized: rules ask for it on every node callback, and filepath.Rel
+// cleans and allocates each time.
+func (c *Cache) ProjectPath(path string) string {
+	if c == nil || c.projectRoot == "" {
+		return path
+	}
+	if v, ok := c.projectPaths.Load(path); ok {
+		return v.(string)
+	}
+	rel := scanner.RootRelativePath(c.projectRoot, path)
+	c.projectPaths.Store(path, rel)
+	return rel
 }
 
 // ProjectRoot returns the root SetProjectRoot recorded, or "".

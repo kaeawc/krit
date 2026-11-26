@@ -1,0 +1,13 @@
+src/com/example/Content.kt:12:21: UnusedCrossfadeTargetStateParameter: Target state parameter `it` is not used
+src/com/example/Content.kt:13:23: UnusedCrossfadeTargetStateParameter: Target state parameter `state` is not used
+src/com/example/Content.kt:14:64: UnusedCrossfadeTargetStateParameter: Target state parameter `_` is not used
+src/com/example/Content.kt:15:31: UnusedCrossfadeTargetStateParameter: Target state parameter `it` is not used
+src/com/example/Content.kt:18:21: UnusedCrossfadeTargetStateParameter: Target state parameter `it` is not used
+src/com/example/Content.kt:19:36: UnusedCrossfadeTargetStateParameter: Target state parameter `state` is not used
+src/com/example/Content.kt:21:26: UnusedCrossfadeTargetStateParameter: Target state parameter `it` is not used
+src/com/example/Content.kt:22:39: UnusedCrossfadeTargetStateParameter: Target state parameter `it` is not used
+src/com/example/Content.kt:27:28: UnusedContentLambdaTargetStateParameter: Target state parameter `it` is not used
+src/com/example/Content.kt:28:30: UnusedContentLambdaTargetStateParameter: Target state parameter `target` is not used
+src/com/example/Content.kt:30:55: UnusedTargetStateInContentKeyLambda: Target state parameter `it` is not used
+src/com/example/Content.kt:32:43: UnusedTargetStateInContentKeyLambda: Target state parameter `state` is not used
+src/com/example/Content.kt:32:69: UnusedContentLambdaTargetStateParameter: Target state parameter `state` is not used

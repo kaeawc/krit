@@ -43,3 +43,20 @@ import, as it does in Kotlin.
   dependency added by a convention plugin or arriving through another project module is not seen; one read from a
   Bazel `MODULE.bazel`/`WORKSPACE` counts for the whole build.
   Fully qualified references such as `androidx.compose.material.Button()` are not reported, as in Lint.
+
+## Compose animation
+
+`androidx.compose.animation:animation-android` and `animation-core-android` 1.13.0 (Kotlin). The unused-parameter
+checks share the Scaffold checks' reference and shadowing rules above.
+
+- `UnusedCrossfadeTargetStateParameter` reports an unused parameter of the first lambda passed to `Crossfade`, as
+  Lint does: the content lambda, or the `contentKey` lambda of `Transition.Crossfade` when it comes first.
+- `UnusedContentLambdaTargetStateParameter` and `UnusedTargetStateInContentKeyLambda` report an unused parameter of
+  `AnimatedContent`'s `content` lambda (trailing or `content = { }`) and of its `contentKey = { }` lambda.
+- `UnusedTransitionTargetStateParameter` reports an unused state parameter of a `Transition.animate*` call
+  (`animateFloat`, `animateDp`, `animateColor`, `animateValue` and the other library extensions) in the trailing or
+  `targetValueByState = { }` lambda, and of any one-parameter lambda of a same-file `animate*` extension. The
+  receiver must be proven to be an `androidx.compose.animation.core.Transition`: a variable declared as one or
+  initialized by `updateTransition`/`rememberTransition`, the receiver of a `Transition` extension, or
+  `AnimatedVisibilityScope.transition` inside an `AnimatedVisibility` or `AnimatedContent` lambda. Lint checks
+  every `animate*` call on a resolved `Transition`.

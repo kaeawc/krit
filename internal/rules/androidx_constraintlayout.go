@@ -43,7 +43,7 @@ func (r *IncorrectMatchParentUsageRule) fileMentions() []string {
 	return []string{axlConstraintLayoutPackage, "matchParent"}
 }
 func (r *IncorrectChainMarginsUsageRule) fileMentions() []string {
-	return []string{axlConstraintLayoutPackage, "Chain("}
+	return []string{axlConstraintLayoutPackage, "Chain"}
 }
 
 func (r *IncorrectReferencesDeclarationRule) Meta() api.RuleDescriptor {
@@ -204,6 +204,12 @@ func (r *IncorrectMatchParentUsageRule) check(ctx *api.Context) {
 	if lambda == 0 {
 		return
 	}
+	// A local declared in the constrain lambda shadows ConstrainScope.width/height (an enclosing function's
+	// declarations do not: the lambda's implicit receiver is the closer scope).
+	if decl := acrValueDeclaration(file, node, strings.TrimSpace(file.FlatNodeText(target))); decl != 0 &&
+		flatNodeContains(file, lambda, decl) {
+		return
+	}
 	errorProne := false
 	for _, stmt := range axlLambdaStatements(file, lambda) {
 		if axlMatchParentErrorProne(file, stmt, horizontal) {
@@ -300,6 +306,9 @@ func (r *IncorrectChainMarginsUsageRule) check(ctx *api.Context) {
 	for _, arg := range call.Args {
 		ident, qualified := axlChainElement(file, arg, stmts)
 		if ident == 0 {
+			// An argument that is not a known reference (`val alias = middle`) still holds its chain position, so
+			// its neighbours are not adjacent; it is never reported itself.
+			nodes = append(nodes, chainNode{name: strings.Join(strings.Fields(file.FlatNodeText(arg)), ""), chainParam: true})
 			continue
 		}
 		name := file.FlatNodeText(ident)
@@ -408,7 +417,7 @@ func axlIsLayoutReference(file *scanner.File, stmts uint32, name string) bool {
 }
 
 // axlWithChainParamsCalled mirrors isChainParamsCalledInIdentifier: `name.withChainParams(...)` anywhere in the
-// block.
+// block, on the chain reference itself rather than a nested declaration or lambda parameter that shadows it.
 func axlWithChainParamsCalled(file *scanner.File, stmts uint32, name string) bool {
 	found := false
 	file.FlatWalkNodes(stmts, "call_expression", func(c uint32) {
@@ -420,9 +429,26 @@ func axlWithChainParamsCalled(file *scanner.File, stmts uint32, name string) boo
 			return
 		}
 		recv := file.FlatFirstChild(acrCalleeExpression(file, c))
-		found = file.FlatType(recv) == "simple_identifier" && file.FlatNodeTextEquals(recv, name)
+		found = file.FlatType(recv) == "simple_identifier" && file.FlatNodeTextEquals(recv, name) &&
+			!axlCLNameShadowedBelow(file, recv, stmts, name)
 	})
 	return found
+}
+
+// axlCLNameShadowedBelow reports whether name at ref binds to a declaration nested inside stmts: a lambda parameter
+// or a local property of an inner block, rather than the reference declared in stmts or an enclosing block.
+func axlCLNameShadowedBelow(file *scanner.File, ref, stmts uint32, name string) bool {
+	for p, ok := file.FlatParent(ref); ok && p != stmts; p, ok = file.FlatParent(p) {
+		if file.FlatType(p) == "lambda_literal" && acrLambdaDeclaresParameter(file, p, name) {
+			return true
+		}
+	}
+	decl := acrValueDeclaration(file, ref, name)
+	if decl == 0 || !flatNodeContains(file, stmts, decl) {
+		return false
+	}
+	parent, _ := file.FlatParent(decl)
+	return parent != stmts
 }
 
 // axlHasChainLikeMargin mirrors findChainLikeConstraints: a constrain(name) { } block (not the block's implicit-return

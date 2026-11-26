@@ -514,11 +514,11 @@ jobs:
     # The parity tests run one at a time and keep the runner's four vCPUs busy
     # in krit-fir JVMs (two concurrent processes on one runner took as long
     # as one), so two runners split them.
-    name: oracle-backend-parity (${{ matrix.shard }}/2)
+    name: oracle-backend-parity (${{ matrix.shard }}/3)
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2]
+        shard: [1, 2, 3]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -620,9 +620,11 @@ jobs:
       # projects never share a daemon and that the daemon's facts come back
       # (and are cached) under the caller's relative spelling.
       - name: Run oracle backend parity
-        # The shards split one -run list: shard 1 runs SPLIT, shard 2 runs the
-        # full list with -skip SPLIT, so together they run exactly the tests
-        # the full list selects.
+        # Shards 1 and 2 split one -run list: shard 1 runs SPLIT, shard 2 runs
+        # the full list with -skip SPLIT. Shard 3 runs every other parity test
+        # (except the warm-clean-matrix job's rows): FIR end-to-end tests
+        # missing from TESTS used to run only in the `test` job, which has no
+        # krit-fir jar, so they skipped everywhere and went stale unnoticed.
         env:
           TESTS: TestFirOracleDeclarationContract|TestOracleAcceptsClasspathFlag|TestKMPSourceSetParity|TestOracleKotlin24|TestFirKotlin24Parity|TestFirOracleFactContract|TestFirFixtureParity|TestFirProperty|FuzzFirCheckers|TestComposeRememberWithoutKey_|TestCollectInOnCreateWithoutLifecycle_|TestInjectDispatcher_|TestUnsafeCastWhenNullable_|TestFirCheckerExceptionIsIsolatedToRuleAndFileEndToEnd|TestFirCheckDaemonRelativeScansOfTwoProjectsStaySeparate|TestOracleDaemonRelative|TestFirResolvesGeneratedSrcjarEndToEnd|TestFirSplitsSessionsBySourceSetSettingsEndToEnd|TestFirCoverageIsReportedWithoutVerboseEndToEnd
           SPLIT: TestFirProperty|FuzzFirCheckers|TestComposeRememberWithoutKey_|TestCollectInOnCreateWithoutLifecycle_|TestUnsafeCastWhenNullable_|TestOracleKotlin24
@@ -631,8 +633,10 @@ jobs:
           set -o pipefail
           if [ "$SHARD" = 1 ]; then
             select=(-run "$SPLIT")
-          else
+          elif [ "$SHARD" = 2 ]; then
             select=(-run "$TESTS" -skip "$SPLIT")
+          else
+            select=(-skip "$TESTS|TestWarmCleanMutation")
           fi
           go test ./tests/parity/ -count=1 -timeout 30m "${select[@]}" -v | tee parity.log
           if grep -q 'no tests to run' parity.log; then

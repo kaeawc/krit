@@ -165,6 +165,8 @@ func mergeChecks(in Input, units []Unit, keys []string, requested map[string][]s
 	resp := struct {
 		ID int64 `json:"id"`
 		checkPart
-	}{ID: c.ID, checkPart: out}
+		// Scope marks per-module verdicts, which the FIR cache keeps apart from the whole compile's.
+		Scope string `json:"scope"`
+	}{ID: c.ID, checkPart: out, Scope: "modules"}
 	return json.Marshal(resp)
 }

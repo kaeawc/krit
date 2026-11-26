@@ -1,0 +1,3 @@
+src/com/example/Alias.kt:11:12: NoCollectCallFound: You must call collect() on Flow progress
+src/com/example/Alias.kt:12:64: NoCollectCallFound: You must call collect() on Flow progress
+src/com/example/Alias.kt:14:7: LaunchDuringComposition: Calls to `launch` should happen inside of a SideEffect and not during composition

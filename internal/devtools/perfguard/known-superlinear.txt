@@ -4,4 +4,3 @@
 # guard fails until it does.
 #
 # <phase:perfTiming/path | rule:RuleName> #<issue>
-phase:androidPhase/manifestAnalysis/manifestSourceRuleChecks #1658

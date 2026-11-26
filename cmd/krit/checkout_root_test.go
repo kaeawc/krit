@@ -193,3 +193,39 @@ func TestRelocatedAnalysisCacheMatchesFreshScan(t *testing.T) {
 			rootB, strings.Join(onlyWarm, "\n  "), strings.Join(onlyFresh, "\n  "))
 	}
 }
+
+// Without a project marker, the root falls back to the scanned directory,
+// which can be the source folder a heuristic needs (src/, a Bazel package
+// such as typed/app/). Rules then keep reading the absolute path, so a file
+// passed on its own, as a Bazel krit_test passes it, is judged as before.
+func TestUnmarkedScanKeepsSourceFolderNames(t *testing.T) {
+	base := neutralTempDir(t)
+	files := map[string]string{
+		"src/Clean.kt":          "package example\n\n/** Adds two numbers. */\nfun add(a: Int, b: Int): Int = a + b\n",
+		"typed/app/Consumer.kt": "package typed.app\n\nclass Consumer\n",
+	}
+	for name, content := range files {
+		p := filepath.Join(base, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		stdout, stderr, code := runKrit(t, "--no-fir", "--no-daemon", "--no-type-oracle", "--no-cache", "-f", "json", "-q", p)
+		if code > 1 {
+			t.Fatalf("krit %s exited %d: %s", name, code, stderr)
+		}
+		var report struct {
+			Findings []scopeFinding `json:"findings"`
+		}
+		if err := json.Unmarshal([]byte(stdout), &report); err != nil {
+			t.Fatalf("invalid JSON for %s: %v", name, err)
+		}
+		for _, f := range report.Findings {
+			if f.Rule == "InvalidPackageDeclaration" {
+				t.Errorf("%s: InvalidPackageDeclaration under an unmarked root", name)
+			}
+		}
+	}
+}

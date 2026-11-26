@@ -31,6 +31,21 @@ func relocationTempDir(t *testing.T) string {
 // cache for it under root/.krit/cache, as a scan there would leave it.
 func seedRelocationRepo(t *testing.T, root string) (cachePath string, files []string) {
 	t.Helper()
+	return seedRelocationRepoMarked(t, root, true)
+}
+
+// seedRelocationRepoMarked is seedRelocationRepo with the project marker
+// (settings.gradle.kts) optional.
+func seedRelocationRepoMarked(t *testing.T, root string, marked bool) (cachePath string, files []string) {
+	t.Helper()
+	if marked {
+		if err := os.MkdirAll(root, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, "settings.gradle.kts"), []byte("rootProject.name = \"repo\"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
 	for rel, body := range map[string]string{"app/src/A.kt": "class A\n", "app/src/B.kt": "class B\n"} {
 		p := filepath.Join(root, filepath.FromSlash(rel))
 		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
@@ -99,10 +114,26 @@ func TestAnalysisCacheDiscardedWhenMovedUnderAHeuristicRoot(t *testing.T) {
 	base := relocationTempDir(t)
 	rootA, rootB := filepath.Join(base, "agent-1", "repo"), filepath.Join(base, "samples", "repo")
 	cacheA, _ := seedRelocationRepo(t, rootA)
+	seedRelocationRepo(t, rootB) // the same checkout under samples/
 	cacheB := FilePath(DefaultDir(rootB), []string{rootB})
 	copyFile(t, cacheA, cacheB)
 	if c := Load(cacheB); len(c.Files) != 0 {
 		t.Fatalf("a cache moved under samples/ kept %d entries", len(c.Files))
+	}
+}
+
+// Without a project marker, rules read absolute paths (the root is only the
+// scanned directory), so the cache keeps absolute paths and a moved copy
+// misses instead of serving verdicts computed at the old path.
+func TestAnalysisCacheNotRelocatedWithoutProjectMarker(t *testing.T) {
+	base := relocationTempDir(t)
+	rootA, rootB := filepath.Join(base, "agent-1", "repo"), filepath.Join(base, "agent-2", "repo")
+	cacheA, _ := seedRelocationRepoMarked(t, rootA, false)
+	_, filesB := seedRelocationRepoMarked(t, rootB, false)
+	cacheB := FilePath(DefaultDir(rootB), []string{rootB})
+	copyFile(t, cacheA, cacheB)
+	if res := Load(cacheB).CheckFiles(filesB, "rh", rootB); res.TotalCached != 0 {
+		t.Fatalf("an unmarked checkout's cache served %d files after a move", res.TotalCached)
 	}
 }
 

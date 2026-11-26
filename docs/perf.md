@@ -379,8 +379,9 @@ and submodule paths fall back to the stat and content-hash check.
 the repository relative to it and re-roots them on load, and its file name
 and rule hash are computed from repository-relative paths, so a `.krit/`
 restored into a checkout at another absolute path (another CI agent's
-workspace) still hits for unchanged files. That is safe because no verdict
-depends on the folders above the project root: structural path heuristics
+workspace) still hits for unchanged files, when the repository has a project
+marker (a VCS root, a krit config or Gradle settings). That is safe because no
+verdict depends on the folders above such a root: structural path heuristics
 read the root-relative path (`projectPath`), and a CLI test scans one tree at
 two roots and requires the same findings. Substring heuristics
 (`/src/test/`, `/samples/`, `-test-utils/`, ...) still see absolute paths, so

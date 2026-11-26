@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/projectroot"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -55,7 +56,13 @@ func relocationRoot(cacheFilePath string) string {
 	if err != nil {
 		return ""
 	}
-	return repoOfCacheDir(filepath.Dir(abs))
+	repo := repoOfCacheDir(filepath.Dir(abs))
+	// Rules read paths relative to a marked project root only; under an
+	// unmarked one they see absolute paths, so its entries must not move.
+	if !projectroot.IsMarked(repo) {
+		return ""
+	}
+	return repo
 }
 
 // repoOfCacheDir returns repo when dir is DefaultDir(repo), else "".

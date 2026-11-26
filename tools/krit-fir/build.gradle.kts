@@ -33,6 +33,12 @@ val testCompilerPluginRuntime by configurations.creating {
     isCanBeConsumed = false
     isCanBeResolved = true
 }
+// The embeddable Compose compiler plugin, which refers to relocated IntelliJ classes and cannot load into the plain
+// compiler krit-fir embeds: the probe must drop it alone and keep the plugins next to it (#1598).
+val testComposePlugin by configurations.creating {
+    isCanBeConsumed = false
+    isCanBeResolved = true
+}
 
 val bundledStdlibResources = layout.buildDirectory.dir("generated/kotlin-stdlib-resources")
 val copyKotlinStdlib by tasks.registering(Copy::class) {
@@ -66,6 +72,7 @@ dependencies {
 
     add(testCompilerPlugin.name, "org.jetbrains.kotlin:kotlin-serialization-compiler-plugin-embeddable:$kotlinVersion") { isTransitive = false }
     add(testCompilerPluginRuntime.name, "org.jetbrains.kotlinx:kotlinx-serialization-core-jvm:1.11.0") { isTransitive = false }
+    add(testComposePlugin.name, "org.jetbrains.kotlin:kotlin-compose-compiler-plugin-embeddable:$kotlinVersion") { isTransitive = false }
 
     testImplementation("org.junit.jupiter:junit-jupiter:6.1.3")
     testImplementation(kotlin("test"))
@@ -257,13 +264,15 @@ tasks.test {
     )
     // Sessions that snapshot a module write under krit's cache dir: keep tests out of the user's.
     systemProperty("krit.fir.cache.dir", layout.buildDirectory.dir("test-krit-cache").get().asFile.absolutePath)
-    inputs.files(testCompilerPlugin, testCompilerPluginRuntime).withPropertyName("testCompilerPlugins")
+    inputs.files(testCompilerPlugin, testCompilerPluginRuntime, testComposePlugin).withPropertyName("testCompilerPlugins")
     val pluginJars = files(testCompilerPlugin)
     val pluginRuntime = files(testCompilerPluginRuntime)
+    val composeJar = files(testComposePlugin)
     jvmArgumentProviders += CommandLineArgumentProvider {
         listOf(
             "-Dkrit.fir.test.serializationPlugin=" + pluginJars.singleFile.absolutePath,
             "-Dkrit.fir.test.serializationRuntime=" + pluginRuntime.singleFile.absolutePath,
+            "-Dkrit.fir.test.composePlugin=" + composeJar.singleFile.absolutePath,
         )
     }
 }

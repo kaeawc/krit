@@ -15,6 +15,16 @@ All notable changes to Krit will be documented in this file.
 - Gradle model: Kotlin Multiplatform Android targets record the generated roots AGP's Variant API registers for their
   component (view binding, BuildConfig, AIDL, `addGeneratedSourceDirectory`), and `kritCheck`/`exportGenerated` run
   their producers, as plain Android modules already did (#1643).
+- `DoNotCallViewToString` and `InflationInItemDecoration`, slack-lints 0.11.1's View checks, in the opt-in
+  `slack-lint` rule set for Kotlin and Java: a `toString()` call resolving to a View subclass's override, and a
+  `LayoutInflater` or ViewBinding `inflate()` inside a `RecyclerView.ItemDecoration`. Findings match the Lint CLI on
+  `internal/rules/testdata/slack_lint_resolver/view_checks/` (#1435, #1436).
+- `DenyListedApi` and `DenyListedBlockingApi`, slack-lints 0.11.1's `DenyListedApiDetector`, in the opt-in
+  `slack-lint` rule set for Kotlin and Java. They report the detector's built-in list (RxJava 3 `hide()` and blocking
+  calls, `java.util.Date`/`Calendar` and `java.text.DateFormat` APIs, `LinkedList`/`Stack`/`Vector`, `runCatching`,
+  `Flow.launchIn`, dispatcher-less rx3 builders and more) once the owner is proven from imports or the receiver's type.
+  Findings match the Lint CLI on `internal/rules/testdata/slack_lint/denylist/`, except that a same-file top-level
+  `runCatching` shadows kotlin's (#1428, #1429).
 - Gradle model freshness key for CI: `krit gradle-model key` hashes the build files that can change
   `kritExportModel`'s output (settings and build scripts, version catalogs, lockfiles, dependency verification metadata,
   `gradle.properties`, the wrapper version, the sources of buildSrc and of builds nested under the root) by root-relative

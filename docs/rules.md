@@ -255,6 +255,8 @@ Differences from Lint:
 
 
 
+
+
 `DenyListedApi` and `DenyListedBlockingApi` port `DenyListedApiDetector`'s fixed list for Kotlin and Java: RxJava 3
 `hide()` and `blocking*()` calls, `Schedulers.newThread()`, `ContextCompat.getDrawable(context, id)`, Espresso's
 `withId()`, `View.setOnClickListener(null)`, `Flow.launchIn()`, the kotlinx-coroutines-rx3 builders called without a
@@ -267,6 +269,19 @@ source resolver or a declared type, so a receiver krit cannot type is not report
 - a same-file top-level `runCatching` shadows kotlin's, as the Kotlin compiler resolves it; Lint still reports it;
 - the detector also reports layout XML tags named after a listed constructor's class (`<java.util.LinkedList>`,
   which no real layout contains); krit does not check layouts.
+
+`DoNotCallViewToString` and `InflationInItemDecoration` port slack-lints' View checks for Kotlin and Java. They walk
+source class hierarchies through the resolver, resolving each supertype through its declaring file's imports, so a
+project class named `View` in another package does not count as Android's:
+
+- `DoNotCallViewToString` reports a `toString()` call that resolves to an override declared in a subclass of
+  `android.view.View`, including an inherited override and an unqualified call inside the class. As in Lint, a call
+  that resolves to View's own `toString()` (a plain `View` or a framework widget) is not reported, and neither is a
+  string template. An override declared in Java is not seen, because the resolver records Kotlin members only.
+- `InflationInItemDecoration` reports, inside a class, object or anonymous class extending
+  `RecyclerView.ItemDecoration` (directly or through source superclasses), an `inflate()` call on a `LayoutInflater`
+  or a static `inflate()` of a generated `…Binding` class (in a `databinding` package) or a source class implementing
+  `ViewBinding`. A class nested inside the decoration is not part of it, as in Lint.
 
 `InclusiveNaming` ports `InclusiveNamingSourceCodeScanner` for Kotlin and Java. It reports nothing until its
 `blockList` option (Lint's `block-list`) lists words, for example:

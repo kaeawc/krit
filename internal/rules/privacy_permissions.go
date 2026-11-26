@@ -511,38 +511,68 @@ type LocationBackgroundWithoutRationaleRule struct {
 
 func (r *LocationBackgroundWithoutRationaleRule) Confidence() float64 { return api.ConfidenceMedium }
 
-func privacyExpressionIsBackgroundLocationPermissionFlat(file *scanner.File, idx uint32) bool {
+// privacyBackgroundLocationResolver tracks the same-file properties already
+// followed while resolving one expression, so self-referencing or mutually
+// referencing initializers terminate (#1611).
+type privacyBackgroundLocationResolver struct {
+	file    *scanner.File
+	visited map[uint32]bool
+}
+
+func (r *privacyBackgroundLocationResolver) expression(idx uint32) bool {
+	file := r.file
 	idx = flatUnwrapParenExpr(file, idx)
 	if file == nil || idx == 0 {
 		return false
 	}
-	switch file.FlatType(idx) {
-	case "string_literal", "line_string_literal", "multi_line_string_literal":
-		value, ok := contactsStringLiteralValueFlat(file, idx)
-		return ok && value == "android.permission.ACCESS_BACKGROUND_LOCATION"
-	case "simple_identifier":
-		name := file.FlatNodeString(idx, nil)
-		return contactsSameFileConstantIsBackgroundLocationFlat(file, idx, name)
-	case "navigation_expression":
-		path := contactsIdentifierPathFlat(file, idx)
-		return contactsIdentifierPathHasSuffix(path, []string{"Manifest", "permission", "ACCESS_BACKGROUND_LOCATION"}) ||
-			contactsIdentifierPathEquals(path, []string{"android", "Manifest", "permission", "ACCESS_BACKGROUND_LOCATION"})
-	case "call_expression":
-		return flatCallExpressionName(file, idx) == "arrayOf" && privacyValueArgumentsContainBackgroundLocationFlat(file, flatCallKeyArguments(file, idx))
-	case "value_argument", "value_arguments":
-		return privacyValueArgumentsContainBackgroundLocationFlat(file, idx)
+	if matched, ok := r.direct(idx); ok {
+		return matched
 	}
+	// Any descendant with a directly-evaluable shape decides the expression.
+	// Only those shapes are evaluated during the single walk; re-entering
+	// expression() for every descendant re-walked each subtree and grew
+	// exponentially with nesting depth.
 	found := false
 	file.FlatWalkAllNodes(idx, func(node uint32) {
 		if found || node == idx {
 			return
 		}
-		found = privacyExpressionIsBackgroundLocationPermissionFlat(file, node)
+		if matched, ok := r.direct(node); ok && matched {
+			found = true
+		}
 	})
 	return found
 }
 
+// direct evaluates the node shapes that decide the answer on their own. ok is
+// false for any other node type.
+func (r *privacyBackgroundLocationResolver) direct(idx uint32) (matched, ok bool) {
+	file := r.file
+	switch file.FlatType(idx) {
+	case "string_literal", "line_string_literal", "multi_line_string_literal":
+		value, ok := contactsStringLiteralValueFlat(file, idx)
+		return ok && value == "android.permission.ACCESS_BACKGROUND_LOCATION", true
+	case "simple_identifier":
+		return r.sameFileConstant(file.FlatNodeString(idx, nil)), true
+	case "navigation_expression":
+		path := contactsIdentifierPathFlat(file, idx)
+		return contactsIdentifierPathHasSuffix(path, []string{"Manifest", "permission", "ACCESS_BACKGROUND_LOCATION"}) ||
+			contactsIdentifierPathEquals(path, []string{"android", "Manifest", "permission", "ACCESS_BACKGROUND_LOCATION"}), true
+	case "call_expression":
+		return flatCallExpressionName(file, idx) == "arrayOf" && r.valueArguments(flatCallKeyArguments(file, idx)), true
+	case "value_argument", "value_arguments":
+		return r.valueArguments(idx), true
+	}
+	return false, false
+}
+
 func privacyValueArgumentsContainBackgroundLocationFlat(file *scanner.File, args uint32) bool {
+	r := &privacyBackgroundLocationResolver{file: file}
+	return r.valueArguments(args)
+}
+
+func (r *privacyBackgroundLocationResolver) valueArguments(args uint32) bool {
+	file := r.file
 	if file == nil || args == 0 {
 		return false
 	}
@@ -554,23 +584,31 @@ func privacyValueArgumentsContainBackgroundLocationFlat(file *scanner.File, args
 		if file.FlatType(arg) == "value_argument" {
 			expr = flatValueArgumentExpression(file, arg)
 		}
-		if privacyExpressionIsBackgroundLocationPermissionFlat(file, expr) {
+		if r.expression(expr) {
 			return true
 		}
 	}
 	return false
 }
 
-func contactsSameFileConstantIsBackgroundLocationFlat(file *scanner.File, _ uint32, name string) bool {
+// sameFileConstant reports whether any same-file property named name has an
+// initializer that resolves to ACCESS_BACKGROUND_LOCATION. Each property is
+// followed at most once per resolution.
+func (r *privacyBackgroundLocationResolver) sameFileConstant(name string) bool {
+	file := r.file
 	if file == nil || name == "" {
 		return false
 	}
 	found := false
 	file.FlatWalkNodes(0, "property_declaration", func(prop uint32) {
-		if found || extractIdentifierFlat(file, prop) != name {
+		if found || r.visited[prop] || extractIdentifierFlat(file, prop) != name {
 			return
 		}
-		if privacyExpressionIsBackgroundLocationPermissionFlat(file, contactsPropertyInitializerFlat(file, prop)) {
+		if r.visited == nil {
+			r.visited = make(map[uint32]bool)
+		}
+		r.visited[prop] = true
+		if r.expression(contactsPropertyInitializerFlat(file, prop)) {
 			found = true
 		}
 	})

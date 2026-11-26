@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -156,13 +157,39 @@ func mergeRepo(t *testing.T, root string, branchEdit func(dir string)) string {
 	return work
 }
 
+// checksExceptMerge lists every check the planner can add (PLAN+=(name ...)),
+// minus merge.
+func checksExceptMerge(t *testing.T) []string {
+	t.Helper()
+	script, err := os.ReadFile(filepath.Join(repoRoot(t), "scripts", "pre-push.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, m := range regexp.MustCompile(`PLAN\+=\(([a-z0-9 ]+)\)`).FindAllStringSubmatch(string(script), -1) {
+		for _, name := range strings.Fields(m[1]) {
+			if name != "merge" && !seen[name] {
+				seen[name] = true
+				out = append(out, name)
+			}
+		}
+	}
+	if len(out) < 10 {
+		t.Fatalf("found only %v in pre-push.sh; update checksExceptMerge's pattern", out)
+	}
+	return out
+}
+
 func runMergeOnly(t *testing.T, dir string) (string, error) {
 	t.Helper()
 	cmd := exec.Command("bash", "scripts/pre-push.sh")
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(),
 		"KRIT_PREPUSH_FETCH=0",
-		"KRIT_PREPUSH_SKIP=gofmt,build,vet,lint,rules,oraclefp,schema,gomod,test,actions,docs,winvet",
+		// Every check except merge, read from the script so a new check can't
+		// make this test depend on tools (gosec, bazel, java) CI lacks.
+		"KRIT_PREPUSH_SKIP="+strings.Join(checksExceptMerge(t), ","),
 		"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1",
 		// Hooks can run with GIT_DIR exported; the merge must still happen
 		// in the throwaway worktree, not in this checkout.

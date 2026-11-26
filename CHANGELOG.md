@@ -43,6 +43,9 @@ All notable changes to Krit will be documented in this file.
   part of the analysis cache key. The Bazel rules pass them from `--@krit//:min_sdk_version` /
   `--@krit//:target_sdk_version`, and an `android_binary`'s own `krit_aspect` action from its `manifest_values`, since
   Bazel builds often declare the levels only there (#1682).
+- `LaunchDuringComposition`, `NoCollectCallFound` and `ContextCastToActivity`, ports of the Lint checks bundled with
+  `androidx.activity:activity-compose` 1.13.0, under their Lint IDs. Their findings match the Lint CLI running that
+  release's `lint.jar` on the inputs under `internal/rules/testdata/androidx_activity_compose/` (#1302, #1303, #1304).
 - `UnusedCrossfadeTargetStateParameter`, `UnusedContentLambdaTargetStateParameter`,
   `UnusedTargetStateInContentKeyLambda` and `UnusedTransitionTargetStateParameter`, ports of the Lint checks bundled
   with `androidx.compose.animation` 1.13.0 (`animation-android`, `animation-core-android`), under their Lint IDs.
@@ -508,6 +511,10 @@ All notable changes to Krit will be documented in this file.
   `MoshiUsageNonMoshiClassInternal`/`External` (#1384, #1395, #1396, #1404, #1407, #1408, #1409).
 
 ### Fixed
+- Gradle plugin: the configuration cache is reused after the first build that creates an Android module's R jar.
+  `kritExportModel` recorded the R jar by listing `build/intermediates` while configuring, which made the directory a
+  configuration input. It now records the path AGP writes the jar to, and krit looks the jar up when it loads the model
+  (#1645).
 - `MutableImplicitPendingIntent` follows more ways of building the intent, as Lint 32.4.1 does: `getActivities`
   intent arrays held in locals (`arrayOf`, a Java array initializer, and `arrayOfNulls(n)` / `new Intent[n]` of
   constant size whose elements are the last write to each index before the call), and `let`, `run` and `with`

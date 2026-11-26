@@ -372,27 +372,32 @@ func (m *Model) Fingerprint() string {
 	return ClasspathFingerprint(entries)
 }
 
-// ClasspathFingerprint hashes each entry's path and the content of a regular
-// file (a directory's size and modification time) in order. A file's stat is
-// never part of the key, so it is the same in every process for the same
-// bytes, and a same-size rewrite inside one mtime tick still changes it.
-// Missing paths retain a marker so removing an existing entry changes the key.
-// Directory entries are only stat'd at the top level and relative entries
-// resolve against the working directory.
+// ClasspathFingerprint hashes each entry in order: a regular file by its
+// content alone, a directory by its path, size and modification time, and a
+// missing entry by its path and a marker (so removing an existing entry
+// changes the key). Leaving files' paths and stats out makes the key the same
+// in every process, and wherever the same jars live (another
+// GRADLE_USER_HOME, another checkout); a same-size rewrite inside one mtime
+// tick still changes it. Directory entries are only stat'd at the top level
+// and relative entries resolve against the working directory.
 func ClasspathFingerprint(entries []string) string {
 	var b strings.Builder
 	for _, entry := range entries {
-		b.WriteString(entry)
-		b.WriteByte(0)
 		if info, err := os.Stat(entry); err != nil {
+			b.WriteString(entry)
+			b.WriteByte(0)
 			b.WriteString("missing")
 		} else if info.IsDir() {
+			b.WriteString(entry)
+			b.WriteByte(0)
 			b.WriteString(strconv.FormatInt(info.Size(), 10))
 			b.WriteByte(0)
 			b.WriteString(strconv.FormatInt(info.ModTime().UnixNano(), 10))
 		} else if hx, err := hashutil.Default().HashFile(entry, nil); err == nil {
 			b.WriteString(hx)
 		} else {
+			b.WriteString(entry)
+			b.WriteByte(0)
 			b.WriteString("unreadable")
 		}
 		b.WriteByte(0)

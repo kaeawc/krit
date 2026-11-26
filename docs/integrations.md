@@ -394,6 +394,48 @@ Outputs: `version`, `path`, `findings-count`, `sarif-file`, `exit-code`.
 now shares the root action's fail-closed download and counts findings with
 `jq`; new workflows should use the root action.
 
+### Caching `.krit/` between CI runs
+
+`--fir` spends most of a cold run compiling. The FIR checker cache
+(`.krit/fir-cache/`) keys each file by its path relative to the repository
+and by the content of every input, never by an absolute path or an mtime:
+sources, classpath jars, the `krit-fir` jar. A `.krit/` saved by one build
+therefore hits for unchanged files in another, even when the checkout is at
+another absolute path (another agent's workspace) or the jars sit under
+another `GRADLE_USER_HOME`. Any changed input re-runs FIR for its
+compilation. On a 195-file module with an 80-jar classpath, a restored
+`.krit/` takes a `--fir` run from about 25 s to about 1.5 s.
+
+Restore the last build's `.krit/` before the scan and save it from the
+default branch:
+
+```yaml
+steps:
+  - uses: actions/checkout@v4
+  - uses: actions/cache/restore@v4
+    with:
+      path: .krit
+      key: krit-${{ runner.os }}-${{ github.sha }}
+      restore-keys: krit-${{ runner.os }}-
+  - uses: kaeawc/krit@v0.4.0
+    with:
+      run: 'true'
+      args: --fir
+  - if: github.ref == 'refs/heads/main'
+    uses: actions/cache/save@v4
+    with:
+      path: .krit
+      key: krit-${{ runner.os }}-${{ github.sha }}
+```
+
+Restoring by prefix is safe: every cache checks its entries against the
+current content (the per-file analysis cache `.krit/cache/` compares git blob
+IDs, not "clean against HEAD"), so a cache from another commit only costs
+misses. `.krit/cache/` and the oracle caches still key on absolute paths and
+hit only when the checkout path is the same. `.krit/fir-incremental/` (the
+JVM's incremental state) is keyed by absolute paths and jar mtimes on the
+`krit-fir` side and is rebuilt after a move; restoring it is harmless.
+
 ## Pre-commit
 
 ```yaml

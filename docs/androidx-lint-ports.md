@@ -15,6 +15,25 @@ Lint resolves every call; krit proves the callee from imports, fully qualified n
 function of the same name declared in the calling class, the enclosing function or the file itself wins over the
 import, as it does in Kotlin.
 
+## Activity Compose
+
+`androidx.activity:activity-compose` 1.13.0 (Kotlin):
+
+- `LaunchDuringComposition` reports `launcher.launch(input, options)` within composition (see the Compose runtime
+  ports in [Rules](rules.md#androidx-library-lint-checks) for what counts), where `launcher` is proven to be a
+  `ManagedActivityResultLauncher`: declared as one or initialized by `rememberLauncherForActivityResult`. As in Lint,
+  only the two-argument `launch` is `ManagedActivityResultLauncher`'s own method; `launch(input)` resolves to
+  `ActivityResultLauncher` in `androidx.activity.result` and is not reported.
+- `NoCollectCallFound` reports a `PredictiveBackHandler` `onBack` lambda whose progress parameter is unused (at the
+  parameter, or at the lambda for an unused `it`), or in which no name is `collect`, `collectLatest` or
+  `collectIndexed`. Like Lint, the second case is reported at the lambda's first name reference with the message
+  "You must call collect() on Flow null".
+- `ContextCastToActivity` reports `LocalContext.current as Activity` (or `as?`), with `LocalContext` from
+  `androidx.compose.ui.platform`, at the cast. The type counts as an Activity when it is `android.app.Activity`,
+  `ComponentActivity`, `FragmentActivity`, `AppCompatActivity`, a same-file subclass of one, or any other class whose
+  name ends in `Activity`. As in Lint, `(LocalContext.current) as Activity` and a variable holding
+  `LocalContext.current` are not reported.
+
 ## Compose material and material3
 
 `androidx.compose.material:material-android` 1.13.0 and `androidx.compose.material3:material3-android` 1.5.0

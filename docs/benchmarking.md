@@ -118,7 +118,12 @@ no AOT launch is trusted until a canary passes:
   check: it shares nothing when the canary fails and marks the response
   `"aotCanary":true` when it passes. Go delivers a shared check from an AOT
   launch only with that mark, so the pass otherwise checks on its own behind
-  its own canary.
+  its own canary. A check rides only on an oracle compilation of the pass's
+  own compile context: the same jar and compile target, the same source roots
+  compared as a set of absolute, cleaned paths (so `krit .` with a Gradle
+  model, whose convention and model roots are spelled differently, still
+  matches, #1659), and the same classpath in order. `-v` prints
+  `fir check: reusing the oracle compilation's check` when it rides.
 
 Registry rules: an AOT-launched daemon, in either role, is not registered
 until its canary passes, so another krit process can neither reuse nor retire

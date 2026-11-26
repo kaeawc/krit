@@ -23,8 +23,7 @@ func registerComposeLintsRules() {
 
 	m2 := &ComposeM2ApiRule{BaseRule: BaseRule{RuleName: "ComposeM2Api", RuleSetName: composeLintsRuleSet, Sev: "error",
 		Desc: "Detects calls and references to Compose Material 2 (androidx.compose.material) APIs."}}
-	registerComposeLintsRule(m2.BaseRule, m2, []string{"call_expression", "navigation_expression"},
-		composeLintsMentions(composeM2Package+"."), m2.check)
+	registerComposeLintsProjectRule(m2.BaseRule, m2, m2.check)
 
 	itemKey := &ComposeItemKeyHashCodeRule{BaseRule: BaseRule{RuleName: "ComposeItemKeyHashCode", RuleSetName: composeLintsRuleSet,
 		Sev: "warning", Desc: "Detects hashCode() used in the key argument of a call in a @Composable function."}}

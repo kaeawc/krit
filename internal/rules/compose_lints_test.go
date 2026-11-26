@@ -119,7 +119,7 @@ class Shadow {
 // TestComposeLintsCrossFileFixtures runs the project-scope ports over their fixtures, which TestPositiveFixtures
 // and TestNegativeFixtures skip.
 func TestComposeLintsCrossFileFixtures(t *testing.T) {
-	for _, rule := range []string{"ComposePreviewPublic", "ComposePreviewNaming"} {
+	for _, rule := range []string{"ComposePreviewPublic", "ComposePreviewNaming", "ComposeM2Api"} {
 		r := findComposeLintsRule(t, rule)
 		pos := parseFixture(t, "positive", rule)
 		if got := runCrossFileRuleOnFiles(r, pos); len(got) == 0 {

@@ -17259,7 +17259,7 @@
           }
         },
         "ComposeM2Api": {
-          "description": "Detects calls and references to Compose Material 2 (androidx.compose.material) APIs. [precision: ast-backed] [noisiness: normal]\nCaveat: Names are resolved through imports, not types: a member read on a local variable of an M2 type (colors.primary) is not reported, and a qualified chain counts only as an M2 class or object member (ButtonDefaults.buttonColors()), a MaterialTheme.colors/typography/shapes member, or an extension imported from androidx.compose.material.\nCaveat: allowedM2Apis matches the source name; Lint matches the JVM name, which is mangled for functions with inline-class parameters unless enable-mangling-workaround is set.",
+          "description": "Detects calls and references to Compose Material 2 (androidx.compose.material) APIs. [precision: project-structure-aware] [noisiness: normal] [capabilities: cross-file]\nCaveat: Names are resolved through imports, not types: a member read on a local variable of an M2 type (colors.primary) is not reported, and a qualified chain counts only as an M2 class or object member (ButtonDefaults.buttonColors()), a MaterialTheme.colors/typography/shapes member, or an extension imported from androidx.compose.material.\nCaveat: allowedM2Apis matches the source name; Lint matches the JVM name, which is mangled for functions with inline-class parameters unless enable-mangling-workaround is set.",
           "type": "object",
           "additionalProperties": false,
           "properties": {

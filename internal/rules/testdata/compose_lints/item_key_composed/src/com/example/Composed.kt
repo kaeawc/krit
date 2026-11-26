@@ -29,3 +29,13 @@ class NotModifier {
 fun NotModifier.call() = composed { }
 
 fun lookalike(x: NotModifier) = x.composed { }
+
+class Holder(val m: Modifier) {
+    val other: Modifier = Modifier
+    fun f() = m.composed { this }
+    fun g() = other.composed { this }
+}
+
+class NotHolder(m: Modifier) {
+    fun f(m: NotModifier) = m.composed { }
+}

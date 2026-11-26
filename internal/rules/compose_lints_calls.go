@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"bytes"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/rules/api"
@@ -34,8 +35,10 @@ var composeM2ThemeMembers = map[string]bool{"colors": true, "typography": true, 
 // ComposeM2ApiRule ports compose-lints' ComposeM2Api: a call or qualified reference that resolves into
 // androidx.compose.material (Material 2). Like Lint, a qualified chain is reported once, by its outermost
 // expression, when its last selector is an M2 member.
+//
+// It runs over the cross-file index: a name a star import binds can be taken by a same-package declaration in
+// another file.
 type ComposeM2ApiRule struct {
-	FlatDispatchBase
 	BaseRule
 	// AllowedM2Apis lists M2 API names that are not reported (compose-lints `allowed-m2-apis`).
 	AllowedM2Apis []string
@@ -56,7 +59,33 @@ type ComposeModifierComposedRule struct {
 }
 
 func (r *ComposeM2ApiRule) check(ctx *api.Context) {
-	file, node := ctx.File, ctx.Idx
+	if ctx.CodeIndex == nil {
+		return
+	}
+	for _, file := range ctx.CodeIndex.Files {
+		if file == nil || file.FlatTree == nil || file.Language != scanner.LangKotlin ||
+			!bytes.Contains(file.Content, []byte(composeM2Package+".")) {
+			continue
+		}
+		pkg := filePackageName(file)
+		// Kotlin binds same-package declarations, in any file, before star imports.
+		samePackage := func(name string) bool {
+			for _, sym := range ctx.CodeIndex.SymbolsNamed(name) {
+				if sym.Package == pkg && sym.Language == scanner.LangKotlin {
+					return true
+				}
+			}
+			return false
+		}
+		file.FlatWalkAllNodes(0, func(node uint32) {
+			if t := file.FlatType(node); t == "call_expression" || t == "navigation_expression" {
+				r.checkNode(ctx, file, node, samePackage)
+			}
+		})
+	}
+}
+
+func (r *ComposeM2ApiRule) checkNode(ctx *api.Context, file *scanner.File, node uint32, samePackage func(string) bool) {
 	var name string
 	var ok bool
 	switch file.FlatType(node) {
@@ -64,16 +93,17 @@ func (r *ComposeM2ApiRule) check(ctx *api.Context) {
 		callee := file.FlatFirstChild(node)
 		switch file.FlatType(callee) {
 		case "simple_identifier":
-			name, ok = composeM2SimpleCall(file, node, callee)
+			name = file.FlatNodeText(callee)
+			ok = composeM2NameResolves(file, node, name, samePackage)
 		case "navigation_expression":
-			name, ok = r.qualified(file, node, callee)
+			name, ok = r.qualified(file, node, callee, samePackage)
 		}
 	case "navigation_expression":
 		if parent, has := file.FlatParent(node); has && file.FlatType(parent) == "call_expression" &&
 			file.FlatFirstChild(parent) == node {
 			return // reported as the call
 		}
-		name, ok = r.qualified(file, node, node)
+		name, ok = r.qualified(file, node, node, samePackage)
 	}
 	if !ok {
 		return
@@ -83,19 +113,13 @@ func (r *ComposeM2ApiRule) check(ctx *api.Context) {
 			return
 		}
 	}
-	ctx.EmitAtNode(node, composeM2ApiMessage)
-}
-
-// composeM2SimpleCall reports whether an unqualified call's callee resolves into M2, and its name.
-func composeM2SimpleCall(file *scanner.File, call, callee uint32) (string, bool) {
-	name := file.FlatNodeText(callee)
-	return name, composeM2NameResolves(file, call, name)
+	ctx.Emit(r.Finding(file, file.FlatRow(node)+1, file.FlatCol(node)+1, composeM2ApiMessage))
 }
 
 // composeM2NameResolves reports whether a simple name used at node binds to an androidx.compose.material
-// top-level declaration: an explicit import, or the M2 wildcard import for a name M2 declares, with no
-// same-file or enclosing declaration shadowing it.
-func composeM2NameResolves(file *scanner.File, node uint32, name string) bool {
+// top-level declaration: an explicit import, or the M2 wildcard import for a name M2 declares, with no enclosing
+// or same-package declaration (in any file) taking it first.
+func composeM2NameResolves(file *scanner.File, node uint32, name string, samePackage func(string) bool) bool {
 	facts := fileFactsCache().Imports(file)
 	if facts == nil {
 		return false
@@ -109,13 +133,13 @@ func composeM2NameResolves(file *scanner.File, node uint32, name string) bool {
 		!composeM2TopLevelProperties[name] {
 		return false
 	}
-	return !acrFileDeclaresTopLevel(file, name) && !acrFunctionNameShadowed(file, node, name)
+	return !acrFileDeclaresTopLevel(file, name) && !samePackage(name) && !acrFunctionNameShadowed(file, node, name)
 }
 
 // qualified decides whether the qualified expression `unit` (a navigation expression, or a call on one) is the
 // outermost of its chain and ends in an M2 member, returning the last selector's name. nav is the navigation
 // expression whose suffix is that selector.
-func (r *ComposeM2ApiRule) qualified(file *scanner.File, unit, nav uint32) (string, bool) {
+func (r *ComposeM2ApiRule) qualified(file *scanner.File, unit, nav uint32, samePackage func(string) bool) (string, bool) {
 	if parent, ok := file.FlatParent(unit); ok && file.FlatType(parent) == "navigation_expression" &&
 		file.FlatFirstChild(parent) == unit {
 		return "", false // a receiver: Lint reports the longer chain instead
@@ -148,7 +172,7 @@ func (r *ComposeM2ApiRule) qualified(file *scanner.File, unit, nav uint32) (stri
 		}
 		return "", false
 	}
-	if !acrFirstRuneIsUpper(rootName) || composeM2TopLevelProperties[rootName] || !composeM2NameResolves(file, root, rootName) {
+	if !acrFirstRuneIsUpper(rootName) || composeM2TopLevelProperties[rootName] || !composeM2NameResolves(file, root, rootName, samePackage) {
 		return "", false
 	}
 	switch {
@@ -418,12 +442,42 @@ func composeLintsNameDeclaredAsModifier(file *scanner.File, node uint32, name st
 					return t != 0 && composeLintsTypeIsModifier(file, t)
 				}
 			}
-			if !acrIsLocalDeclaration(file, p) {
-				return false
-			}
-		case "class_body", "source_file":
+		case "class_body":
+			return composeLintsClassMemberIsModifier(file, p, name)
+		case "source_file":
 			return false
 		}
+	}
+	return false
+}
+
+// composeLintsClassMemberIsModifier reports whether the class owning body declares a property or a primary
+// constructor `val`/`var` named name with a Modifier type.
+func composeLintsClassMemberIsModifier(file *scanner.File, body uint32, name string) bool {
+	for child := file.FlatFirstChild(body); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) != "property_declaration" {
+			continue
+		}
+		if v, ok := file.FlatFindChild(child, "variable_declaration"); ok && file.FlatChildTextOrEmpty(v, "simple_identifier") == name {
+			t := composeLintsDeclaredType(file, v)
+			return t != 0 && composeLintsTypeIsModifier(file, t)
+		}
+	}
+	decl, ok := file.FlatParent(body)
+	if !ok {
+		return false
+	}
+	ctor, ok := file.FlatFindChild(decl, "primary_constructor")
+	if !ok {
+		return false
+	}
+	for param := file.FlatFirstChild(ctor); param != 0; param = file.FlatNextSib(param) {
+		if file.FlatType(param) != "class_parameter" || file.FlatChildTextOrEmpty(param, "simple_identifier") != name ||
+			!file.FlatHasChildOfType(param, "binding_pattern_kind") {
+			continue
+		}
+		t := composeLintsDeclaredType(file, param)
+		return t != 0 && composeLintsTypeIsModifier(file, t)
 	}
 	return false
 }

@@ -558,6 +558,12 @@ All notable changes to Krit will be documented in this file.
   `MoshiUsageNonMoshiClassInternal`/`External` (#1384, #1395, #1396, #1404, #1407, #1408, #1409).
 
 ### Fixed
+- A Kotlin file with a nested body closed on the same line as its last member, such as
+  `class H { companion object { val X = 1 } }` or `class H { object O { const val X = 1 } }`, lost every finding.
+  The grammar needs a separator before that `}`, and its error recovery turned the enclosing class and the rest of the
+  file into one ERROR node, so the parse-error filter dropped all of them and `@Suppress` on the class did not apply.
+  Krit now reparses such a file with a `;` in the space before the brace and keeps the result when its error region is
+  smaller. Parse-cache entries and cross-file index shards written before the fix are rebuilt (#1839).
 - `--no-cache` skips every cache that can change findings. A one-shot scan read the cross-file findings cache, so a
   stale entry replayed into the run warm results are checked against; it now skips that cache and also the cross-file
   index, resource index, file-walk and incremental oracle caches. Only the parse cache stays on (#1818).

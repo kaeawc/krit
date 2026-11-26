@@ -286,3 +286,92 @@ func TestDiscoverModulesPrefersGradleOverBazel(t *testing.T) {
 		t.Errorf("graph = %q %v, want the Gradle :app", graph.BuildSystem, modulePaths(graph))
 	}
 }
+
+// A scan path that names a file (#1548, #1669) is discovered from the build
+// above it, not opened as a directory.
+func TestDiscoverModulesFromFileScanPath(t *testing.T) {
+	dir := t.TempDir()
+	writeSettings(t, dir, `include(":app")`)
+	makeModule(t, dir, "app")
+	file := filepath.Join(dir, "app", "src", "main", "kotlin", "A.kt")
+	writeFile(t, file, "package a\n")
+
+	graph, err := DiscoverModules(t.Context(), file)
+	if err != nil || graph == nil {
+		t.Fatalf("DiscoverModules(%s) = %v, %v", file, graph, err)
+	}
+	if graph.RootDir != dir {
+		t.Errorf("RootDir = %q, want %q", graph.RootDir, dir)
+	}
+	if got := graph.FileToModule(file); got != ":app" {
+		t.Errorf("FileToModule = %q, want :app", got)
+	}
+}
+
+func TestDiscoverModulesFromFileScanPathInBazelWorkspace(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "MODULE.bazel"), `module(name = "x")`)
+	writeFile(t, filepath.Join(dir, "lib", "BUILD.bazel"), `kt_jvm_library(name = "lib", srcs = ["Lib.kt"])`)
+	file := filepath.Join(dir, "lib", "Lib.kt")
+	writeFile(t, file, "package lib\n")
+
+	graph, err := DiscoverModules(t.Context(), file)
+	if err != nil || graph == nil {
+		t.Fatalf("DiscoverModules(%s) = %v, %v", file, graph, err)
+	}
+	if got := modulePaths(graph); !slices.Equal(got, []string{"//lib"}) {
+		t.Errorf("modules = %v, want [//lib]", got)
+	}
+}
+
+// A file outside any build finds nothing, and the walk stops at the
+// repository root instead of discovering from an ancestor.
+func TestDiscoverModulesFromFileOutsideABuild(t *testing.T) {
+	dir := t.TempDir()
+	// A build above the repository root must not be found.
+	writeSettings(t, dir, `include(":other")`)
+	makeModule(t, dir, "other")
+	repo := filepath.Join(dir, "repo")
+	if err := os.MkdirAll(filepath.Join(repo, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(repo, "src", "A.kt")
+	writeFile(t, file, "package a\n")
+
+	graph, err := DiscoverModules(t.Context(), file)
+	if err != nil || graph != nil {
+		t.Fatalf("DiscoverModules(%s) = %v, %v; want nil, nil", file, graph, err)
+	}
+}
+
+func TestBuildRoot(t *testing.T) {
+	dir := t.TempDir()
+	writeSettings(t, dir, `include(":app")`)
+	nested := filepath.Join(dir, "app", "src", "main")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := BuildRoot(nested); got != dir {
+		t.Errorf("BuildRoot(%s) = %q, want the settings directory %q", nested, got, dir)
+	}
+	// A nested build's own settings file is the nearer root.
+	writeSettings(t, filepath.Join(dir, "app"), `include(":inner")`)
+	if got, want := BuildRoot(nested), filepath.Join(dir, "app"); got != want {
+		t.Errorf("BuildRoot(%s) = %q, want the nearer settings directory %q", nested, got, want)
+	}
+	// A directory named like a settings file is not one.
+	other := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(other, "settings.gradle.kts"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(other, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	src := filepath.Join(other, "src")
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := BuildRoot(src); got != src {
+		t.Errorf("BuildRoot(%s) = %q, want itself", src, got)
+	}
+}

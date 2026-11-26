@@ -62,3 +62,19 @@ checks share the Scaffold checks' reference and shadowing rules above, and resol
   `with`/`apply`/`run` lambda in between brings a closer implicit receiver), or
   `AnimatedVisibilityScope.transition` inside an `AnimatedVisibility` or `AnimatedContent` lambda. Lint checks
   every `animate*` call on a resolved `Transition`.
+- `UnusedSharedTransitionModifierParameter` reports an unused `Modifier` parameter of a `SharedTransitionScope { }`
+  content lambda. Lint's quick fix, which moves the Modifier onto the single top-level layout composable, is not
+  ported.
+- `ConstantContentStateKeyInItemsCall` reports `rememberSharedContentState(key)` with a constant key (literals, `+`
+  and same-file constants; a string template with a variable is not constant) passed to `sharedElement` or
+  `sharedBounds`, inside a composable call, inside a LazyList `items` or `itemsIndexed` call from an androidx
+  foundation package (Compose, TV or Wear). As in Lint, each step is the nearest call that has the previous one in
+  its arguments or lambda, so a call further along the Modifier chain (`Modifier.sharedElement(…).then(…)`) is not
+  a step. The composable must be a same-file `@Composable` function or an upper-case function imported from
+  `androidx.compose`.
+- `DisallowLookaheadAnimationVisualDebug` reports `LookaheadAnimationVisualDebugging { }` and
+  `CustomizedLookaheadAnimationVisualDebugging { }` in production sources (not tests, as in Lint). The quick fix that
+  unwraps the content is not ported.
+- `ArcAnimationSpecTypeIssue` reports `ArcAnimationSpec<T>()` with an explicit type argument other than `Offset`,
+  `IntOffset` or `DpOffset`, at the constructor name, in production sources. An inferred type argument is not
+  checked, as in Lint.

@@ -25,6 +25,11 @@ All notable changes to Krit will be documented in this file.
   part of the analysis cache key. The Bazel rules pass them from `--@krit//:min_sdk_version` /
   `--@krit//:target_sdk_version`, and an `android_binary`'s own `krit_aspect` action from its `manifest_values`, since
   Bazel builds often declare the levels only there (#1682).
+- `UnusedSharedTransitionModifierParameter`, `ConstantContentStateKeyInItemsCall`,
+  `DisallowLookaheadAnimationVisualDebug` and `ArcAnimationSpecTypeIssue`, the remaining Lint checks bundled with
+  `androidx.compose.animation` 1.13.0, under their Lint IDs and checked against the Lint CLI running those releases'
+  `lint.jar` (`internal/rules/testdata/androidx_compose_animation/`). Lint's quick fixes are not ported (#1310, #1311,
+  #1312, #1314).
 - `UnusedCrossfadeTargetStateParameter`, `UnusedContentLambdaTargetStateParameter`,
   `UnusedTargetStateInContentKeyLambda` and `UnusedTransitionTargetStateParameter`, ports of the Lint checks bundled
   with `androidx.compose.animation` 1.13.0 (`animation-android`, `animation-core-android`), under their Lint IDs.

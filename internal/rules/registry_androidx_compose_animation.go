@@ -29,4 +29,23 @@ func registerAndroidxComposeAnimationRules() {
 		RuleSetName: "compose", Sev: "error",
 		Desc: "Detects Transition.animate* lambdas that compute their value without the target state parameter."}}
 	registerAxlRule(transition.BaseRule, transition, lambda, kotlin, axlRuleOptions{}, transition.check)
+
+	shared := &UnusedSharedTransitionModifierParameterRule{BaseRule: BaseRule{RuleName: "UnusedSharedTransitionModifierParameter",
+		RuleSetName: "compose", Sev: "error",
+		Desc: "Detects SharedTransitionScope content lambdas that ignore the Modifier parameter meant for the top-most composable."}}
+	registerAxlRule(shared.BaseRule, shared, lambda, kotlin, axlRuleOptions{}, shared.check)
+
+	constKey := &ConstantContentStateKeyInItemsCallRule{BaseRule: BaseRule{RuleName: "ConstantContentStateKeyInItemsCall",
+		RuleSetName: "compose", Sev: "error",
+		Desc: "Detects shared elements in LazyList items keyed by a constant rememberSharedContentState key, so all items share one key."}}
+	registerAxlRule(constKey.BaseRule, constKey, []string{"call_expression"}, kotlin, axlRuleOptions{}, constKey.check)
+
+	debug := &DisallowLookaheadAnimationVisualDebugRule{BaseRule: BaseRule{RuleName: "DisallowLookaheadAnimationVisualDebug",
+		RuleSetName: "compose", Sev: "error",
+		Desc: "Detects LookaheadAnimationVisualDebugging debugging wrappers left in production code."}}
+	registerAxlRule(debug.BaseRule, debug, []string{"call_expression"}, kotlin, axlRuleOptions{}, debug.check)
+
+	arc := &ArcAnimationSpecTypeIssueRule{BaseRule: BaseRule{RuleName: "ArcAnimationSpecTypeIssue", RuleSetName: "compose",
+		Sev: "info", Desc: "Detects ArcAnimationSpec used for values other than the 2D offsets it is designed for."}}
+	registerAxlRule(arc.BaseRule, arc, []string{"call_expression"}, kotlin, axlRuleOptions{}, arc.check)
 }

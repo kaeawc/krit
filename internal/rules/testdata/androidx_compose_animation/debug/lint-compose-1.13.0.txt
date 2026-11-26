@@ -1,0 +1,4 @@
+src/com/example/Debug.kt:13:5: DisallowLookaheadAnimationVisualDebug: LookaheadAnimationVisualDebugging and CustomizedLookaheadAnimationVisualDebugging are disallowed in production code.
+src/com/example/Debug.kt:16:5: DisallowLookaheadAnimationVisualDebug: LookaheadAnimationVisualDebugging and CustomizedLookaheadAnimationVisualDebugging are disallowed in production code.
+src/com/example/Debug.kt:17:5: DisallowLookaheadAnimationVisualDebug: LookaheadAnimationVisualDebugging and CustomizedLookaheadAnimationVisualDebugging are disallowed in production code.
+src/com/example/Debug.kt:20:5: DisallowLookaheadAnimationVisualDebug: LookaheadAnimationVisualDebugging and CustomizedLookaheadAnimationVisualDebugging are disallowed in production code.

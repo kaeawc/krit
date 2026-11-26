@@ -91,10 +91,20 @@ type preferenceFileScope struct {
 }
 
 // ComputeActivityPreferenceFacts maps each source-declared class FQN to whether its
-// superclass chain contains android.preference.PreferenceActivity. It reads the per-file class
-// facts the manifest-source rules share, so each file's imports are parsed once per run.
+// superclass chain contains android.preference.PreferenceActivity. It keeps nothing once it
+// returns, so callers outside an analysis run (MCP) do not leave their parsed files resident.
 func ComputeActivityPreferenceFacts(files []*scanner.File) map[string]bool {
-	idx := lintSourceClasses(files)
+	return activityPreferenceFacts(lintSourceClassesIn(nil, files))
+}
+
+// ComputeActivityPreferenceFactsForRun is ComputeActivityPreferenceFacts for the pipeline: it
+// reads the per-file class facts the manifest-source rules share through the run's file-facts
+// cache, so each file's imports are parsed once per run.
+func ComputeActivityPreferenceFactsForRun(files []*scanner.File) map[string]bool {
+	return activityPreferenceFacts(lintSourceClasses(files))
+}
+
+func activityPreferenceFacts(idx *lintSourceIndex) map[string]bool {
 	facts := make(map[string]bool, len(idx.classes))
 	for fqn, c := range idx.classes {
 		facts[fqn] = preferenceChainReaches(c.decl, idx.byFQN, map[string]bool{})

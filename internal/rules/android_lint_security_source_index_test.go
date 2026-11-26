@@ -26,7 +26,7 @@ func lintSourceIndexForTest(t *testing.T, sources map[string]string) *lintSource
 		}
 		files = append(files, f)
 	}
-	return lintSourceClasses(files)
+	return lintSourceClassesIn(nil, files)
 }
 
 func TestLintManifestClassWithoutPackage(t *testing.T) {
@@ -103,10 +103,18 @@ func TestLintSourceFileClassesAreSharedPerRun(t *testing.T) {
 		"A.kt": "package com.a\n\nimport android.preference.PreferenceActivity\n\nopen class Settings : PreferenceActivity()\n",
 		"B.kt": "package com.a\n\nclass Child : Settings()\nclass Plain\n",
 	}
-	first := lintSourceIndexForTest(t, sources)
+	parsed := lintSourceIndexForTest(t, sources)
 	var files []*scanner.File
-	for _, c := range first.classes {
+	for _, c := range parsed.classes {
 		files = append(files, c.file)
+	}
+	// An index built without the run cache neither reads nor fills it.
+	standalone := lintSourceClassesIn(nil, files)
+	first := lintSourceClasses(files)
+	for fqn, c := range standalone.classes {
+		if first.classes[fqn] == c {
+			t.Errorf("class %s was shared through the run cache by an uncached index", fqn)
+		}
 	}
 	// Another rule in the same run reuses each file's parsed scope and declarations.
 	second := lintSourceClasses(files)
@@ -115,10 +123,15 @@ func TestLintSourceFileClassesAreSharedPerRun(t *testing.T) {
 			t.Errorf("class %s was parsed again for the second index", fqn)
 		}
 	}
-	facts := ComputeActivityPreferenceFacts(files)
-	for fqn, want := range map[string]bool{"com.a.Settings": true, "com.a.Child": true, "com.a.Plain": false} {
-		if got, ok := facts[fqn]; !ok || got != want {
-			t.Errorf("preference fact for %s = %v (present %v), want %v", fqn, got, ok, want)
+	want := map[string]bool{"com.a.Settings": true, "com.a.Child": true, "com.a.Plain": false}
+	for name, facts := range map[string]map[string]bool{
+		"ComputeActivityPreferenceFacts":       ComputeActivityPreferenceFacts(files),
+		"ComputeActivityPreferenceFactsForRun": ComputeActivityPreferenceFactsForRun(files),
+	} {
+		for fqn, w := range want {
+			if got, ok := facts[fqn]; !ok || got != w {
+				t.Errorf("%s: fact for %s = %v (present %v), want %v", name, fqn, got, ok, w)
+			}
 		}
 	}
 }

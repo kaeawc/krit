@@ -49,8 +49,9 @@ type lintSourceIndex struct {
 	byFQN map[string]*preferenceClassDecl
 	// bySimple maps a class's simple name to the FQNs that end with it, for manifests without a package.
 	bySimple map[string][]string
-	// files memoizes each file's lintFileClasses for this run.
+	// files memoizes each file's lintFileClasses for this index; cache, when not nil, shares them across a run.
 	files map[*scanner.File]*lintFileClasses
+	cache *filefacts.Cache
 	// extends memoizes extendsTarget by class and target set.
 	extends map[lintExtendsKey]bool
 }
@@ -70,9 +71,10 @@ type lintFileClasses struct {
 	classes []*lintSourceClass
 }
 
-// lintSourceFileClasses returns the file's lintFileClasses from the run cache, computing it on first use.
-func lintSourceFileClasses(file *scanner.File) *lintFileClasses {
-	return filefacts.FileFact(fileFactsCache(), file, slotLintSourceFileClasses, func() *lintFileClasses {
+// lintSourceFileClasses returns the file's lintFileClasses from cache, computing it on first use. A nil cache
+// computes it without keeping it.
+func lintSourceFileClasses(cache *filefacts.Cache, file *scanner.File) *lintFileClasses {
+	return filefacts.FileFact(cache, file, slotLintSourceFileClasses, func() *lintFileClasses {
 		out := &lintFileClasses{scope: newPreferenceFileScope(string(file.Content))}
 		file.FlatWalkNodes(0, "class_declaration", func(n uint32) {
 			name := extractIdentifierFlat(file, n)
@@ -87,11 +89,17 @@ func lintSourceFileClasses(file *scanner.File) *lintFileClasses {
 	})
 }
 
-// lintSourceClasses indexes every class declared in the files by its FQN (nested classes joined with dots).
+// lintSourceClasses indexes every class declared in the files by its FQN (nested classes joined with dots),
+// sharing each file's parsed classes through the run's file-facts cache.
 func lintSourceClasses(files []*scanner.File) *lintSourceIndex {
+	return lintSourceClassesIn(fileFactsCache(), files)
+}
+
+// lintSourceClassesIn is lintSourceClasses with an explicit cache; nil keeps nothing beyond the index.
+func lintSourceClassesIn(cache *filefacts.Cache, files []*scanner.File) *lintSourceIndex {
 	idx := &lintSourceIndex{classes: map[string]*lintSourceClass{}, byFQN: map[string]*preferenceClassDecl{},
 		bySimple: map[string][]string{}, files: make(map[*scanner.File]*lintFileClasses, len(files)),
-		extends: map[lintExtendsKey]bool{}}
+		cache: cache, extends: map[lintExtendsKey]bool{}}
 	for _, file := range files {
 		if file == nil {
 			continue
@@ -113,7 +121,7 @@ func (idx *lintSourceIndex) fileClasses(file *scanner.File) *lintFileClasses {
 	if fc := idx.files[file]; fc != nil {
 		return fc
 	}
-	fc := lintSourceFileClasses(file)
+	fc := lintSourceFileClasses(idx.cache, file)
 	idx.files[file] = fc
 	return fc
 }

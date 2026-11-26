@@ -123,7 +123,7 @@ func (in AndroidInput) manifestSourceSourceFingerprint() (string, bool) {
 // a library manifest and can reach build files outside the scan paths (#1625, #1800). Groovy build.gradle files are
 // not source files, so the source fingerprint misses them. See buildFilesFingerprint.
 func (in AndroidInput) manifestSourceGradleFingerprint() (string, bool) {
-	return buildFilesFingerprint(in.Project)
+	return buildFilesFingerprint(in.Project, rules.ReadsModuleGraph(in.ActiveRules))
 }
 
 func (in AndroidInput) manifestSourceKey(manifestFP, sourceFP string) string {

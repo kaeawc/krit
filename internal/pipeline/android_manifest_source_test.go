@@ -258,22 +258,23 @@ func TestManifestSourcePass_InvalidatesOnBuildFilesOutsideTheScan(t *testing.T) 
 		settingsRel = "settings.gradle"
 		appBuildRel = "app/build.gradle.kts"
 		libBuildRel = "lib/build.gradle.kts"
-		featureRel  = "feature/build.gradle.kts"
 		appManRel   = "app/src/main/AndroidManifest.xml"
 		libManRel   = "lib/src/main/AndroidManifest.xml"
 		providerRel = "lib/src/main/java/com/example/lib/NotesProvider.kt"
-		// :feat lives in feature/ only through the projectDir mapping.
-		mapped   = "include ':app', ':lib', ':feat'\nproject(':feat').projectDir = file('feature')\n"
-		unmapped = "include ':app', ':lib', ':feat'\n"
-		apiDep   = "plugins { id(\"com.android.library\") }\n\ndependencies {\n    api(project(\":lib\"))\n}\n"
-		testOnly = "plugins { id(\"com.android.library\") }\n\ndependencies {\n    testImplementation(project(\":lib\"))\n}\n"
+		unmapped    = "include ':app', ':lib', ':feat'\n"
+		apiDep      = "plugins { id(\"com.android.library\") }\n\ndependencies {\n    api(project(\":lib\"))\n}\n"
+		testOnly    = "plugins { id(\"com.android.library\") }\n\ndependencies {\n    testImplementation(project(\":lib\"))\n}\n"
 	)
-	setup := func(t *testing.T) *manifestSourceProject {
+	// :feat lives in featureDir only through the projectDir mapping.
+	mapped := func(featureDir string) string {
+		return "include ':app', ':lib', ':feat'\nproject(':feat').projectDir = file('" + featureDir + "')\n"
+	}
+	setup := func(t *testing.T, featureDir string) *manifestSourceProject {
 		p := &manifestSourceProject{t: t, dir: t.TempDir()}
-		p.write(settingsRel, mapped)
+		p.write(settingsRel, mapped(featureDir))
 		p.write(appBuildRel, "plugins { id(\"com.android.application\") }\n\ndependencies {\n    implementation(project(\":feat\"))\n}\n")
 		p.write(libBuildRel, "plugins { id(\"com.android.library\") }\n")
-		p.write(featureRel, apiDep)
+		p.write(featureDir+"/build.gradle.kts", apiDep)
 		p.write(appManRel, "<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\" package=\"com.example.app\">\n    <application />\n</manifest>\n")
 		p.write(libManRel, "<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\" package=\"com.example.lib\">\n    <application>\n        <provider android:name=\".NotesProvider\" android:authorities=\"a\" android:readPermission=\"com.example.READ\" />\n    </application>\n</manifest>\n")
 		p.write(providerRel, "package com.example.lib\n\nimport android.content.ContentProvider\nimport android.content.ContentValues\nimport android.net.Uri\n\nclass NotesProvider : ContentProvider() {\n    override fun insert(uri: Uri, values: ContentValues?): Uri? = uri\n}\n")
@@ -289,18 +290,29 @@ func TestManifestSourcePass_InvalidatesOnBuildFilesOutsideTheScan(t *testing.T) 
 		t.Fatal("ProviderReadPermissionOnly is not registered")
 	}
 	for _, test := range []struct {
-		name, rel, edit string
+		name, featureDir string
+		// scanSettings adds the settings file to the scanned Gradle files.
+		scanSettings bool
+		rel, edit    string
 	}{
-		{"intermediate module script", featureRel, testOnly},
-		{"settings file", settingsRel, unmapped},
+		// A scan of only app/ and lib/.
+		{"intermediate module script", "feature", false, "feature/build.gradle.kts", testOnly},
+		{"settings file", "feature", false, settingsRel, unmapped},
+		// An explicit file list (or a git file list with feature/ ignored) that holds the settings file but not the
+		// intermediate module's script (#1800 third review).
+		{"settings scanned, intermediate module script not", "feature", true, "feature/build.gradle.kts", testOnly},
+		// `krit .`: detection skips dot-directories, but the settings file maps a module into one.
+		{"module mapped into a dot-directory", ".modules/feature", true, ".modules/feature/build.gradle.kts", testOnly},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			p := setup(t)
+			p := setup(t, test.featureDir)
 			cacheDir := filepath.Join(p.dir, ".krit", "android-findings-cache")
-			// The project a scan of only app/ and lib/ detects.
 			project := &android.Project{
 				ManifestPaths: []string{p.path(appManRel), p.path(libManRel)},
 				GradlePaths:   []string{p.path(appBuildRel), p.path(libBuildRel)},
+			}
+			if test.scanSettings {
+				project.GradlePaths = append(project.GradlePaths, p.path(settingsRel))
 			}
 			run := func(cacheDir string) int {
 				t.Helper()
@@ -331,10 +343,10 @@ func TestManifestSourcePass_InvalidatesOnBuildFilesOutsideTheScan(t *testing.T) 
 			if got := run(cacheDir); got != 1 {
 				t.Fatalf("cold findings = %d, want 1", got)
 			}
-			xmlBefore := xmlInputsFingerprint(ProjectHostState{}, project, nil)
+			xmlBefore := xmlInputsFingerprint(ProjectHostState{}, project, nil, true)
 			p.write(test.rel, test.edit)
 			hashutil.ResetDefault()
-			if xmlInputsFingerprint(ProjectHostState{}, project, nil) == xmlBefore {
+			if xmlInputsFingerprint(ProjectHostState{}, project, nil, true) == xmlBefore {
 				t.Error("findings-bundle XML inputs fingerprint did not move")
 			}
 			if got := run(""); got != 0 {

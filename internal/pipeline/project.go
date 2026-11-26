@@ -2826,7 +2826,7 @@ func preparseBundleFingerprintWithPaths(
 	})
 	var xmlFP string
 	track("xmlInputs", func() {
-		xmlFP = xmlInputsFingerprint(host, preparseAndroidProject(args, host), kotlinPaths)
+		xmlFP = xmlInputsFingerprint(host, preparseAndroidProject(args, host), kotlinPaths, rules.ReadsModuleGraph(args.ActiveRules))
 	})
 	kotlinFiles := filesForPaths(kotlinPaths, scanner.LangKotlin)
 	javaFiles := filesForPaths(javaPaths, scanner.LangJava)
@@ -3176,7 +3176,7 @@ func fileSetPaths(files []*scanner.File) []string {
 // the XML version. The manifests, res/ directories and build scripts are
 // hashed through the stat-keyed hashutil memo, which re-reads only files
 // whose size or mtime moved. kotlinPaths only locates the module roots for the XML walk.
-func xmlInputsFingerprint(host ProjectHostState, project *android.Project, kotlinPaths []string) string {
+func xmlInputsFingerprint(host ProjectHostState, project *android.Project, kotlinPaths []string, readsGraph bool) string {
 	build := func() []*scanner.XMLCacheFile {
 		return scanner.LoadXMLFilesForCache(filesForPaths(kotlinPaths, scanner.LangKotlin))
 	}
@@ -3221,7 +3221,7 @@ func xmlInputsFingerprint(host ProjectHostState, project *android.Project, kotli
 	// the scan paths. A Groovy build.gradle is not a source file the SourceSet hash covers (#1625, #1800).
 	if project != nil && (len(project.GradlePaths) > 0 || len(project.ManifestPaths) > 0) {
 		_, _ = h.Write([]byte{4})
-		if fp, ok := buildFilesFingerprint(project); ok {
+		if fp, ok := buildFilesFingerprint(project, readsGraph); ok {
 			_, _ = h.Write([]byte(fp))
 		} else {
 			_, _ = h.Write([]byte("err"))
@@ -3946,7 +3946,7 @@ func previewPostParseBundleHit(args ProjectArgs, host ProjectHostState, parseRes
 		Android:          androidFP,
 		LibraryFacts:     libraryFactsFP,
 		CompilerSettings: args.OracleKotlin.Identity(),
-		XMLInputs:        xmlInputsFingerprint(host, preparseAndroidProject(args, host), fileSetPaths(parseResult.KotlinFiles)),
+		XMLInputs:        xmlInputsFingerprint(host, preparseAndroidProject(args, host), fileSetPaths(parseResult.KotlinFiles), rules.ReadsModuleGraph(args.ActiveRules)),
 	}
 	// Look up the prior manifest once — daemon callers wire
 	// FindingsBundleManifestLoader to an in-memory cache so this is
@@ -4045,7 +4045,7 @@ func computeRunFingerprint(args ProjectArgs, host ProjectHostState, parseResult 
 	if indexResult.LibraryFacts != nil {
 		fp.LibraryFacts = indexResult.LibraryFacts.Fingerprint()
 	}
-	fp.XMLInputs = xmlInputsFingerprint(host, indexResult.AndroidProject, fileSetPaths(parseResult.KotlinFiles))
+	fp.XMLInputs = xmlInputsFingerprint(host, indexResult.AndroidProject, fileSetPaths(parseResult.KotlinFiles), rules.ReadsModuleGraph(args.ActiveRules))
 	return fp, true
 }
 

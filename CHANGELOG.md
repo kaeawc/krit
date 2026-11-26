@@ -501,9 +501,11 @@ All notable changes to Krit will be documented in this file.
   modules named with underscores or camel case.
 - Warm runs re-run manifest-source rules and replay no findings bundle after a Groovy `build.gradle` edit. The
   manifest-source cache key and the findings-bundle fingerprint now hash every build script, which manifest rules read
-  from disk; before, only Kotlin DSL scripts were covered, as source files. When the scan paths don't hold a
-  manifest's Gradle build root (`krit app lib`), they also hash the settings file and every module build script of
-  that build's module graph, so editing an intermediate module or the settings file outside the scan re-runs them.
+  from disk; before, only Kotlin DSL scripts were covered, as source files. For a build whose module graph
+  `ProviderReadPermissionOnly` reads (one holding a manifest with `android:readPermission`), they also hash the
+  settings file and every module build script the scan didn't, so editing an intermediate module or the settings file
+  outside the scan re-runs them: `krit app lib`, an explicit file list, or a gitignored or dot-directory module. The
+  graph is discovered once per run and only when an active rule reads it.
 - `JavascriptInterface` reads Kotlin accessor use-site targets: a property annotated `@get:JavascriptInterface` or
   `@set:JavascriptInterface`, or whose getter or setter carries the annotation, counts as an annotated bridge method,
   and a private one is reported as `Must be public`, as Lint sees the accessor methods through UAST. `@field:` does

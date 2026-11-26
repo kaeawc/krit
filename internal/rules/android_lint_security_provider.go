@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"path/filepath"
@@ -361,7 +362,7 @@ func (a *providerAttribution) graphFor(path string) *module.Graph {
 			return g
 		}
 	}
-	g, err := module.DiscoverModules(context.Background(), path)
+	g, err := module.DiscoverModuleLayout(context.Background(), path)
 	if err != nil || g == nil || g.BuildSystem != "" {
 		return nil
 	}
@@ -376,6 +377,28 @@ func (a *providerAttribution) graphFor(path string) *module.Graph {
 	_ = module.ParseAllDependencies(g)
 	a.graphs = append(a.graphs, g)
 	return g
+}
+
+// moduleGraphRules are the rules that read the Gradle module graph from disk: the settings file and every module's
+// build script of the build that holds a manifest, including build files outside the scan paths.
+var moduleGraphRules = map[string]bool{"ProviderReadPermissionOnly": true}
+
+// ReadsModuleGraph reports whether any of the rules reads the Gradle module graph, so result caches must key on the
+// files it is read from.
+func ReadsModuleGraph(active []*api.Rule) bool {
+	for _, r := range active {
+		if r != nil && moduleGraphRules[r.ID] {
+			return true
+		}
+	}
+	return false
+}
+
+// ManifestNeedsModuleGraph reports whether those rules can read the module graph of the build that holds a manifest
+// with this content. ProviderReadPermissionOnly discovers it only for a provider with android:readPermission, so a
+// manifest without the attribute name never needs it. Cache keys use this to skip discovering builds no rule reads.
+func ManifestNeedsModuleGraph(content []byte) bool {
+	return bytes.Contains(content, []byte("readPermission"))
 }
 
 // providerReaches reports whether from depends on to through project dependencies that merge into its manifest:

@@ -215,7 +215,7 @@ func TestXMLInputsFingerprint_TracksXMLInputs(t *testing.T) {
 		GradlePaths:   []string{build},
 	}
 	host := ProjectHostState{}
-	fp := func() string { return xmlInputsFingerprint(host, project, []string{kt}) }
+	fp := func() string { return xmlInputsFingerprint(host, project, []string{kt}, true) }
 
 	base := fp()
 	if base == "" {
@@ -249,10 +249,10 @@ func TestXMLInputsFingerprint_TracksXMLInputs(t *testing.T) {
 			t.Errorf("%s: fingerprint did not return to base after restoring content", tc.name)
 		}
 	}
-	if got := xmlInputsFingerprint(host, nil, []string{kt}); got == "" {
+	if got := xmlInputsFingerprint(host, nil, []string{kt}, true); got == "" {
 		t.Error("layout XML alone must still produce a fingerprint")
 	}
-	if got := xmlInputsFingerprint(host, nil, nil); got != "" {
+	if got := xmlInputsFingerprint(host, nil, nil, true); got != "" {
 		t.Errorf("no Kotlin roots and no Android project: fingerprint = %q, want empty", got)
 	}
 }

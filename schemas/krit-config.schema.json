@@ -8534,6 +8534,39 @@
             }
           }
         },
+        "NullSafeMutableLiveData": {
+          "description": "Detects null or nullable values set on a LiveData whose type argument is non-nullable. [precision: ast-backed] [noisiness: normal]\nCaveat: The LiveData's type argument comes from a same-file declaration (declared type, MutableLiveData\u003cT\u003e() initializer, or a same-file subclass); a nullable value is a name declared nullable, or a call of a same-file function with a nullable return type.\nCaveat: A nullable name is skipped when a smart cast may apply: an enclosing if/when condition testing it (`!= null`, `is`), the lambda of a safe call on it, or an earlier statement in an enclosing block (`!!`, `?: return`, requireNotNull/require(x != null), `if (x == null || ...) return`, isNullOrEmpty exits, a when entry `x == null -\u003e return`). Lint follows the exact smart cast, so a proof outside these shapes is reported.\nCaveat: Lint's quick fixes are not ported.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable NullSafeMutableLiveData (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "ObjectAnimatorBinding": {
           "description": "Incorrect ObjectAnimator Property [precision: type-aware] [noisiness: normal] [capabilities: oracle:call-targets, oracle:members, oracle:supertypes, resolver]",
           "type": "object",
@@ -12868,6 +12901,39 @@
           "properties": {
             "active": {
               "description": "Enable UnsafeIntentLaunch (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "UnsafeLifecycleWhenUsage": {
+          "description": "Detects View access in the finally block of a suspending try inside Lifecycle.whenStarted and similar. [precision: ast-backed] [noisiness: normal]\nCaveat: Suspend calls are calls of same-file suspend functions, of the kotlinx.coroutines top-level suspend functions, and of suspend members (await, first, collect, send, ...) on a value declared as a kotlinx.coroutines Flow, Channel, Deferred or Job; View access is a call or property on a value declared as an android.view.View subclass. Calls are followed into same-file functions three levels deep, as Lint does.\nCaveat: As in the detector, only finally blocks are checked, and a Lifecycle.State.isAtLeast guard does not count (the detector looks for an isAtLeast on Lifecycle itself).",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable UnsafeLifecycleWhenUsage (default: true).",
               "type": "boolean",
               "default": true
             },
@@ -17244,6 +17310,39 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "ArcAnimationSpecTypeIssue": {
+          "description": "Detects ArcAnimationSpec used for values other than the 2D offsets it is designed for. [precision: ast-backed] [noisiness: normal]\nCaveat: As in Lint, only an explicit type argument is checked; `ArcAnimationSpec()` with an inferred type is not.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable ArcAnimationSpecTypeIssue (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "AutoboxingStateCreation": {
           "description": "Detects mutableStateOf holding a non-null Int, Long, Float or Double, where mutableIntStateOf and friends avoid autoboxing. [precision: ast-backed] [noisiness: normal]\nCaveat: The state type is taken from an explicit type argument, the declared type of the property it initializes, or a literal or same-file typed argument; other inferred types are not checked.",
           "type": "object",
@@ -18482,6 +18581,39 @@
             }
           }
         },
+        "ConstantContentStateKeyInItemsCall": {
+          "description": "Detects shared elements in LazyList items keyed by a constant rememberSharedContentState key, so all items share one key. [precision: ast-backed] [noisiness: normal]\nCaveat: The key must fold to a constant from literals, + concatenation and same-file constants.\nCaveat: The call between sharedElement/sharedBounds and items must be a same-file @Composable function or an upper-case function imported from androidx.compose.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable ConstantContentStateKeyInItemsCall (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "ContextCastToActivity": {
           "description": "Detects LocalContext.current cast to an Activity; use LocalActivity instead. [precision: ast-backed] [noisiness: normal]\nCaveat: The cast type counts as an Activity when it is a known Activity class (android.app.Activity, ComponentActivity, FragmentActivity, AppCompatActivity), a same-file subclass of one, or another class whose name ends in Activity.",
           "type": "object",
@@ -18548,6 +18680,39 @@
             }
           }
         },
+        "DisallowLookaheadAnimationVisualDebug": {
+          "description": "Detects LookaheadAnimationVisualDebugging debugging wrappers left in production code. [precision: ast-backed] [noisiness: normal]\nCaveat: Lint's quick fix, which unwraps the content lambda, is not ported.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable DisallowLookaheadAnimationVisualDebug (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "FlowOperatorInvokedInComposition": {
           "description": "Detects Flow operators such as map or filter invoked in composition, which creates a new Flow on every recomposition. [precision: ast-backed] [noisiness: normal]\nCaveat: A lambda counts as composition only when the file proves its parameter is @Composable: a same-file declaration, a @Composable-annotated or -typed variable, or a known Compose content API (Column, Box, Scaffold, CompositionLocalProvider, lazy item content, ...).\nCaveat: Receivers must be proven by a same-file declaration or initializer; values typed only by inference across files are not checked.",
           "type": "object",
@@ -18588,6 +18753,105 @@
           "properties": {
             "active": {
               "description": "Enable FrequentlyChangingValue (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "IncorrectChainMarginsUsage": {
+          "description": "Detects chain elements whose margins come from linkTo constraints, which chains ignore; use withChainParams. [precision: ast-backed] [noisiness: normal]\nCaveat: Chain elements must be references created by createRefs/createRefFor/createRefsFor in the same block. Lint's quick fix (adding withChainParams and removing the linkTo calls) is not ported.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable IncorrectChainMarginsUsage (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "IncorrectMatchParentUsage": {
+          "description": "Detects Dimension.matchParent next to custom constraints it overrides; prefer Dimension.percent(1f). [precision: ast-backed] [noisiness: normal]\nCaveat: The assignment must sit directly in a constrain(ref) { } lambda. Lint's quick fix is not ported.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable IncorrectMatchParentUsage (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "IncorrectReferencesDeclaration": {
+          "description": "Detects val (a, b) = createRefsFor(...) whose argument count differs from the destructured variables. [precision: ast-backed] [noisiness: normal]\nCaveat: createRefsFor must be called without an explicit receiver, with a ConstraintSetScope or MotionSceneScope implicit receiver proven by the nearest receiver lambda (ConstraintSet { } or MotionScene { }) or by an extension function on the scope, and every argument must be a string literal or template, as Lint requires String arguments.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable IncorrectReferencesDeclaration (default: true).",
               "type": "boolean",
               "default": true
             },
@@ -19776,6 +20040,39 @@
           "properties": {
             "active": {
               "description": "Enable UnusedMaterialScaffoldPaddingParameter (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "UnusedSharedTransitionModifierParameter": {
+          "description": "Detects SharedTransitionScope content lambdas that ignore the Modifier parameter meant for the top-most composable. [precision: ast-backed] [noisiness: normal]\nCaveat: Lint's quick fix, which moves the Modifier onto the single top-level layout composable, is not ported.\nCaveat: An inner lambda without parameters hides an outer `it` only when it is passed to a known one-parameter lambda function (forEach, let, map, LazyListScope.items, ...) or a same-file function whose parameter type takes one value; Lint resolves every inner lambda.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable UnusedSharedTransitionModifierParameter (default: true).",
               "type": "boolean",
               "default": true
             },
@@ -32037,6 +32334,39 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "ArgInFormattedQuantityStringRes": {
+          "description": "Count value in formatted string resource. [precision: type-aware] [noisiness: normal] [capabilities: resolver]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable ArgInFormattedQuantityStringRes (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "AvoidUsingNotNullOperator": {
           "description": "Avoid using the !! operator in Kotlin [precision: ast-backed] [noisiness: normal]",
           "type": "object",
@@ -32169,13 +32499,79 @@
             }
           }
         },
+        "CastingViewContextToActivity": {
+          "description": "Unsafe cast of `Context` to `Activity` [precision: type-aware] [noisiness: normal] [capabilities: resolver]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable CastingViewContextToActivity (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "DoNotMockAnything": {
-          "description": "Do not add new mocks. [precision: project-structure-aware] [noisiness: normal] [capabilities: cross-file]",
+          "description": "Do not add new mocks. [precision: project-structure-aware] [noisiness: noisy] [capabilities: cross-file]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
             "active": {
               "description": "Enable DoNotMockAnything (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "DoNotMockAutoValue": {
+          "description": "AutoValue classes represent pure data classes, so mocking them should not be necessary. [precision: project-structure-aware] [noisiness: normal] [capabilities: cross-file]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable DoNotMockAutoValue (default: false).",
               "type": "boolean",
               "default": false
             },
@@ -32275,6 +32671,72 @@
           "properties": {
             "active": {
               "description": "Enable DoNotMockPlatformTypes (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "DoNotMockRecordClass": {
+          "description": "record classes represent pure data classes, so mocking them should not be necessary. [precision: project-structure-aware] [noisiness: normal] [capabilities: cross-file]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable DoNotMockRecordClass (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "DoNotMockSealedClass": {
+          "description": "sealed classes have a restricted type hierarchy, use a subtype instead [precision: project-structure-aware] [noisiness: normal] [capabilities: cross-file]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable DoNotMockSealedClass (default: false).",
               "type": "boolean",
               "default": false
             },
@@ -33826,6 +34288,138 @@
           "properties": {
             "active": {
               "description": "Enable ProvidesMustNotBeAbstract (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "RxFlowableDoesNotEmit": {
+          "description": "RxFlowable should call `send()` or `trySend()` [precision: ast-backed] [noisiness: normal]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable RxFlowableDoesNotEmit (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "RxObservableDoesNotEmit": {
+          "description": "RxObservable should call `send()` or `trySend()` [precision: ast-backed] [noisiness: normal]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable RxObservableDoesNotEmit (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "SpanMarkPointMissingMask": {
+          "description": "Check that Span flags use the bitwise mask SPAN_POINT_MARK_MASK when being compared to. [precision: ast-backed] [noisiness: normal]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable SpanMarkPointMissingMask (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "SubscribeOnMain": {
+          "description": "subscribeOn called with the main thread scheduler. [precision: ast-backed] [noisiness: normal]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable SubscribeOnMain (default: false).",
               "type": "boolean",
               "default": false
             },

@@ -120,6 +120,33 @@ They report only what the source proves:
 Not ported: `MoshiUsageNonMoshiClassInternal` and `MoshiUsageNonMoshiClassExternal`, which split on whether a type
 lives in Slack's own `slack.*` packages.
 
+Three Android source checks prove their receiver before reporting:
+
+- `CastingViewContextToActivity` reports `view.getContext() as Activity` (also `as?` and a Java cast) when the
+  receiver's type is a `View` subtype, or the call is an implicit `getContext()` in a Kotlin or Java `View` subclass.
+  As in Lint, the Kotlin property form `view.context` and a parenthesized call are not reported. Unlike Lint, an
+  `is Activity` / `instanceof Activity` check is not reported: it is not a cast.
+- `ArgInFormattedQuantityStringRes` reports format arguments of `Resources.getQuantityString` that are not a
+  `getFormattedCount()` call (in Java, also a local initialized by one). The receiver must be typed `Resources` (or a
+  project subclass), or be Android's accessor (`context.resources`, `getResources()`, an unqualified `resources`)
+  on a Context, View or Fragment, so a project's own `getQuantityString` wrapper is not reported.
+- `SpanMarkPointMissingMask` reports `==`/`!=` against a `Spanned` mark-point flag (`SPAN_EXCLUSIVE_EXCLUSIVE`, ...)
+  whose other side does not mask with `SPAN_POINT_MARK_MASK` (a bitwise `and`/`&`; `or`/`|` does not mask). A
+  parameter or local named like the flag shadows its static import. Unlike Lint, krit looks inside parentheses, so
+  the correctly masked `(flags & Spanned.SPAN_POINT_MARK_MASK) == Spanned.SPAN_EXCLUSIVE_EXCLUSIVE` is not
+  reported. Lint's quick fix, which inserts the mask, is not ported.
+
+`SubscribeOnMain` reports `subscribeOn(AndroidSchedulers.mainThread())`, or `immediateMainThread()`, on RxJava 3's
+`Observable`, `Flowable`, `Single`, `Maybe` and `Completable`. Lint resolves the receiver's type; krit requires the file
+to import from RxJava 3 and not from RxJava 1/2 or Reactor, which also declare `subscribeOn`. As in Lint, a scheduler
+variable counts when its initializer ends in `mainThread()`; a parameter does not, nor (in Java) a statically imported
+`mainThread()`.
+
+`RxObservableDoesNotEmit` and `RxFlowableDoesNotEmit` report a kotlinx-coroutines-rx `rxObservable`/`rxFlowable`
+whose lambda never calls `send()` or `trySend()` on its `ProducerScope`. A nested factory is checked on its own. They
+follow slack-lints main (c0e92cb): the 0.11.1 release looks for `kotlin.coroutines.ProducerScope`, which does not exist,
+so it never reports on real code.
+
 Five single-node checks resolve the names they need through the file's imports and stay silent when a same-file
 declaration could shadow them:
 
@@ -150,16 +177,25 @@ rules instead: `BindsWrongParameterCount` is a Lint alias of `BindsMismatchedAri
 
 The `DoNotMock*` rules port `MockDetector` and, as in Lint, look only at test sources (`src/test`, `src/androidTest`
 and the other test source sets). A mock site is a call to one of the detector's default factories
-(`org.mockito.Mockito.mock`/`spy`, `org.mockito.kotlin.mock`/`spy`, `slack.test.mockito.mock`) or a field annotated
-`@org.mockito.Mock` or `@org.mockito.Spy`; Lint's `mock-factories` and `mock-annotations` options are not read yet.
-The mocked type comes from a type argument, a class literal, the declared type of the field or of the variable a
-`mock()` initializes, or a local variable those initialize. The detector's checkers run in its order, so a
-platform data class such as `kotlin.Pair` is reported as a platform type, and a type annotated `@DoNotMock` is left to
-that check. Differences from Lint:
+(`org.mockito.Mockito.mock`/`spy`, `org.mockito.kotlin.mock`/`spy`, `slack.test.mockito.mock`), also under an import
+alias, or a field annotated `@org.mockito.Mock` or `@org.mockito.Spy`; Lint's `mock-factories` and `mock-annotations`
+options are not read yet. The mocked type comes from a type argument, a class literal, the declared type of the field
+or of the variable a `mock()` initializes, or a local variable those initialize. The detector's checkers run in its
+order (platform, data, `@DoNotMock`, sealed, AutoValue, object, record), so a platform data class such as `kotlin.Pair`
+is reported as a platform type, and a type annotated `@DoNotMock` is left to that check. A class reached only through an
+on-demand import is resolved to that package when it is a well-known platform class (`android.content.Context`,
+`java.util.Date`, ...); any other unindexed name might be a same-package class krit does not see, so it abstains.
+
+`DoNotMockAnything` reports every mock. Lint keeps it disabled unless it is named, and so does krit: it is not
+experimental, so `--experimental` does not turn it on, and it is marked noisy, so `--strict` leaves it off. Enable it
+with `--enable-rules DoNotMockAnything` or in `krit.yml`.
+
+Differences from Lint:
 
 - a `mock()` passed as an argument, whose type Lint infers from the parameter, is not reported;
 - `DoNotMockAnything` reports alongside the other `DoNotMock*` rules. Lint runs it first, so when it is enabled the
-  others stay silent.
+  others stay silent;
+- `DoNotMockRecordClass` also reports Java records, which Lint 0.11.1's own tests leave out pending Lint support.
 
 ## Compose lint checks (compose-lints)
 

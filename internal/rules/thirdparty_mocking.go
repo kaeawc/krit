@@ -34,6 +34,9 @@ const (
 	mockDoNotMockPlatformTypes = "DoNotMockPlatformTypes"
 	mockDoNotMockDataClass     = "DoNotMockDataClass"
 	mockDoNotMockObjectClass   = "DoNotMockObjectClass"
+	mockDoNotMockSealedClass   = "DoNotMockSealedClass"
+	mockDoNotMockAutoValue     = "DoNotMockAutoValue"
+	mockDoNotMockRecordClass   = "DoNotMockRecordClass"
 
 	slotMockUsage = "mockUsage"
 )
@@ -62,6 +65,9 @@ var mockPlatformRoots = map[string]bool{"android": true, "androidx": true, "java
 // mockDoNotMockAnnotations make a type DoNotMockMockDetector's (not ported), which runs before the sealed,
 // AutoValue, object and record checkers and so hides them.
 var mockDoNotMockAnnotations = []string{"slack.lint.annotations.DoNotMock", "com.google.errorprone.annotations.DoNotMock"}
+
+// mockAutoValueAnnotations are AutoValueMockDetector's non-mockable annotations, in its order.
+var mockAutoValueAnnotations = []string{"com.google.auto.value.AutoValue", "com.google.auto.value.AutoValue.Builder"}
 
 type mockFinding struct {
 	rule string
@@ -155,6 +161,8 @@ type mockType struct {
 	text string // without type arguments or nullability, e.g. "Foo" or "Outer.Inner"
 	// classOf marks a java.lang.Class<text> (from a class literal), which a `mock` call unwraps.
 	classOf bool
+	// at is the node the reference is written at, which decides the same-file classes in scope.
+	at uint32
 }
 
 func newMockType(file *scanner.File, node uint32, classOf bool) (mockType, bool) {
@@ -166,14 +174,18 @@ func newMockType(file *scanner.File, node uint32, classOf bool) (mockType, bool)
 	if text == "" || strings.ContainsAny(text, "()->*[]@") {
 		return mockType{}, false
 	}
-	return mockType{file: file, text: text, classOf: classOf}, true
+	return mockType{file: file, text: text, classOf: classOf, at: node}, true
 }
 
 // mockCallType returns the type a mock factory call creates, or false when idx is not one or the type is not
 // provable from source.
 func mockCallType(file *scanner.File, idx uint32, depth int) (mockType, bool) {
 	call, ok := lintCallAt(file, idx)
-	if !ok || (call.Name != "mock" && call.Name != "spy") || !mockIsFactoryCall(file, call) {
+	if !ok {
+		return mockType{}, false
+	}
+	kind := mockFactoryKind(file, call)
+	if kind == "" {
 		return mockType{}, false
 	}
 	if file.FlatType(idx) == "call_expression" {
@@ -186,7 +198,7 @@ func mockCallType(file *scanner.File, idx uint32, depth int) (mockType, bool) {
 		if !ok {
 			return mockType{}, false
 		}
-		if call.Name == "mock" {
+		if kind == "mock" {
 			// mock(Class<T>) creates a T; a mock of anything else is not a factory MockDetector reads.
 			if !t.classOf {
 				return mockType{}, false
@@ -197,35 +209,39 @@ func mockCallType(file *scanner.File, idx uint32, depth int) (mockType, bool) {
 		// spy(instance) creates a spy of the instance's type.
 		return t, !t.classOf
 	}
-	if call.Name == "mock" && file.Language == scanner.LangKotlin {
+	if kind == "mock" && file.Language == scanner.LangKotlin {
 		return mockExpectedType(file, idx)
 	}
 	return mockType{}, false
 }
 
-// mockIsFactoryCall reports whether the call resolves to one of mockFactories.
-func mockIsFactoryCall(file *scanner.File, call lintCall) bool {
+// mockFactoryKind returns "mock" or "spy" when the call resolves to one of mockFactories, under its own name or
+// an import alias (`import org.mockito.Mockito.mock as m`), and "" otherwise.
+func mockFactoryKind(file *scanner.File, call lintCall) string {
 	if call.ReceiverText != "" {
 		for _, owner := range mockFactoryOwners {
 			if mockFactories[owner+"."+call.Name] && lintTypeRefMatches(file, call.ReceiverText, owner) {
-				return true
+				return call.Name
 			}
 		}
-		return false
+		return ""
 	}
 	if mockFileDeclaresFunction(file, call.Name) {
-		return false
+		return ""
 	}
 	imp := lintImportsOf(file)
 	if full, ok := imp.bySimple[call.Name]; ok {
-		return mockFactories[full]
+		if mockFactories[full] {
+			return full[strings.LastIndex(full, ".")+1:]
+		}
+		return ""
 	}
 	for _, star := range imp.stars {
 		if mockFactories[star+"."+call.Name] {
-			return true
+			return call.Name
 		}
 	}
-	return false
+	return ""
 }
 
 // mockFileDeclaresFunction reports whether the file declares a function called name, which shadows an import.
@@ -234,9 +250,7 @@ func mockFileDeclaresFunction(file *scanner.File, name string) bool {
 		names := map[string]bool{}
 		for _, kind := range []string{"function_declaration", "method_declaration"} {
 			file.FlatWalkNodes(0, kind, func(fn uint32) {
-				if n := extractIdentifierFlat(file, fn); n == "mock" || n == "spy" {
-					names[n] = true
-				}
+				names[extractIdentifierFlat(file, fn)] = true
 			})
 		}
 		return names
@@ -281,12 +295,23 @@ func mockExpressionType(file *scanner.File, expr uint32, depth int) (mockType, b
 		if t, ok := file.FlatFindChild(expr, "scoped_type_identifier"); ok {
 			return newMockType(file, t, true)
 		}
-	case "navigation_expression": // Kotlin Foo::class.java
+	case "navigation_expression": // Kotlin Foo::class.java, or Outer.Inner::class.java
 		ref := file.FlatFirstChild(expr)
 		suffix := file.FlatNextSib(ref)
-		if file.FlatType(ref) == "callable_reference" && strings.TrimSpace(strings.TrimPrefix(file.FlatNodeText(suffix), ".")) == "java" {
+		if strings.TrimSpace(strings.TrimPrefix(file.FlatNodeText(suffix), ".")) != "java" {
+			break
+		}
+		switch file.FlatType(ref) {
+		case "callable_reference":
 			if t := mockClassReferenceType(file, ref); t != 0 {
 				return newMockType(file, t, true)
+			}
+		case "navigation_expression":
+			// Outer.Inner::class parses as a navigation whose last suffix is `::class`.
+			owner := file.FlatFirstChild(ref)
+			classSuffix := file.FlatNextSib(owner)
+			if file.FlatNextSib(classSuffix) == 0 && strings.Join(strings.Fields(file.FlatNodeText(classSuffix)), "") == "::class" {
+				return newMockType(file, owner, true)
 			}
 		}
 	case "call_expression", "method_invocation":
@@ -521,7 +546,7 @@ type mockClass struct {
 // resolve resolves a type reference to a class, or reports false when the source does not show which class it
 // names.
 func (a *mockAnalyzer) resolve(t mockType) (mockClass, bool) {
-	fqn, ok := mockQualifiedName(a.result.index, t.file, t.text)
+	fqn, ok := mockQualifiedName(a.result.index, t.file, t.text, t.at)
 	if !ok {
 		return mockClass{}, false
 	}
@@ -533,7 +558,7 @@ func (a *mockAnalyzer) resolve(t mockType) (mockClass, bool) {
 }
 
 // mockQualifiedName resolves a type reference written in file to a fully qualified name.
-func mockQualifiedName(index *scanner.CodeIndex, file *scanner.File, text string) (string, bool) {
+func mockQualifiedName(index *scanner.CodeIndex, file *scanner.File, text string, at uint32) (string, bool) {
 	head, rest, nested := strings.Cut(text, ".")
 	imp := lintImportsOf(file)
 	if full, ok := imp.bySimple[head]; ok {
@@ -545,6 +570,13 @@ func mockQualifiedName(index *scanner.CodeIndex, file *scanner.File, text string
 	if nested {
 		if _, ok := index.SymbolByFQN(text); ok || (head != "" && head[0] >= 'a' && head[0] <= 'z') {
 			return text, true
+		}
+	}
+	// A class declared in the file, at top level or nested in a declaration enclosing the reference (such as a
+	// test's private nested class), is in scope by its simple name.
+	if !nested {
+		if fqn, ok := mockSameFileClass(index, file, text, at); ok {
+			return fqn, true
 		}
 	}
 	if pkg := moshiFilePackage(file); pkg != "" {
@@ -570,8 +602,111 @@ func mockQualifiedName(index *scanner.CodeIndex, file *scanner.File, text string
 	if javaLangClasses[text] {
 		return "java.lang." + text, true
 	}
+	// A well-known platform class named through an on-demand import of its package (`import android.content.*`)
+	// comes from that package. Any other unindexed name could be a same-package class krit does not see (generated
+	// code, another module, a partial scan), which Kotlin and Java resolve before on-demand imports, so it abstains.
+	if len(index.SymbolsNamed(text)) == 0 {
+		found := ""
+		for _, star := range imp.stars {
+			if mockPlatformStarClasses[star][text] {
+				if found != "" {
+					return "", false
+				}
+				found = star + "." + text
+			}
+		}
+		if found != "" {
+			return found, true
+		}
+	}
 	return "", false
 }
+
+// mockSameFileClass returns the FQN of the one class with this simple name the file declares at top level or nested
+// in a declaration that encloses at.
+func mockSameFileClass(index *scanner.CodeIndex, file *scanner.File, name string, at uint32) (string, bool) {
+	scopes := mockEnclosingClassFQNs(file, at)
+	fqn := ""
+	for _, sym := range index.SymbolsNamed(name) {
+		if sym.File != file.Path || sym.Name != name || !scopes[strings.TrimSuffix(sym.FQN, "."+name)] {
+			continue
+		}
+		switch sym.Kind {
+		case "class", "interface", "object", "enum", "record", "annotation":
+			if fqn != "" && fqn != sym.FQN {
+				return "", false
+			}
+			fqn = sym.FQN
+		}
+	}
+	return fqn, fqn != ""
+}
+
+// mockEnclosingClassFQNs returns the FQNs of the file's package and of every class declaration enclosing at, the
+// scopes whose nested classes at can name without a qualifier.
+func mockEnclosingClassFQNs(file *scanner.File, at uint32) map[string]bool {
+	pkg := moshiFilePackage(file)
+	var names []string
+	for n, ok := file.FlatParent(at); ok; n, ok = file.FlatParent(n) {
+		switch file.FlatType(n) {
+		case "class_declaration", "object_declaration", "interface_declaration", "enum_declaration", "record_declaration":
+			if name := extractIdentifierFlat(file, n); name != "" {
+				names = append(names, name)
+			}
+		}
+	}
+	scopes := map[string]bool{pkg: true}
+	prefix := pkg
+	for i := len(names) - 1; i >= 0; i-- {
+		if prefix == "" {
+			prefix = names[i]
+		} else {
+			prefix += "." + names[i]
+		}
+		scopes[prefix] = true
+	}
+	return scopes
+}
+
+// mockPlatformStarClasses are commonly mocked platform classes, by package, that an on-demand import of the package
+// can name. A name outside this list is not claimed for a star-imported platform package.
+var mockPlatformStarClasses = func() map[string]map[string]bool {
+	m := map[string]map[string]bool{}
+	for pkg, names := range map[string]string{
+		"android.app":                  "Activity Application AlarmManager Dialog Fragment NotificationManager PendingIntent Service",
+		"android.content":              "BroadcastReceiver ClipboardManager ComponentName ContentResolver ContentValues Context Intent ServiceConnection SharedPreferences",
+		"android.content.pm":           "ApplicationInfo PackageInfo PackageManager",
+		"android.content.res":          "AssetManager Configuration Resources TypedArray",
+		"android.database":             "Cursor",
+		"android.graphics":             "Bitmap Canvas Paint Typeface",
+		"android.location":             "Location LocationManager",
+		"android.net":                  "ConnectivityManager NetworkInfo Uri",
+		"android.os":                   "Bundle Handler Looper Parcel PowerManager Vibrator",
+		"android.view":                 "LayoutInflater MenuItem MotionEvent View ViewGroup Window WindowManager",
+		"android.widget":               "Button EditText ImageView TextView Toast",
+		"java.io":                      "BufferedReader File FileInputStream FileOutputStream InputStream OutputStream PrintStream Reader Writer",
+		"java.net":                     "HttpURLConnection Socket URI URL",
+		"java.nio.file":                "FileSystem Path",
+		"java.sql":                     "Connection PreparedStatement ResultSet Statement",
+		"java.time":                    "Clock Instant LocalDate LocalDateTime ZonedDateTime",
+		"java.util":                    "ArrayList Calendar Collection Comparator Date HashMap Iterator LinkedList List Locale Map Optional Properties Random Scanner Set Timer UUID",
+		"java.util.concurrent":         "Callable CompletableFuture ConcurrentHashMap CountDownLatch Executor ExecutorService Future ScheduledExecutorService",
+		"javax.inject":                 "Provider",
+		"kotlin.coroutines":            "Continuation CoroutineContext",
+		"kotlinx.coroutines":           "CoroutineDispatcher CoroutineScope Deferred Job",
+		"androidx.lifecycle":           "Lifecycle LifecycleOwner LiveData SavedStateHandle ViewModel",
+		"androidx.fragment.app":        "Fragment FragmentActivity FragmentManager",
+		"androidx.appcompat.app":       "AppCompatActivity",
+		"androidx.work":                "WorkManager WorkerParameters",
+		"androidx.recyclerview.widget": "RecyclerView",
+	} {
+		m[pkg] = map[string]bool{}
+		for _, n := range strings.Fields(names) {
+			m[pkg][n] = true
+		}
+	}
+	return m
+}()
 
 // declaration returns the declaration node of an indexed class.
 func (a *mockAnalyzer) declaration(sym scanner.Symbol) (*scanner.File, uint32) {
@@ -633,9 +768,37 @@ func (a *mockAnalyzer) check(file *scanner.File, site uint32, t mockType) {
 			return
 		}
 	}
+	if mockIsSealed(c) {
+		a.report(mockDoNotMockSealedClass, file, site, fmt.Sprintf("'%s' is a sealed type and has a restricted type hierarchy, use a subtype instead.", c.fqn))
+		return
+	}
+	for _, fqn := range mockAutoValueAnnotations {
+		if mockClassHasAnnotation(c, fqn) {
+			a.report(mockDoNotMockAutoValue, file, site, "Mocked type is annotated with non-mockable annotation "+fqn)
+			return
+		}
+	}
 	if c.file.FlatType(c.decl) == "object_declaration" {
 		a.report(mockDoNotMockObjectClass, file, site, fmt.Sprintf("'%s' is an object, so mocking it should not be necessary", c.fqn))
+		return
 	}
+	if c.file.FlatType(c.decl) == "record_declaration" ||
+		(c.file.FlatFindModifierNode(c.decl, "data") != 0 && mockClassHasAnnotation(c, "kotlin.jvm.JvmRecord")) {
+		a.report(mockDoNotMockRecordClass, file, site, fmt.Sprintf("'%s' is a record class, so mocking it should not be necessary", c.fqn))
+	}
+}
+
+// mockIsSealed reports a Kotlin sealed class or interface, or a Java type declared sealed or with a permits clause.
+func mockIsSealed(c mockClass) bool {
+	if c.file.FlatFindModifierNode(c.decl, "sealed") != 0 {
+		return true
+	}
+	for child := c.file.FlatFirstChild(c.decl); child != 0; child = c.file.FlatNextSib(child) {
+		if c.file.FlatType(child) == "permits" {
+			return true
+		}
+	}
+	return false
 }
 
 func (a *mockAnalyzer) report(rule string, file *scanner.File, node uint32, msg string) {

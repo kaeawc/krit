@@ -18,6 +18,14 @@ All notable changes to Krit will be documented in this file.
   its inputs' hashes in the model, and krit warns, naming the file, when the build no longer matches. A model restored under another checkout path or Gradle user home is rebased when
   loaded (new `gradleUserHome` model field). New `krit { exportTests = false }` exports and resolves only production
   source sets (#1663).
+- `NullSafeMutableLiveData` and `UnsafeLifecycleWhenUsage`, ports of the Lint checks bundled with
+  `androidx.lifecycle:lifecycle-livedata-core` and `lifecycle-runtime` 2.11.1, under their Lint IDs. Their findings
+  match the Lint CLI running those releases' `lint.jar` on the inputs under
+  `internal/rules/testdata/androidx_lifecycle_runtime/` (#1451, #1452).
+- `IncorrectReferencesDeclaration`, `IncorrectMatchParentUsage` and `IncorrectChainMarginsUsage`, ports of the
+  ConstraintLayout Compose DSL Lint checks bundled with `constraintlayout-compose-android` 1.1.2, under their Lint IDs.
+  Their findings match the Lint CLI running that release's `lint.jar` on the inputs under
+  `internal/rules/testdata/androidx_constraintlayout/` (#1329, #1330, #1331).
 - `EnsureInitializerNoArgConstr` and `EnsureInitializerMetadata`, ports of the Lint checks bundled with
   `androidx.startup:startup-runtime` 1.2.0, for Kotlin and Java under their Lint IDs. Their findings match the Lint CLI
   running that release's `lint.jar` on the project under `internal/rules/testdata/androidx_startup/`, manifest
@@ -33,6 +41,7 @@ All notable changes to Krit will be documented in this file.
   `androidx_uiautomator/`). As in Lint, each runs only when the project declares the artifact that ships it.
   `DontUseAccessibilityNodeInfoGetText` also matches the released `onElement*` names, which the shipped detector no
   longer recognizes (#1505, #1506, #1507).
+
 - Gradle plugin: `kritCheck` with custom rule jars writes every enabled report from one krit run (one
   `--report FORMAT=PATH` each), like every other scan, instead of analyzing once per report (#1634).
 - `DoNotMockAnything`, `DoNotMockPlatformTypes`, `DoNotMockDataClass` and `DoNotMockObjectClass`, slack-lints 0.11.1's
@@ -46,6 +55,11 @@ All notable changes to Krit will be documented in this file.
   part of the analysis cache key. The Bazel rules pass them from `--@krit//:min_sdk_version` /
   `--@krit//:target_sdk_version`, and an `android_binary`'s own `krit_aspect` action from its `manifest_values`, since
   Bazel builds often declare the levels only there (#1682).
+- `UnusedSharedTransitionModifierParameter`, `ConstantContentStateKeyInItemsCall`,
+  `DisallowLookaheadAnimationVisualDebug` and `ArcAnimationSpecTypeIssue`, the remaining Lint checks bundled with
+  `androidx.compose.animation` 1.13.0, under their Lint IDs and checked against the Lint CLI running those releases'
+  `lint.jar` (`internal/rules/testdata/androidx_compose_animation/`). Lint's quick fixes are not ported (#1310, #1311,
+  #1312, #1314).
 - `LaunchDuringComposition`, `NoCollectCallFound` and `ContextCastToActivity`, ports of the Lint checks bundled with
   `androidx.activity:activity-compose` 1.13.0, under their Lint IDs. Their findings match the Lint CLI running that
   release's `lint.jar` on the inputs under `internal/rules/testdata/androidx_activity_compose/` (#1302, #1303, #1304).
@@ -423,6 +437,8 @@ All notable changes to Krit will be documented in this file.
   same workers. `KRIT_WORKER_THREADS` caps the threads per JVM (default 4; `1` restores a JVM per module). Each
   concurrent compile keeps the heap a JVM per module had, and an out-of-memory error in one stops that JVM's
   remaining modules.
+- `DoNotMockAnything` runs only when named (`--enable-rules`, `krit.yml`): `--experimental` no longer turns it on, and
+  `--strict` leaves it off. As in Lint, it is too broad to ride a blanket opt-in.
 - The Gradle plugins `dev.jasonpearson.krit` and `dev.jasonpearson.krit.settings` declare configuration-cache
   support on the Gradle Plugin Portal. `kritCheck`, `kritFormat` and `kritBaseline` now resolve (and download) the
   krit binary when they run instead of while Gradle builds the task graph, so `--dry-run` no longer downloads it and
@@ -504,16 +520,30 @@ All notable changes to Krit will be documented in this file.
   `MoshiUsageSealedMustBeSealed`, `MoshiUsageDoubleTypeLabel`, `MoshiUsageGenericSealedSubtype`,
   `MoshiUsageMissingTypeLabel` and `MoshiUsageInappropriateTypeLabel`. Subtypes are matched to a sealed parent in the
   same package across files, including files that never mention Moshi (#1387, #1389, #1399, #1400, #1403, #1415).
+- `SubscribeOnMain`, `RxObservableDoesNotEmit` and `RxFlowableDoesNotEmit`, slack-lints' Rx checks, in the opt-in
+  `slack-lint` rule set. `SubscribeOnMain` (Kotlin and Java) matches the Lint CLI running slack-lint-checks 0.11.1 with
+  RxJava 3 on the classpath (`internal/rules/testdata/slack_lint/rx/`) and needs the file to import RxJava 3 and none of
+  RxJava 1/2 or Reactor. The two emit checks follow slack-lints main: 0.11.1 looks for a nonexistent
+  `kotlin.coroutines.ProducerScope` and so never reports on kotlinx-coroutines-rx code (#1371, #1372, #1373).
 - `slack-lint` gains `MoshiUsageDetector`'s primary-constructor checks for Kotlin: `MoshiUsagePrivateConstructor`,
   `MoshiUsagePrivateConstructorProperty`, `MoshiUsageVarProperty`, `MoshiUsageParamNeedsInit` and
   `MoshiUsageTransientNeedsInit`. Unlike Lint 9.4, which no longer sees `@Transient` on a constructor property,
   krit reports a `@Transient` property without a default, as slack-lints' own tests expect (#1411, #1412, #1413,
   #1418, #1421).
+- `DoNotMockSealedClass`, `DoNotMockAutoValue` and `DoNotMockRecordClass`, the rest of slack-lints' `MockDetector`
+  checks, matched against slack-lints' detector tests like the first four. The factories also resolve under an import
+  alias, and a well-known platform class named through an on-demand import of its package is a platform type
+  (#1378, #1379, #1381).
 - `slack-lint` gains `MoshiUsageDetector`'s JSON name checks, on Kotlin constructor properties and on Kotlin and
   Java enum members: `MoshiUsageBlankJsonName`, `MoshiUsageRedundantJsonName`, `MoshiUsageDuplicateJsonName`,
   `MoshiUsageSerializedName`, `MoshiUsageRedundantSiteTarget` and `MoshiUsageSnakeCase`. Unlike Lint 9.4, krit
   reports `@SerializedName` on a constructor property and does not report `@Json(ignore = true)` members as
   duplicates of Moshi's unset name (#1386, #1390, #1401, #1414, #1416, #1417).
+- `CastingViewContextToActivity`, `ArgInFormattedQuantityStringRes` and `SpanMarkPointMissingMask`, slack-lints 0.11.1's
+  Android source checks, in the opt-in `slack-lint` rule set for Kotlin and Java. Findings match the Lint CLI with
+  `android.jar` on the classpath (`internal/rules/testdata/slack_lint/android_ui/`), except that a mask inside
+  parentheses, `(flags & Spanned.SPAN_POINT_MARK_MASK) == ...` (the only form Java allows), is not reported
+  (#1356, #1357, #1424).
 - `slack-lint` gains `MoshiUsageAdaptedByRequiresAdapter` and `MoshiUsageAdaptedByRequiresKeep` for moshix
   `@AdaptedBy` adapters declared in the project (Kotlin or Java, followed through project base classes), and
   `MoshiUsageQualifierRetention` and `MoshiUsageQualifierTarget` for Kotlin and Java `@JsonQualifier` annotation
@@ -559,6 +589,10 @@ All notable changes to Krit will be documented in this file.
   `ContextCompat.registerReceiver`, without `RECEIVER_NOT_EXPORTED` or a broadcast permission, as an unprotected
   component, and follows the incoming intent into helpers declared in other files: imported or same-package top-level
   functions and members of project classes or objects (`Launcher.launch(this, intent)`) (#1623).
+- `UnsafeNativeCodeLocation` reads the assets folders of every source set of the module (`src/debug/assets`,
+  `src/<flavor>/assets`, ...) and the `res/raw*` folders of the other source sets' res directories, not only those
+  beside `src/main/res`; test source sets are skipped. The resource cache key now covers those assets folders, so an
+  ELF binary added under `src/debug/assets` invalidates cached findings (#1619).
 - `UnsanitizedFilenameFromContentProvider` proves a Cursor local whose type is inferred from its initializer:
   `ContentResolver.query`, `SQLiteDatabase.query`/`rawQuery` and their variants (also through `!!` or an Elvis that
   returns or throws), or a call to a function or method in the same file declared to return `Cursor`, in Kotlin and

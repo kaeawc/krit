@@ -1,0 +1,25 @@
+src/main/java/com/example/Ui.kt:15:13: CastingViewContextToActivity: Unsafe cast of Context to Activity
+src/main/java/com/example/Ui.kt:17:13: CastingViewContextToActivity: Unsafe cast of Context to Activity
+src/main/java/com/example/Ui.kt:18:13: CastingViewContextToActivity: Unsafe cast of Context to Activity
+src/main/java/com/example/Ui.kt:25:51: ArgInFormattedQuantityStringRes: This may require a localized count modifier. If so, use `LocalizationUtils.getFormattedCount()`. Consult #plz-localization if you are unsure.
+src/main/java/com/example/Ui.kt:28:51: ArgInFormattedQuantityStringRes: This may require a localized count modifier. If so, use `LocalizationUtils.getFormattedCount()`. Consult #plz-localization if you are unsure.
+src/main/java/com/example/Ui.kt:28:62: ArgInFormattedQuantityStringRes: This may require a localized count modifier. If so, use `LocalizationUtils.getFormattedCount()`. Consult #plz-localization if you are unsure.
+src/main/java/com/example/Ui.kt:30:62: ArgInFormattedQuantityStringRes: This may require a localized count modifier. If so, use `LocalizationUtils.getFormattedCount()`. Consult #plz-localization if you are unsure.
+src/main/java/com/example/Ui.kt:34:9: SpanMarkPointMissingMask: Do not check against Spanned.SPAN_EXCLUSIVE_EXCLUSIVE directly. Instead mask flag with Spanned.SPAN_POINT_MARK_MASK to only check MARK_POINT flags.
+src/main/java/com/example/Ui.kt:35:9: SpanMarkPointMissingMask: Do not check against Spannable.SPAN_INCLUSIVE_INCLUSIVE directly. Instead mask flag with Spanned.SPAN_POINT_MARK_MASK to only check MARK_POINT flags.
+src/main/java/com/example/Ui.kt:37:9: SpanMarkPointMissingMask: Do not check against Spanned.SPAN_EXCLUSIVE_EXCLUSIVE directly. Instead mask flag with Spanned.SPAN_POINT_MARK_MASK to only check MARK_POINT flags.
+src/main/java/com/example/Ui.kt:38:9: SpanMarkPointMissingMask: Do not check against SPAN_EXCLUSIVE_EXCLUSIVE directly. Instead mask flag with Spanned.SPAN_POINT_MARK_MASK to only check MARK_POINT flags.
+src/main/java/com/example/Ui.kt:39:9: SpanMarkPointMissingMask: Do not check against Spanned.SPAN_INCLUSIVE_EXCLUSIVE directly. Instead mask flag with Spanned.SPAN_POINT_MARK_MASK to only check MARK_POINT flags.
+src/main/java/com/example/Ui.kt:41:9: SpanMarkPointMissingMask: Do not check against Spanned.SPAN_EXCLUSIVE_EXCLUSIVE directly. Instead mask flag with Spanned.SPAN_POINT_MARK_MASK to only check MARK_POINT flags.
+src/main/java/com/example/Ui.kt:41:9: SpanMarkPointMissingMask: Do not check against Spanned.SPAN_INCLUSIVE_INCLUSIVE directly. Instead mask flag with Spanned.SPAN_POINT_MARK_MASK to only check MARK_POINT flags.
+src/main/java/com/example/Ui.kt:46:16: CastingViewContextToActivity: Unsafe cast of Context to Activity
+src/main/java/com/example/UiJava.java:10:18: CastingViewContextToActivity: Unsafe cast of Context to Activity
+src/main/java/com/example/UiJava.java:11:37: ArgInFormattedQuantityStringRes: This may require a localized count modifier. If so, use `LocalizationUtils.getFormattedCount()`. Consult #plz-localization if you are unsure.
+src/main/java/com/example/UiJava.java:14:9: SpanMarkPointMissingMask: Do not check against Spanned.SPAN_EXCLUSIVE_EXCLUSIVE directly. Instead mask flag with Spanned.SPAN_POINT_MARK_MASK to only check MARK_POINT flags.
+src/main/java/com/example/UiJava.java:15:9: SpanMarkPointMissingMask: Do not check against Spanned.SPAN_EXCLUSIVE_EXCLUSIVE directly. Instead mask flag with Spanned.SPAN_POINT_MARK_MASK to only check MARK_POINT flags.
+src/main/java/com/example/UiJavaView.java:11:17: CastingViewContextToActivity: Unsafe cast of Context to Activity
+src/main/java/com/example/UiJavaView.java:12:18: CastingViewContextToActivity: Unsafe cast of Context to Activity
+src/main/java/com/example/UiJavaView.java:13:17: SpanMarkPointMissingMask: Do not check against SPAN_EXCLUSIVE_EXCLUSIVE directly. Instead mask flag with Spanned.SPAN_POINT_MARK_MASK to only check MARK_POINT flags.
+src/main/java/com/example/UiMasks.kt:10:11: SpanMarkPointMissingMask: Do not check against Spanned.SPAN_EXCLUSIVE_EXCLUSIVE directly. Instead mask flag with Spanned.SPAN_POINT_MARK_MASK to only check MARK_POINT flags.
+src/main/java/com/example/UiMasks.kt:8:11: CastingViewContextToActivity: Unsafe cast of Context to Activity
+src/main/java/com/example/UiMasks.kt:9:11: SpanMarkPointMissingMask: Do not check against Spanned.SPAN_EXCLUSIVE_EXCLUSIVE directly. Instead mask flag with Spanned.SPAN_POINT_MARK_MASK to only check MARK_POINT flags.

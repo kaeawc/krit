@@ -55,3 +55,50 @@ class J {
 		t.Errorf("want no finding for a local ConcurrentHashMap, got %v", got)
 	}
 }
+
+// Review of #1799 (P3): a function-typed parameter or local variable named like the precondition shadows it.
+func TestExceptionMessageShadowedByVariables(t *testing.T) {
+	for name, src := range map[string]string{
+		"parameter":        "fun f(require: (Boolean) -> Unit) {\n  require(true)\n}\n",
+		"local":            "fun f() {\n  val check: (Boolean) -> Unit = {}\n  check(true)\n}\n",
+		"lambda parameter": "val g: ((Boolean) -> Unit) -> Unit = { check -> check(true) }\n",
+	} {
+		if got := runRuleByNameOnPath(t, "ExceptionMessage", "src/main/java/app/F.kt", "package app\n\n"+src); len(got) != 0 {
+			t.Errorf("%s: want no finding, got %v", name, got)
+		}
+	}
+}
+
+// Review of #1799 (P1): a type annotation such as @RawValue is not a function type; P3: a fully qualified
+// ConcurrentHashMap type is still the class.
+func TestKotlinChecksTypeShapes(t *testing.T) {
+	const parcel = `package app
+
+import android.os.Parcelable
+import kotlinx.parcelize.Parcelize
+import kotlinx.parcelize.RawValue
+
+class Foo
+
+@Parcelize
+class P(
+  val a: @RawValue Foo,
+  val b: @RawValue List<String>,
+  val c: @RawValue (() -> Unit)?,
+  val d: suspend () -> Unit,
+) : Parcelable
+`
+	got := runRuleByName(t, "ParcelizeFunctionProperty", parcel)
+	if len(got) != 2 || got[0].Line != 13 || got[1].Line != 14 {
+		t.Errorf("ParcelizeFunctionProperty: want lines 13 and 14, got %v", got)
+	}
+	const maps = `package app
+
+class C(val n: java.util.concurrent.ConcurrentHashMap<String?, Int>) {
+  val m: java.util.concurrent.ConcurrentHashMap<String, Int?> = java.util.concurrent.ConcurrentHashMap()
+}
+`
+	if got := runRuleByName(t, "NullableConcurrentHashMap", maps); len(got) != 2 {
+		t.Errorf("NullableConcurrentHashMap: want 2 findings for fully qualified types, got %v", got)
+	}
+}

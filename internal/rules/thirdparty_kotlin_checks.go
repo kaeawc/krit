@@ -149,8 +149,16 @@ func checkNullableConcurrentHashMap(ctx *api.Context) {
 	if file.FlatType(typ) == "nullable_type" {
 		typ = file.FlatFirstChild(typ)
 	}
-	name := file.FlatFirstChild(typ)
-	if name == 0 || !lintTypeRefMatches(file, strings.TrimSpace(file.FlatNodeText(name)), fqcnConcurrentHashMap) {
+	// A qualified Kotlin user_type splits into type_identifier children (java, util, ...); a Java generic_type starts
+	// with its (scoped) type identifier.
+	var parts []string
+	for c := file.FlatFirstChild(typ); c != 0; c = file.FlatNextSib(c) {
+		switch file.FlatType(c) {
+		case "type_identifier", "scoped_type_identifier":
+			parts = append(parts, strings.TrimSpace(file.FlatNodeText(c)))
+		}
+	}
+	if len(parts) == 0 || !lintTypeRefMatches(file, strings.Join(parts, "."), fqcnConcurrentHashMap) {
 		return
 	}
 	if args, ok := file.FlatFindChild(typ, "type_arguments"); ok {
@@ -271,8 +279,22 @@ func checkParcelizeFunctionProperty(ctx *api.Context) {
 func slackIsFunctionType(file *scanner.File, typ uint32) bool {
 	for depth := 0; typ != 0 && depth < 8; depth++ {
 		switch file.FlatType(typ) {
-		case "function_type", "type_modifiers":
+		case "function_type":
 			return true
+		case "type_modifiers":
+			// `suspend () -> T`; a type annotation such as Parcelize's `@RawValue Foo` also parses as type_modifiers,
+			// followed by the type itself.
+			if strings.Contains(file.FlatNodeText(typ), "suspend") {
+				return true
+			}
+			next := uint32(0)
+			for sib := file.FlatNextSib(typ); sib != 0; sib = file.FlatNextSib(sib) {
+				if file.FlatIsNamed(sib) {
+					next = sib
+					break
+				}
+			}
+			typ = next
 		case "nullable_type", "parenthesized_type", "type_projection":
 			next := uint32(0)
 			for child := file.FlatFirstChild(typ); child != 0; child = file.FlatNextSib(child) {

@@ -29,12 +29,13 @@ const (
 	viewInflationMessage = "ViewBinding should not be used in `ItemDecoration`. If an inflated view contains meaningful textual information, it will not be visible to TalkBack. This means that screen reader users will not be able to know what is on the screen."
 )
 
+// The gates match the method name without call syntax, which may be spaced or commented (`v.toString ()`).
 func viewToStringFileGate(file *scanner.File) bool {
-	return bytes.Contains(file.Content, []byte("toString("))
+	return bytes.Contains(file.Content, []byte("toString"))
 }
 
 func viewInflateFileGate(file *scanner.File) bool {
-	return bytes.Contains(file.Content, []byte("inflate("))
+	return bytes.Contains(file.Content, []byte("inflate"))
 }
 
 // checkDoNotCallViewToString reports a toString() call whose resolved method is declared in a View subclass.
@@ -60,8 +61,8 @@ func checkDoNotCallViewToString(ctx *api.Context) {
 	}
 }
 
-// viewMethodDeclarer returns the source class, fqn or one of its source superclasses, that declares a function
-// called name, or "". The resolver records Kotlin members only, so an override declared in Java is not seen.
+// viewMethodDeclarer returns the source class, fqn or one of its source superclasses, that declares a no-argument
+// override called name, or "". The resolver records Kotlin members only, so an override declared in Java is not seen.
 func viewMethodDeclarer(ctx *api.Context, fqn, name string, seen map[string]bool) string {
 	if ctx.Resolver == nil || fqn == "" || seen[fqn] {
 		return ""
@@ -72,7 +73,8 @@ func viewMethodDeclarer(ctx *api.Context, fqn, name string, seen map[string]bool
 		return ""
 	}
 	for _, m := range info.Members {
-		if m.Name == name && m.Kind == "function" {
+		// The no-argument override only: a `toString(radix: Int)` overload is not what `x.toString()` calls.
+		if m.Name == name && m.Kind == "function" && m.IsOverride && len(m.Params) == 0 {
 			return fqn
 		}
 	}
@@ -160,10 +162,12 @@ func viewInflateIsLayoutOrBinding(ctx *api.Context, call lintCall) bool {
 	if last := call.ReceiverText[strings.LastIndexByte(call.ReceiverText, '.')+1:]; last != "" && last[0] >= 'A' && last[0] <= 'Z' &&
 		file.FlatType(call.ReceiverNode) != "call_expression" && file.FlatType(call.ReceiverNode) != "method_invocation" {
 		fqn := viewSourceClassFQN(ctx, denyAnyClassFQN(file, call.ReceiverText))
-		if strings.Contains(fqn, ".databinding.") && strings.HasSuffix(fqn, "Binding") {
-			return true
+		// A source class must implement ViewBinding; the generated-binding naming is the fallback for a class krit
+		// has no source for.
+		if ctx.Resolver != nil && ctx.Resolver.ClassHierarchy(fqn) != nil {
+			return slackClassExtends(ctx.Resolver, fqn, viewViewBindingFQN)
 		}
-		if slackClassExtends(ctx.Resolver, fqn, viewViewBindingFQN) {
+		if strings.Contains(fqn, ".databinding.") && strings.HasSuffix(fqn, "Binding") {
 			return true
 		}
 		if fqn != "" && strings.Contains(fqn, ".") {

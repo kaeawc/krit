@@ -197,6 +197,22 @@ common --tool_java_runtime_version=remotejdk_21
 | `--@krit//:baseline=//:krit-baseline.xml` | Baseline of known findings (`--baseline`). |
 | `--@krit//:fail_on_findings` | Adds a [validation action](https://bazel.build/extending/rules#validation_actions) per target that fails the build when the target has findings, printing them. It runs with Bazel's default `--run_validations`. |
 | `--@krit//:fir=false` | Go-only analysis, without the JDK or krit-fir. |
+| `--@krit//:worker=false` | No persistent worker: each Krit action starts its own krit-fir JVM. |
+
+The Krit actions run `krit bazel-worker` as Bazel
+[persistent workers](https://bazel.build/remote/persistent) (JSON protocol,
+`supports-workers`). Each worker keeps one krit-fir JVM warm between the
+actions it runs, while every action is still a fresh krit process with
+empty per-run state and incremental FIR state off, so no target's sources
+or results reach another action. A krit-fir JVM is set up for one compile
+target (sources, classpath, Kotlin settings), so the warm path is the edit
+loop: a target analyzed again with an unchanged classpath. On a 24-target
+benchmark (`scripts/bazel-worker-bench.sh`) that took a Krit action from
+4.6 s to 0.6 s, while a full build of distinct targets runs about as fast as
+one JVM per action. Each worker holds at most one JVM, which stops with the
+worker; `--worker_max_instances=Krit=N` bounds them. With workers off
+(`--@krit//:worker=false`, `--strategy=Krit=sandboxed`, remote execution)
+each action starts and stops its own JVM.
 
 Put the flags in `.bazelrc` under a config, e.g.
 `build:krit --aspects=@krit//:defs.bzl%krit_aspect --output_groups=+krit`,

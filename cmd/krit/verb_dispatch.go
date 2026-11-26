@@ -6,6 +6,7 @@ import (
 	climabihash "github.com/kaeawc/krit/internal/cli/abihash"
 	climapi "github.com/kaeawc/krit/internal/cli/api"
 	climapplysuggestion "github.com/kaeawc/krit/internal/cli/applysuggestion"
+	climbazelworker "github.com/kaeawc/krit/internal/cli/bazelworker"
 	climbisect "github.com/kaeawc/krit/internal/cli/bisect"
 	climblastradius "github.com/kaeawc/krit/internal/cli/blastradius"
 	climbreakage "github.com/kaeawc/krit/internal/cli/breakage"
@@ -78,6 +79,7 @@ const (
 	verbRules
 	verbBreakage
 	verbBisectStructure
+	verbBazelWorker
 	verbDeltaRisk
 	verbTraces
 	verbApplySuggestion
@@ -121,6 +123,7 @@ var verbByName = map[string]subcommandVerb{
 	"delta-risk":         verbDeltaRisk,
 	"traces":             verbTraces,
 	"apply-suggestion":   verbApplySuggestion,
+	"bazel-worker":       verbBazelWorker,
 }
 
 func classifyVerb(arg string) subcommandVerb {
@@ -227,6 +230,8 @@ func runVerbAndExitC(verb subcommandVerb, rest []string) bool {
 		os.Exit(climtraces.Run(rest))
 	case verbApplySuggestion:
 		os.Exit(climapplysuggestion.Run(rest))
+	case verbBazelWorker:
+		os.Exit(climbazelworker.Run(rest))
 	}
 	return false
 }

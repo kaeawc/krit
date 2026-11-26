@@ -25,38 +25,22 @@ KritReportInfo = provider(
     },
 )
 
-# Runs from the execution root. krit's per-user state goes to a scratch
-# directory removed afterwards, so the action reads and writes only its
-# declared inputs and outputs: no $HOME, no daemon, no network (the krit-fir
-# jar is an input and downloads are off). krit exits 1 when it reports
-# findings; that still succeeds here and is recorded for the validation.
-_RUN = """\
-set -euo pipefail
-status="$KRIT_STATUS_FILE"
-java_home="${KRIT_JAVA_HOME:-}"
-fir_jar="${KRIT_FIR_JAR_PATH:-}"
-scratch="$(mktemp -d)"
-trap 'rm -rf "$scratch"' EXIT
-export HOME="$scratch/home" TMPDIR="$scratch/tmp"
-export KRIT_STATE_DIR="$scratch/state" KRIT_HOME="$scratch/krit-home"
-export KRIT_BUILDID_CACHE_BASE="$scratch/buildid"
-export KRIT_NO_DAEMON_AUTOSTART=1 KRIT_NO_JAR_DOWNLOAD=1
-mkdir -p "$HOME" "$TMPDIR" "$KRIT_STATE_DIR" "$KRIT_HOME" "$KRIT_BUILDID_CACHE_BASE"
-case "$java_home" in
-  "") export JAVA_HOME="$scratch/no-jdk"; mkdir -p "$JAVA_HOME" ;;
-  /*) export JAVA_HOME="$java_home" ;;
-  *) export JAVA_HOME="$PWD/$java_home" ;;
-esac
-if [ -n "$fir_jar" ]; then
-  export KRIT_FIR_JAR="$PWD/$fir_jar"
-fi
-rc=0
-"$@" || rc=$?
-case "$rc" in
-  0 | 1) echo "$rc" > "$status" ;;
-  *) exit "$rc" ;;
-esac
-"""
+# The Krit action runs `krit bazel-worker` (internal/cli/bazelworker): with
+# Bazel's persistent workers each worker keeps one warm krit-fir JVM across
+# the actions it serves, otherwise (workers off, remote execution) it runs
+# the scan with a one-shot JVM. Either way each action is a fresh krit
+# process whose per-user and per-run state lives in scratch directories, so
+# it reads and writes only its declared inputs and outputs: no $HOME, no
+# network (the krit-fir jar is an input and downloads are off). krit exits 1
+# when it reports findings; that still succeeds and is written to the status
+# file for the validation. A krit-fir daemon serves one compile target, so
+# the worker pays off when a target is analyzed again with an unchanged
+# classpath; singleplex workers (one action each at a time) let it keep only
+# its newest daemon, so it holds at most one JVM.
+_WORKER_REQUIREMENTS = {
+    "requires-worker-protocol": "json",
+    "supports-workers": "1",
+}
 
 _VALIDATE = """\
 set -euo pipefail
@@ -96,10 +80,12 @@ def _krit_aspect_impl(target, ctx):
     status = ctx.actions.declare_file(name + ".krit.status")
 
     args = ctx.actions.args()
-    env = {"KRIT_STATUS_FILE": status.path, "LC_ALL": "C.UTF-8"}
+    args.use_param_file("@%s", use_always = True)
+    args.set_param_file_format("multiline")
+    args.add("--status-file", status)
+    env = {"LC_ALL": "C.UTF-8"}
     inputs = list(srcs)
     transitive = []
-    tools = [ctx.attr._krit[DefaultInfo].files_to_run]
     krit_args = [
         "--no-daemon",
         "--no-cache",
@@ -120,10 +106,12 @@ def _krit_aspect_impl(target, ctx):
             output = model,
             content = krit_model_json(label = target.label, source_sets = [model_set.source_set]),
         )
-        env["KRIT_JAVA_HOME"] = runtime.java_home
-        env["KRIT_FIR_JAR_PATH"] = fir_jar.path
+        env["JAVA_HOME"] = runtime.java_home
+        env["KRIT_FIR_JAR"] = fir_jar.path
+
+        # No --no-fir-daemon: `krit bazel-worker` adds it unless it runs as
+        # a persistent worker, whose krit-fir daemon serves every request.
         krit_args += [
-            "--no-fir-daemon",
             "--fail-on-degraded",
             "--gradle-model",
             model.dirname,
@@ -155,17 +143,16 @@ def _krit_aspect_impl(target, ctx):
         inputs.append(build_file)
         scan.append(build_file)
 
-    args.add(ctx.executable._krit)
     args.add_all(krit_args)
     args.add("--")
     args.add_all(scan)
 
-    ctx.actions.run_shell(
-        command = _RUN,
-        arguments = [args],
+    ctx.actions.run(
+        executable = ctx.executable._krit,
+        arguments = ["bazel-worker", args],
+        execution_requirements = _WORKER_REQUIREMENTS if _flag(ctx, "_worker") else {},
         inputs = depset(inputs, transitive = transitive),
         outputs = [sarif, plain, status],
-        tools = tools,
         mnemonic = "Krit",
         progress_message = "Running krit on %{label}",
         env = env,
@@ -219,6 +206,10 @@ Flags:
 - `--@krit//:fail_on_findings`: a validation action fails the build when a
   target has findings (with the default `--run_validations`).
 - `--@krit//:fir=false`: Go-only analysis, without the JDK or krit-fir.
+- `--@krit//:worker=false`: no persistent worker; every action starts its
+  own krit-fir JVM (as with `--strategy=Krit=sandboxed` or remote execution).
+  With workers, `--worker_max_instances=Krit=N` bounds the JVMs (one per
+  worker) and `--worker_sandboxing` sandboxes them.
 """,
     toolchains = [KT_TOOLCHAIN],
     requires = [krit_android_sdk_aspect],
@@ -251,6 +242,10 @@ Flags:
         ),
         "_fir": attr.label(
             default = Label("//:fir"),
+            providers = [BuildSettingInfo],
+        ),
+        "_worker": attr.label(
+            default = Label("//:worker"),
             providers = [BuildSettingInfo],
         ),
     },

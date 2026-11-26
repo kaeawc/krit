@@ -71,3 +71,11 @@ native_binary(
     out = "export_model.sh",
     visibility = ["//visibility:public"],
 )
+
+# krit_aspect's Krit actions run as persistent workers (one warm krit-fir JVM
+# per worker); false runs each action with its own JVM.
+bool_flag(
+    name = "worker",
+    build_setting_default = True,
+    visibility = ["//visibility:public"],
+)

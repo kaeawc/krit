@@ -29,6 +29,7 @@ const (
 	slotComplexity                  = "complexity"
 	slotFunctionDecl                = "fundecl"
 	slotClassDecl                   = "classdecl"
+	slotClassLikeDeclsByName        = "classLikeDeclsByName"
 	slotJumpMetrics                 = "jumpmetrics"
 	slotScopeReassignments          = "scopeReassignments"
 	slotRangeSummary                = "rangesummary"

@@ -87,8 +87,8 @@ func (f *Facts) relocatable() *Facts {
 	out.Profile.Java.TestSourceRoots = rel(base, j.TestSourceRoots)
 	out.Profile.Java.AndroidTestSourceRoots = rel(base, j.AndroidTestSourceRoots)
 	out.Profile.Java.GeneratedSourceRoots = rel(base, j.GeneratedSourceRoots)
-	out.Profile.Java.ClasspathCandidates = rel(fsutil.CommonDir(j.ClasspathCandidates), j.ClasspathCandidates)
-	out.Profile.Java.BootClasspathCandidates = rel(fsutil.CommonDir(j.BootClasspathCandidates), j.BootClasspathCandidates)
+	out.Profile.Java.ClasspathCandidates = rel(classpathBase(j.ClasspathCandidates), j.ClasspathCandidates)
+	out.Profile.Java.BootClasspathCandidates = rel(classpathBase(j.BootClasspathCandidates), j.BootClasspathCandidates)
 	return &out
 }
 
@@ -239,4 +239,22 @@ func stringIn(value string, values []string) bool {
 		}
 	}
 	return false
+}
+
+// classpathBase is the directory a classpath list is spelled relative to:
+// the entries' common directory, one level higher when an entry sits right in
+// it. Each jar then keeps at least its own folder, which in a Gradle cache is
+// the jar's content hash; a one-jar list would otherwise collapse to the bare
+// file name, and another version of that jar would fingerprint the same.
+func classpathBase(paths []string) string {
+	base := fsutil.CommonDir(paths)
+	if base == "" {
+		return ""
+	}
+	for _, p := range paths {
+		if filepath.Dir(filepath.Clean(p)) == base {
+			return filepath.Dir(base)
+		}
+	}
+	return base
 }

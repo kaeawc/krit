@@ -266,7 +266,7 @@ func (r *TooGenericExceptionThrownRule) check(ctx *api.Context) {
 		r.checkKotlinThrow(ctx)
 		return
 	}
-	if scanner.IsTestFile(file.Path) {
+	if scanner.IsTestFile(projectPath(ctx, file.Path)) {
 		return
 	}
 	names := r.ExceptionNames

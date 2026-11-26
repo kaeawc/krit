@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kaeawc/krit/internal/projectroot"
 	"github.com/kaeawc/krit/internal/rules"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
@@ -109,7 +110,8 @@ func (p ParsePhase) Run(ctx context.Context, in ParseInput) (ParseResult, error)
 	// fields here and fall through to the dispatcher's lazy build.
 	ruleExcludes := rules.GetAllRuleExcludes()
 	ruleAliases := rules.AllSuppressionAliases()
-	installSourceSuppressionAll(kotlinFiles, workers, ruleExcludes, ruleAliases)
+	projectRoot, _ := projectroot.FindMarked(in.Paths)
+	installSourceSuppressionAll(kotlinFiles, workers, ruleExcludes, ruleAliases, projectRoot)
 
 	caps := unionNeeds(in.ActiveRules)
 
@@ -135,7 +137,7 @@ func (p ParsePhase) Run(ctx context.Context, in ParseInput) (ParseResult, error)
 			if !in.IncludeGenerated {
 				javaFiles, _ = filterGeneratedSourceFilesWithAllowlist(javaFiles, in.IncludeGeneratedAllowlist, in.GeneratedSourceDirs...)
 			}
-			installSourceSuppressionAll(javaFiles, workers, ruleExcludes, ruleAliases)
+			installSourceSuppressionAll(javaFiles, workers, ruleExcludes, ruleAliases, projectRoot)
 		}
 	}
 
@@ -235,13 +237,13 @@ func pathMatchesAnySubstring(path string, substrings []string) bool {
 // installSourceSuppressionAll runs installSourceSuppression for every file.
 // Each file's filter depends only on that file (annotation walk, exclude
 // globs, inline-ignore scan), so the files are processed in parallel.
-func installSourceSuppressionAll(files []*scanner.File, workers int, ruleExcludes map[string][]string, ruleAliases map[string][]string) {
+func installSourceSuppressionAll(files []*scanner.File, workers int, ruleExcludes map[string][]string, ruleAliases map[string][]string, projectRoot string) {
 	forEachParallel(len(files), workers, func(i int) {
-		installSourceSuppression(files[i], ruleExcludes, ruleAliases)
+		installSourceSuppression(files[i], ruleExcludes, ruleAliases, projectRoot)
 	})
 }
 
-func installSourceSuppression(f *scanner.File, ruleExcludes map[string][]string, ruleAliases map[string][]string) {
+func installSourceSuppression(f *scanner.File, ruleExcludes map[string][]string, ruleAliases map[string][]string, projectRoot string) {
 	if f == nil || f.FlatTree == nil {
 		return
 	}
@@ -253,7 +255,7 @@ func installSourceSuppression(f *scanner.File, ruleExcludes map[string][]string,
 	if f.Suppression != nil && f.SuppressionIdx != nil {
 		return
 	}
-	f.Suppression = scanner.BuildSuppressionFilter(f, nil, ruleExcludes, "").WithRuleAliases(ruleAliases).WithExcludedRules(rules.ScriptPolicyExcludes(f))
+	f.Suppression = scanner.BuildSuppressionFilterAt(f, nil, ruleExcludes, "", projectRoot).WithRuleAliases(ruleAliases).WithExcludedRules(rules.ScriptPolicyExcludes(f))
 	f.SuppressionIdx = f.Suppression.Annotations()
 }
 

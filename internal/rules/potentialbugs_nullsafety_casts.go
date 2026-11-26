@@ -34,7 +34,7 @@ func (r *UnsafeCastRule) check(ctx *api.Context) {
 	idx, file := ctx.Idx, ctx.File
 	// Skip test files — test code commonly uses `as` to cast framework
 	// return values to concrete types; failure = test failure anyway.
-	if scanner.IsTestFile(file.Path) {
+	if scanner.IsTestFile(projectPath(ctx, file.Path)) {
 		return
 	}
 	// Skip @Preview / sample / fixture functions — these build hand-crafted

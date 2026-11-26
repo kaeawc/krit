@@ -85,7 +85,7 @@ func registerWorkRule(rule AndroidRule, impl any, confidence float64, check func
 		NodeTypes: nodeTypes, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava},
 		Confidence: confidence, Implementation: impl, NeedsLibraryFacts: true,
 		Check: func(ctx *api.Context) {
-			if ctx.File != nil && scanner.IsTestFile(ctx.File.Path) {
+			if ctx.File != nil && scanner.IsTestFile(projectPath(ctx, ctx.File.Path)) {
 				return
 			}
 			check(ctx)

@@ -33,7 +33,7 @@ func (r *UnsafeImplicitIntentLaunchRule) check(ctx *api.Context) {
 	dynamic := map[string]bool{}
 	var sent []implicitIntentSend
 	for _, file := range ctx.ParsedFiles {
-		if file == nil || scanner.IsTestFile(file.Path) {
+		if file == nil || scanner.IsTestFile(projectPath(ctx, file.Path)) {
 			continue
 		}
 		file.FlatWalkAllNodes(0, func(n uint32) {

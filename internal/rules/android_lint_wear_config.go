@@ -276,7 +276,7 @@ func (r *WearMaterialThemeRule) check(ctx *api.Context) {
 		return
 	}
 	for _, file := range ctx.ParsedFiles {
-		if file == nil || file.FlatTree == nil || scanner.IsTestFile(file.Path) ||
+		if file == nil || file.FlatTree == nil || scanner.IsTestFile(projectPath(ctx, file.Path)) ||
 			!bytes.Contains(file.Content, wearComposeMaterialThemeBytes) || !wearNearestModuleIsWear(file.Path, wearByRoot) {
 			continue
 		}

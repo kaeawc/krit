@@ -381,13 +381,27 @@ and rule hash are computed from repository-relative paths, so a `.krit/`
 restored into a checkout at another absolute path (another CI agent's
 workspace) still hits for unchanged files, when the repository has a project
 marker (a VCS root, a krit config or Gradle settings). That is safe because no
-verdict depends on the folders above such a root: structural path heuristics
-read the root-relative path (`projectPath`), and a CLI test scans one tree at
-two roots and requires the same findings. Substring heuristics
-(`/src/test/`, `/samples/`, `-test-utils/`, ...) still see absolute paths, so
-a cache moved from or to a root containing such a segment is discarded instead
-(`cache.rulePathMarkers`, kept in sync with the rules by a test). A cache under
-`--cache-dir` keeps absolute paths.
+verdict depends on the folders above such a root: rule path heuristics,
+test-source detection and per-rule `excludes` globs read the root-relative
+path (`projectPath`, `scanner.RootRelativePath`), and a CLI test scans one tree
+at two roots and requires the same findings. The few shared classifiers that
+still see absolute paths (`/src/test/`, `/samples/`, `-test-utils/`, ...) are
+covered by `cache.rulePathMarkers`, kept in sync with the rules by a test: a
+cache moved from or to a root containing such a segment is discarded instead.
+A cache under `--cache-dir` keeps absolute paths.
+
+Some common checkout roots hold such a segment, so a cache restored there is
+rebuilt rather than relocated:
+
+| Checkout root | Segment |
+|---|---|
+| AWS CodeBuild `/codebuild/output/src…/src/github.com/…` | `/src/` |
+| Bitbucket Pipelines `/opt/atlassian/pipelines/agent/build` | `/build/` |
+| a developer clone under `~/src/…` | `/src/` |
+| a repository folder such as `latest-app`, `test-infra`, `sample-app` | `test`, `sample` |
+
+GitHub Actions (`/home/runner/work/<repo>/<repo>`), GitLab (`/builds/<group>/<project>`), Jenkins workspaces
+(`<job>`, `<job>@2`), CircleCI (`~/project`) and Buildkite agent roots relocate.
 
 If a scan with the default cache disagrees with `--no-cache`, that is a bug in
 a key: run `krit --clear-cache` to recover, then report which cache held the

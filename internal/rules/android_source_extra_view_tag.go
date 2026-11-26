@@ -50,7 +50,7 @@ func (r *ViewTagRule) check(ctx *api.Context) {
 	if projectMinSdk(ctx) >= viewTagFixedInAPILevel {
 		return
 	}
-	if scanner.IsTestFile(ctx.File.Path) || viewTagInVerificationOrMock(ctx, target) {
+	if scanner.IsTestFile(projectPath(ctx, ctx.File.Path)) || viewTagInVerificationOrMock(ctx, target) {
 		return
 	}
 	confidence, ok := viewTagReceiverEvidence(ctx, target)

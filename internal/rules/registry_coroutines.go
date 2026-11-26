@@ -245,7 +245,7 @@ func registerCoroutinesInjectDispatcher() {
 		Needs: api.NeedsTypeInfo | api.NeedsOracleCallTargets,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
-			if scanner.IsTestFile(file.Path) {
+			if scanner.IsTestFile(projectPath(ctx, file.Path)) {
 				return
 			}
 			if first := file.FlatChild(idx, 0); first != 0 && file.FlatType(first) == "call_expression" {
@@ -793,7 +793,7 @@ func registerCoroutinesChannelReceiveWithoutClose() {
 				return
 			}
 			// Receivers launched in a cancellable scope end with it, and test channels die with the test.
-			if scanner.IsTestFile(file.Path) || isTestDoubleClassName(file, classDecl) ||
+			if scanner.IsTestFile(projectPath(ctx, file.Path)) || isTestDoubleClassName(file, classDecl) ||
 				channelReceivesAllScopeBound(file, 0, propName) {
 				return
 			}
@@ -1242,7 +1242,7 @@ func registerCoroutinesStateFlowMutableLeak() {
 			if !stateFlowMutableLeakHasKotlinxEvidence(file, propText) {
 				return
 			}
-			if scanner.IsTestFile(file.Path) || file.FlatHasAncestorOfType(idx, "function_body") {
+			if scanner.IsTestFile(projectPath(ctx, file.Path)) || file.FlatHasAncestorOfType(idx, "function_body") {
 				return
 			}
 			if file.FlatHasModifier(idx, "private") || file.FlatHasModifier(idx, "protected") ||

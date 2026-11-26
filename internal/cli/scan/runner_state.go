@@ -26,6 +26,7 @@ import (
 	"github.com/kaeawc/krit/internal/output"
 	"github.com/kaeawc/krit/internal/perf"
 	"github.com/kaeawc/krit/internal/pipeline"
+	"github.com/kaeawc/krit/internal/projectroot"
 	"github.com/kaeawc/krit/internal/rules"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
@@ -868,8 +869,10 @@ func absoluteScanPaths(paths []string) []string {
 
 func (r *runner) firPassOptions(parsed pipeline.ParseResult) firCheckerOpts {
 	enabled := *r.f.Fir && !*r.f.NoFir
+	projectRoot, _ := projectroot.FindMarked(r.paths)
 	opts := firCheckerOpts{
 		Enabled:             enabled,
+		ProjectRoot:         projectRoot,
 		Verbose:             *r.f.Verbose,
 		ActiveRules:         r.activeRules,
 		Config:              r.cfg,

@@ -28,6 +28,9 @@ import (
 // PassOptions groups every input RunPass needs.
 type PassOptions struct {
 	Enabled bool
+	// ProjectRoot is the scan's marked project root, or "". Rule excludes
+	// match FIR findings' paths relative to it, as they do Go findings'.
+	ProjectRoot string
 	// Checker runs the subprocess or daemon invocation. Production callers
 	// pass *ProductionFirChecker; tests inject FakeFirChecker. When nil the
 	// pass is a no-op even if Enabled is true.
@@ -341,7 +344,7 @@ func (p *PendingPass) Finish(base []scanner.Finding) ([]scanner.Finding, error) 
 		Requested:            p.requested,
 		Excluded:             p.excluded,
 		DisplayPath:          p.targets.display,
-		Suppressed:           newSuppressor(p.targets.files).suppressed,
+		Suppressed:           newSuppressor(p.targets.files, opts.ProjectRoot).suppressed,
 		RequireAuthoritative: required,
 	})
 	if opts.OnCoverage != nil {
@@ -744,10 +747,11 @@ func testFilesOf(requested []string, display map[string]string) []string {
 type suppressor struct {
 	parsed  map[string]*scanner.File
 	filters map[string]*scanner.SuppressionFilter
+	root    string
 }
 
-func newSuppressor(parsed map[string]*scanner.File) *suppressor {
-	return &suppressor{parsed: parsed, filters: map[string]*scanner.SuppressionFilter{}}
+func newSuppressor(parsed map[string]*scanner.File, projectRoot string) *suppressor {
+	return &suppressor{parsed: parsed, root: projectRoot, filters: map[string]*scanner.SuppressionFilter{}}
 }
 
 func (s *suppressor) suppressed(f scanner.Finding) bool {
@@ -772,10 +776,10 @@ func (s *suppressor) filterFor(path string) *scanner.SuppressionFilter {
 	case file != nil && file.Suppression != nil:
 		filter = file.Suppression
 	case file != nil && file.FlatTree != nil:
-		filter = buildSuppressionFilter(file)
+		filter = buildSuppressionFilter(file, s.root)
 	default:
 		if parsed, err := scanner.ParseFile(context.Background(), path); err == nil {
-			filter = buildSuppressionFilter(parsed)
+			filter = buildSuppressionFilter(parsed, s.root)
 		}
 	}
 	s.filters[abs] = filter
@@ -783,8 +787,8 @@ func (s *suppressor) filterFor(path string) *scanner.SuppressionFilter {
 }
 
 // buildSuppressionFilter mirrors the parse phase's per-file filter.
-func buildSuppressionFilter(file *scanner.File) *scanner.SuppressionFilter {
-	return scanner.BuildSuppressionFilter(file, nil, rules.GetAllRuleExcludes(), "").WithRuleAliases(rules.AllSuppressionAliases())
+func buildSuppressionFilter(file *scanner.File, projectRoot string) *scanner.SuppressionFilter {
+	return scanner.BuildSuppressionFilterAt(file, nil, rules.GetAllRuleExcludes(), "", projectRoot).WithRuleAliases(rules.AllSuppressionAliases())
 }
 
 // activeRuleIDs flattens a rule slice into its non-nil rule IDs.

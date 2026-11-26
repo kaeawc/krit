@@ -309,7 +309,36 @@ func ResolveCacheDir(cacheDir string, scanPaths []string) (dir string, filePath 
 		return cacheDir, FilePath(cacheDir, scanPaths)
 	}
 	dir = DefaultDir(projectroot.Find(scanPaths))
-	return dir, FilePath(dir, scanPaths)
+	filePath = FilePath(dir, scanPaths)
+	removeLegacyCacheFile(dir, scanPaths, filePath)
+	return dir, filePath
+}
+
+// legacyFilePath is the name FilePath gave a default-directory cache before
+// it hashed repository-relative scan paths: a hash of the absolute ones.
+func legacyFilePath(cacheDir string, scanPaths []string) string {
+	if cacheDir == "" || len(scanPaths) == 0 {
+		return ""
+	}
+	sorted := make([]string, len(scanPaths))
+	for i, p := range scanPaths {
+		abs, err := filepath.Abs(p)
+		if err != nil {
+			abs = p
+		}
+		sorted[i] = abs
+	}
+	sort.Strings(sorted)
+	return filepath.Join(cacheDir, "krit-"+hashutil.HashHex([]byte(strings.Join(sorted, "\x00")))[:12]+".cache")
+}
+
+// removeLegacyCacheFile deletes the cache file an older build wrote under
+// the absolute-path name. No build reads it any more, so it would only take
+// space in .krit/cache forever.
+func removeLegacyCacheFile(cacheDir string, scanPaths []string, current string) {
+	if legacy := legacyFilePath(cacheDir, scanPaths); legacy != "" && legacy != current {
+		_ = os.Remove(legacy)
+	}
 }
 
 // Load reads the cache file from the given path.

@@ -51,7 +51,7 @@ func registerPotentialbugsLifecycleRules() {
 					return
 				}
 				// Tests call gc() to force finalization or measure leaks.
-				if scanner.IsTestFile(file.Path) {
+				if scanner.IsTestFile(projectPath(ctx, file.Path)) {
 					return
 				}
 				if file.Language == scanner.LangJava {
@@ -210,7 +210,7 @@ func registerPotentialbugsLifecycleRules() {
 			NodeTypes: []string{"property_declaration"}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
-				if scanner.IsTestFile(file.Path) {
+				if scanner.IsTestFile(projectPath(ctx, file.Path)) {
 					return
 				}
 				if !file.FlatHasModifier(idx, "lateinit") {

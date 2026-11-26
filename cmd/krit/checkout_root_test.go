@@ -21,7 +21,9 @@ import (
 // and the root is named app), packageOmitsCommonRoot's source root (Root.kt
 // declares x.app, and the root's parent is named kotlin), and
 // isTestFrameworkModulePath's module tokens (a JUnit import in main code under
-// a root whose ancestor is named junit-kit). The Android playground rides
+// a root whose ancestor is named junit-kit), and MatchingDeclarationName's KMP
+// source-set check (lib/src/util/Helpers.kt declares Other, under an ancestor
+// named RemoteMain). The Android playground rides
 // along so every other rule sees a real project too.
 func writeCheckoutRootProject(t *testing.T, root string) {
 	t.Helper()
@@ -31,6 +33,7 @@ func writeCheckoutRootProject(t *testing.T, root string) {
 		"Root.kt":                                 "package x.app\n\nclass Root\n",
 		"lib/src/main/kotlin/p/UsesJUnit.kt":      "package p\n\nimport org.junit.Test\n\nclass UsesJUnit {\n    @Test fun t() {}\n}\n",
 		"lib/src/main/kotlin/p/LibraryClass.kt":   "package p\n\nclass LibraryClass\n",
+		"lib/src/util/Helpers.kt":                 "package util\n\nclass Other\n",
 		"lib/build.gradle.kts":                    "plugins { kotlin(\"jvm\") }\n",
 		"android/settings.gradle.kts":             "rootProject.name = \"android\"\n",
 		"android/app/src/main/kotlin/a/Screen.kt": "package a\n\nclass Screen\n",
@@ -129,7 +132,7 @@ func diffKeys(a, b []string) (onlyA, onlyB []string) {
 // never relocated.
 func TestFindingsIgnoreFoldersAboveTheProjectRoot(t *testing.T) {
 	base := neutralTempDir(t)
-	rootA := filepath.Join(base, "ci1", "junit-kit", "kotlin", "app")
+	rootA := filepath.Join(base, "ci1", "RemoteMain", "junit-kit", "kotlin", "app")
 	rootB := filepath.Join(base, "ci2", "plain", "x", "app@2")
 	writeCheckoutRootProject(t, rootA)
 	writeCheckoutRootProject(t, rootB)

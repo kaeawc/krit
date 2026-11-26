@@ -32,7 +32,7 @@ func (r *InvalidSetHasFixedSizeRule) Confidence() float64 { return api.Confidenc
 
 func (r *InvalidSetHasFixedSizeRule) check(ctx *api.Context) {
 	file := ctx.File
-	if ctx.ResourceIndex == nil || scanner.IsTestFile(file.Path) {
+	if ctx.ResourceIndex == nil || scanner.IsTestFile(projectPath(ctx, file.Path)) {
 		return
 	}
 	call, ok := lintCallAt(file, ctx.Idx)

@@ -429,7 +429,7 @@ func registerStyleVarCouldBeVal() {
 		NodeTypes: []string{"property_declaration"}, Confidence: api.ConfidenceMedium, Fix: api.FixIdiomatic, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
-			if scanner.IsTestFile(file.Path) {
+			if scanner.IsTestFile(projectPath(ctx, file.Path)) {
 				return
 			}
 			var varKeyword uint32

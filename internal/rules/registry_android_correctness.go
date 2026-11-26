@@ -696,7 +696,7 @@ func registerAndroidCorrectnessRegistered() {
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			// Test-only components are registered by test manifests.
-			if scanner.IsTestFile(file.Path) {
+			if scanner.IsTestFile(projectPath(ctx, file.Path)) {
 				return
 			}
 			componentType, confidence := androidComponentType(file, idx, ctx.Resolver)

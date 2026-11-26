@@ -432,7 +432,7 @@ func (p AndroidPhase) mergeResourceIndexes(in AndroidInput, resDir, resourceKey 
 		Language: scanner.LangXML,
 		Metadata: mergedIdx,
 	}
-	installAndroidSuppression(file)
+	installAndroidSuppression(file, in.Dispatcher.ProjectRoot())
 
 	canCache := resourceKey != "" && stats != nil && in.CacheWriter != nil && in.CacheDir != "" && in.RuleHash != ""
 	raw, cacheable := in.Dispatcher.RunResource(file, mergedIdx)
@@ -472,7 +472,7 @@ func (p AndroidPhase) scanResourceIcons(in AndroidInput, resDir string, scanIcon
 		Language: scanner.LangXML,
 		Metadata: iconIdx,
 	}
-	installAndroidSuppression(file)
+	installAndroidSuppression(file, in.Dispatcher.ProjectRoot())
 	raw, cacheable := in.Dispatcher.RunIcons(file, iconIdx)
 	iconColumns := filterAndroidSuppressedFindings(file, raw)
 	collector.AppendColumns(&iconColumns)
@@ -634,7 +634,7 @@ func (AndroidPhase) runManifestOne(in AndroidInput, path string, manifests *pars
 		Language: scanner.LangXML,
 		Metadata: manifest,
 	}
-	installAndroidSuppression(file)
+	installAndroidSuppression(file, in.Dispatcher.ProjectRoot())
 	raw, cacheable := in.Dispatcher.RunManifest(file, manifest)
 	cols := filterAndroidSuppressedFindings(file, raw)
 	return cols, cacheable, parseDur, time.Since(ruleStart)
@@ -1106,7 +1106,7 @@ func (AndroidPhase) runGradleOne(in AndroidInput, path string) (scanner.FindingC
 	}
 	ruleStart := time.Now()
 	file := scanner.ParseGradleScript(context.Background(), path, content, cfg)
-	installAndroidSuppression(file)
+	installAndroidSuppression(file, in.Dispatcher.ProjectRoot())
 	raw, cacheable := in.Dispatcher.RunGradle(file, cfg)
 	cols := filterAndroidSuppressedFindings(file, raw)
 	return cols, cacheable, readParseDur, time.Since(ruleStart)
@@ -1117,11 +1117,11 @@ func (AndroidPhase) runGradleOne(in AndroidInput, path string) (scanner.FindingC
 // and icon files currently have no Content or FlatTree, so their filters only
 // carry path excludes (a no-op today); inline krit:ignore/@Suppress works for
 // Gradle (.kts). Keep this hook for future XML content plumbing.
-func installAndroidSuppression(file *scanner.File) {
+func installAndroidSuppression(file *scanner.File, projectRoot string) {
 	if file == nil || file.Suppression != nil {
 		return
 	}
-	file.Suppression = scanner.BuildSuppressionFilter(file, nil, rules.GetAllRuleExcludes(), "").WithRuleAliases(rules.AllSuppressionAliases()).WithExcludedRules(rules.ScriptPolicyExcludes(file))
+	file.Suppression = scanner.BuildSuppressionFilterAt(file, nil, rules.GetAllRuleExcludes(), "", projectRoot).WithRuleAliases(rules.AllSuppressionAliases()).WithExcludedRules(rules.ScriptPolicyExcludes(file))
 	file.SuppressionIdx = file.Suppression.Annotations()
 }
 

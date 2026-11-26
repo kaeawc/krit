@@ -592,6 +592,19 @@ func TestInvalidResourceFolderResource(t *testing.T) {
 		}
 	})
 
+	t.Run("a checkout folder ending in res is not the resource folder", func(t *testing.T) {
+		// The first "res/" here is the checkout's own mres/ folder; the
+		// resource folder is the innermost one (#1834).
+		idx := indexWithLayout("main", "/builds/mres/app/src/main/res/layout/main.xml", &android.View{
+			Type:       "LinearLayout",
+			Line:       1,
+			Attributes: map[string]string{},
+		})
+		if findings := runResourceRule(r, idx); len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d: %v", len(findings), findings[0].Message)
+		}
+	})
+
 	t.Run("valid layout folder is clean", func(t *testing.T) {
 		idx := indexWithLayout("main", "res/layout/main.xml", &android.View{
 			Type:       "LinearLayout",

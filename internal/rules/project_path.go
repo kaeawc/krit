@@ -1,10 +1,8 @@
 package rules
 
 import (
-	"path/filepath"
-	"strings"
-
 	api "github.com/kaeawc/krit/internal/rules/api"
+	"github.com/kaeawc/krit/internal/scanner"
 )
 
 // projectPath returns path as a path heuristic should read it: relative to
@@ -19,16 +17,5 @@ func projectPath(ctx *api.Context, path string) string {
 	if ctx == nil {
 		return path
 	}
-	root := ctx.Facts.ProjectRoot()
-	if root == "" || !filepath.IsAbs(path) {
-		return path
-	}
-	rel, err := filepath.Rel(root, path)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return path
-	}
-	if rel == "." {
-		return "/"
-	}
-	return "/" + filepath.ToSlash(rel)
+	return scanner.RootRelativePath(ctx.Facts.ProjectRoot(), path)
 }

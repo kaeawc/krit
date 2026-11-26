@@ -314,6 +314,7 @@ func (s *Server) analyzeAndroid(args analyzeArgs) ToolResult {
 
 	libraryFacts := librarymodel.FactsForProfile(librarymodel.ProfileFromProject(proj))
 	dispatcher := rules.NewDispatcher(api.Registry, nil)
+	pipeline.SetDispatcherProjectRoot(dispatcher, []string{args.ProjectPath})
 	dispatcher.SetLibraryFacts(libraryFacts)
 
 	if scope == "manifest" || scope == "all" {

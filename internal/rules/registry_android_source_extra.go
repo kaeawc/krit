@@ -22,7 +22,7 @@ func registerAndroidSourceExtraRules() {
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				// Without a layout index we cannot tell whether XML inflates the view, so stay silent.
-				if ctx.ResourceIndex == nil || file.FlatHasModifier(idx, "abstract") || file.FlatHasModifier(idx, "private") || scanner.IsTestFile(file.Path) {
+				if ctx.ResourceIndex == nil || file.FlatHasModifier(idx, "abstract") || file.FlatHasModifier(idx, "private") || scanner.IsTestFile(projectPath(ctx, file.Path)) {
 					return
 				}
 				if androidHasAnnotationFlat(file, idx, "SuppressLint") &&
@@ -188,7 +188,7 @@ func registerAndroidSourceExtraRules() {
 				idx, file := ctx.Idx, ctx.File
 				// A test source is not registered in the app's manifest, and Robolectric
 				// creates test fakes through reflection, so a private one works.
-				if scanner.IsTestFile(file.Path) {
+				if scanner.IsTestFile(projectPath(ctx, file.Path)) {
 					return
 				}
 				isComponent := false

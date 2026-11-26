@@ -54,7 +54,7 @@ func (r *PrngFromSystemTimeRule) check(ctx *api.Context) {
 
 func (r *StaticIvRule) check(ctx *api.Context) {
 	file := ctx.File
-	if scanner.IsTestFile(file.Path) {
+	if scanner.IsTestFile(projectPath(ctx, file.Path)) {
 		return
 	}
 	ctor, byteArg := staticIvConstructorAndByteArg(file, ctx.Idx)
@@ -75,7 +75,7 @@ func (r *StaticIvRule) check(ctx *api.Context) {
 
 func (r *HardcodedSecretKeyRule) check(ctx *api.Context) {
 	file := ctx.File
-	if scanner.IsTestFile(file.Path) {
+	if scanner.IsTestFile(projectPath(ctx, file.Path)) {
 		return
 	}
 	keyArg := secretKeySpecLiteralKeyArg(file, ctx.Idx)

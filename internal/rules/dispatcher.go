@@ -287,6 +287,14 @@ func (d *Dispatcher) SetProjectRoot(root string) {
 	d.fileFacts.SetProjectRoot(root)
 }
 
+// ProjectRoot returns the root SetProjectRoot recorded, or "".
+func (d *Dispatcher) ProjectRoot() string {
+	if d == nil {
+		return ""
+	}
+	return d.fileFacts.ProjectRoot()
+}
+
 func (d *Dispatcher) SetLibraryFacts(facts *librarymodel.Facts) {
 	if d == nil {
 		return
@@ -893,7 +901,7 @@ func (d *Dispatcher) buildExcludedSet(filePath string) map[string]bool {
 	// Only rules with configured excludes can be excluded, and there are
 	// usually few, so walk those and keep the ones this dispatcher holds.
 	for id, excludes := range ruleExcludes {
-		if len(excludes) > 0 && d.ruleIDs[id] && IsFileExcluded(filePath, excludes) {
+		if len(excludes) > 0 && d.ruleIDs[id] && IsFileExcluded(scanner.RootRelativePath(d.fileFacts.ProjectRoot(), filePath), excludes) {
 			excluded[id] = true
 		}
 	}

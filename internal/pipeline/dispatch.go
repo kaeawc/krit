@@ -9,7 +9,6 @@ import (
 	"github.com/kaeawc/krit/internal/cache"
 	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/perf"
-	"github.com/kaeawc/krit/internal/projectroot"
 	"github.com/kaeawc/krit/internal/rules"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/sysres"
@@ -210,9 +209,7 @@ func (d DispatchPhase) Run(ctx context.Context, in IndexResult) (DispatchResult,
 	// root counts: without one, Find falls back to the scanned directory,
 	// which can be the very source folder (src/, a Bazel package) whose
 	// name a path heuristic needs, and the cache is not relocated.
-	if root, ok := projectroot.FindMarked(in.Paths); ok {
-		dispatcher.SetProjectRoot(root)
-	}
+	SetDispatcherProjectRoot(dispatcher, in.Paths)
 	dispatcher.SetLibraryFacts(in.LibraryFacts)
 	dispatcher.SetJavaSemanticFacts(in.JavaSemanticFacts)
 	dispatcher.SetRuleTiming(!in.SkipRuleTiming)

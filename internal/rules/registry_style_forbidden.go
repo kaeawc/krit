@@ -31,7 +31,7 @@ func registerStyleWildcardImport() {
 			// Skip test files and test-fixture Kotlin sources. Fixtures routinely
 			// use wildcard imports of an API surface being tested (e.g. KSP's
 			// integration-tests copy Kotlin files that `import foo.bar.*`).
-			if scanner.IsTestFile(file.Path) {
+			if scanner.IsTestFile(projectPath(ctx, file.Path)) {
 				return
 			}
 			imp := importStatementPath(file, idx)

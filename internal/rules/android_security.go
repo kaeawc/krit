@@ -191,7 +191,7 @@ func (r *InsecureTrustManagerRule) check(ctx *api.Context) {
 
 func (r *HardcodedHTTPURLRule) check(ctx *api.Context) {
 	file := ctx.File
-	if scanner.IsTestFile(file.Path) {
+	if scanner.IsTestFile(projectPath(ctx, file.Path)) {
 		return
 	}
 	raw, ok := hardcodedHTTPURLLiteralArg(file, ctx.Idx)

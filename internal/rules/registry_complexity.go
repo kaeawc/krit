@@ -300,7 +300,7 @@ func registerComplexityRules() {
 			NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
-				if scanner.IsTestFile(file.Path) || isGradleBuildScript(file.Path) {
+				if scanner.IsTestFile(projectPath(ctx, file.Path)) || isGradleBuildScript(file.Path) {
 					return
 				}
 				args, _ := file.FlatFindChild(idx, "value_arguments")

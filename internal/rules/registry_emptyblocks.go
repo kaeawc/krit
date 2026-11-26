@@ -65,7 +65,7 @@ func registerEmptyblocksEmptyClassBlock() {
 		NodeTypes: []string{"class_body", "enum_class_body"}, Languages: []scanner.Language{scanner.LangKotlin}, Confidence: api.ConfidenceVeryHigh, Fix: api.FixSemantic, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
-			if scanner.IsTestFile(file.Path) {
+			if scanner.IsTestFile(projectPath(ctx, file.Path)) {
 				return
 			}
 			// detekt reports every class, interface, enum, object and companion; an anonymous object is not one.

@@ -87,6 +87,15 @@ func (f *SuppressionFilter) WithExcludedRules(ids map[string]bool) *SuppressionF
 // reports IsSuppressed == false so dispatcher / cross-file call sites
 // do not need nil checks.
 func BuildSuppressionFilter(file *File, baseline *Baseline, excludes map[string][]string, basePath string) *SuppressionFilter {
+	return BuildSuppressionFilterAt(file, baseline, excludes, basePath, "")
+}
+
+// BuildSuppressionFilterAt is BuildSuppressionFilter for a file of the
+// project rooted at projectRoot: rule excludes match the root-relative path
+// (RootRelativePath), so a glob cannot match a folder above the checkout and
+// change verdicts when the checkout moves (#1814). An empty projectRoot
+// matches the path as given.
+func BuildSuppressionFilterAt(file *File, baseline *Baseline, excludes map[string][]string, basePath, projectRoot string) *SuppressionFilter {
 	sf := &SuppressionFilter{
 		file:     file,
 		baseline: baseline,
@@ -104,7 +113,7 @@ func BuildSuppressionFilter(file *File, baseline *Baseline, excludes map[string]
 			if len(patterns) == 0 {
 				continue
 			}
-			if matchAnyExcludePattern(file.Path, patterns) {
+			if matchAnyExcludePattern(RootRelativePath(projectRoot, file.Path), patterns) {
 				excluded[ruleID] = true
 			}
 		}
@@ -1063,4 +1072,23 @@ func addIgnoreAnnotatedSuppressions(tree *FlatTree, content []byte, out *Suppres
 			Rules:     rules,
 		})
 	}
+}
+
+// RootRelativePath returns path relative to root, slash-separated with a
+// leading slash ("/app/src/main/Foo.kt", "/" for root itself), when root is
+// non-empty and path is an absolute path under it; otherwise path unchanged.
+// Path heuristics and exclude globs read it so their verdicts cannot depend on
+// the folders above the project root (#1814).
+func RootRelativePath(root, path string) string {
+	if root == "" || !filepath.IsAbs(path) {
+		return path
+	}
+	rel, err := filepath.Rel(root, path)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return path
+	}
+	if rel == "." {
+		return "/"
+	}
+	return "/" + filepath.ToSlash(rel)
 }

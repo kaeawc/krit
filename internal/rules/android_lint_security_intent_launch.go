@@ -102,7 +102,7 @@ func (r *UnsafeIntentLaunchRule) check(ctx *api.Context) {
 		return
 	}
 	for _, file := range ctx.ParsedFiles {
-		if file == nil || scanner.IsTestFile(file.Path) {
+		if file == nil || scanner.IsTestFile(projectPath(ctx, file.Path)) {
 			continue
 		}
 		s.scanFile(file)

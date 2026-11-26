@@ -27,7 +27,7 @@ const expressionBodySyntaxMessage = "Functions with exact one statement, the ret
 // expression, skipping a wrapped return value unless IncludeLineWrapping is set and a return nested in an elvis.
 func (r *ExpressionBodySyntaxRule) check(ctx *api.Context) {
 	idx, file := ctx.Idx, ctx.File
-	if scanner.IsTestFile(file.Path) {
+	if scanner.IsTestFile(projectPath(ctx, file.Path)) {
 		return
 	}
 	body, _ := file.FlatFindChild(idx, "function_body")

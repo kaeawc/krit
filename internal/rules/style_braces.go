@@ -350,7 +350,7 @@ func blockStatementCount(file *scanner.File, body uint32) int {
 
 func (r *BracesOnIfStatementsRule) check(ctx *api.Context) {
 	idx, file := ctx.Idx, ctx.File
-	if scanner.IsTestFile(file.Path) || isGradleBuildScript(file.Path) {
+	if scanner.IsTestFile(projectPath(ctx, file.Path)) || isGradleBuildScript(file.Path) {
 		return
 	}
 	if isElseIfOfParent(file, idx) {
@@ -522,7 +522,7 @@ func whenKeyword(file *scanner.File, whenExpr uint32) uint32 {
 
 func (r *BracesOnWhenStatementsRule) check(ctx *api.Context) {
 	idx, file := ctx.Idx, ctx.File
-	if scanner.IsTestFile(file.Path) {
+	if scanner.IsTestFile(projectPath(ctx, file.Path)) {
 		return
 	}
 

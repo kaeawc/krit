@@ -2000,6 +2000,7 @@ func runAndroidPhase(ctx context.Context, args ProjectArgs, host ProjectHostStat
 		return AndroidResult{}, false, nil
 	}
 	dispatcher := rules.NewDispatcher(args.ActiveRules, indexResult.Resolver)
+	SetDispatcherProjectRoot(dispatcher, args.Paths)
 	dispatcher.SetLibraryFacts(indexResult.LibraryFacts)
 	dispatcher.SetJavaSemanticFacts(indexResult.JavaSemanticFacts)
 	// Hand AndroidPhase a child tracker so its gradleAnalysis /

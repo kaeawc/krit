@@ -90,7 +90,7 @@ func registerLintRule(rule AndroidRule, impl any, confidence float64, check func
 	inner := check
 	if !lintRulesScanningTests[rule.RuleName] {
 		check = func(ctx *api.Context) {
-			if ctx.File != nil && scanner.IsTestFile(ctx.File.Path) {
+			if ctx.File != nil && scanner.IsTestFile(projectPath(ctx, ctx.File.Path)) {
 				return
 			}
 			inner(ctx)
@@ -350,7 +350,7 @@ func registerMissingInflatedID() {
 		NodeTypes: lintCallNodeTypes[:2], Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava},
 		Needs: api.NeedsResources, AndroidDeps: uint32(AndroidDepLayout), Confidence: r.Confidence(), Implementation: r,
 		Check: func(ctx *api.Context) {
-			if ctx.File != nil && scanner.IsTestFile(ctx.File.Path) {
+			if ctx.File != nil && scanner.IsTestFile(projectPath(ctx, ctx.File.Path)) {
 				return
 			}
 			r.check(ctx)
@@ -366,7 +366,7 @@ func registerStaticFieldLeak() {
 		Needs:     api.NeedsTypeInfo, Languages: []scanner.Language{scanner.LangKotlin},
 		Confidence: r.Confidence(), Implementation: r, NeedsLibraryFacts: true,
 		Check: func(ctx *api.Context) {
-			if !scanner.IsTestFile(ctx.File.Path) {
+			if !scanner.IsTestFile(projectPath(ctx, ctx.File.Path)) {
 				r.check(ctx)
 			}
 		},

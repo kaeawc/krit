@@ -61,3 +61,23 @@ func TestFactsFingerprintSurvivesJSONRoundTrip(t *testing.T) {
 		t.Fatal("a JSON round trip changed the facts fingerprint")
 	}
 }
+
+// A one-jar classpath keeps the directories that identify the jar: in a
+// Gradle cache the folder above the jar is its content hash, so two jars
+// that differ only there (or by version folder) must fingerprint apart,
+// while the whole cache moving to another GRADLE_USER_HOME must not.
+func TestFactsFingerprintKeepsSingleJarIdentity(t *testing.T) {
+	jar := func(home, version, sha string) *Facts {
+		f := FactsForProfile(ProjectProfile{})
+		f.Profile.Java.ClasspathCandidates = []string{filepath.Join(home, "caches", "files-2.1", "com.acme", "lib", version, sha, "lib.jar")}
+		return f
+	}
+	base := t.TempDir()
+	a := jar(filepath.Join(base, "agent-1", ".gradle"), "1.0", "aaa111").Fingerprint()
+	if moved := jar(filepath.Join(base, "agent-2", ".gradle"), "1.0", "aaa111").Fingerprint(); moved != a {
+		t.Fatal("the same jar under another GRADLE_USER_HOME changed the fingerprint")
+	}
+	if other := jar(filepath.Join(base, "agent-1", ".gradle"), "2.0", "bbb222").Fingerprint(); other == a {
+		t.Fatal("another version of the only classpath jar kept the fingerprint")
+	}
+}

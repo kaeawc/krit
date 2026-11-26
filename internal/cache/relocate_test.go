@@ -151,7 +151,7 @@ func TestAnalysisCacheElsewhereKeepsAbsolutePaths(t *testing.T) {
 func TestRulePathMarkersCoverRules(t *testing.T) {
 	pathLine := regexp.MustCompile(`(?i)path|\.File\b|filename`)
 	literal := regexp.MustCompile(`"([-/a-zA-Z0-9_.]{2,40})"`)
-	marker := regexp.MustCompile(`^(/|-)[-a-z0-9_.]+(/[-a-z0-9_.]+)*/?$`)
+	marker := regexp.MustCompile(`^(/|-)?[-a-z0-9_.]+(/[-a-z0-9_.]+)*/?$`)
 	checked := 0
 	// The rules, plus the shared path classifiers they call.
 	shared := map[string]bool{
@@ -166,6 +166,9 @@ func TestRulePathMarkersCoverRules(t *testing.T) {
 		if !shared[p] && !strings.HasPrefix(p, filepath.Join("..", "rules")+string(filepath.Separator)) {
 			return nil
 		}
+		if p == filepath.Join("..", "rules", "api", "docs.go") { // builds docs URLs, not path heuristics
+			return nil
+		}
 		f, err := os.Open(p)
 		if err != nil {
 			return err
@@ -178,18 +181,39 @@ func TestRulePathMarkersCoverRules(t *testing.T) {
 			if !pathLine.MatchString(line) {
 				continue
 			}
+			// A heuristic reading the project-relative path (projectPath,
+			// held in a variable named inProject) cannot see the root's
+			// folders, so its segments need no marker.
+			if strings.Contains(line, "projectPath(") || strings.Contains(line, "inProject") {
+				continue
+			}
+			// LastIndex finds the innermost segment (res/<folder>/ of a
+			// resource file), which the folders above the root cannot supply;
+			// len("...") is the offset arithmetic that follows it.
+			if strings.Contains(line, "LastIndex(") || strings.Contains(line, "len(\"") {
+				continue
+			}
 			for _, m := range literal.FindAllStringSubmatch(line, -1) {
 				lit := strings.ToLower(m[1])
+				// An unanchored literal counts only as a folder-name suffix
+				// ("Main/" matches jvmMain/); "path/filepath" is an import.
+				if !strings.HasPrefix(lit, "/") && !strings.HasPrefix(lit, "-") && !strings.HasSuffix(lit, "/") {
+					continue
+				}
 				// A marker names a directory; a file name (".xml", ".kt") is
 				// matched against the end of a path, never a root.
 				if !marker.MatchString(lit) || strings.Count(lit, "/") < 1 || filepath.Ext(strings.TrimSuffix(lit, "/")) != "" && !strings.HasSuffix(lit, "/") {
 					continue
 				}
-				if lit == "/" || lit == "//" {
+				if lit == "/" || lit == "//" || lit == "./" {
 					continue
 				}
 				checked++
-				if !rootAffectsRuleVerdicts("/x/" + strings.Trim(lit, "/") + "/y") {
+				probe := "/x/" + strings.Trim(lit, "/") + "/y"
+				if !strings.HasPrefix(lit, "/") && !strings.HasPrefix(lit, "-") {
+					probe = "/x/prefix" + strings.Trim(lit, "/") + "/y" // a suffix of a folder name
+				}
+				if !rootAffectsRuleVerdicts(probe) {
 					t.Errorf("%s: path heuristic segment %q matches no rulePathMarkers entry", p, m[1])
 				}
 			}
@@ -240,5 +264,29 @@ func TestRelocatePathRoundTrip(t *testing.T) {
 		if got := rerootPath(moved, relocatePath(root, outside)); filepath.IsAbs(outside) && got != outside {
 			t.Errorf("round trip of %q = %q, want it unchanged", outside, got)
 		}
+	}
+}
+
+// The cache file a build wrote under the absolute-path name is removed once
+// the repository-relative name takes over, instead of lingering forever.
+func TestResolveCacheDirRemovesLegacyCacheFile(t *testing.T) {
+	root := relocationTempDir(t)
+	if err := os.WriteFile(filepath.Join(root, "settings.gradle.kts"), []byte("rootProject.name = \"repo\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dir := DefaultDir(root)
+	legacy := legacyFilePath(dir, []string{root})
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(legacy, []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, current := ResolveCacheDir("", []string{root})
+	if current == legacy {
+		t.Skip("legacy and relocatable names coincide for this path")
+	}
+	if _, err := os.Stat(legacy); !os.IsNotExist(err) {
+		t.Fatalf("legacy cache file %s still exists (stat err %v)", legacy, err)
 	}
 }

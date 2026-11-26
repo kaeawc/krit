@@ -112,7 +112,7 @@ func registerAndroidRules() {
 				// Test sources frequently log without guards on purpose
 				// (debugging assertion failures, JUnit/Robolectric output).
 				// Skip them to match user expectations and AOSP lint behavior.
-				if scanner.IsTestFile(file.Path) {
+				if scanner.IsTestFile(projectPath(ctx, file.Path)) {
 					return
 				}
 				if !logCallIsAndroidLog(ctx, idx) {
@@ -155,7 +155,7 @@ func registerAndroidRules() {
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				// Lint does not analyze test sources, where acquire() is a mock verification.
-				if scanner.IsTestFile(file.Path) {
+				if scanner.IsTestFile(projectPath(ctx, file.Path)) {
 					return
 				}
 				if wakeLockReleaseInActivityOnDestroy(ctx, idx) {

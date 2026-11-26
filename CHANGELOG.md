@@ -535,10 +535,15 @@ All notable changes to Krit will be documented in this file.
   background writer dropped top-level `<item type="id">` declarations and each plural `<item>`'s position, so a warm
   run lost `NotSiblingResource` findings on predeclared ids and reported plural-quantity findings on the `<plurals>`
   line (#1830).
-- `InvalidPackageDeclaration` and `TestOnlyImportInProduction` read only the folders inside the scanned project. A
-  package matched by folders above the checkout (a clone named `app` holding `sub/` with `package app.sub`, or a parent
-  folder named `kotlin`) or a checkout under a folder named like a test framework (`junit-kit/`) used to change their
-  verdicts with the checkout path; those files are now reported the same everywhere (#1814).
+- Rule path heuristics read only the folders inside the scanned project (one with a VCS root, krit config or Gradle
+  settings): `InvalidPackageDeclaration`, `TestOnlyImportInProduction`, `MatchingDeclarationName`'s source-set check,
+  test-source detection, `nonProductionPathMarkers` and per-rule `excludes` globs. A package matched by folders above
+  the checkout (a clone named `app` holding `sub/` with `package app.sub`, or a parent folder named `kotlin`), a
+  checkout under a folder named like a test framework (`junit-kit/`, `test/`) or a `**/vendor/**` exclude matching a
+  parent folder used to change verdicts with the checkout path; the CLI, daemon, LSP and MCP now agree everywhere
+  (#1814).
+- `InvalidResourceFolderResource` reads the innermost `res/` folder of a layout path. A checkout under a folder ending in
+  `res` (`/builds/mres/...`) reported every layout as an invalid resource folder.
 - `MutableImplicitPendingIntent` follows more ways of building the intent, as Lint 32.4.1 does: `getActivities`
   intent arrays held in locals (`arrayOf`, a Java array initializer, and `arrayOfNulls(n)` / `new Intent[n]` of
   constant size whose elements are the last write to each index before the call), and `let`, `run` and `with`

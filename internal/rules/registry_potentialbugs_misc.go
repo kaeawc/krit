@@ -104,7 +104,7 @@ func registerPotentialbugsMiscRules() {
 			NodeTypes: []string{"function_declaration"}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
-				if scanner.IsTestFile(file.Path) {
+				if scanner.IsTestFile(projectPath(ctx, file.Path)) {
 					return
 				}
 				if file.FlatHasModifier(idx, "private") || file.FlatHasModifier(idx, "internal") ||

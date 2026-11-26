@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/kaeawc/krit/internal/projectroot"
 	"github.com/kaeawc/krit/internal/rules"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
@@ -34,6 +35,28 @@ func DefaultActiveRules() []*api.Rule {
 // dispatcher degrades gracefully.
 func BuildDispatcher(activeRules []*api.Rule, resolver typeinfer.TypeResolver) *rules.Dispatcher {
 	return rules.NewDispatcher(activeRules, resolver)
+}
+
+// SetDispatcherProjectRoot records on d the project root of paths, so rules'
+// path heuristics read root-relative paths (#1814). Only a marked root counts
+// (a VCS root, a krit config, Gradle settings): without one, projectroot.Find
+// falls back to the scanned directory, which can be the source folder a
+// heuristic needs, so rules keep reading absolute paths. Every dispatcher
+// that runs rules on files of a project calls it, so the CLI, daemon, LSP
+// and MCP agree.
+func SetDispatcherProjectRoot(d *rules.Dispatcher, paths []string) {
+	if root, ok := projectroot.FindMarked(paths); ok {
+		d.SetProjectRoot(root)
+	}
+}
+
+// SetProjectRootFor records the marked project root of paths on the
+// analyzer's dispatcher (SetDispatcherProjectRoot). Call it once, before the
+// first analysis.
+func (a *SingleFileAnalyzer) SetProjectRootFor(paths []string) {
+	if a != nil {
+		SetDispatcherProjectRoot(a.Dispatcher, paths)
+	}
 }
 
 // ParseSingle parses a single in-memory Kotlin buffer into a *scanner.File

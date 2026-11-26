@@ -192,7 +192,7 @@ func registerAccessibilityRules() {
 				if name != "Text" {
 					return
 				}
-				if composeRawTextLiteralNonProductionFile(file.Path, r.NonProductionPathMarkers) {
+				if composeRawTextLiteralNonProductionFile(projectPath(ctx, file.Path), r.NonProductionPathMarkers) {
 					return
 				}
 				_, args := flatCallExpressionParts(file, idx)
@@ -325,7 +325,7 @@ func registerAccessibilityRules() {
 				if readOnly := flatNamedValueArgument(file, args, "readOnly"); readOnly != 0 && !strings.HasSuffix(strings.TrimSpace(file.FlatNodeText(readOnly)), "false") {
 					return
 				}
-				if composeDebugToolingPath(file.Path, r.NonProductionPathMarkers) {
+				if composeDebugToolingPath(projectPath(ctx, file.Path), r.NonProductionPathMarkers) {
 					return
 				}
 				parent, ok := file.FlatParent(idx)

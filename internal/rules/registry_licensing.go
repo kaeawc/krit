@@ -139,7 +139,7 @@ func registerLicensingRules() {
 				if !isPropagatingOptInMarkerName(name) && !r.markerInAdditional(name) {
 					return
 				}
-				if scanner.IsTestFile(file.Path) {
+				if scanner.IsTestFile(projectPath(ctx, file.Path)) {
 					return
 				}
 				// The library that defines a well-known marker applies it to

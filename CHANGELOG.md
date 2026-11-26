@@ -24,6 +24,12 @@ All notable changes to Krit will be documented in this file.
   `ComposeNamingLowercase` map onto the existing `ComposableNaming`: suppressing either ID silences its casing direction,
   and `ComposableNaming` gains compose-lints' `allowedComposableFunctionNames` option. Findings are checked against the Lint CLI running compose-lint-checks
   1.6.1 on the same inputs (#1332, #1333, #1334, #1335).
+- `MustBeInModule`, `BindsMustBeAbstract`, `ProvidesMustNotBeAbstract`, `BindingReturnType` and
+  `BindingReceiverParameter`, slack-lints 0.11.1's `DaggerIssuesDetector` checks, in the opt-in `slack-lint` rule set
+  for Kotlin and Java. They follow the detector's one-issue-per-method order and match the Lint CLI on the same inputs
+  (`internal/rules/testdata/slack_lint/dagger/`), except that a finding is anchored at the declaration rather than at a
+  KDoc or comment before it. The detector's `BindsWrongParameterCount` and `RedundantBinds` are now Lint aliases of
+  `BindsMismatchedArity` and `BindsReturnTypeMatchesParam` (#1359, #1360, #1361, #1362, #1363, #1364, #1365).
 - FIR sessions resolve Java sources: every `.java` file under the source dirs, generated source dirs and unpacked
   srcjars (same-module Java, view binding, BuildConfig, Wire-Java, kapt/KSP Java output) is given to K2 as a Java
   source root, so Kotlin that uses them is no longer gated `Unresolved reference` on an unbuilt checkout. The Java is

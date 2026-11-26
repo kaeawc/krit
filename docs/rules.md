@@ -120,6 +120,17 @@ They report only what the source proves:
 Not ported: `MoshiUsageNonMoshiClassInternal` and `MoshiUsageNonMoshiClassExternal`, which split on whether a type
 lives in Slack's own `slack.*` packages.
 
+The Dagger rules (`MustBeInModule`, `BindsMustBeAbstract`, `ProvidesMustNotBeAbstract`, `BindingReturnType`,
+`BindingReceiverParameter`) port `DaggerIssuesDetector` for Kotlin and Java `@Binds`/`@Provides` methods. As in
+Lint, a method gets at most one of the detector's issues, in the detector's order. Two of its IDs map onto existing
+rules instead: `BindsWrongParameterCount` is a Lint alias of `BindsMismatchedArity`, and `RedundantBinds` of
+`BindsReturnTypeMatchesParam`. Differences from Lint:
+
+- a finding on a whole method is anchored at its first annotation or modifier. Lint starts the location at a KDoc,
+  Javadoc or comment directly above it, which would put the finding outside the range a `@SuppressLint` on the
+  method covers;
+- `BindingReturnType` abstains on a Kotlin expression body without a declared type, unless the body is `Unit`.
+
 The `DoNotMock*` rules port `MockDetector` and, as in Lint, look only at test sources (`src/test`, `src/androidTest`
 and the other test source sets). A mock site is a call to one of the detector's default factories
 (`org.mockito.Mockito.mock`/`spy`, `org.mockito.kotlin.mock`/`spy`, `slack.test.mockito.mock`) or a field annotated

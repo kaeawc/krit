@@ -4,7 +4,9 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/kaeawc/krit/internal/manifest"
 	api "github.com/kaeawc/krit/internal/rules/api"
@@ -126,5 +128,49 @@ func TestRunManifestSource_NoManifestsSkipsRules(t *testing.T) {
 	cols, ok := d.RunManifestSource(nil, nil)
 	if !ok || cols.Len() != 0 || len(seen) != 0 {
 		t.Fatalf("expected no run without manifests, got ok=%v findings=%d seen=%v", ok, cols.Len(), seen)
+	}
+}
+
+func TestRunManifestSource_ConcurrentRulesRunInParallelAndMergeInRuleOrder(t *testing.T) {
+	dir := t.TempDir()
+	m := &manifest.Manifest{Path: filepath.Join(dir, "app", "AndroidManifest.xml")}
+	// first blocks until second has started, which only happens if they run at the same time.
+	started := make(chan struct{})
+	rule := func(id string, needs api.Capabilities, check func(*api.Context)) *api.Rule {
+		r := api.FakeRule(id, api.WithNeeds(api.NeedsManifest|api.NeedsParsedFiles|needs), api.WithCheck(check))
+		r.Languages = []scanner.Language{scanner.LangKotlin, scanner.LangJava}
+		return r
+	}
+	emit := func(ctx *api.Context, msg string) {
+		ctx.Emit(scanner.Finding{File: m.Path, Line: 1, Col: 1, Rule: ctx.Rule.ID, Message: msg})
+	}
+	first := rule("First", api.NeedsConcurrent, func(ctx *api.Context) {
+		select {
+		case <-started:
+			emit(ctx, "first")
+		case <-time.After(10 * time.Second):
+			emit(ctx, "first ran alone")
+		}
+	})
+	second := rule("Second", api.NeedsConcurrent, func(ctx *api.Context) {
+		close(started)
+		emit(ctx, "second")
+	})
+	serial := rule("Serial", 0, func(ctx *api.Context) { emit(ctx, "serial") })
+	panics := rule("Panics", api.NeedsConcurrent, func(*api.Context) { panic("boom") })
+	d := NewDispatcher([]*api.Rule{first, second, serial, panics}, nil)
+	cols, ok := d.RunManifestSource([]*manifest.Manifest{m}, nil)
+	if ok {
+		t.Error("RunManifestSource reported no recovered panic")
+	}
+	var got []string
+	for _, f := range cols.Findings() {
+		got = append(got, f.Message)
+	}
+	if want := []string{"first", "second", "serial"}; strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("findings = %v, want %v in rule order", got, want)
+	}
+	if errs := d.projectStats.Errors; len(errs) != 1 || errs[0].RuleName != "Panics" {
+		t.Errorf("recorded errors = %+v, want one for Panics", errs)
 	}
 }

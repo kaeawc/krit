@@ -41,8 +41,31 @@ func TestCacheDirWritableRejectsReadOnlyHomeCache(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
+	// Root (uid 0, as in containers and Hive VMs) and filesystems that ignore
+	// directory mode bits can still write here, so the chmod proves nothing.
+	if probe, err := os.CreateTemp(dir, "probe-"); err == nil {
+		_ = probe.Close()
+		_ = os.Remove(probe.Name())
+		t.Skip("directory mode bits do not block writes for this user or filesystem")
+	}
 	if cacheDirWritable(dir) {
 		t.Fatal("read-only cache directory was accepted")
+	}
+}
+
+// TestCacheDirWritableRejectsNonDirectory covers the rejection path under any
+// uid: a regular file where the cache directory should be cannot hold
+// entries, even for root.
+func TestCacheDirWritableRejectsNonDirectory(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "not-a-dir")
+	if err := os.WriteFile(path, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if cacheDirWritable(path) {
+		t.Fatal("a regular file was accepted as a writable cache directory")
+	}
+	if cacheDirWritable(filepath.Join(t.TempDir(), "missing")) {
+		t.Fatal("a missing cache directory was accepted")
 	}
 }
 

@@ -1,0 +1,10 @@
+# go.mod edits check tidiness and rebuild everything.
+go.mod
+go.sum
+---
+merge
+build
+vet
+lint
+gomod
+test 

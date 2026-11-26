@@ -44,6 +44,111 @@ class LocationActivity {
 		}
 	})
 
+	t.Run("resolves same-file constant", func(t *testing.T) {
+		findings := runRuleByName(t, "LocationBackgroundWithoutRationale", `
+package test
+
+const val BG = Manifest.permission.ACCESS_BACKGROUND_LOCATION
+val PERMS = arrayOf(BG)
+
+class LocationActivity {
+    fun requestBackground() {
+        requestPermissions(PERMS, 100)
+    }
+}
+`)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d: %v", len(findings), findings)
+		}
+	})
+
+	// Regression for #1611: a property whose initializer names itself, or two
+	// properties that name each other, used to recurse until stack overflow.
+	t.Run("terminates on self-referencing property initializer", func(t *testing.T) {
+		findings := runRuleByName(t, "LocationBackgroundWithoutRationale", `
+package test
+
+class Holder(permissions: Array<String>) {
+    val permissions = permissions
+}
+
+class Other {
+    val permissions: Array<String> = Holder(arrayOf()).permissions
+}
+
+class LocationActivity {
+    fun request(permissions: Array<String>) {
+        requestPermissions(permissions, 100)
+    }
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d: %v", len(findings), findings)
+		}
+	})
+
+	t.Run("terminates on mutually-referencing properties", func(t *testing.T) {
+		findings := runRuleByName(t, "LocationBackgroundWithoutRationale", `
+package test
+
+class A {
+    val first: Array<String> get() = second
+    val second: Array<String> get() = first
+    val a = b
+    val b = a
+}
+
+class LocationActivity {
+    fun request() {
+        requestPermissions(a, 100)
+        requestPermissions(first, 100)
+    }
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d: %v", len(findings), findings)
+		}
+	})
+
+	t.Run("still resolves through a cycle-adjacent chain", func(t *testing.T) {
+		findings := runRuleByName(t, "LocationBackgroundWithoutRationale", `
+package test
+
+val loop = loop
+val perms = arrayOf(loop, Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+
+class LocationActivity {
+    fun request() {
+        requestPermissions(perms, 100)
+    }
+}
+`)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d: %v", len(findings), findings)
+		}
+	})
+
+	t.Run("deeply nested argument stays linear", func(t *testing.T) {
+		// Each nested binary expression used to re-walk its whole subtree,
+		// so the fallback walk grew as 2^depth.
+		expr := "Manifest.permission.ACCESS_FINE_LOCATION"
+		for i := 0; i < 40; i++ {
+			expr = "(" + expr + " + \"\")"
+		}
+		findings := runRuleByName(t, "LocationBackgroundWithoutRationale", `
+package test
+
+class LocationActivity {
+    fun request() {
+        requestPermissions(arrayOf(`+expr+`), 100)
+    }
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d: %v", len(findings), findings)
+		}
+	})
+
 	t.Run("ignores non-background location permissions", func(t *testing.T) {
 		findings := runRuleByName(t, "LocationBackgroundWithoutRationale", `
 package test

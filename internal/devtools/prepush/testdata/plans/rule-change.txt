@@ -1,0 +1,14 @@
+# A rule change also runs the rule gates, the oracle fingerprint gate, the
+# schema freshness check, and the FIR go-lines fixture test.
+internal/rules/accessibility.go
+internal/rules/accessibility_test.go
+---
+merge
+gofmt
+build
+vet
+lint
+rules
+oraclefp
+schema
+test ./internal/rules parity:TestFirGoldenGoLines

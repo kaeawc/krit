@@ -1,0 +1,5 @@
+# JVM-only trees have no local checks beyond the merge; the script points at
+# the CI job instead.
+krit-gradle-plugin/build.gradle.kts
+---
+merge

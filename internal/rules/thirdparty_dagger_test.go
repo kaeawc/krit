@@ -74,3 +74,27 @@ interface FooModule {
 		}
 	}
 }
+
+// An annotation imported under an alias still resolves to Dagger's, so the cheap prefilter must let it through.
+func TestDaggerAliasedImport(t *testing.T) {
+	const src = `package test
+
+import dagger.Module
+import dagger.Provides as P
+
+@Module
+object AliasModule {
+  @P fun aliased() {}
+}
+
+class NotAModule {
+  @P fun outside(): String = ""
+}
+`
+	if got := runRuleByName(t, "BindingReturnType", src); len(got) != 1 || got[0].Line != 8 {
+		t.Errorf("BindingReturnType: want one finding on line 8, got %v", got)
+	}
+	if got := runRuleByName(t, "MustBeInModule", src); len(got) != 1 || got[0].Line != 12 {
+		t.Errorf("MustBeInModule: want one finding on line 12, got %v", got)
+	}
+}

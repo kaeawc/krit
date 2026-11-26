@@ -16,6 +16,7 @@ import (
 	"bytes"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/filefacts"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -59,16 +60,46 @@ func daggerFileGate(file *scanner.File) bool {
 	return sourceMayNameAny(file, "Binds", "Provides")
 }
 
+// daggerMayNameAnnotation reports whether modifier text can name dagger.Binds or dagger.Provides: by name, or by an
+// alias the file imports one of them under (`import dagger.Provides as P`).
+func daggerMayNameAnnotation(file *scanner.File, text []byte) bool {
+	if bytes.Contains(text, daggerBindsName) || bytes.Contains(text, daggerProvidesName) {
+		return true
+	}
+	for _, alias := range daggerImportAliases(file) {
+		if bytes.Contains(text, alias) {
+			return true
+		}
+	}
+	return false
+}
+
+// daggerImportAliases returns the names other than Binds and Provides that the file imports those annotations as.
+func daggerImportAliases(file *scanner.File) [][]byte {
+	return filefacts.FileFact(fileFactsCache(), file, slotDaggerAliases, func() [][]byte {
+		var aliases [][]byte
+		for simple, full := range lintImportsOf(file).bySimple {
+			if (full == fqcnDaggerBinds || full == fqcnDaggerProvides) && simple != full[len("dagger."):] {
+				aliases = append(aliases, []byte("@"+simple))
+			}
+		}
+		return aliases
+	})
+}
+
+const slotDaggerAliases = "daggerAliases"
+
 // daggerIssueOf returns the issue DaggerIssuesDetector reports for the Kotlin
 // function or Java method fn, or false when it reports none or the source
 // cannot prove the verdict.
 func daggerIssueOf(file *scanner.File, fn uint32) (daggerIssue, bool) {
-	// Most methods carry neither name in their modifiers; reject them before resolving annotations.
+	// Most methods carry neither name (nor an import alias of one) in their modifiers; reject them before
+	// resolving annotations.
 	mods, ok := file.FlatFindChild(fn, "modifiers")
 	if !ok {
 		return daggerIssue{}, false
 	}
-	if text := file.FlatNodeBytes(mods); !bytes.Contains(text, daggerBindsName) && !bytes.Contains(text, daggerProvidesName) {
+	if !daggerMayNameAnnotation(file, file.FlatNodeBytes(mods)) {
 		return daggerIssue{}, false
 	}
 	anns := moshiAnnotationsOf(file, fn)

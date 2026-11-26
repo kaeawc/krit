@@ -144,4 +144,10 @@ import androidx.compose.material.Text
 	if n := run(filepath.Join(root, "other", "C.kt")); n != 0 {
 		t.Errorf("file outside every module with dependencies: want no findings, got %d", n)
 	}
+	// A material3 dependency of unknown origin counts for every module.
+	profile.Dependencies = append(profile.Dependencies,
+		librarymodel.Dependency{Group: "androidx.compose.material3", Name: "material3"})
+	if n := run(filepath.Join(legacy, "src", "main", "kotlin", "D.kt")); n != 2 {
+		t.Errorf("unknown-origin material3 dependency: want 2 findings, got %d", n)
+	}
 }

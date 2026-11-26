@@ -314,7 +314,7 @@ func axlUsesMaterial3(ctx *api.Context) bool {
 
 // axlModuleHasDependency reports whether the module owning path declares one of coords. Modules are the
 // directories of the build files dependencies were read from; the owner is the deepest one containing path. With
-// one module (or dependencies of unknown origin) every dependency counts, as for a single-module build.
+// one module every dependency counts, as for a single-module build, and a dependency of unknown origin always does.
 func axlModuleHasDependency(profile librarymodel.ProjectProfile, path string, coords []librarymodel.Coordinate) bool {
 	modules := map[string]bool{}
 	for _, dep := range profile.Dependencies {
@@ -333,10 +333,11 @@ func axlModuleHasDependency(profile librarymodel.ProjectProfile, path string, co
 		}
 	}
 	if owner == "" {
-		return false
+		return axlUnknownOriginDependency(profile, coords)
 	}
 	for _, dep := range profile.Dependencies {
-		if dep.Source == "" || filepath.Dir(filepath.Clean(dep.Source)) != owner {
+		// A dependency of unknown origin still counts build-wide; one from a sibling module does not.
+		if dep.Source != "" && filepath.Dir(filepath.Clean(dep.Source)) != owner {
 			continue
 		}
 		for _, c := range coords {
@@ -368,3 +369,18 @@ func axlJavaImportsFrom(file *scanner.File, pkg string) bool {
 }
 
 const slotAxlJavaImports = "axlJavaImports"
+
+// axlUnknownOriginDependency reports whether a dependency with no recorded build file matches one of coords.
+func axlUnknownOriginDependency(profile librarymodel.ProjectProfile, coords []librarymodel.Coordinate) bool {
+	for _, dep := range profile.Dependencies {
+		if dep.Source != "" {
+			continue
+		}
+		for _, c := range coords {
+			if dep.Group == c.Group && dep.Name == c.Name {
+				return true
+			}
+		}
+	}
+	return false
+}

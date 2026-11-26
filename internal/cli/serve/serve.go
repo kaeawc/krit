@@ -219,6 +219,8 @@ func run(args []string) int {
 	srv.IdleTimeout = *idleFlag
 	registerVerbs(srv, state)
 
+	// Until a watcher has walked the whole tree, nothing vouches for it.
+	state.setWatcherCovers(func() bool { return false })
 	ctx, cancel := signalContext()
 	defer cancel()
 	if err := srv.Start(ctx); err != nil {
@@ -240,6 +242,7 @@ func run(args []string) int {
 			fmt.Fprintf(os.Stderr, "krit serve: filesystem watcher disabled: %v\n", err)
 		} else {
 			defer w.Stop()
+			state.setWatcherCovers(w.CoversTree)
 			resolvedBackend = w.BackendKind().String()
 		}
 	}
@@ -252,6 +255,15 @@ func run(args []string) int {
 	fmt.Println(state.readyLine(watcherLine))
 	srv.Wait()
 	return 0
+}
+
+func (s *daemonState) setWatcherCovers(fn func() bool) { s.watcherCovers.Store(&fn) }
+
+// watcherCoversTree reports whether a warm analyze may trust the
+// watcher's dirty set.
+func (s *daemonState) watcherCoversTree() bool {
+	fn := s.watcherCovers.Load()
+	return fn == nil || (*fn)()
 }
 
 // stopTarget is the socket `serve --stop` talks to: the explicit --socket,
@@ -371,6 +383,12 @@ type daemonState struct {
 	// completed. Used by RequireWarm clients (tests, CI gates) and by
 	// the response Stats.Cold flag.
 	coldDone atomic.Bool
+
+	// watcherCovers, when set, reports whether the filesystem watcher
+	// sees every change under root (see fileWatcher.CoversTree). A warm
+	// analyze trusts the watcher's dirty set only while it returns true.
+	// Unset (tests that drive daemonState directly) means covered.
+	watcherCovers atomic.Pointer[func() bool]
 
 	// strictVerify, when true, makes every analyze-project call rerun
 	// the same scan in-process from cold caches and fail the response

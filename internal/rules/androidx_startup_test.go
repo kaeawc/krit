@@ -67,3 +67,49 @@ class ChildInitializer(val x: Int) : BaseInitializer() {
 		t.Errorf("EnsureInitializerMetadata: want BaseInitializer and ChildInitializer, got %v", got)
 	}
 }
+
+// A fully qualified class literal in dependencies() (a.b.Child::class.java parses as a navigation, not a
+// callable reference) still makes the child reachable.
+func TestStartupQualifiedDependencyLiteral(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "src", "main", "kotlin", "p", "Inits.kt")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	src := `package p
+
+import android.content.Context
+import androidx.startup.Initializer
+
+class Root : Initializer<Unit> {
+    override fun create(context: Context) = Unit
+    override fun dependencies(): List<Class<out Initializer<*>>> = listOf(p.Child::class.java)
+}
+
+class Child : Initializer<Unit> {
+    override fun create(context: Context) = Unit
+    override fun dependencies(): List<Class<out Initializer<*>>> = emptyList()
+}
+`
+	if err := os.WriteFile(path, []byte(src), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	file, err := scanner.ParseFile(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range api.Registry {
+		if r.ID != "EnsureInitializerMetadata" {
+			continue
+		}
+		collector := scanner.NewFindingCollector(0)
+		r.Check(&api.Context{ParsedFiles: []*scanner.File{file}, Manifests: []*manifest.Manifest{}, Collector: collector, Rule: r})
+		got := collector.Columns().Findings()
+		// Root is listed nowhere; Child is reached through Root's qualified class literal.
+		if len(got) != 1 || got[0].Line != 6 {
+			t.Fatalf("want only Root (line 6), got %v", got)
+		}
+		return
+	}
+	t.Fatal("EnsureInitializerMetadata not registered")
+}

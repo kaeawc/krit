@@ -210,6 +210,11 @@ func axlDependencyLiterals(c *workClass, out map[string]bool) {
 			case "class_literal":
 				typeText = strings.TrimSuffix(strings.TrimSpace(file.FlatNodeText(n)), ".class")
 				typeText = strings.TrimSuffix(typeText, "::class")
+			case "navigation_expression":
+				// a.b.Child::class parses as a navigation ending in ::class.
+				if text := strings.Join(strings.Fields(file.FlatNodeText(n)), ""); strings.HasSuffix(text, "::class") {
+					typeText = strings.TrimSuffix(text, "::class")
+				}
 			}
 			if typeText == "" {
 				return

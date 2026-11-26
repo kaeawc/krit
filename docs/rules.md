@@ -285,6 +285,8 @@ project class named `View` in another package does not count as Android's:
   or a static `inflate()` of a generated `…Binding` class (in a `databinding` package) or a source class implementing
   `ViewBinding`. A class nested inside the decoration is not part of it, as in Lint.
 
+
+
 `DenyListedApi` and `DenyListedBlockingApi` port `DenyListedApiDetector`'s fixed list for Kotlin and Java: RxJava 3
 `hide()` and `blocking*()` calls, `Schedulers.newThread()`, `ContextCompat.getDrawable(context, id)`, Espresso's
 `withId()`, `View.setOnClickListener(null)`, `Flow.launchIn()`, the kotlinx-coroutines-rx3 builders called without a

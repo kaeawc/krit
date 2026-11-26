@@ -32730,6 +32730,39 @@
             }
           }
         },
+        "BindsTypeMismatch": {
+          "description": "@Binds parameter/return must be type-assignable [precision: project-structure-aware] [noisiness: normal] [capabilities: cross-file, resolver]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable BindsTypeMismatch (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "CastingViewContextToActivity": {
           "description": "Unsafe cast of `Context` to `Activity` [precision: type-aware] [noisiness: normal] [capabilities: resolver]",
           "type": "object",
@@ -32737,6 +32770,39 @@
           "properties": {
             "active": {
               "description": "Enable CastingViewContextToActivity (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "DoNotCallProviders": {
+          "description": "Dagger provider methods should not be called directly by user code. [precision: project-structure-aware] [noisiness: normal] [capabilities: cross-file, resolver]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable DoNotCallProviders (default: false).",
               "type": "boolean",
               "default": false
             },

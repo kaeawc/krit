@@ -11146,7 +11146,7 @@
           }
         },
         "StartActivityAndCollapseDeprecated": {
-          "description": "TileService.startActivityAndCollapse(Intent) is deprecated [precision: ast-backed] [noisiness: normal]\nCaveat: The receiver must be proven a TileService: an implicit or `this` receiver inside a class whose same-file supertype chain reaches TileService, or a receiver declared as one; the argument must be an Intent constructor, a variable declared or initialized as one, or an Intent builder call on one.\nCaveat: The target SDK (error from 34, warning below) is read from the build scripts; without one the finding is a warning.",
+          "description": "TileService.startActivityAndCollapse(Intent) is deprecated [precision: type-aware] [noisiness: normal] [capabilities: oracle:call-targets, resolver]\nCaveat: The receiver must be proven a TileService: an implicit or `this` receiver inside a class whose same-file supertype chain reaches TileService, or a receiver declared as one; the argument must be an Intent constructor, a variable declared or initialized as one, or an Intent builder call on one.\nCaveat: The target SDK (error from 34, warning below) is read from the build scripts; without one the finding is a warning.",
           "type": "object",
           "additionalProperties": false,
           "properties": {

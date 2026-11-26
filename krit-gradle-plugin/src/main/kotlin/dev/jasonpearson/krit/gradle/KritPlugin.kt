@@ -80,6 +80,7 @@ class KritPlugin : Plugin<Project> {
         extension.exportModel.convention(true)
         extension.fir.convention(true)
         extension.exportGenerated.convention(false)
+        extension.exportTests.convention(true)
         extension.androidVariant.convention("debug")
         extension.advanced.toolVersion.convention(KRIT_DEFAULT_VERSION)
         extension.advanced.allRules.convention(false)
@@ -378,7 +379,9 @@ class KritPlugin : Plugin<Project> {
                 project.logger.warn("krit: kritExportModel for ${project.path} is exporting zero Android source sets; " +
                     "check Android variant configuration and krit.androidVariant (requested '${extension.androidVariant.orNull ?: "debug"}')")
             }
-            registerProjectModel(project, extension, specs, variantSources)
+            // Test source sets are left out before any of their classpaths is wired, so none resolves.
+            val exported = if (extension.exportTests.get()) specs else specs.filter { it.kind == "main" }
+            registerProjectModel(project, extension, exported, variantSources)
         }
         fun exportAfterEvaluateOrNow() {
             if (modelExported) {
@@ -950,26 +953,52 @@ class KritPlugin : Plugin<Project> {
             projectDir.set(modelPath(project.projectDir))
             generatedBy.set("krit-gradle-plugin ${KritVersion.VERSION}")
             rootDir.set(rootPath)
+            gradleUserHome.set(modelPath(project.gradle.gradleUserHomeDir))
             outputFile.set(File(rootPath, ".krit/gradle-model/${fileName}.json"))
         }
-        // Published for the root kritCheckAll (KritAggregatePlugin), which resolves
-        // every project's model through a project dependency.
+        val generators = generatorDependencies(project, specs, variantSources)
+        if (extension.exportGenerated.get()) export.configure { dependsOn(generators) }
+        // Published for the root kritCheckAll (KritAggregatePlugin), which resolves every
+        // project's model through a project dependency. The primary artifact is built by the
+        // export alone. A secondary variant, `krit.generated=true`, is the same file built by
+        // the generators too: kritCheckAll selects it when its own FIR is on, so it runs them
+        // before FIR compiles the roots the model lists (#1686), and a Go-only aggregate scan
+        // runs none. The choice is the consumer's, and nothing crosses projects.
         project.configurations.create(KRIT_MODEL_ELEMENTS) {
             isCanBeConsumed = true
             isCanBeResolved = false
             attributes.attribute(Category.CATEGORY_ATTRIBUTE,
                 project.objects.named(Category::class.java, KRIT_GRADLE_MODEL_CATEGORY))
+            attributes.attribute(KRIT_GENERATED_ATTRIBUTE, false)
             outgoing.artifact(export.flatMap { it.outputFile })
+            // An artifact's builtBy resolves no task names, so names become task providers.
+            val generatorTasks = generators.map { if (it is String) project.tasks.named(it) else it }
+            outgoing.variants.create("generated") {
+                attributes.attribute(KRIT_GENERATED_ATTRIBUTE, true)
+                artifact(export.flatMap { it.outputFile }) { builtBy(generatorTasks) }
+            }
         }
-        val generators = generatorDependencies(project, specs, variantSources)
-        if (extension.exportGenerated.get()) export.configure { dependsOn(generators) }
+        // FIR compiles the model's generated roots, so they must exist when it runs: with FIR on,
+        // every check task of this project (kritCheck, kritCheck<Variant>, kritCheck<SourceSet>,
+        // and the root's kritCheckAll) runs the generators, never a compile, whether or not
+        // exportGenerated is set. The list covers every exported production compilation, which
+        // is what FIR compiles as context for any of these tasks' sources (#1642).
+        project.tasks.withType(KritCheckTask::class.java).configureEach {
+            dependsOn(fir.map { enabled -> if (enabled) generators else emptyList() })
+        }
+        project.tasks.withType(KritCheckAllTask::class.java).configureEach {
+            dependsOn(fir.map { enabled -> if (enabled) generators else emptyList() })
+        }
+        // kritBaseline records the findings kritCheck reports, so it sees the same model and
+        // generated roots.
+        project.tasks.withType(KritBaselineTask::class.java).configureEach {
+            dependsOn(extension.exportModel.map { enabled -> if (enabled) listOf(export) else emptyList<Any>() })
+            dependsOn(fir.map { enabled -> if (enabled) generators else emptyList() })
+        }
         project.tasks.named("kritCheck") {
             dependsOn(extension.exportModel.map { enabled ->
                 if (enabled) listOf(export) else emptyList<Any>()
             })
-            // FIR compiles the model's generated roots, so they must exist when it runs: with FIR on,
-            // kritCheck runs the generators (never a compile), whether or not exportGenerated is set.
-            dependsOn(extension.fir.map { enabled -> if (enabled) generators else emptyList() })
             // A whole-directory input would read other projects' outputs and break
             // isolated configuration. Cache invalidation is project-local here;
             // export all models first when relying on cross-project model changes.
@@ -1173,6 +1202,13 @@ class KritPlugin : Plugin<Project> {
 
         /** Consumable configuration that publishes the project's exported model. */
         const val KRIT_MODEL_ELEMENTS = "kritModelElements"
+
+        /**
+         * Marks the [KRIT_MODEL_ELEMENTS] artifact that is built by the project's generated-source
+         * producers as well as its model export (`true`), against the export alone (`false`).
+         */
+        val KRIT_GENERATED_ATTRIBUTE: org.gradle.api.attributes.Attribute<Boolean> =
+            org.gradle.api.attributes.Attribute.of("dev.jasonpearson.krit.generated", Boolean::class.javaObjectType)
 
         internal const val BINARY_RESOLVER_SERVICE = "kritBinaryResolver"
 

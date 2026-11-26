@@ -91,7 +91,7 @@ func ProfileFromGradlePaths(paths []string) ProjectProfile {
 	}
 	inputs := make([]gradleInput, len(paths))
 	catalogs := make(map[string]VersionCatalog)
-	discovery := newCatalogDiscoveryCache()
+	discovery := NewCatalogDiscovery()
 	for i, path := range paths {
 		content, err := os.ReadFile(path)
 		if err != nil {

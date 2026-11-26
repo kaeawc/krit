@@ -319,6 +319,13 @@ files (#1578) stays in-process and renders all of them from one result set.
 The analyze-project wire does not carry the built outputs of project
 dependencies (#1581), so a scan that reads them stays in-process.
 
+### `--min-sdk N`, `--target-sdk N`
+
+These set the Android SDK levels of files whose build files declare none
+(#1682). The analyze-project wire does not carry them, and the default they set
+is process-wide (`android.SetDefaultSDKLevels`), which a daemon serving other
+scans must not keep. So a scan with either flag stays in-process.
+
 ### `KRIT_FIR_DAEMON_POOL`
 
 This environment variable keys the FIR check daemon by a pool slot instead of

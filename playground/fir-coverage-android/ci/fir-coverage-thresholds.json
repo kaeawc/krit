@@ -10,6 +10,7 @@
     "gradle-configuration-cache": {"required": true},
     "gradle-up-to-date": {"required": true},
     "bazel-action-cache": {"required": true},
-    "bazel-krit_aspect-cache": {"required": false}
+    "bazel-krit_aspect-cache": {"required": false},
+    "findings-parity": {"required": false}
   }
 }

@@ -83,3 +83,15 @@ func TestFirCoverageInJSONAndSARIF(t *testing.T) {
 		t.Fatalf("SARIF carries fir properties without coverage:\n%s", buf.String())
 	}
 }
+
+// Withheld FIR-required findings are reported even when no gated file is
+// counted, so they never disappear without a line (#1675).
+func TestFirCoverageLineReportsWithheldFindings(t *testing.T) {
+	line := FirCoverageLine(FirCoverage{Authoritative: 3, Withheld: 2})
+	if !strings.Contains(line, "except 2 withheld for FIR-required rules") {
+		t.Fatalf("line %q does not report the withheld findings", line)
+	}
+	if got := FirCoverageLine(FirCoverage{Authoritative: 3}); got != "" {
+		t.Fatalf("nothing gated or withheld: got %q", got)
+	}
+}

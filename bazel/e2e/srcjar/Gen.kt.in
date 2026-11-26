@@ -1,0 +1,3 @@
+package g
+
+class Gen(val name: String)

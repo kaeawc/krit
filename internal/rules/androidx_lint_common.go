@@ -209,3 +209,18 @@ func axlContentLambda(file *scanner.File, lambda uint32, param string, paramIsLa
 	}
 	return 0, false
 }
+
+// axlCallTargets reports whether call is a call of pkg.name: a simple callee resolving to it (directly or through
+// an import alias such as `import pkg.name as Other`), or a fully qualified `pkg.name(...)`.
+func axlCallTargets(file *scanner.File, call uint32, pkg, name string) bool {
+	if acrCallTargets(file, call, pkg, name) {
+		return true
+	}
+	callee := acrCalleeExpression(file, call)
+	if file.FlatType(callee) != "simple_identifier" {
+		return false
+	}
+	alias := file.FlatNodeText(callee)
+	return alias != name && fileFactsCache().Imports(file).Aliases[alias] == pkg+"."+name &&
+		!acrFunctionNameShadowed(file, call, alias) && !acrFileDeclaresTopLevel(file, alias)
+}

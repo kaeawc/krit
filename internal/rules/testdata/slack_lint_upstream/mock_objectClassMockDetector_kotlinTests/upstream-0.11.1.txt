@@ -1,0 +1,8 @@
+src/test/java/test/slack/test/TestClass.kt:12:22: DoNotMockObjectClass: 'slack.test.TestClass' is an object, so mocking it should not be necessary
+src/test/java/test/slack/test/TestClass.kt:13:21: DoNotMockObjectClass: 'slack.test.TestClass' is an object, so mocking it should not be necessary
+src/test/java/test/slack/test/TestClass.kt:14:22: DoNotMockObjectClass: 'slack.test.TestClass' is an object, so mocking it should not be necessary
+src/test/java/test/slack/test/TestClass.kt:16:22: DoNotMockObjectClass: 'slack.test.TestClass' is an object, so mocking it should not be necessary
+src/test/java/test/slack/test/TestClass.kt:18:23: DoNotMockObjectClass: 'slack.test.TestClass' is an object, so mocking it should not be necessary
+src/test/java/test/slack/test/TestClass.kt:21:31: DoNotMockObjectClass: 'slack.test.TestClass' is an object, so mocking it should not be necessary
+src/test/java/test/slack/test/TestClass.kt:8:3: DoNotMockObjectClass: 'slack.test.TestClass' is an object, so mocking it should not be necessary
+src/test/java/test/slack/test/TestClass.kt:9:3: DoNotMockObjectClass: 'slack.test.TestClass' is an object, so mocking it should not be necessary

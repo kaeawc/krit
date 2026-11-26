@@ -72,6 +72,14 @@ abstract class KritExtension @Inject constructor(objects: ObjectFactory) {
     /** Run registered code generation tasks before model export. Default: false. */
     abstract val exportGenerated: Property<Boolean>
 
+    /**
+     * Export test source sets (`test`, `testFixtures`, `androidTest`) as well as `main`.
+     * Each exported source set resolves its compile classpath, so a build whose krit scans
+     * leave test sources out can set this to false and resolve only production classpaths.
+     * Default: true.
+     */
+    abstract val exportTests: Property<Boolean>
+
     /** Android variant exported to the Gradle model. Defaults to debug. */
     abstract val androidVariant: Property<String>
 

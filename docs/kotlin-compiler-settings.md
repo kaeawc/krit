@@ -199,15 +199,25 @@ oracle:
 These are added to the model's plugins and filtered the same way.
 
 `krit-fir` loads the plugins once in a probe compile (a one-line file, per
-plugin set and process). A set its compiler cannot load (a plugin built
-against an incompatible Kotlin compiler, or a broken jar) is left out: the
-session analyzes as it did before plugins existed, logs `krit-fir: compiler
-plugins not loaded, analyzing without them (...)` and returns it as a response
-`warning`. Gradle exports the embeddable plugin builds (KGP compiles with the
-embeddable compiler); `krit-fir` embeds the plain compiler, and the
-kotlinx.serialization embeddable plugin loads into it. A plugin whose
-frontend references relocated IntelliJ classes would not, and is reported by
-the probe.
+plugin set and process). When its compiler cannot load the whole set, it
+builds the set up again one jar at a time, in classpath order, and keeps every
+jar that still loads with the ones kept before it; the jars that did not are
+tried again until a pass keeps none, so a plugin split across jars loads
+whatever their order (#1598). Each jar it leaves
+out (a plugin built against an incompatible Kotlin compiler, a broken jar) is
+logged once and returned as a response `warning`, for example
+`krit-fir: compiler plugin kotlin-compose-compiler-plugin-embeddable-2.4.21.jar
+not loaded, analyzing without it (java.lang.NoClassDefFoundError:
+org/jetbrains/kotlin/com/intellij/psi/PsiElement)`. The kept plugins keep
+their options; an option of a plugin left out is ignored. A set that loads
+costs one probe; one that does not, about one more per jar and pass.
+
+Gradle exports the embeddable plugin builds (KGP compiles with the embeddable
+compiler); `krit-fir` embeds the plain compiler. The embeddable
+kotlinx.serialization plugin loads into it (`CompilerPluginsTest`), and so did
+Metro in #1598. The embeddable Compose plugin does not, because it references
+relocated IntelliJ classes (`org.jetbrains.kotlin.com.intellij.*`), so it
+alone is left out and files compile as if Compose were not applied.
 
 A module that still compiles with errors (no plugin information, or a plugin
 that could not be loaded) keeps incremental checking as long as the errors are
@@ -354,15 +364,21 @@ in both test and androidTest as a redeclaration, which the real build never
 sees. With `--fir`, the default scan compiles the scanned source sets together
 and then rechecks only the projects with a file gated on `Redeclaration` or
 `Conflicting overloads`. The recheck compiles each of that project's scanned
-source sets on its own: a test or androidTest set sees its project's main (a
-built jar, or its sources as context) but never a sibling set. Its verdicts
-replace the merged compile's for that project's gated files; files the merged
-compile answered keep that answer. A project with one scanned set is rechecked
-too, since the merged compile also puts its files next to other projects'
-sets. A project keeps its merged verdicts when a set's unbuilt dependency
-sources exceed 3000 files or one of its source files belongs to another
-project too. A source set whose compile fails keeps its merged verdicts, while
-the project's other sets still take theirs.
+source sets that hold a gated file on its own: a test or androidTest set sees
+its project's main (a built jar, or its sources as context) but never a sibling
+set. Only the files the merged compile gated, for any reason, or crashed on
+are checked: the duplicates and what they gated in turn, such as an ambiguous
+call or an unresolved reference. The rest of their set compiles as context,
+and a set without such a file is not compiled again, since files the merged
+compile answered keep that answer (#1661). The rechecked verdicts replace the
+merged compile's for those files. A project with one scanned
+set is rechecked too, since the merged compile also puts its files next to
+other projects' sets. A project keeps its merged verdicts when a set's unbuilt
+dependency sources exceed 3000 files or one of its source files belongs to
+another project too. A source set whose compile fails keeps its merged
+verdicts, while the project's other sets still take theirs. The rechecked sets
+run on several worker JVMs, balanced by the files each compiles, its
+dependency context included.
 
 A gated file outside every exported source set is in a variant directory the
 model did not export, such as `src/release` next to an exported debug variant
@@ -411,7 +427,7 @@ uses a temporary directory instead.
 
 | Value | Compile |
 |---|---|
-| unset | Scanned source sets together; projects with a cross-source-set duplicate declaration are rechecked one source set at a time. |
+| unset | Scanned source sets together; the source sets holding a file gated on a cross-source-set duplicate declaration are rechecked one source set at a time. |
 | `merged` | Scanned source sets together, with no recheck. |
 | `isolate` | Every scanned source set on its own, when a project has several scanned sets and every set has its full dependency context; otherwise the default. |
 | a number or `auto` | Module sharding (see [module sharding](module-sharding.md)). |
@@ -424,7 +440,7 @@ sources again on one of several JVMs. On a large Android project it also used
 several times the CPU time, and the isolated run left more files without facts
 than the module-sharding coverage limit allows, so Krit discarded it and ran
 the merged compile as well. The recheck pays the isolated cost only for the
-projects that need it.
+source sets that need it.
 
 Missing projects or roots cannot be supplied from `projectDeps`
 alone; their source sets must be present in the exported model.

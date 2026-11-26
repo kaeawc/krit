@@ -1,0 +1,12 @@
+- src/main/java/com/example/JavaModules.java:34:3: MustBeInModule: @Binds/@Provides functions must be in modules # Lint starts a method's location at its Javadoc; krit anchors at the declaration so @SuppressLint on it covers the finding
++ src/main/java/com/example/JavaModules.java:35:3: MustBeInModule: @Binds/@Provides functions must be in modules # same finding, anchored at the declaration
+- src/main/java/com/example/Modules.kt:100:3: MustBeInModule: @Binds/@Provides functions must be in modules # Lint starts a function's location at its KDoc; krit anchors at the declaration
++ src/main/java/com/example/Modules.kt:101:3: MustBeInModule: @Binds/@Provides functions must be in modules # same finding, anchored at the declaration
+- src/main/java/com/example/Modules.kt:103:3: MustBeInModule: @Binds/@Provides functions must be in modules # Lint also binds the line comment before a function; krit anchors at the declaration
++ src/main/java/com/example/Modules.kt:104:3: MustBeInModule: @Binds/@Provides functions must be in modules # same finding, anchored at the declaration
+- src/main/java/com/example/Modules.kt:84:3: BindingReturnType: @Binds/@Provides must have a return type # known false negative: an expression body's type is not known from source, so krit abstains
+- src/main/java/com/example/StaticProviders.java:10:3: ProvidesMustNotBeAbstract: @Provides functions cannot be abstract # a static @Provides method in an interface module is valid Dagger (Dagger's own compiler uses it); Lint reports it anyway
+- src/main/java/com/example/InterfaceCompanion.kt:11:5: ProvidesMustNotBeAbstract: @Provides functions cannot be abstract # @JvmStatic in an interface's companion compiles to a static interface method, which Dagger accepts
+- src/main/java/com/example/StaticProviders.java:19:3: MustBeInModule: @Binds/@Provides functions must be in modules # krit also accepts dagger.producers.ProducerModule, where @Binds and @Provides are valid
+- src/main/java/com/example/StaticProviders.java:20:3: MustBeInModule: @Binds/@Provides functions must be in modules # @ProducerModule, as above
+- src/main/java/com/example/InterfaceCompanion.kt:17:3: MustBeInModule: @Binds/@Provides functions must be in modules # @ProducerModule, as above

@@ -682,6 +682,10 @@ rules:
     status: supported
     fixtures:
       - internal/rules/androidx_work_parity_test.go
+  WearMaterialTheme:
+    status: supported
+    fixtures:
+      - tests/fixtures/android-lint/WearMaterialTheme/positive
   UsableSpace:
     status: supported
     fixtures:

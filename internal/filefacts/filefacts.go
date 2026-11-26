@@ -83,6 +83,16 @@ func StringFact[T any](c *Cache, key, slot string, compute func() T) T {
 	return loadOrStoreTyped(&c.stringSlots, stringSlotKey{key: key, slot: slot}, slot, compute)
 }
 
+// ForgetStringFact drops one StringFact, so the next access recomputes it.
+// Long-lived callers use it to scope a fact to one request. A nil *Cache is
+// a no-op.
+func ForgetStringFact(c *Cache, key, slot string) {
+	if c == nil {
+		return
+	}
+	c.stringSlots.Delete(stringSlotKey{key: key, slot: slot})
+}
+
 type fileSlotKey struct {
 	file *scanner.File
 	slot string

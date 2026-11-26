@@ -71,8 +71,10 @@ func Load(dir string) (*Model, []string, error) {
 			continue
 		}
 		var file struct {
-			Schema   int       `json:"schema"`
-			Projects []Project `json:"projects"`
+			Schema         int       `json:"schema"`
+			RootDir        string    `json:"rootDir"`
+			GradleUserHome string    `json:"gradleUserHome"`
+			Projects       []Project `json:"projects"`
 		}
 		if err := json.Unmarshal(data, &file); err != nil {
 			warnings = append(warnings, fmt.Sprintf("%s: malformed JSON: %v", path, err))
@@ -82,7 +84,9 @@ func Load(dir string) (*Model, []string, error) {
 			warnings = append(warnings, fmt.Sprintf("%s: unsupported schema %d", path, file.Schema))
 			continue
 		}
+		rewrites := modelRelocations(dir, file.RootDir, file.GradleUserHome)
 		for _, project := range file.Projects {
+			relocateProject(&project, rewrites)
 			info, err := os.Stat(project.Dir)
 			if err != nil || !info.IsDir() {
 				warnings = append(warnings, fmt.Sprintf("%s: project %s directory missing: %s", path, project.Path, project.Dir))
@@ -361,29 +365,36 @@ func Discover(scanRoot string) string {
 	}
 }
 
-// Fingerprint hashes resolved classpath paths, file sizes, and modification
-// times. It changes when a referenced jar is replaced at the same path.
+// Fingerprint hashes resolved classpath paths and jar contents (see
+// ClasspathFingerprint). It changes when a referenced jar is replaced at the
+// same path.
 func (m *Model) Fingerprint() string {
 	entries, _ := m.Classpath()
 	return ClasspathFingerprint(entries)
 }
 
-// ClasspathFingerprint hashes paths, sizes, and modification times in order.
+// ClasspathFingerprint hashes each entry's path and the content of a regular
+// file (a directory's size and modification time) in order. A file's stat is
+// never part of the key, so it is the same in every process for the same
+// bytes, and a same-size rewrite inside one mtime tick still changes it.
 // Missing paths retain a marker so removing an existing entry changes the key.
 // Directory entries are only stat'd at the top level and relative entries
-// resolve against the working directory; both can only cause a miss, never a
-// stale hit.
+// resolve against the working directory.
 func ClasspathFingerprint(entries []string) string {
 	var b strings.Builder
 	for _, entry := range entries {
 		b.WriteString(entry)
 		b.WriteByte(0)
-		if info, err := os.Stat(entry); err == nil {
+		if info, err := os.Stat(entry); err != nil {
+			b.WriteString("missing")
+		} else if info.IsDir() {
 			b.WriteString(strconv.FormatInt(info.Size(), 10))
 			b.WriteByte(0)
 			b.WriteString(strconv.FormatInt(info.ModTime().UnixNano(), 10))
+		} else if hx, err := hashutil.Default().HashFile(entry, nil); err == nil {
+			b.WriteString(hx)
 		} else {
-			b.WriteString("missing")
+			b.WriteString("unreadable")
 		}
 		b.WriteByte(0)
 	}

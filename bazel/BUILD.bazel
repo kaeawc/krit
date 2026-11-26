@@ -1,4 +1,4 @@
-load("@bazel_skylib//rules:common_settings.bzl", "bool_flag", "string_flag")
+load("@bazel_skylib//rules:common_settings.bzl", "bool_flag", "int_flag", "string_flag")
 load("@bazel_skylib//rules:native_binary.bzl", "native_binary")
 
 # `bazel run @krit//:krit -- <args>` runs the prebuilt binary for the host.
@@ -90,5 +90,32 @@ string_flag(
         "all",
         "file",
     ],
+    visibility = ["//visibility:public"],
+)
+
+# krit_aspect's Krit actions that scan at least this many files are "large":
+# they run in the `krit_large` exec group, so a remote execution platform's
+# `krit_large.<key>` exec_properties apply to them (a bigger worker, say),
+# and Bazel schedules them locally with more memory.
+int_flag(
+    name = "large_target_sources",
+    build_setting_default = 400,
+    visibility = ["//visibility:public"],
+)
+
+# The Android minSdk / targetSdk of sources whose own manifest (in their
+# directory or above) declares none, for krit_aspect's and
+# krit_project_report's actions (krit --min-sdk / --target-sdk); 0 leaves
+# them unknown. An android_binary's own action uses its manifest_values'
+# minSdkVersion / targetSdkVersion instead, when they are numbers.
+int_flag(
+    name = "min_sdk_version",
+    build_setting_default = 0,
+    visibility = ["//visibility:public"],
+)
+
+int_flag(
+    name = "target_sdk_version",
+    build_setting_default = 0,
     visibility = ["//visibility:public"],
 )

@@ -21,6 +21,7 @@ internal object KritModelInputs {
     private val CLASSPATH_KEYS = setOf("classpath", "bootClasspath", "generatedClasspath", "compilerPluginClasspath")
     private const val ROOT = "\$ROOT"
     private const val GRADLE_CACHES = "\$GRADLE_CACHES"
+    private const val GRADLE_USER_HOME = "\$GRADLE_USER_HOME"
 
     /** `<gradle user home>/caches/` followed by one of Gradle's dependency or transform caches. */
     private val GRADLE_CACHE_PREFIX =
@@ -64,7 +65,9 @@ internal object KritModelInputs {
 
     private fun normalize(value: Any?, root: String?, classpath: Boolean): Any? = when (value) {
         is Map<*, *> -> value.entries.associate { (key, entry) ->
-            key.toString() to normalize(entry, root, key in CLASSPATH_KEYS)
+            // The user home only locates the jars; their identity is kept by $GRADLE_CACHES.
+            key.toString() to
+                if (key == "gradleUserHome") GRADLE_USER_HOME else normalize(entry, root, key in CLASSPATH_KEYS)
         }
         is List<*> -> value.map { normalize(it, root, classpath) }
         // Content is tracked by classpath(); here each entry keeps its identity (many

@@ -23,7 +23,7 @@ class KritModelInputsTest {
         parentFile.mkdirs()
         writeText(
             """
-            {"schema": 2, "rootDir": "$root", "projects": [{"path": ":lib", "dir": "$root/lib",
+            {"schema": 2, "rootDir": "$root", "gradleUserHome": "$home/.gradle", "projects": [{"path": ":lib", "dir": "$root/lib",
               "sourceSets": [
                 {"name": "main", "sourceDirs": ["$root/lib/src/main/kotlin"${if (sibling) ", \"${root}2/elsewhere\"" else ""}],
                  "classpath": ["${dep(home)}", "$root/lib/libs/local.jar", "$mainJar"],

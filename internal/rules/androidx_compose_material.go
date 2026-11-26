@@ -1,6 +1,8 @@
 package rules
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/filefacts"
@@ -61,17 +63,14 @@ func (r *UsingMaterialAndMaterial3LibrariesRule) fileMentions() []string {
 	return []string{axlMaterialPackage}
 }
 
-// Confidence is medium: krit reads the material3 dependency project-wide, where Lint checks each module.
-func (r *UsingMaterialAndMaterial3LibrariesRule) Confidence() float64 { return api.ConfidenceMedium }
-
 var axlScaffoldLimitations = []string{
 	"The content lambda must be passed as the trailing lambda or as `content = { }`; a lambda at the content " +
 		"position without a label is not mapped.",
 	"An inner lambda without parameters hides an outer `it` only when it is passed to a known one-parameter " +
 		"lambda function (forEach, let, map, LazyListScope.items, ...) or a same-file function whose parameter type " +
 		"takes one value; Lint resolves every inner lambda.",
-	"Scaffold resolves through imports and the file's own package; a Scaffold declared in another file of the " +
-		"same package is not seen as shadowing a star import.",
+	"Scaffold resolves through imports (including `import ... as Alias`) and the file's own package; a Scaffold " +
+		"declared in another file of the same package is not seen as shadowing a star import.",
 }
 
 func (r *UnusedMaterialScaffoldPaddingParameterRule) Meta() api.RuleDescriptor {
@@ -95,8 +94,9 @@ func (r *ConflictingOnColorRule) Meta() api.RuleDescriptor {
 func (r *UsingMaterialAndMaterial3LibrariesRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{ID: "UsingMaterialAndMaterial3Libraries", RuleSet: "compose", DefaultActive: true,
 		KnownLimitations: []string{
-			"material3 use is proven by a material3 import in the same file or a material3 dependency anywhere in the " +
-				"Gradle build; Lint runs the check only in modules that depend on material3.",
+			"material3 use is proven by a material3 import in the same file, or a material3 dependency declared by the " +
+				"build file of the file's own Gradle module (the nearest directory with a build.gradle(.kts)); one added " +
+				"by a convention plugin or arriving through another project module is not seen.",
 		}}
 }
 
@@ -105,7 +105,7 @@ func (r *UsingMaterialAndMaterial3LibrariesRule) Meta() api.RuleDescriptor {
 func axlCheckScaffoldPadding(ctx *api.Context, pkg string) {
 	file, lambda := ctx.File, ctx.Idx
 	call, ok := axlContentLambda(file, lambda, "content", true)
-	if !ok || !acrCallTargets(file, call, pkg, "Scaffold") {
+	if !ok || !axlCallTargets(file, call, pkg, "Scaffold") {
 		return
 	}
 	for _, p := range axlUnreferencedLambdaParams(file, lambda, 1) {
@@ -299,15 +299,84 @@ func axlImportReference(file *scanner.File, node uint32) uint32 {
 	return 0
 }
 
-// axlUsesMaterial3 reports whether the file imports from material3, or the build depends on material3.
+// axlUsesMaterial3 reports whether the code uses material3: the file imports from it, or the file's module depends
+// on it. Lint runs material3's checks only in modules that depend on material3, so in a multi-module build the
+// dependency must come from the build file of the module the source file belongs to.
 func axlUsesMaterial3(ctx *api.Context) bool {
-	if librarymodel.EnsureFacts(ctx.LibraryFacts).Profile.HasAnyDependency(axlMaterial3Coordinates...) {
+	file := ctx.File
+	if file.Language == scanner.LangJava {
+		if axlJavaImportsFrom(file, axlMaterial3Package) {
+			return true
+		}
+	} else if fileFactsCache().Imports(file).HasAnyPrefix(axlMaterial3Package + ".") {
 		return true
 	}
-	if ctx.File.Language == scanner.LangJava {
-		return axlJavaImportsFrom(ctx.File, axlMaterial3Package)
+	return axlModuleHasDependency(librarymodel.EnsureFacts(ctx.LibraryFacts).Profile, file, axlMaterial3Coordinates)
+}
+
+// axlModuleHasDependency reports whether the module owning the file declares one of coords, as Lint only runs a library's
+// checks in modules that depend on it. A dependency read from a Gradle build file counts when that file belongs to
+// the Gradle module containing the file (the nearest directory with a build.gradle(.kts)); one from elsewhere (a Bazel
+// MODULE.bazel or WORKSPACE, or of unknown origin) counts build-wide.
+func axlModuleHasDependency(profile librarymodel.ProjectProfile, file *scanner.File, coords []librarymodel.Coordinate) bool {
+	moduleDir, looked := "", false
+	for _, dep := range profile.Dependencies {
+		if !axlCoordinateMatches(dep, coords) {
+			continue
+		}
+		if !axlIsGradleBuildFile(dep.Source) {
+			return true
+		}
+		if !looked {
+			moduleDir, looked = axlGradleModuleDir(file), true
+		}
+		if moduleDir != "" && filepath.Dir(filepath.Clean(dep.Source)) == moduleDir {
+			return true
+		}
 	}
-	return fileFactsCache().Imports(ctx.File).HasAnyPrefix(axlMaterial3Package + ".")
+	return false
+}
+
+// axlCoordinateMatches reports whether dep is one of coords.
+func axlCoordinateMatches(dep librarymodel.Dependency, coords []librarymodel.Coordinate) bool {
+	for _, c := range coords {
+		if dep.Group == c.Group && dep.Name == c.Name {
+			return true
+		}
+	}
+	return false
+}
+
+// axlIsGradleBuildFile reports whether a dependency source is a Gradle build script.
+func axlIsGradleBuildFile(source string) bool {
+	base := filepath.Base(source)
+	return source != "" && (base == "build.gradle" || base == "build.gradle.kts")
+}
+
+// axlGradleModuleDir returns the nearest ancestor directory of the file that holds a build.gradle(.kts), stopping at
+// the build root (a directory with settings.gradle(.kts)), or "" when there is none. It is computed once per file.
+func axlGradleModuleDir(file *scanner.File) string {
+	return filefacts.FileFact(fileFactsCache(), file, slotAxlGradleModuleDir, func() string {
+		dir := filepath.Dir(filepath.Clean(file.Path))
+		for {
+			if axlFileExists(filepath.Join(dir, "build.gradle.kts")) || axlFileExists(filepath.Join(dir, "build.gradle")) {
+				return dir
+			}
+			parent := filepath.Dir(dir)
+			if parent == dir || axlFileExists(filepath.Join(dir, "settings.gradle.kts")) ||
+				axlFileExists(filepath.Join(dir, "settings.gradle")) {
+				return ""
+			}
+			dir = parent
+		}
+	})
+}
+
+const slotAxlGradleModuleDir = "axlGradleModuleDir"
+
+func axlFileExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir()
 }
 
 // axlJavaImportsFrom reports whether a Java file has an import (single-type, on-demand or static) under pkg.

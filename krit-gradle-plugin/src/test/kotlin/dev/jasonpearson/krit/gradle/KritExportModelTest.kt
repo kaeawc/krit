@@ -46,6 +46,51 @@ class KritExportModelTest {
         .build()
 
     @Test
+    fun `exportTests false exports main only and resolves no test classpath`() {
+        val root = fixture()
+        File(root, "app/build.gradle.kts").appendText("""
+
+            apply(plugin = "java-test-fixtures")
+            krit { exportTests = false }
+            configurations.configureEach { incoming.beforeResolve { println("RESOLVED_CLASSPATH:" + name) } }
+        """.trimIndent())
+        val result = run(root, ":app:kritExportModel")
+        val sets = sourceSets(File(root, ".krit/gradle-model/app.json"))
+        assertEquals(listOf("main"), sets.map { it["kind"] }, "only production source sets are exported")
+        val resolved = Regex("RESOLVED_CLASSPATH:(\\S+)").findAll(result.output).map { it.groupValues[1] }.toSet()
+        assertTrue("compileClasspath" in resolved, result.output)
+        assertEquals(emptySet<String>(), resolved.filter { it.contains("test", ignoreCase = true) }.toSet(), result.output)
+        val defaults = run(root, ":lib:kritExportModel")
+        assertEquals(setOf("main", "test"), sourceSets(File(root, ".krit/gradle-model/lib.json")).map { it["kind"] }.toSet(),
+            defaults.output)
+    }
+
+    // #1663: a re-exported model invalidates `krit gradle-model key --write`'s stamp; an
+    // up-to-date export leaves it.
+    @Test
+    fun `re-exporting a model removes the inputs stamp`() {
+        val root = fixture()
+        val stamp = File(root, ".krit/gradle-model/inputs.key").apply { parentFile.mkdirs(); writeText("gm1-old\n") }
+        run(root, ":lib:kritExportModel")
+        assertFalse(stamp.exists(), "the export rewrote the model")
+        stamp.writeText("gm1-new\n")
+        assertEquals(TaskOutcome.UP_TO_DATE, run(root, ":lib:kritExportModel").task(":lib:kritExportModel")?.outcome)
+        assertTrue(stamp.isFile, "an up-to-date export keeps the stamp")
+    }
+
+    @Test
+    fun `model records the Gradle user home its jars come from`() {
+        val root = fixture()
+        val home = File(directory, "custom-gradle-home")
+        GradleRunner.create().withProjectDir(root).withPluginClasspath()
+            .withTestKitDir(home)
+            .withArguments(":lib:kritExportModel", "--offline", "--stacktrace").build()
+        @Suppress("UNCHECKED_CAST")
+        val model = JsonSlurper().parse(File(root, ".krit/gradle-model/lib.json")) as Map<String, Any>
+        assertEquals(home.canonicalPath, File(model["gradleUserHome"] as String).canonicalPath)
+    }
+
+    @Test
     fun `kritCheck reruns when exported dependency model changes`() {
         val root = fixture()
         val app = File(root, "app")
@@ -308,6 +353,17 @@ class KritExportModelTest {
         val check = runWithFakeAndroid(root, ":app:kritCheck", "-PfakeGeneratedSources", "-PdeferAndroidVariants", "--configuration-cache")
         assertEquals(TaskOutcome.SUCCESS, check.task(":app:generateDebugFakeSources")?.outcome, check.output)
         assertEquals(null, check.task(":app:compileDebugKotlin"), "generators only, never a compile")
+        // #1642: so does the per-variant kritCheckDebug, and not with its own fir off.
+        File(root, "app/build").deleteRecursively()
+        val variant = runWithFakeAndroid(root, ":app:kritCheckDebug",
+            "-PfakeGeneratedSources", "-PdeferAndroidVariants", "--configuration-cache")
+        assertEquals(TaskOutcome.SUCCESS, variant.task(":app:generateDebugFakeSources")?.outcome, variant.output)
+        build.appendText("tasks.withType<dev.jasonpearson.krit.gradle.KritCheckTask>()" +
+            ".matching { it.name == \"kritCheckDebug\" }.configureEach { fir = false }\n")
+        File(root, "app/build").deleteRecursively()
+        val variantNoFir = runWithFakeAndroid(root, ":app:kritCheckDebug",
+            "-PfakeGeneratedSources", "-PdeferAndroidVariants", "--configuration-cache")
+        assertEquals(null, variantNoFir.task(":app:generateDebugFakeSources"), variantNoFir.output)
     }
 
     private fun fakeKrit(root: File): File = File(root, "fake-krit").apply {
@@ -350,6 +406,11 @@ class KritExportModelTest {
         val check = run(root, "kritCheck", "--configuration-cache")
         assertEquals(TaskOutcome.SUCCESS, check.task(":generateFakeSources")?.outcome, check.output)
         assertTrue(File(generatedRoot, "com/example/Gen.java").isFile)
+        // kritBaseline records what kritCheck reports, so it runs them too.
+        File(root, "build").deleteRecursively()
+        val baseline = run(root, "kritBaseline", "--configuration-cache")
+        assertEquals(TaskOutcome.SUCCESS, baseline.task(":generateFakeSources")?.outcome, baseline.output)
+        assertTrue(baseline.task(":kritExportModel") != null, baseline.output)
 
         build.appendText("krit { fir = false }\n")
         File(root, "build").deleteRecursively()

@@ -416,10 +416,7 @@ func targetAPILevel(value string) int {
 }
 
 func (r *UnusedAttributeResourceRule) check(ctx *api.Context) {
-	projectMin := 0
-	if facts := librarymodel.EnsureFacts(ctx.LibraryFacts); facts != nil {
-		projectMin = facts.Profile.MinSdkVersion
-	}
+	projectMin := profileOrDefaultMinSdk(librarymodel.EnsureFacts(ctx.LibraryFacts))
 	for _, layout := range ctx.ResourceIndex.AllLayouts() {
 		// The module's own minSdk decides; a module that does not declare one cannot be judged.
 		minSdk := resourceModuleMinSdk(layout.FilePath)

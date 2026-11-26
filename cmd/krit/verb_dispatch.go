@@ -17,6 +17,7 @@ import (
 	climdigraph "github.com/kaeawc/krit/internal/cli/digraph"
 	climeditorconfigdrift "github.com/kaeawc/krit/internal/cli/editorconfigdrift"
 	climgen "github.com/kaeawc/krit/internal/cli/gen"
+	climgradlemodel "github.com/kaeawc/krit/internal/cli/gradlemodelcmd"
 	climgraph "github.com/kaeawc/krit/internal/cli/graphexport"
 	climharvest "github.com/kaeawc/krit/internal/cli/harvest"
 	climimpact "github.com/kaeawc/krit/internal/cli/impact"
@@ -83,6 +84,7 @@ const (
 	verbDeltaRisk
 	verbTraces
 	verbApplySuggestion
+	verbGradleModel
 )
 
 var verbByName = map[string]subcommandVerb{
@@ -124,6 +126,7 @@ var verbByName = map[string]subcommandVerb{
 	"traces":             verbTraces,
 	"apply-suggestion":   verbApplySuggestion,
 	"bazel-worker":       verbBazelWorker,
+	"gradle-model":       verbGradleModel,
 }
 
 func classifyVerb(arg string) subcommandVerb {
@@ -232,6 +235,8 @@ func runVerbAndExitC(verb subcommandVerb, rest []string) bool {
 		os.Exit(climapplysuggestion.Run(rest))
 	case verbBazelWorker:
 		os.Exit(climbazelworker.Run(rest))
+	case verbGradleModel:
+		os.Exit(climgradlemodel.Run(rest))
 	}
 	return false
 }

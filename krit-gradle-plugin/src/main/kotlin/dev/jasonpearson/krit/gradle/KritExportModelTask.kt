@@ -55,10 +55,17 @@ abstract class KritModelSourceSet {
     @get:Input abstract val kotlinCompilerPluginOptions: ListProperty<String>
 }
 
+/** The stamp `krit gradle-model key --write` leaves next to the models (gradlemodel.InputsKeyFile). */
+internal const val INPUTS_STAMP = "inputs.key"
+
 /** Model schema written by [KritExportModelTask]. Schema 1 had no `kotlin` object. */
 internal const val MODEL_SCHEMA = 2
 
-@DisableCachingByDefault(because = "Output contains absolute artifact paths")
+// Not cacheable on purpose (#1663): the cache key needs every classpath resolved, which is most of the task's
+// cost. On 150 projects with the configuration cache reused, an up-to-date export took 19-22 s and a rerun
+// 22-23 s, so a cache hit would save at most a few seconds. CI skips Gradle entirely instead, by caching
+// .krit/gradle-model under `krit gradle-model key`.
+@DisableCachingByDefault(because = "Resolving the classpaths for a cache key costs about as much as exporting them")
 abstract class KritExportModelTask : DefaultTask() {
     @get:Nested abstract val sourceSets: ListProperty<KritModelSourceSet>
     @get:Input abstract val buildDir: Property<String>
@@ -66,6 +73,8 @@ abstract class KritExportModelTask : DefaultTask() {
     @get:Input abstract val projectDir: Property<String>
     @get:Input abstract val generatedBy: Property<String>
     @get:Input abstract val rootDir: Property<String>
+    /** Where the dependency jars the model lists live; krit rebases them when a restored model's is gone. */
+    @get:Input abstract val gradleUserHome: Property<String>
     @get:OutputFile abstract val outputFile: RegularFileProperty
 
     @TaskAction
@@ -109,10 +118,14 @@ abstract class KritExportModelTask : DefaultTask() {
             "dir" to projectDir.get(),
             "sourceSets" to entries,
         )
-        writeJson(outputFile.get().asFile, linkedMapOf(
+        val output = outputFile.get().asFile
+        // The model changes, so a `krit gradle-model key --write` stamp no longer describes it.
+        File(output.parentFile, INPUTS_STAMP).delete()
+        writeJson(output, linkedMapOf(
             "schema" to MODEL_SCHEMA,
             "generatedBy" to generatedBy.get(),
             "rootDir" to rootDir.get(),
+            "gradleUserHome" to gradleUserHome.get(),
             "projects" to listOf(entry),
         ))
     }

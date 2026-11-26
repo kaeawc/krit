@@ -98,3 +98,36 @@ func TestLoadKeepsUnbuiltRClassJarPrediction(t *testing.T) {
 		t.Fatal("loading must not create build directories")
 	}
 }
+
+// A model restored under another checkout path (#1663) is relocated before its
+// R jar predictions are looked up, so the lookup searches the new root.
+func TestLoadResolvesRClassJarsOfRelocatedModel(t *testing.T) {
+	root := t.TempDir()
+	oldRoot := "/agent/1/work/repo"
+	rel := "/lib/build/intermediates/"
+	predicted := "compile_and_runtime_not_namespaced_r_class_jar/debugUnitTest/generateDebugUnitTestStubRFile/R.jar"
+	actual := filepath.ToSlash(root) + rel + "compile_and_runtime_r_class_jar/debugUnitTest/generateDebugUnitTestStubRFile/R.jar"
+	write(t, actual, "")
+	body, err := json.Marshal(map[string]any{
+		"schema": 2, "rootDir": oldRoot,
+		"projects": []any{map[string]any{"path": ":lib", "dir": oldRoot + "/lib", "sourceSets": []any{map[string]any{
+			"name": "debugUnitTest", "kind": "test", "generatedClasspath": []string{oldRoot + rel + predicted},
+		}}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(root, ".krit", "gradle-model")
+	write(t, filepath.Join(dir, "lib.json"), string(body))
+
+	model, warnings, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(model.Projects) != 1 {
+		t.Fatalf("projects = %v, warnings = %v", model.Projects, warnings)
+	}
+	if got := model.Projects[0].SourceSets[0].GeneratedClasspath; !reflect.DeepEqual(got, []string{actual}) {
+		t.Fatalf("generatedClasspath = %v, want [%s]", got, actual)
+	}
+}

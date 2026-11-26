@@ -138,7 +138,8 @@ func catalogDeclaresDependency(gradlePath, content, group, name string) bool {
 	if !strings.Contains(content, "libs.") {
 		return false
 	}
-	catalog, ok := librarymodel.LoadVersionCatalogForGradlePath(gradlePath)
+	// The result is cached in the slotManifestGradle fact of the same cache, so the catalog lives as long as it does.
+	catalog, ok := loadGradleVersionCatalog(fileFactsCache(), gradlePath)
 	if !ok {
 		return false
 	}

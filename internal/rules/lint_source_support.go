@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"bytes"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/filefacts"
@@ -328,7 +329,7 @@ type lintImports struct {
 func lintImportsOf(file *scanner.File) *lintImports {
 	return filefacts.FileFact(fileFactsCache(), file, slotLintImports, func() *lintImports {
 		imp := &lintImports{bySimple: map[string]string{}}
-		for _, m := range findImportMatches(string(file.Content), lintImportTailRe) {
+		for _, m := range findImportMatches(string(file.Content[:lintImportHeaderEnd(file)]), lintImportTailRe) {
 			full := m[2]
 			if m[3] != "" {
 				imp.stars = append(imp.stars, full)
@@ -345,6 +346,26 @@ func lintImportsOf(file *scanner.File) *lintImports {
 }
 
 const slotLintImports = "lintImports"
+
+// lintImportHeaderEnd returns the offset of the start of the line holding the file's first top-level declaration,
+// or the file's length. Imports cannot follow a declaration, so scanning only the header is faster on large files
+// and does not read import-shaped lines inside raw strings or comments in the body. The cut is at a line start
+// because the import scan matches whole lines: an import sharing a line with the declaration never matched.
+func lintImportHeaderEnd(file *scanner.File) int {
+	if file.FlatTree == nil {
+		return len(file.Content)
+	}
+	for child := file.FlatFirstChild(0); child != 0; child = file.FlatNextSib(child) {
+		switch file.FlatType(child) {
+		case "package_header", "package_declaration", "import_list", "import_header", "import_declaration",
+			"file_annotation", "shebang_line", "line_comment", "multiline_comment", "block_comment", "ERROR", ";":
+			continue
+		}
+		start := min(int(file.FlatStartByte(child)), len(file.Content))
+		return bytes.LastIndexByte(file.Content[:start], '\n') + 1
+	}
+	return len(file.Content)
+}
 
 // lintTypeRefMatches reports whether the source text names the class fqn: spelled in full, imported, or reached
 // through an on-demand import. Nested classes also match through their outer class ("PowerManager.WakeLock").

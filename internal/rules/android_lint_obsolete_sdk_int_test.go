@@ -156,6 +156,31 @@ class A {
 	}
 }
 
+// A minSdk the build sets outside the sources (a Bazel android_binary's manifest_values, through
+// krit --min-sdk) makes plain checks reportable where no build file or manifest declares one (#1682).
+func TestObsoleteSdkIntUsesTheDefaultMinSdk(t *testing.T) {
+	src := `package p
+
+import android.os.Build
+
+fun f() {
+    if (Build.VERSION.SDK_INT >= 21) println()
+    if (Build.VERSION.SDK_INT >= 26) println()
+}
+`
+	path := obsoleteSdkIntModule(t, "", "src/main/kotlin/p/A.kt", src)
+	if got := obsoleteSdkIntReports(t, path); len(got) != 0 {
+		t.Fatalf("without a minSdk: %v, want none", got)
+	}
+	android.SetDefaultSDKLevels(android.SDKLevels{MinSdk: 24})
+	t.Cleanup(func() { android.SetDefaultSDKLevels(android.SDKLevels{}) })
+	got := obsoleteSdkIntReports(t, path)
+	want := []string{"6:9 Unnecessary; `SDK_INT` is always >= 24"}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("reports differ\n%s", diffReports(got, want))
+	}
+}
+
 // The Kotlin grammar groups `!a || b` as `!(a || b)`; the rule reads the negation as belonging to the first operand.
 func TestObsoleteSdkIntRepairsMisgroupedNegation(t *testing.T) {
 	src := `package p

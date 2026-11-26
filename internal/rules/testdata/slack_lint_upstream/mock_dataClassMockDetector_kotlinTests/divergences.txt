@@ -1,0 +1,3 @@
+- src/test/java/test/slack/test/TestClass.kt:27:7: DoNotMockPlatformTypes: platform type 'java.util.List' should not be mocked # known false negative: a mock() argument takes its type from the parameter it fills, which krit does not infer
+- src/test/java/test/slack/test/TestClass.kt:31:14: DoNotMockDataClass: 'slack.test.TestClass' is a data class, so mocking it should not be necessary # known false negative: the type comes from listOf's inferred element type
+- src/test/java/test/slack/test/TestClass.kt:35:21: DoNotMockDataClass: 'slack.test.TestClass' is a data class, so mocking it should not be necessary # known false negative: as above, through a named argument

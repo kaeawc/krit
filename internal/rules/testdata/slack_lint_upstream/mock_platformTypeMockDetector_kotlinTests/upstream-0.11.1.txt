@@ -1,0 +1,6 @@
+src/test/java/test/slack/test/TestClass.kt:12:5: DoNotMockPlatformTypes: platform type 'java.lang.Comparable' should not be mocked
+src/test/java/test/slack/test/TestClass.kt:13:5: DoNotMockPlatformTypes: platform type 'java.lang.Runnable' should not be mocked
+src/test/java/test/slack/test/TestClass.kt:15:5: DoNotMockPlatformTypes: platform type 'kotlin.io.FileTreeWalk' should not be mocked
+src/test/java/test/slack/test/TestClass.kt:16:5: DoNotMockPlatformTypes: platform type 'kotlin.Lazy' should not be mocked
+src/test/java/test/slack/test/TestClass.kt:18:5: DoNotMockPlatformTypes: platform type 'android.graphics.Typeface' should not be mocked
+src/test/java/test/slack/test/TestClass.kt:20:5: DoNotMockPlatformTypes: platform type 'androidx.collection.ArrayMap' should not be mocked

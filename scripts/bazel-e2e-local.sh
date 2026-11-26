@@ -273,11 +273,18 @@ if grep -l '@@WORKSPACE@@\|@@EXECROOT@@' "${models[@]}"; then
 fi
 scan_home="$work/scan-home"
 mkdir -p "$scan_home"
+# Outside Bazel, Settings.kt is gated: :settings shares kotlin_settings/ with
+# :annotation, so no settings-group session applies its kotlinc_opts (#1775).
+# Its line-32 finding is then Go's, which fir.requireAuthoritativeRules
+# withholds by default (#1675); keep it until #1775 makes the file compile.
+scan_config="$work/export-model-krit.yml"
+cat krit.yml > "$scan_config"
+printf 'fir:\n  requireAuthoritativeRules: []\n' >> "$scan_config"
 rc=0
 scan="$(env -u KRIT_BAZEL_LOCAL_DIST HOME="$scan_home" KRIT_FIR_JAR="$DIST/krit-fir.jar" \
   KRIT_NO_JAR_DOWNLOAD=1 KRIT_NO_DAEMON_AUTOSTART=1 \
   "$DIST/krit" --no-daemon --no-cache --no-fir-daemon --fail-on-degraded -f plain --base-path . \
-  typed/app/Consumer.kt kotlin_settings/Settings.kt 2>&1)" || rc=$?
+  --config "$scan_config" typed/app/Consumer.kt kotlin_settings/Settings.kt 2>&1)" || rc=$?
 printf '%s\n' "$scan"
 if [ "$rc" != 1 ]; then
   echo "ERROR: krit exited $rc; want 1 (findings)" >&2

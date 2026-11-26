@@ -64,7 +64,7 @@ func TestPassAppliesSettingsGroupVerdicts(t *testing.T) {
 	}
 	for _, line := range []string{
 		"verbose: FIR settings: rechecked 3 files with their own source set's settings",
-		"1 gated files now authoritative, 1 now gated on a missing opt-in, 1 kept the merged verdict",
+		"1 gated files now authoritative, 1 now gated on a missing opt-in, 0 on their own JVM target, 1 kept the merged verdict",
 		"FIR gated: " + p.abs(isolateAndroidFile) + ": This declaration needs opt-in.",
 	} {
 		if !strings.Contains(verbose.String(), line) {
@@ -98,5 +98,22 @@ func TestPassKeepsMergedVerdictWhenTheSettingsSplitFails(t *testing.T) {
 				t.Fatalf("merged verdicts should stand\ngot:  %v\nwant: %v", d, want)
 			}
 		})
+	}
+}
+
+// A group session compiled at its source set's own JVM target reports the
+// errors its real build reports at that target; they replace the merged
+// verdict like a missing opt-in (#1648). Other errors do not.
+func TestJvmTargetErrorRecognizesTargetDependentDiagnostics(t *testing.T) {
+	for reason, want := range map[string]bool{
+		"Using @JvmRecord is only allowed with -jvm-target 16 or later (or -jvm-target 15 with the -Xjvm-enable-preview flag enabled).":              true,
+		"Cannot inline bytecode built with JVM target 17 into bytecode that is being built with JVM target 11. Specify proper '-jvm-target' option.": true,
+		"Unresolved reference 'jvmTarget'.":     false,
+		"This declaration needs opt-in.":        false,
+		"'when' expression must be exhaustive.": false,
+	} {
+		if got := jvmTargetError(reason); got != want {
+			t.Errorf("jvmTargetError(%q) = %v, want %v", reason, got, want)
+		}
 	}
 }

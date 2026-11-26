@@ -95,10 +95,28 @@ files, as for module compilations). Groups that the merged session already
 compiles exactly need no session, so a model whose source sets all agree runs
 one session as before.
 
+A group whose arguments and plugins match the merged session but whose JVM
+target is lower than the merged session's (the highest exported target) keeps
+the merged verdicts by default (#1648). Few FIR diagnostics depend on the
+target, mixed targets are common in Android builds, and each such group would
+compile its sources again. `-v` names these groups so the cost can be
+measured:
+
+```
+verbose: FIR settings: 1 settings groups differ from the merged session only in JVM target (merged: 17) and keep its verdicts; KRIT_FIR_SPLIT_JVM_TARGET=1 compiles each on its own: :legacy:main [(compiler defaults) jvm=11]
+```
+
+`KRIT_FIR_SPLIT_JVM_TARGET=1` gives each of them a session at its own target.
+A group that declares no target compiles at the merged session's, so it never
+needs one.
+
 A group session's verdict replaces the merged one for its files when it
 answers the file (a file gated by a dropped flag or plugin option becomes
 authoritative) or when it gates the file on a missing opt-in, an error the
-source set's real build reports and the opt-in union hid. A group session that
+source set's real build reports and the opt-in union hid, or on an error at
+the source set's own JVM target (`Using @JvmRecord is only allowed with
+-jvm-target 16 or later`, `Cannot inline bytecode built with JVM target 17
+...`), which the merged session's higher target hid. A group session that
 gates a file for any other reason keeps the merged answer, so a session that
 lacks some context never turns an authoritative file into a gated one. The
 source-set recheck for duplicate declarations (see [Known limits](#known-limits))
@@ -112,7 +130,7 @@ file with another group keep the merged session.
 verbose: FIR settings: 3 sessions for 2 settings groups (grouping key: ...); merged session plus 2 compiled on their own:
 verbose: FIR settings: session 2: :core:main, :other:main [(compiler defaults)]
 verbose: FIR settings: session 3: :feature:main [-opt-in=core.Exp -Xcontext-sensitive-resolution]
-verbose: FIR settings: rechecked 3 files with their own source set's settings in 5s: 1 gated files now authoritative, 1 now gated on a missing opt-in, 0 kept the merged verdict
+verbose: FIR settings: rechecked 3 files with their own source set's settings in 5s: 1 gated files now authoritative, 1 now gated on a missing opt-in, 0 on their own JVM target, 0 kept the merged verdict
 ```
 
 When the split does not run, `-v` says why, for example

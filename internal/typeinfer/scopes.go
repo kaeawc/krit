@@ -34,7 +34,7 @@ func (r *defaultResolver) buildScopesFlat(idx uint32, file *scanner.File, scope 
 	case "lambda_literal":
 		r.buildLambdaScopeFlat(idx, file, scope, it)
 		return
-	case "class_body":
+	case "class_body", "enum_class_body":
 		r.buildClassBodyScopeFlat(idx, file, scope, it)
 		return
 	case "if_expression":
@@ -293,7 +293,7 @@ func plainPrimaryConstructorParamsFlat(file *scanner.File, classDecl uint32) map
 
 // flatPropertyInitializerOrDelegate returns the initializer expression after
 // `=`, or the property_delegate node, of a property declaration; 0 if it has
-// neither.
+// neither. Comments between `=` and the expression are skipped.
 func flatPropertyInitializerOrDelegate(file *scanner.File, prop uint32) uint32 {
 	seenEquals := false
 	for child := file.FlatFirstChild(prop); child != 0; child = file.FlatNextSib(child) {
@@ -303,7 +303,13 @@ func flatPropertyInitializerOrDelegate(file *scanner.File, prop uint32) uint32 {
 			}
 			continue
 		}
-		if file.FlatType(child) == "property_delegate" || seenEquals {
+		switch file.FlatType(child) {
+		case "line_comment", "multiline_comment":
+			continue
+		case "property_delegate":
+			return child
+		}
+		if seenEquals {
 			return child
 		}
 	}

@@ -114,6 +114,38 @@ class Model(id: Long?, private val name: String?) {
 		}
 	})
 
+	// #1727 review: a comment between `=` and the initializer, and enum
+	// classes, which have an enum_class_body.
+	t.Run("comment before the initializer and enum classes", func(t *testing.T) {
+		findings := runRuleByNameWithResolver(t, "UselessElvisOnNonNull", `package demo
+
+class Row(val id: Long)
+
+class Commented(id: Long? = null) {
+    private val delegate: Row = // keep the fallback
+        Row(id ?: -1)
+    private val block: Row = /* fallback */ Row(id ?: -2)
+
+    val id: Long
+        get() = delegate.id
+
+    fun other(id: Long?) = id
+}
+
+enum class Kind(id: Long?) {
+    A(1), B(null);
+
+    val stored: Long = id ?: 0
+    val id: Long get() = stored
+
+    fun other(id: Long?) = id
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected no findings, got %+v", findings)
+		}
+	})
+
 	t.Run("member access in a function body still resolves to the property", func(t *testing.T) {
 		findings := runRuleByNameWithResolver(t, "UselessElvisOnNonNull", `package demo
 

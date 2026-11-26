@@ -29,6 +29,20 @@ class Model(id: Long?, name: String?) {
     fun other(id: Long?) = id /*otherParam*/
 }
 `
+	src += `
+enum class Kind(id: Long?) {
+    A(1);
+    val stored = id /*enumInit*/
+    val id: Long get() = 0L
+    fun read() = id /*enumMember*/
+}
+
+class Commented(id: Long?) {
+    val c = // note
+        id /*afterComment*/
+    val id: Long = 0
+}
+`
 	file := parseTestFile(t, src)
 	resolver := NewResolver()
 	resolver.IndexFilesParallel([]*scanner.File{file}, 1)
@@ -44,6 +58,9 @@ class Model(id: Long?, name: String?) {
 		{"name /*shadowLocal*/", "name", "Int", false},
 		{"id /*member*/", "id", "Long", false},
 		{"id /*otherParam*/", "id", "Long", true},
+		{"id /*enumInit*/", "id", "Long", true},
+		{"id /*enumMember*/", "id", "Long", false},
+		{"id /*afterComment*/", "id", "Long", true},
 	} {
 		t.Run(test.marker, func(t *testing.T) {
 			offset := strings.Index(src, test.marker)

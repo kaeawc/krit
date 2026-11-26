@@ -127,17 +127,19 @@ class KritTaskArgsTest {
         assertFalse("--report" in argv, argv.joinToString(" "))
     }
 
-    // Custom rules run through the krit daemon, which renders one report per request.
+    // Custom rules run in the krit-fir daemon of the same in-process scan, so they need no run per report (#1634).
     @Test
-    fun `kritCheck with custom rule jars runs once per report`() {
+    fun `kritCheck with custom rule jars writes every report from one run`() {
         val root = fixture(extraKrit = "reports { json.required = true }\n    customRuleJars.from(file(\"rules.jar\"))")
         File(root, "rules.jar").writeBytes(byteArrayOf())
         GradleRunner.create().withProjectDir(root).withPluginClasspath()
             .withArguments("kritCheck", "--offline").build()
 
-        val runs = invocations(root)
-        assertEquals(2, runs.size, runs.toString())
-        runs.forEach { assertTrue("--daemon" in it && "-o" in it && "--report" !in it, it.joinToString(" ")) }
+        val argv = invocations(root).single()
+        assertTrue("--daemon" in argv && "--custom-rule-jars" in argv && "-o" !in argv, argv.joinToString(" "))
+        assertEquals(listOf("sarif", "json"),
+            argv.indices.filter { argv[it] == "--report" }.map { argv[it + 1].substringBefore('=') })
+        assertTrue(File(root, "build/reports/krit/krit.sarif").isFile && File(root, "build/reports/krit/krit.json").isFile)
     }
 
     // krit 0.5.0 and earlier reject --report FORMAT=PATH ("unknown format", exit 2).

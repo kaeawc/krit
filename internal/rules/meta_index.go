@@ -103,6 +103,8 @@ func AllMetaProviders() []api.MetaProvider {
 		(*ComposeModifierPassedThenChainedRule)(nil),
 		(*ComposeMutableDefaultArgumentRule)(nil),
 		(*ComposableNamingRule)(nil),
+		(*ComposeCompositionLocalUsageRule)(nil),
+		(*ComposeCompositionLocalGetterRule)(nil),
 		(*ComposableLambdaParameterNamingRule)(nil),
 		(*ComposableLambdaParameterPositionRule)(nil),
 		(*CompositionLocalNamingRule)(nil),

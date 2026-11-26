@@ -205,11 +205,19 @@ func TestRunProjectAnalysis_ModuleAwareRule_RunsWithoutTracker(t *testing.T) {
 }
 
 // A file scan path (as every Bazel rule and pre-commit hook passes) inside a
-// Gradle build still discovers the build's modules, with or without
-// --base-path, so module-aware rules run (#1548, #1669).
+// Gradle build still discovers the build's modules, so module-aware rules
+// run (#1548, #1669), whatever --base-path is: the Gradle plugin's
+// per-module kritCheck sets it to the subproject directory (#1704).
 func TestRunProjectAnalysis_ModuleAwareRule_RunsForFileScanPath(t *testing.T) {
-	for _, basePath := range []string{"", "root"} {
-		t.Run("base="+basePath, func(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		basePath func(root string) string
+	}{
+		{"no base path", func(string) string { return "" }},
+		{"base path at the build root", func(root string) string { return root }},
+		{"base path at the subproject", func(root string) string { return filepath.Join(root, "app") }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
 			if err := os.WriteFile(filepath.Join(dir, "settings.gradle.kts"), []byte("include(\":app\")\n"), 0o644); err != nil {
 				t.Fatal(err)
@@ -242,9 +250,7 @@ func TestRunProjectAnalysis_ModuleAwareRule_RunsForFileScanPath(t *testing.T) {
 				Config:      config.NewConfig(),
 				Paths:       []string{ktPath},
 				ActiveRules: []*api.Rule{rule},
-			}
-			if basePath != "" {
-				args.BasePath = dir
+				BasePath:    tc.basePath(dir),
 			}
 			if _, err := RunProjectAnalysis(context.Background(), ProjectInput{Args: args}); err != nil {
 				t.Fatalf("RunProjectAnalysis: %v", err)
@@ -253,33 +259,5 @@ func TestRunProjectAnalysis_ModuleAwareRule_RunsForFileScanPath(t *testing.T) {
 				t.Fatal("module-aware rule did not run for a file scan path")
 			}
 		})
-	}
-}
-
-func TestModuleScanRoot(t *testing.T) {
-	dir := t.TempDir()
-	file := filepath.Join(dir, "src", "A.kt")
-	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(file, []byte("package a\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	outside := t.TempDir()
-	for _, tc := range []struct {
-		name, base string
-		paths      []string
-		want       string
-	}{
-		{"no paths", "", nil, "."},
-		{"directory", dir, []string{filepath.Join(dir, "src")}, filepath.Join(dir, "src")},
-		{"file without base path", "", []string{file}, file},
-		{"file inside base path", dir, []string{file}, dir},
-		{"file outside base path", outside, []string{file}, file},
-		{"base path is a file", file, []string{file}, file},
-	} {
-		if got := moduleScanRoot(tc.base, tc.paths); got != tc.want {
-			t.Errorf("%s: moduleScanRoot(%q, %v) = %q, want %q", tc.name, tc.base, tc.paths, got, tc.want)
-		}
 	}
 }

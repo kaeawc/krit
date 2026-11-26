@@ -83,6 +83,18 @@ func registerComposeLintsRules() {
 	nonRestartable := &ComposeNonRestartableComposableRule{BaseRule: BaseRule{RuleName: "ComposeNonRestartableComposable",
 		RuleSetName: composeLintsRuleSet, Sev: "info", Desc: "Detects composables that only delegate to another composable and could be @NonRestartableComposable."}}
 	registerComposeLintsProjectRule(nonRestartable.BaseRule, nonRestartable, nonRestartable.check)
+
+	receiver := &ComposeUnstableReceiverRule{BaseRule: BaseRule{RuleName: "ComposeUnstableReceiver", RuleSetName: composeLintsRuleSet,
+		Sev: "warning", Desc: "Detects Unit composables whose extension receiver or containing class is not stable."}}
+	registerComposeLintsProjectRule(receiver.BaseRule, receiver, receiver.check)
+
+	redundant := &ComposeRedundantComposableRule{BaseRule: BaseRule{RuleName: "ComposeRedundantComposable",
+		RuleSetName: composeLintsRuleSet, Sev: "warning", Desc: "Detects @Composable declarations that use nothing from the composition."}}
+	registerComposeLintsProjectRule(redundant.BaseRule, redundant, redundant.check)
+
+	readOnly := &ComposeReadOnlyComposableRule{BaseRule: BaseRule{RuleName: "ComposeReadOnlyComposable",
+		RuleSetName: composeLintsRuleSet, Sev: "info", Desc: "Detects @Composable declarations whose composable uses are all @ReadOnlyComposable."}}
+	registerComposeLintsProjectRule(readOnly.BaseRule, readOnly, readOnly.check)
 }
 
 // registerComposeLintsRule registers a node-dispatched port; fix, when given, is its autofix safety level.

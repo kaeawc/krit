@@ -131,11 +131,15 @@ slack-lint:
 ```
 
 - `FullyQualifiedResource` reports a fully qualified R class (`slack.l10n.R.string.app_name`) other than `android.R`,
-  naming the configured alias when there is one.
+  naming the configured alias when there is one. Every segment before `R` must be a package segment (lower-case), so
+  unlike Lint `Outer.R.x` (a nested `object R`) and `Build.VERSION_CODES.R` are not reported.
 - `MissingResourceImportAlias` reports `import other.module.R` without an alias. Lint treats an import from the
   module's own package as local; krit does not read the module's namespace and uses Lint's fallback, so an import
-  whose package is a prefix of the file's package is local. As in Lint, of the imports that have a configured alias
-  only the file's last one is reported.
+  whose package is a prefix of the file's package is local. This differs from Lint in both directions: the module's
+  own R is reported when its namespace is not a prefix of the file's package (`namespace = "slack.features.home"`
+  with `package com.app.home` and `import slack.features.home.R`), and another module's R is not reported when its
+  package happens to be such a prefix. As in Lint, of the imports that have a configured alias only the file's last
+  one is reported.
 - `WrongResourceImportAlias` reports the file's first R class import whose alias differs from the configured one, so
   it reports nothing until `importAliases` is set.
 

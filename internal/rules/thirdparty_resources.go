@@ -57,7 +57,7 @@ func (r *ResourceImportAliasRule) checkFullyQualified(ctx *api.Context) {
 		return
 	}
 	qualifier := strings.Join(strings.Fields(file.FlatNodeText(recv)), "")
-	if !strings.HasSuffix(qualifier, ".R") || qualifier == "android.R" {
+	if !strings.HasSuffix(qualifier, ".R") || qualifier == "android.R" || !resourceIsPackagePath(strings.TrimSuffix(qualifier, ".R")) {
 		return
 	}
 	msg := "Use an import alias instead"
@@ -65,6 +65,18 @@ func (r *ResourceImportAliasRule) checkFullyQualified(ctx *api.Context) {
 		msg = "Use " + alias + " as an import alias instead"
 	}
 	ctx.EmitAtNode(recv, msg)
+}
+
+// resourceIsPackagePath reports whether every segment of a qualifier starts with a lower-case letter, as package
+// names do, so `Outer.R` (a nested `object R`) and `Build.VERSION_CODES.R` are not an R class. Deliberate
+// divergence: Lint only checks the `.R` suffix and reports them.
+func resourceIsPackagePath(qualifier string) bool {
+	for _, seg := range strings.Split(qualifier, ".") {
+		if seg == "" || seg[0] < 'a' || seg[0] > 'z' {
+			return false
+		}
+	}
+	return true
 }
 
 // resourceIsDottedName reports whether node is a qualified name `a.b.c` with no calls or other expressions.

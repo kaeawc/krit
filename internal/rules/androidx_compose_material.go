@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -93,8 +94,9 @@ func (r *ConflictingOnColorRule) Meta() api.RuleDescriptor {
 func (r *UsingMaterialAndMaterial3LibrariesRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{ID: "UsingMaterialAndMaterial3Libraries", RuleSet: "compose", DefaultActive: true,
 		KnownLimitations: []string{
-			"material3 use is proven by a material3 import in the same file or a material3 dependency declared by the " +
-				"build file of the file's own module; one that only arrives through another project module is not seen.",
+			"material3 use is proven by a material3 import in the same file, or a material3 dependency declared by the " +
+				"build file of the file's own Gradle module (the nearest directory with a build.gradle(.kts)); one added " +
+				"by a convention plugin or arriving through another project module is not seen.",
 		}}
 }
 
@@ -309,44 +311,72 @@ func axlUsesMaterial3(ctx *api.Context) bool {
 	} else if fileFactsCache().Imports(file).HasAnyPrefix(axlMaterial3Package + ".") {
 		return true
 	}
-	return axlModuleHasDependency(librarymodel.EnsureFacts(ctx.LibraryFacts).Profile, file.Path, axlMaterial3Coordinates)
+	return axlModuleHasDependency(librarymodel.EnsureFacts(ctx.LibraryFacts).Profile, file, axlMaterial3Coordinates)
 }
 
-// axlModuleHasDependency reports whether the module owning path declares one of coords. Modules are the
-// directories of the build files dependencies were read from; the owner is the deepest one containing path. With
-// one module every dependency counts, as for a single-module build, and a dependency of unknown origin always does.
-func axlModuleHasDependency(profile librarymodel.ProjectProfile, path string, coords []librarymodel.Coordinate) bool {
-	modules := map[string]bool{}
+// axlModuleHasDependency reports whether the module owning the file declares one of coords, as Lint only runs a library's
+// checks in modules that depend on it. A dependency read from a Gradle build file counts when that file belongs to
+// the Gradle module containing the file (the nearest directory with a build.gradle(.kts)); one from elsewhere (a Bazel
+// MODULE.bazel or WORKSPACE, or of unknown origin) counts build-wide.
+func axlModuleHasDependency(profile librarymodel.ProjectProfile, file *scanner.File, coords []librarymodel.Coordinate) bool {
+	moduleDir, looked := "", false
 	for _, dep := range profile.Dependencies {
-		if dep.Source != "" {
-			modules[filepath.Dir(filepath.Clean(dep.Source))] = true
-		}
-	}
-	if len(modules) <= 1 {
-		return profile.HasAnyDependency(coords...)
-	}
-	owner := ""
-	clean := filepath.Clean(path)
-	for dir := range modules {
-		if len(dir) > len(owner) && strings.HasPrefix(clean, dir+string(filepath.Separator)) {
-			owner = dir
-		}
-	}
-	if owner == "" {
-		return axlUnknownOriginDependency(profile, coords)
-	}
-	for _, dep := range profile.Dependencies {
-		// A dependency of unknown origin still counts build-wide; one from a sibling module does not.
-		if dep.Source != "" && filepath.Dir(filepath.Clean(dep.Source)) != owner {
+		if !axlCoordinateMatches(dep, coords) {
 			continue
 		}
-		for _, c := range coords {
-			if dep.Group == c.Group && dep.Name == c.Name {
-				return true
-			}
+		if !axlIsGradleBuildFile(dep.Source) {
+			return true
+		}
+		if !looked {
+			moduleDir, looked = axlGradleModuleDir(file), true
+		}
+		if moduleDir != "" && filepath.Dir(filepath.Clean(dep.Source)) == moduleDir {
+			return true
 		}
 	}
 	return false
+}
+
+// axlCoordinateMatches reports whether dep is one of coords.
+func axlCoordinateMatches(dep librarymodel.Dependency, coords []librarymodel.Coordinate) bool {
+	for _, c := range coords {
+		if dep.Group == c.Group && dep.Name == c.Name {
+			return true
+		}
+	}
+	return false
+}
+
+// axlIsGradleBuildFile reports whether a dependency source is a Gradle build script.
+func axlIsGradleBuildFile(source string) bool {
+	base := filepath.Base(source)
+	return source != "" && (base == "build.gradle" || base == "build.gradle.kts")
+}
+
+// axlGradleModuleDir returns the nearest ancestor directory of the file that holds a build.gradle(.kts), stopping at
+// the build root (a directory with settings.gradle(.kts)), or "" when there is none. It is computed once per file.
+func axlGradleModuleDir(file *scanner.File) string {
+	return filefacts.FileFact(fileFactsCache(), file, slotAxlGradleModuleDir, func() string {
+		dir := filepath.Dir(filepath.Clean(file.Path))
+		for {
+			if axlFileExists(filepath.Join(dir, "build.gradle.kts")) || axlFileExists(filepath.Join(dir, "build.gradle")) {
+				return dir
+			}
+			parent := filepath.Dir(dir)
+			if parent == dir || axlFileExists(filepath.Join(dir, "settings.gradle.kts")) ||
+				axlFileExists(filepath.Join(dir, "settings.gradle")) {
+				return ""
+			}
+			dir = parent
+		}
+	})
+}
+
+const slotAxlGradleModuleDir = "axlGradleModuleDir"
+
+func axlFileExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir()
 }
 
 // axlJavaImportsFrom reports whether a Java file has an import (single-type, on-demand or static) under pkg.
@@ -369,18 +399,3 @@ func axlJavaImportsFrom(file *scanner.File, pkg string) bool {
 }
 
 const slotAxlJavaImports = "axlJavaImports"
-
-// axlUnknownOriginDependency reports whether a dependency with no recorded build file matches one of coords.
-func axlUnknownOriginDependency(profile librarymodel.ProjectProfile, coords []librarymodel.Coordinate) bool {
-	for _, dep := range profile.Dependencies {
-		if dep.Source != "" {
-			continue
-		}
-		for _, c := range coords {
-			if dep.Group == c.Group && dep.Name == c.Name {
-				return true
-			}
-		}
-	}
-	return false
-}

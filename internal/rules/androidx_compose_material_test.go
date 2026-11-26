@@ -99,7 +99,8 @@ fun Screen() {
 }
 
 // #1728: Lint runs material3's checks only in modules that depend on material3, so in a multi-module build a
-// material-only module is not reported even though another module depends on material3.
+// material-only module is not reported even though another module depends on material3, including one whose build
+// file declares only project dependencies (review of #1737).
 func TestUsingMaterialAndMaterial3LibrariesIsModuleScoped(t *testing.T) {
 	src := `package legacy
 
@@ -107,19 +108,27 @@ import androidx.compose.material.Button
 import androidx.compose.material.Text
 `
 	root := t.TempDir()
-	app, legacy := filepath.Join(root, "app"), filepath.Join(root, "legacy")
+	write := func(path, content string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	app, legacy, shell := filepath.Join(root, "app"), filepath.Join(root, "legacy"), filepath.Join(root, "shell")
+	write(filepath.Join(root, "settings.gradle.kts"), `include(":app", ":legacy", ":shell")`)
+	write(filepath.Join(app, "build.gradle.kts"), "")
+	write(filepath.Join(legacy, "build.gradle.kts"), "")
+	write(filepath.Join(shell, "build.gradle.kts"), `dependencies { implementation(project(":app")) }`)
 	profile := librarymodel.ProjectProfile{HasGradle: true, Dependencies: []librarymodel.Dependency{
 		{Group: "androidx.compose.material3", Name: "material3", Source: filepath.Join(app, "build.gradle.kts")},
 		{Group: "androidx.compose.material", Name: "material", Source: filepath.Join(legacy, "build.gradle.kts")},
 	}}
 	run := func(path string) int {
 		t.Helper()
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(path, []byte(src), 0o600); err != nil {
-			t.Fatal(err)
-		}
+		write(path, src)
 		file, err := scanner.ParseFile(context.Background(), path)
 		if err != nil {
 			t.Fatal(err)
@@ -138,16 +147,27 @@ import androidx.compose.material.Text
 	if n := run(filepath.Join(legacy, "src", "main", "kotlin", "A.kt")); n != 0 {
 		t.Errorf("material-only module of a multi-module build: want no findings, got %d", n)
 	}
+	// Convention-plugin builds: only :app's build file declares an external dependency, so counting modules from
+	// dependency sources would see a single module.
+	onlyApp := profile
+	profile = librarymodel.ProjectProfile{HasGradle: true, Dependencies: onlyApp.Dependencies[:1]}
+	if n := run(filepath.Join(legacy, "src", "main", "kotlin", "E.kt")); n != 0 {
+		t.Errorf("material-only module whose build file declares no external dependencies: want no findings, got %d", n)
+	}
+	profile = onlyApp
+	if n := run(filepath.Join(shell, "src", "main", "kotlin", "S.kt")); n != 0 {
+		t.Errorf("module with only project dependencies: want no findings, got %d", n)
+	}
 	if n := run(filepath.Join(app, "src", "main", "kotlin", "B.kt")); n != 2 {
 		t.Errorf("module that depends on material3: want 2 findings, got %d", n)
 	}
-	if n := run(filepath.Join(root, "other", "C.kt")); n != 0 {
-		t.Errorf("file outside every module with dependencies: want no findings, got %d", n)
+	if n := run(filepath.Join(root, "scripts", "C.kt")); n != 0 {
+		t.Errorf("file outside every Gradle module: want no findings, got %d", n)
 	}
-	// A material3 dependency of unknown origin counts for every module.
+	// A material3 dependency that was not read from a Gradle build file (Bazel, unknown origin) counts build-wide.
 	profile.Dependencies = append(profile.Dependencies,
-		librarymodel.Dependency{Group: "androidx.compose.material3", Name: "material3"})
+		librarymodel.Dependency{Group: "androidx.compose.material3", Name: "material3", Source: filepath.Join(root, "MODULE.bazel")})
 	if n := run(filepath.Join(legacy, "src", "main", "kotlin", "D.kt")); n != 2 {
-		t.Errorf("unknown-origin material3 dependency: want 2 findings, got %d", n)
+		t.Errorf("non-Gradle material3 dependency: want 2 findings, got %d", n)
 	}
 }

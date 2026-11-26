@@ -36,9 +36,10 @@ import, as it does in Kotlin.
   whose 'on' color is left to the library default conflicts with every explicit 'on' color in its group.
 - `UsingMaterialAndMaterial3Libraries` reports an `androidx.compose.material` import (a class, member, star or static
   import) outside the `icons`, `ripple` and `pullrefresh` packages and the `ExperimentalMaterialApi` import, once the
-  code uses material3: the same file imports from `androidx.compose.material3`, or the file's module declares
-  `androidx.compose.material3:material3`. As in Lint, which runs the check only in modules that depend on material3,
-  a material-only module of a build whose other modules use material3 is not reported; the module is the deepest
-  directory of a build file that declares dependencies. A material3 dependency that only arrives through another
-  project module is not seen.
+  code uses material3: the same file imports from `androidx.compose.material3`, or the build file of the file's own
+  Gradle module (the nearest directory with a `build.gradle(.kts)`) declares `androidx.compose.material3:material3`.
+  As in Lint, which runs the check only in modules that depend on material3, a material-only module of a build whose
+  other modules use material3 is not reported, however the other modules declare their dependencies. A material3
+  dependency added by a convention plugin or arriving through another project module is not seen; one read from a
+  Bazel `MODULE.bazel`/`WORKSPACE` counts for the whole build.
   Fully qualified references such as `androidx.compose.material.Button()` are not reported, as in Lint.

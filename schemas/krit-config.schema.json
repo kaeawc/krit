@@ -18921,7 +18921,7 @@
           }
         },
         "UsingMaterialAndMaterial3Libraries": {
-          "description": "Detects androidx.compose.material imports in code that also uses the incompatible material3 library. [precision: ast-backed] [noisiness: normal]\nCaveat: material3 use is proven by a material3 import in the same file or a material3 dependency declared by the build file of the file's own module; one that only arrives through another project module is not seen.",
+          "description": "Detects androidx.compose.material imports in code that also uses the incompatible material3 library. [precision: ast-backed] [noisiness: normal]\nCaveat: material3 use is proven by a material3 import in the same file, or a material3 dependency declared by the build file of the file's own Gradle module (the nearest directory with a build.gradle(.kts)); one added by a convention plugin or arriving through another project module is not seen.",
           "type": "object",
           "additionalProperties": false,
           "properties": {

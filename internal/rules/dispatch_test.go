@@ -304,11 +304,17 @@ fun second() = 2
 	if ns, ok := sliceStats.DispatchRuleNsByRule[rule.ID]; !ok || ns < 0 {
 		t.Fatalf("expected RunWithStats timing for %s, got %+v", rule.ID, sliceStats.DispatchRuleNsByRule)
 	}
+	// One dispatch rule: no aggregate or line rules ran, so those buckets
+	// stay empty in both runs. SuppressionFilterMs times real work, truncated
+	// to milliseconds, so the two runs can straddle a tick; only check that
+	// it was recorded sanely.
 	if columnStats.AggregateCollectNs != sliceStats.AggregateCollectNs ||
 		columnStats.AggregateFinalizeMs != sliceStats.AggregateFinalizeMs ||
-		columnStats.LineRuleMs != sliceStats.LineRuleMs ||
-		columnStats.SuppressionFilterMs != sliceStats.SuppressionFilterMs {
+		columnStats.LineRuleMs != sliceStats.LineRuleMs {
 		t.Fatalf("expected stable empty buckets, got columns=%+v slice=%+v", columnStats, sliceStats)
+	}
+	if columnStats.SuppressionFilterMs < 0 || sliceStats.SuppressionFilterMs < 0 {
+		t.Fatalf("negative suppression filter timing: columns=%d slice=%d", columnStats.SuppressionFilterMs, sliceStats.SuppressionFilterMs)
 	}
 }
 

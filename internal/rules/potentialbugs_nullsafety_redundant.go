@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/filefacts"
 	"github.com/kaeawc/krit/internal/oracle"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
@@ -365,20 +366,22 @@ func flatFindSameFileFunctionDeclaration(file *scanner.File, ref uint32, name st
 	return sameFile
 }
 
+// flatFindSameFileClassLikeDeclaration returns the first class or object declaration in the file with the name, or
+// 0. Rules call it once per call expression, so the file is indexed once per run (#1664).
 func flatFindSameFileClassLikeDeclaration(file *scanner.File, name string) uint32 {
-	var classNode uint32
-	file.FlatWalkAllNodes(0, func(candidate uint32) {
-		if classNode != 0 {
-			return
-		}
-		switch file.FlatType(candidate) {
-		case "class_declaration", "object_declaration":
-			if extractIdentifierFlat(file, candidate) == name {
-				classNode = candidate
+	byName := filefacts.FileFact(fileFactsCache(), file, slotClassLikeDeclsByName, func() map[string]uint32 {
+		out := map[string]uint32{}
+		file.FlatWalkAllNodes(0, func(candidate uint32) {
+			switch file.FlatType(candidate) {
+			case "class_declaration", "object_declaration":
+				if n := extractIdentifierFlat(file, candidate); out[n] == 0 {
+					out[n] = candidate
+				}
 			}
-		}
+		})
+		return out
 	})
-	return classNode
+	return byName[name]
 }
 
 func flatClassLikeMemberFunctionHasReturn(file *scanner.File, resolver typeinfer.TypeResolver, className string, memberName string) bool {

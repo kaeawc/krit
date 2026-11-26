@@ -5,6 +5,11 @@ All notable changes to Krit will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- `UnusedMaterialScaffoldPaddingParameter`, `UnusedMaterial3ScaffoldPaddingParameter`, `ConflictingOnColor` and
+  `UsingMaterialAndMaterial3Libraries`, ports of the Lint checks bundled with `androidx.compose.material` 1.13.0 and
+  `androidx.compose.material3` 1.5.0, under their Lint IDs. Their findings match the Lint CLI running those releases'
+  `lint.jar` on the inputs under `internal/rules/testdata/androidx_compose_material/`. The material3 import check needs
+  a material3 import in the file or a material3 dependency in the build (#1457, #1458, #1459, #1461).
 - FIR sessions resolve Java sources: every `.java` file under the source dirs, generated source dirs and unpacked
   srcjars (same-module Java, view binding, BuildConfig, Wire-Java, kapt/KSP Java output) is given to K2 as a Java
   source root, so Kotlin that uses them is no longer gated `Unresolved reference` on an unbuilt checkout. The Java is
@@ -421,10 +426,17 @@ All notable changes to Krit will be documented in this file.
   `MoshiUsageNonMoshiClassInternal`/`External` (#1384, #1395, #1396, #1404, #1407, #1408, #1409).
 
 ### Fixed
+- `CompileTimeConstant` only runs on files that mention `CompileTimeConstant`. Every finding needs an annotated
+  declaration in the same file, so other files cannot be reported; the rule spent about 2s on element-x-android and
+  0.7s on okhttp finding nothing. Lint ports can opt into the same gate by declaring `fileMentions()`.
 - Source-only scans of large Android projects are fast again: `ProviderReadPermissionOnly`,
   `UnsafeImplicitIntentLaunch` and `UnsafeIntentLaunch` index project classes once per run instead of rebuilding the
   index on every superclass query, and run concurrently. On a 300-module synthetic project the manifest-source phase
   went from 343s to 1.2s, with the same findings (#1658).
+- `UnrememberedMutableState` and `RememberInComposition` no longer walk the whole file for every call: same-file class
+  and object lookups use a per-file index, built once per run. `IgnoredReturnValue` skips type resolution for calls
+  it cannot report without the oracle, and finds a detached `return` without a regex. On element-x-android
+  (`--no-fir`), the three rules went from 3.2s, 2.6s and 1.1s to 0.2s, 0.1s and 0.5s, with the same findings (#1664).
 - FIR applies `-Xname-based-destructuring`, `-Xjspecify-annotations` and the other language-feature, Java-nullability
   and dependency-loading flags a Gradle model carries, instead of dropping them and gating the files that need them.
   Repeated `-Xjsr305` / `-Xnullability-annotations` values now all apply (#1571).

@@ -300,6 +300,11 @@ func registerPotentialbugsMiscRules() {
 					if ignoredReturnValueScopeFunctionCalls[funcName] {
 						return
 					}
+					// Without the oracle only a functional op or a known-pure call can be reported, here or by the
+					// fallback below, so other calls skip type resolution (#1664).
+					if oracleLookup == nil && !isKnownFunctionalOp && !ignoredReturnValuePureCalls[funcName] {
+						return
+					}
 					rt := ctx.Resolver.ResolveFlatNode(idx, file)
 					if ignoredReturnValueIsSideEffectResultHandler(file, idx, funcName, rt) {
 						return

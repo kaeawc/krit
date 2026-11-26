@@ -144,6 +144,7 @@ func init() {
 	registerTestingQualityRules()
 	registerThirdPartyMoshiRules()
 	registerThirdPartyResourceAliasRules()
+	registerThirdPartyAnnotationRules()
 	registerThirdPartyMockingRules()
 	registerThirdPartyDaggerRules()
 	registerThirdPartyKotlinCheckRules()

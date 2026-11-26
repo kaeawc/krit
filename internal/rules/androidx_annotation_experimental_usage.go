@@ -80,7 +80,14 @@ const (
 	slotAxlOptInMarkers    = "axlOptInMarkers"
 	slotAxlOptInAnnotated  = "axlOptInAnnotated"
 	slotAxlJavaImportNames = "axlJavaImportNames"
+	slotAxlOptInCallTarget = "axlOptInCallTarget"
 )
+
+// axlCallTarget is a call's resolved target: what axlOptInCallTarget returns.
+type axlCallTarget struct {
+	fqn  string
+	name uint32
+}
 
 // axlBuildOptInModel merges the files' cached marker and annotated-declaration facts, so the Error and Warning rules
 // share the per-file work and each fact depends only on its own file.
@@ -340,7 +347,12 @@ func axlOptInCheck(ctx *api.Context, rule BaseRule, warning bool) {
 				if !m.names[axlOptInCallName(file, call)] {
 					return
 				}
-				target, nameNode := axlOptInCallTarget(file, call)
+				// The target depends only on the call's file, so the Error and Warning rules share one resolution.
+				resolved := filefacts.NodeFact(fileFactsCache(), file, call, slotAxlOptInCallTarget, func() axlCallTarget {
+					fqn, name := axlOptInCallTarget(file, call)
+					return axlCallTarget{fqn: fqn, name: name}
+				})
+				target, nameNode := resolved.fqn, resolved.name
 				for _, marker := range m.marked[target] {
 					mk := m.markers[marker]
 					if mk.warning != warning || (file.Language == scanner.LangKotlin && !mk.java) {
@@ -402,6 +414,9 @@ func axlOptInCallTarget(file *scanner.File, call uint32) (string, uint32) {
 			return "", 0
 		}
 		if !hasReceiver {
+			if axlCallBindsLocally(file, call, name) {
+				return "", 0
+			}
 			// Kotlin resolves an unqualified call to a member of an enclosing class before a top-level function.
 			if owner := axlEnclosingMemberOwner(file, call, name); owner != "" {
 				return owner + "." + name, nameNode
@@ -441,6 +456,43 @@ func axlOptInCallTarget(file *scanner.File, call uint32) (string, uint32) {
 		return axlResolveProjectName(file, c.TypeText), call
 	}
 	return "", 0
+}
+
+// axlCallBindsLocally reports whether an unqualified Kotlin call resolves to a declaration that is neither a
+// member function of an enclosing class nor a top-level function: a local function declared earlier in an enclosing
+// block, a lambda parameter, a function parameter, a local or class property (called through invoke), or a function
+// of an enclosing class's companion object. None of these is in the opt-in model, so the call uses no marked API.
+func axlCallBindsLocally(file *scanner.File, call uint32, name string) bool {
+walk:
+	for p, ok := file.FlatParent(call); ok; p, ok = file.FlatParent(p) {
+		switch file.FlatType(p) {
+		case "statements":
+			for c := file.FlatFirstChild(p); c != 0 && file.FlatStartByte(c) < file.FlatStartByte(call); c = file.FlatNextSib(c) {
+				if file.FlatType(c) == "function_declaration" && acrDeclarationName(file, c) == name {
+					return true
+				}
+			}
+		case "lambda_literal":
+			if acrLambdaDeclaresParameter(file, p, name) {
+				return true
+			}
+		case "class_declaration":
+			if body, ok := file.FlatFindChild(p, "class_body"); ok && !axlBodyDeclaresFunction(file, body, name) {
+				for c := file.FlatFirstChild(body); c != 0; c = file.FlatNextSib(c) {
+					if file.FlatType(c) == "companion_object" && axlClassDeclaresFunction(file, c, name) {
+						return true
+					}
+				}
+			}
+		case "source_file":
+			break walk
+		}
+	}
+	if decl := acrValueDeclaration(file, call, name); decl != 0 {
+		parent, _ := file.FlatParent(decl)
+		return file.FlatType(parent) != "source_file"
+	}
+	return false
 }
 
 // axlEnclosingMemberOwner returns the FQN of the nearest enclosing class or object that declares a member function
@@ -503,7 +555,14 @@ func axlOptInReceiverType(file *scanner.File, receiver uint32) string {
 	switch file.FlatType(receiver) {
 	case "simple_identifier", "identifier":
 		name := file.FlatNodeText(receiver)
-		if decl := acrValueDeclaration(file, receiver, name); decl != 0 {
+		if file.Language == scanner.LangJava {
+			if typ, declared := axlJavaValueType(file, receiver, name); declared {
+				if typ == "" {
+					return ""
+				}
+				return axlResolveProjectName(file, typ)
+			}
+		} else if decl := acrValueDeclaration(file, receiver, name); decl != 0 {
 			if t := acrDeclaredType(file, decl); t != 0 {
 				return axlResolveProjectName(file, acrTypeNodeName(file, t))
 			}
@@ -519,6 +578,74 @@ func axlOptInReceiverType(file *scanner.File, receiver uint32) string {
 		}
 	}
 	return ""
+}
+
+// axlJavaValueType finds the Java local (declared earlier in an enclosing block), parameter or field that name
+// refers to at ref and returns its declared type without type arguments. declared is false when no such
+// declaration is visible; typ is "" when one is but its type is unknown (`var`, or a lambda parameter).
+func axlJavaValueType(file *scanner.File, ref uint32, name string) (typ string, declared bool) {
+	declares := func(decl uint32) bool {
+		for c := file.FlatFirstChild(decl); c != 0; c = file.FlatNextSib(c) {
+			if file.FlatType(c) == "variable_declarator" && file.FlatChildTextOrEmpty(c, "identifier") == name {
+				return true
+			}
+		}
+		return false
+	}
+	typeOf := func(decl uint32) (string, bool) {
+		t := mockJavaDeclaredType(file, decl)
+		if t == 0 {
+			return "", true
+		}
+		text := file.FlatNodeText(t)
+		if i := strings.IndexByte(text, '<'); i >= 0 {
+			text = text[:i]
+		}
+		return strings.TrimSpace(text), true
+	}
+	for p, ok := file.FlatParent(ref); ok; p, ok = file.FlatParent(p) {
+		switch file.FlatType(p) {
+		case "block", "switch_block_statement_group":
+			var found uint32
+			for c := file.FlatFirstChild(p); c != 0 && file.FlatStartByte(c) < file.FlatStartByte(ref); c = file.FlatNextSib(c) {
+				if file.FlatType(c) == "local_variable_declaration" && declares(c) {
+					found = c
+				}
+			}
+			if found != 0 {
+				return typeOf(found)
+			}
+		case "lambda_expression":
+			if params := file.FlatFirstChild(p); params != 0 && !flatNodeContains(file, params, ref) {
+				bound := false
+				file.FlatWalkAllNodes(params, func(n uint32) {
+					if file.FlatType(n) == "identifier" && file.FlatNodeTextEquals(n, name) {
+						bound = true
+					}
+				})
+				if bound {
+					return "", true
+				}
+			}
+		case "method_declaration", "constructor_declaration":
+			if params, ok := file.FlatFindChild(p, "formal_parameters"); ok {
+				for c := file.FlatFirstChild(params); c != 0; c = file.FlatNextSib(c) {
+					if file.FlatType(c) == "formal_parameter" && file.FlatChildTextOrEmpty(c, "identifier") == name {
+						return typeOf(c)
+					}
+				}
+			}
+		case "class_body":
+			for c := file.FlatFirstChild(p); c != 0; c = file.FlatNextSib(c) {
+				if file.FlatType(c) == "field_declaration" && declares(c) {
+					return typeOf(c)
+				}
+			}
+		case "program":
+			return "", false
+		}
+	}
+	return "", false
 }
 
 // axlOptInAccepted mirrors isExperimentalityAccepted: an enclosing declaration (or the file, through @file:OptIn)

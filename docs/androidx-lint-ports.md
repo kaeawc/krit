@@ -63,7 +63,11 @@ Annotation names resolve through imports (aliases and star imports), the file's 
 - `UnsafeOptInUsageError` and `UnsafeOptInUsageWarning` (Kotlin and Java) report a use of an API marked with an
   opt-in marker declared in the project, by the marker's level, without opting in: a call, constructor call or member
   call (including through a Kotlin file facade such as `ApiKt.fn()` from Java) whose target carries the marker,
-  directly or through its class. The use is accepted when an enclosing declaration (or the file, `@file:OptIn`) is
+  directly or through its class. A member call's receiver type comes from a same-file declaration (a Kotlin or Java
+  local, parameter or field) or a class name. An unqualified Kotlin call that binds to a local function, a lambda or
+  function parameter, a local or class property, or an enclosing class's companion object is not the marked top-level
+  function. Lint also reports a Java type reference to a marked class (`MarkedClass field;`); krit does not yet (#1826).
+  The use is accepted when an enclosing declaration (or the file, `@file:OptIn`) is
   annotated with the marker itself or opts in with an annotation the marker accepts: androidx markers need
   `androidx.annotation.OptIn` (a `kotlin.OptIn` does not count, as in Lint), Kotlin markers accept either. As in Lint,
   Kotlin code is only checked against androidx markers, since the Kotlin compiler enforces `kotlin.RequiresOptIn`

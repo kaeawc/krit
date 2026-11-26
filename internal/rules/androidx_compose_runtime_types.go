@@ -3,6 +3,7 @@ package rules
 import (
 	"strings"
 
+	"github.com/kaeawc/krit/internal/filefacts"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -21,13 +22,12 @@ func acrValueDeclaration(file *scanner.File, ref uint32, name string) uint32 {
 		switch file.FlatType(p) {
 		case "statements":
 			var found uint32
-			for child := file.FlatFirstChild(p); child != 0; child = file.FlatNextSib(child) {
+			for _, child := range acrBlockProperties(file, p)[name] {
 				if file.FlatStartByte(child) >= file.FlatStartByte(ref) {
 					break
 				}
 				// A declaration does not see itself: `val items = items.map { }` refers to an outer `items`.
-				if file.FlatType(child) == "property_declaration" && acrPropertyName(file, child) == name &&
-					!flatNodeContains(file, child, ref) {
+				if !flatNodeContains(file, child, ref) {
 					found = child
 				}
 			}
@@ -68,6 +68,22 @@ func acrValueDeclaration(file *scanner.File, ref uint32, name string) uint32 {
 		}
 	}
 	return 0
+}
+
+// acrBlockProperties indexes a statements block's property declarations by name, in source order, once per file,
+// so resolving many references in a long block does not rescan it for each one.
+func acrBlockProperties(file *scanner.File, block uint32) map[string][]uint32 {
+	return filefacts.NodeFact(fileFactsCache(), file, block, slotAcrBlockProperties, func() map[string][]uint32 {
+		out := map[string][]uint32{}
+		for child := file.FlatFirstChild(block); child != 0; child = file.FlatNextSib(child) {
+			if file.FlatType(child) == "property_declaration" {
+				if name := acrPropertyName(file, child); name != "" {
+					out[name] = append(out[name], child)
+				}
+			}
+		}
+		return out
+	})
 }
 
 // acrPropertyName returns a property declaration's simple name ("" for destructuring).

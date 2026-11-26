@@ -199,15 +199,25 @@ oracle:
 These are added to the model's plugins and filtered the same way.
 
 `krit-fir` loads the plugins once in a probe compile (a one-line file, per
-plugin set and process). A set its compiler cannot load (a plugin built
-against an incompatible Kotlin compiler, or a broken jar) is left out: the
-session analyzes as it did before plugins existed, logs `krit-fir: compiler
-plugins not loaded, analyzing without them (...)` and returns it as a response
-`warning`. Gradle exports the embeddable plugin builds (KGP compiles with the
-embeddable compiler); `krit-fir` embeds the plain compiler, and the
-kotlinx.serialization embeddable plugin loads into it. A plugin whose
-frontend references relocated IntelliJ classes would not, and is reported by
-the probe.
+plugin set and process). When its compiler cannot load the whole set, it
+builds the set up again one jar at a time, in classpath order, and keeps every
+jar that still loads with the ones kept before it; the jars that did not are
+tried again until a pass keeps none, so a plugin split across jars loads
+whatever their order (#1598). Each jar it leaves
+out (a plugin built against an incompatible Kotlin compiler, a broken jar) is
+logged once and returned as a response `warning`, for example
+`krit-fir: compiler plugin kotlin-compose-compiler-plugin-embeddable-2.4.21.jar
+not loaded, analyzing without it (java.lang.NoClassDefFoundError:
+org/jetbrains/kotlin/com/intellij/psi/PsiElement)`. The kept plugins keep
+their options; an option of a plugin left out is ignored. A set that loads
+costs one probe; one that does not, about one more per jar and pass.
+
+Gradle exports the embeddable plugin builds (KGP compiles with the embeddable
+compiler); `krit-fir` embeds the plain compiler. The embeddable
+kotlinx.serialization plugin loads into it (`CompilerPluginsTest`), and so did
+Metro in #1598. The embeddable Compose plugin does not, because it references
+relocated IntelliJ classes (`org.jetbrains.kotlin.com.intellij.*`), so it
+alone is left out and files compile as if Compose were not applied.
 
 A module that still compiles with errors (no plugin information, or a plugin
 that could not be loaded) keeps incremental checking as long as the errors are

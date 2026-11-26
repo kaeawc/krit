@@ -80,7 +80,8 @@ func registerLintCallRule(rule AndroidRule, impl any, confidence float64, check 
 	registerLintRule(rule, impl, confidence, check, lintCallNodeTypes, 0, nil)
 }
 
-// registerLintRule registers a Lint port over Kotlin and Java nodes of the given types.
+// registerLintRule registers a Lint port over Kotlin and Java nodes of the given types. An impl declaring
+// fileMentions() only runs on files whose text contains every listed string.
 func registerLintRule(rule AndroidRule, impl any, confidence float64, check func(*api.Context), nodeTypes []string,
 	needs api.Capabilities, javaFacts *api.JavaFactProfile) {
 	// Lint does not analyze test sources unless checkTestSources is on.
@@ -97,9 +98,26 @@ func registerLintRule(rule AndroidRule, impl any, confidence float64, check func
 		ID: rule.RuleName, Category: rule.RuleSetName, Description: rule.Description(), Sev: api.Severity(rule.Sev),
 		NodeTypes: nodeTypes, Needs: needs, JavaFacts: javaFacts,
 		Languages:  []scanner.Language{scanner.LangKotlin, scanner.LangJava},
-		Confidence: confidence, Implementation: impl, Check: check,
+		Confidence: confidence, Implementation: impl, Check: check, FileGate: lintFileMentionsGate(impl),
 		NeedsLibraryFacts: true,
 	})
+}
+
+// lintFileMentionsGate returns the FileGate for an impl declaring fileMentions(), or nil.
+func lintFileMentionsGate(impl any) func(*scanner.File) bool {
+	g, ok := impl.(interface{ fileMentions() []string })
+	if !ok {
+		return nil
+	}
+	texts := g.fileMentions()
+	return func(file *scanner.File) bool {
+		for _, text := range texts {
+			if !fileFactsCache().Mentions(file, text) {
+				return false
+			}
+		}
+		return true
+	}
 }
 
 func registerUnspecifiedImmutableFlag() {

@@ -20,6 +20,10 @@ type CompileTimeConstantRule struct {
 // declarations in the file, and anything resolved elsewhere is not reported.
 func (r *CompileTimeConstantRule) Confidence() float64 { return api.ConfidenceMedium }
 
+// fileMentions gates the rule to files that mention the annotation: every finding needs a declaration in the same
+// file annotated @CompileTimeConstant, matched by simple name.
+func (r *CompileTimeConstantRule) fileMentions() []string { return []string{"CompileTimeConstant"} }
+
 var compileTimeConstantNodeTypes = []string{
 	"call_expression", "method_invocation", "object_creation_expression", "callable_reference",
 	"assignment", "assignment_expression", "postfix_expression", "prefix_expression", "update_expression",

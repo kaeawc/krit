@@ -337,6 +337,28 @@ Gradle module (recorded with `scripts/lint-parity-record.sh`, AGP 9.4.1); `TestA
 Lint checks the merged manifest; krit checks each manifest file, so components declared only in a variant or library
 manifest are not seen, and the watch face dependency is read from build scripts and version catalogs.
 
+## Android Lint Source Text Checks
+
+Ports of Android Lint 32.4.1 source checks, with project fixtures and recorded Lint output under
+`tests/fixtures/android-lint/<RuleID>/`:
+
+- `TrimLambda` (info, Kotlin, autofix) reports the lambda of `s.trim { it <= ' ' }` or `s.trim { it.isWhitespace() }`
+  (implicit or single named parameter, parentheses allowed) on a `String` or `CharSequence`, with or without
+  parentheses around it. The fix removes the lambda as Lint's quick fix does; it is `FixSemantic` because
+  `<= ' '` and `isWhitespace()` disagree on some characters. Without type information the receiver must be a string
+  literal or a variable declared as `String`/`CharSequence`, and a file declaring its own `trim` or `isWhitespace` is
+  skipped.
+- `TextConcatSpace` (warning, Kotlin and Java) reports a `+` of two string literals on different lines where the left
+  one ends with a word after a space, has at least two words, and the right one starts with a letter, at the right
+  literal (Kotlin: its text; Java: its opening quote). Like Lint, a Kotlin escape or template at the joint ends the
+  match.
+- `WrongCommentType` (warning, Kotlin and Java, autofix `/*` → `/**`) reports a block comment on a non-private class,
+  object, function, property with a backing field, `val`/`var` constructor parameter, accessor or enum entry that
+  holds a doc tag: a lowercase `@tag` at a line start (in Kotlin, not when the tag's text contains a period), a
+  `[text](url)` link in a KDoc description, or `{@link}`/`{@linkplain}`/`{@inheritDoc}` in a Javadoc description.
+  Kotlin binds the run of comments before a declaration to it and Lint reads the first, so a line comment first
+  hides a tagged block comment after it; Java uses the nearest comment.
+
 ## AndroidX Library Lint Checks
 
 Lint loads the checks bundled in an AndroidX AAR only when that AAR is on the module's classpath. Krit's ports of

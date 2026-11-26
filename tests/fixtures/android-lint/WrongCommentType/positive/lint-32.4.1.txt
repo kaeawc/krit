@@ -1,0 +1,11 @@
+src/main/java/com/example/Docs.kt:10:8: WrongCommentType: This block comment looks like it was intended to be a KDoc comment
+src/main/java/com/example/Docs.kt:14:8: WrongCommentType: This block comment looks like it was intended to be a KDoc comment
+src/main/java/com/example/Docs.kt:17:17: WrongCommentType: This block comment looks like it was intended to be a KDoc comment
+src/main/java/com/example/Docs.kt:21:8: WrongCommentType: This block comment looks like it was intended to be a KDoc comment
+src/main/java/com/example/Docs.kt:27:4: WrongCommentType: This block comment looks like it was intended to be a KDoc comment
+src/main/java/com/example/Docs.kt:3:4: WrongCommentType: This block comment looks like it was intended to be a KDoc comment
+src/main/java/com/example/Docs.kt:5:8: WrongCommentType: This block comment looks like it was intended to be a KDoc comment
+src/main/java/com/example/JDocs.java:13:8: WrongCommentType: This block comment looks like it was intended to be a javadoc comment
+src/main/java/com/example/JDocs.java:17:8: WrongCommentType: This block comment looks like it was intended to be a javadoc comment
+src/main/java/com/example/JDocs.java:4:16: WrongCommentType: This block comment looks like it was intended to be a javadoc comment
+src/main/java/com/example/JDocs.java:9:8: WrongCommentType: This block comment looks like it was intended to be a javadoc comment

@@ -1,0 +1,1 @@
+src/main/java/com/example/JMember.java:8:8: WrongCommentType: This block comment looks like it was intended to be a javadoc comment

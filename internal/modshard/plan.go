@@ -219,17 +219,26 @@ func underAny(roots, scanPaths []string) bool {
 // loaded group). A unit's work is the files it compiles, its own and its dependency context, plus a
 // small constant for fixed per-module cost.
 func Shards(units []Unit, n int) [][]Unit {
-	if n < 1 {
-		n = 1
+	weights := make([]int, max(1, n))
+	for i := range weights {
+		weights[i] = 1
 	}
+	return weightedShards(units, weights)
+}
+
+// weightedShards is Shards over groups that work through their units at different rates, such as
+// worker JVMs with different thread counts: group i gets a share of the work in proportion to
+// weights[i].
+func weightedShards(units []Unit, weights []int) [][]Unit {
 	order := append([]Unit(nil), units...)
 	sort.SliceStable(order, func(i, j int) bool { return order[i].work() > order[j].work() })
-	groups := make([][]Unit, n)
-	load := make([]int, n)
+	groups := make([][]Unit, len(weights))
+	load := make([]int, len(weights))
 	for _, u := range order {
 		best := 0
 		for i := range load {
-			if load[i] < load[best] {
+			// load[i]/weights[i] < load[best]/weights[best], without rounding.
+			if load[i]*weights[best] < load[best]*weights[i] {
 				best = i
 			}
 		}

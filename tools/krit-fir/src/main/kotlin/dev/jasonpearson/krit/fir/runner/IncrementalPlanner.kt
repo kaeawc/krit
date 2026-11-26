@@ -130,7 +130,8 @@ internal class IncrementalPlanner(private val session: AnalysisSession) {
                     System.err.println("krit-fir: incremental planning failed (${e.javaClass.name}: ${e.message}); using the full compile")
                     GiveUp(FullReason.EXCEPTION, "${e.javaClass.simpleName}: ${e.message}")
                 }
-                return finish(runFull(request, rules, counters, fullCompile), PlanPath.FULL, gaveUp.reason, gaveUp.detail, counters, start)
+                val full = runFull(request, rules, counters, fullCompile)
+                return finish(full, PlanPath.FULL, gaveUp.reason, gaveUp.detail, counters, start, committed = session.fullCommits > commitsBefore)
             }
         }
     }
@@ -151,6 +152,7 @@ internal class IncrementalPlanner(private val session: AnalysisSession) {
 
     private fun finish(
         result: BatchResult, path: PlanPath, reason: FullReason?, detail: String?, c: Counters, start: Long,
+        committed: Boolean = false,
     ): BatchResult {
         val telemetry = PlanTelemetry(
             path, reason, detail, c.requested, c.changed, c.new, c.deleted, c.unverdicted, c.compiled.size, c.waves,
@@ -160,8 +162,12 @@ internal class IncrementalPlanner(private val session: AnalysisSession) {
         if (DEBUG) System.err.println(telemetry)
         // Only the slice fallback's detail goes on the wire: it names a cause the user can act on (compile errors),
         // where the other details are internal (exception text, generations).
+        // A full check that replaced the state says whether the next check can slice (#1599). One that did not
+        // (a tiered-rule bypass records nothing; a crash or a failed recording commits nothing) leaves the previous
+        // state, which describes another compile, so it says nothing.
+        val snapshot = if (path == PlanPath.FULL && committed) session.snapshotOutcome() else null
         return result.copy(plan = PlanSummary(path.name.lowercase(), reason?.name?.lowercase(), c.compiled.size, telemetry.totalMillis,
-            detail.takeIf { reason == FullReason.SLICE_UNAVAILABLE }))
+            detail.takeIf { reason == FullReason.SLICE_UNAVAILABLE }, snapshot))
     }
 
     private fun attempt(r: Request, rules: Set<String>, c: Counters): BatchResult {

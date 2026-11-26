@@ -6,9 +6,11 @@ import (
 )
 
 // incrementalFIRDiagnostic reports planner status, environment opt-out,
-// compiler errors, and snapshot persistence in that precedence order. A plan
-// is reported unless compiler errors gated its compile; without a plan, an
-// explicit environment opt-out precedes response-backed error telemetry, and
+// compiler errors, and snapshot persistence in that precedence order. A full
+// plan says whether it left a snapshot for the next check, and why not, as
+// krit-fir reports it; from a krit-fir that does not, a full compile with
+// gated files is reported as leaving none. Without a plan, an explicit
+// environment opt-out precedes response-backed error telemetry, and
 // --no-cache is appended last.
 func incrementalFIRDiagnostic(result *Result, noCache bool, environment string) string {
 	if result == nil {
@@ -24,7 +26,13 @@ func incrementalFIRDiagnostic(result *Result, noCache bool, environment string) 
 	}
 	if message == "" && (plan == nil || plan.Path == "full") {
 		switch {
+		case plan != nil && strings.HasPrefix(plan.Snapshot, "none"):
+			// krit-fir says why the full check left no snapshot (#1599).
+			message = "incremental FIR off: " + plan.String() + "; no snapshot: " + strings.TrimPrefix(strings.TrimPrefix(plan.Snapshot, "none"), ": ")
+		case plan != nil && plan.Snapshot != "":
+			message = "incremental FIR: " + plan.String() + "; snapshot " + plan.Snapshot
 		case plan != nil && plan.Reason != "tiered_rules" && result.incrementalErrorFiles > 0:
+			// A krit-fir that does not report its snapshot: errors are the likely cause.
 			message = "incremental FIR off: " + compilerErrorFilesDiagnostic(result.incrementalErrorFiles) + ", no snapshot"
 		case plan != nil:
 			message = "incremental FIR: " + plan.String()

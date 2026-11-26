@@ -118,7 +118,8 @@ class AnalysisSessionSharedCheckTest {
             checkRequestPath = requestFile.path, checkOutPath = checkOut.path)
 
         assertTrue(output.length() > 0)
-        val expected = buildCheckResponse(AnalysisSession(listOf(root), listOf(stdlib)).check(3, paths.map { FileRef(it) }, setOf("ProtocolProbe")))
+        // The request names no incrementalDir, so, like the daemon's check, the one-shot records nothing (#1599).
+        val expected = buildCheckResponse(AnalysisSession(listOf(root), listOf(stdlib)).check(3, paths.map { FileRef(it) }, setOf("ProtocolProbe"), incremental = false))
         // Each compile reports its own planner time; only the rest of the response must agree.
         fun withoutTiming(response: String) = response.replace(Regex("\"totalMs\":\\d+"), "\"totalMs\":0")
         assertEquals(withoutTiming(expected).length, withoutTiming(checkOut.readText()).length, checkOut.readText())

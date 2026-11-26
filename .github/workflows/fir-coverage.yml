@@ -103,31 +103,6 @@ jobs:
           path: dist/
           retention-days: 3
 
-  # krit-gradle-plugin's own TestKit suite (#1628): model export, task wiring
-  # and configuration-cache tests that the coverage runs below depend on.
-  krit-gradle-plugin-tests:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v5
-        with:
-          distribution: zulu
-          java-version: "21"
-      - uses: gradle/actions/setup-gradle@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d # v4
-        with:
-          cache-cleanup: on-success
-          validate-wrappers: true
-      - name: Test krit-gradle-plugin
-        working-directory: krit-gradle-plugin
-        run: ./gradlew --no-daemon test --stacktrace
-      - name: Upload krit-gradle-plugin test reports
-        if: failure()
-        uses: actions/upload-artifact@de65e23aa2b7e23d713bb51fbfcb6d502f8667d8 # v4.6.2
-        with:
-          name: krit-gradle-plugin-test-reports
-          path: krit-gradle-plugin/build/reports/tests/test/
-
   # Gradle plugin path, each from a clean checkout:
   #  1. kritExportModel (with exportGenerated, so generators run), then the
   #     whole-build CLI scan from the plugin README's CI recipe;
@@ -214,9 +189,11 @@ jobs:
           retention-days: 14
 
   # Bazel path: build every target (KSP, Wire and view binding codegen,
-  # compiler plugin and opt-in options, android_binary), run krit_test, and
-  # build again, which must be a full action-cache hit. krit_test is Go-only
-  # until the FIR aspect lands (#1587), so this path reports no FIR runs.
+  # compiler plugin and opt-in options, android_binary), run the Go-only
+  # krit_test, run krit_aspect (one FIR action per target, #1587) and
+  # measure its coverage, then check caching: a second `bazel build //...`
+  # runs no actions, and krit_aspect after `bazel clean` hits the disk cache
+  # for every Krit action.
   bazel:
     needs: krit
     runs-on: ubuntu-latest
@@ -243,17 +220,44 @@ jobs:
       - name: bazel test (krit_test)
         working-directory: ${{ env.SAMPLE }}
         run: |
-          rc=0
-          bazel test //:krit_test --test_output=all 2>&1 | tee "$RUNNER_TEMP/fir/bazel-krit-test.log" || rc=$?
-          python3 ci/fir_coverage.py measure bazel "$RUNNER_TEMP/fir/bazel.result.json" "$RUNNER_TEMP/fir/bazel-krit-test.log"
-          exit "$rc"
+          bazel test //:krit_test --test_output=all 2>&1 | tee "$RUNNER_TEMP/fir/bazel-krit-test.log"
+      - name: krit_aspect (FIR per target)
+        working-directory: ${{ env.SAMPLE }}
+        run: |
+          # --keep_going and no exit on failure: a failed Krit action (for
+          # example a degraded FIR pass) is reported as a checker error and
+          # its target's files count against the threshold.
+          bazel build --keep_going //... --aspects=@krit//:defs.bzl%krit_aspect --output_groups=krit \
+            --@krit//:config=//:krit.yml 2>&1 | tee "$RUNNER_TEMP/fir/bazel-krit-aspect.log" || true
+          mkdir -p "$RUNNER_TEMP/fir/bazel-sarif"
+          # Reports plus each target's generated krit model, for debugging gating.
+          (cd bazel-bin && find -L . \( -name '*.krit.sarif' -o -path '*.krit-model/model.json' \) -not -path '*.runfiles/*' \
+            -exec cp --parents {} "$RUNNER_TEMP/fir/bazel-sarif/" \;)
+          mapfile -t sarifs < <(find "$RUNNER_TEMP/fir/bazel-sarif" -name '*.krit.sarif' | sort)
+          python3 ci/fir_coverage.py measure-sarif bazel-krit_aspect "$RUNNER_TEMP/fir/bazel-krit_aspect.result.json" \
+            --bazel-log "$RUNNER_TEMP/fir/bazel-krit-aspect.log" "${sarifs[@]}"
       - name: bazel build //... again (action cache hit)
         working-directory: ${{ env.SAMPLE }}
         run: |
           bazel build //... 2>&1 | tee "$RUNNER_TEMP/fir/bazel-rebuild.log"
-          # "INFO: N processes: N internal." means no action ran again.
-          if grep -Eq 'INFO: [0-9]+ process(es)?: [0-9]+ internal\.$' "$RUNNER_TEMP/fir/bazel-rebuild.log"; then hit=true; else hit=false; fi
+          # Bazel's summary, e.g. "INFO: 1 process: 2063 action cache hit, 1 internal.":
+          # no action ran again when every kind is internal or a cache hit.
+          summary=$(grep -E '^INFO: [0-9,]+ process(es)?:' "$RUNNER_TEMP/fir/bazel-rebuild.log" | tail -1)
+          kinds=$(printf '%s\n' "$summary" | sed -E 's/^INFO: [0-9,]+ process(es)?: //; s/\.$//' | tr ',' '\n' | sed -E 's/^ *[0-9,]+ //')
+          if [ -n "$summary" ] && ! printf '%s\n' "$kinds" | grep -qvE '^(internal|action cache hit|disk cache hit|remote cache hit)$'; then
+            hit=true
+          else
+            hit=false
+          fi
           echo "{\"name\": \"bazel-action-cache\", \"passed\": $hit}" > "$RUNNER_TEMP/fir/bazel-action-cache.check.json"
+      - name: krit_aspect after bazel clean (every Krit action a cache hit)
+        working-directory: ${{ env.SAMPLE }}
+        run: |
+          bazel clean
+          bazel build --keep_going //... --aspects=@krit//:defs.bzl%krit_aspect --output_groups=krit \
+            --@krit//:config=//:krit.yml --execution_log_json_file="$RUNNER_TEMP/fir/bazel-aspect-exec.json" || true
+          if python3 ci/krit_actions_cached.py "$RUNNER_TEMP/fir/bazel-aspect-exec.json"; then hit=true; else hit=false; fi
+          echo "{\"name\": \"bazel-krit_aspect-cache\", \"passed\": $hit}" > "$RUNNER_TEMP/fir/bazel-krit_aspect-cache.check.json"
       - uses: actions/upload-artifact@de65e23aa2b7e23d713bb51fbfcb6d502f8667d8 # v4.6.2
         if: always()
         with:

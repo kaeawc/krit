@@ -5,11 +5,20 @@
         Sum every "verbose: FIR verdict:" line in the LOG files (one per krit
         run; per-project kritCheck runs give one each) into OUT.json.
 
+    fir_coverage.py measure-sarif NAME OUT.json [--bazel-log LOG] SARIF...
+        Sum runs[].properties.fir (authoritative, gated, excluded, topCauses)
+        of krit SARIF reports, such as krit_aspect's per-target
+        <target>.krit.sarif files, into OUT.json. A report without it counts
+        as a run where FIR did not run. With --bazel-log, each "Running krit
+        on //x failed" action in the log (no report, e.g. a degraded FIR
+        pass) is listed as a checker error.
+
     fir_coverage.py report THRESHOLDS.json FILE...
         Print a Markdown table of the *.result.json files (from measure) and
         the *.check.json files ({"name": ..., "passed": bool}, written by the
-        workflow), and exit 1 when a result is below its threshold or a
-        required check failed. Anything above its threshold is listed as a
+        workflow), and exit 1 when a result is below its threshold, has more
+        FIR checker errors or failed actions than its maxCheckerErrors
+        (default 0), or a required check failed. Anything above its threshold is listed as a
         ratchet: raise the threshold in the same pull request.
 
 Coverage is authoritative / (authoritative + gated), where gated counts both
@@ -75,6 +84,55 @@ def measure(name, out_path, log_paths):
         print(f"FIR checker error: {error}", file=sys.stderr)
 
 
+FAILED_KRIT_ACTION = re.compile(r"Running krit on (//\S+?) failed")
+
+
+def measure_sarif(name, out_path, sarif_paths, bazel_log=None):
+    totals = {"authoritative": 0, "gated": 0, "generatedGated": 0, "excluded": 0, "ruleErrors": 0}
+    runs = 0
+    causes = []
+    errors = []
+    for path in sarif_paths:
+        with open(path, encoding="utf-8") as f:
+            log = json.load(f)
+        found = False
+        for run in log.get("runs", []):
+            fir = (run.get("properties") or {}).get("fir")
+            if fir is None:
+                continue
+            found = True
+            runs += 1
+            totals["authoritative"] += fir.get("authoritative", 0)
+            totals["gated"] += fir.get("gated", 0)
+            totals["excluded"] += fir.get("excluded", 0)
+            for cause in fir.get("topCauses") or []:
+                causes.append({"file": SAMPLE_PREFIX.sub("", path), "cause": f"{cause['cause']} x{cause['count']}"})
+        if not found:
+            errors.append(f"{SAMPLE_PREFIX.sub('', path)}: no FIR coverage in the report")
+    if bazel_log:
+        with open(bazel_log, encoding="utf-8", errors="replace") as log:
+            for line in log:
+                match = FAILED_KRIT_ACTION.search(line)
+                if match:
+                    errors.append(f"{match.group(1)}: Krit action failed (see the bazel log)")
+    checked = totals["authoritative"] + totals["gated"]
+    result = {
+        "name": name,
+        "firRuns": runs,
+        **totals,
+        "checked": checked,
+        "coverage": round(totals["authoritative"] / checked, 4) if checked else None,
+        "gatedFiles": causes,
+        "checkerErrors": errors,
+    }
+    with open(out_path, "w", encoding="utf-8") as out:
+        json.dump(result, out, indent=2)
+        out.write("\n")
+    print(json.dumps({k: v for k, v in result.items() if k not in ("gatedFiles", "checkerErrors")}))
+    for error in errors:
+        print(error, file=sys.stderr)
+
+
 def percent(value):
     return "n/a" if value is None else f"{value * 100:.0f}%"
 
@@ -110,6 +168,15 @@ def report(thresholds_path, paths):
         min_auth = t.get("minAuthoritative", 0)
         min_cov = t.get("minCoverage", 0.0)
         coverage = r["coverage"] if r["coverage"] is not None else 0.0
+        # Failed Krit actions and FIR checker errors leave no coverage record,
+        # so their files would silently drop out of the ratio. Allow only the
+        # known ones (maxCheckerErrors, ratchet down).
+        max_errors = t.get("maxCheckerErrors", 0)
+        errors = len(r.get("checkerErrors", []))
+        if errors > max_errors:
+            failures.append(f"{r['name']}: {errors} FIR checker errors or failed actions, at most {max_errors} allowed")
+        elif errors < max_errors:
+            ratchets.append(f"{r['name']}: maxCheckerErrors {max_errors} -> {errors}")
         if r["authoritative"] < min_auth:
             failures.append(f"{r['name']}: {r['authoritative']} authoritative files, threshold {min_auth}")
         if coverage + 1e-9 < min_cov:
@@ -160,6 +227,13 @@ def report(thresholds_path, paths):
 def main(argv):
     if len(argv) >= 4 and argv[1] == "measure":
         measure(argv[2], argv[3], argv[4:])
+        return 0
+    if len(argv) >= 4 and argv[1] == "measure-sarif":
+        rest = argv[4:]
+        bazel_log = None
+        if len(rest) >= 2 and rest[0] == "--bazel-log":
+            bazel_log, rest = rest[1], rest[2:]
+        measure_sarif(argv[2], argv[3], rest, bazel_log)
         return 0
     if len(argv) >= 3 and argv[1] == "report":
         return report(argv[2], argv[3:])

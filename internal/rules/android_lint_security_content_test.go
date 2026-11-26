@@ -1,8 +1,10 @@
 package rules_test
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
@@ -388,5 +390,50 @@ func TestUnsanitizedFilenameFromContentProviderLintParityFlows(t *testing.T) {
 	findings := runRuleByName(t, "UnsanitizedFilenameFromContentProvider", unsanitizedFilenameLambdaSource)
 	if got, want := findingPositions(findings), "19:23,25:23,34:33,39:39,44:19"; got != want {
 		t.Fatalf("positions = %s, want %s", got, want)
+	}
+}
+
+// #1620: a Kotlin property annotated @get:/@set:JavascriptInterface, or with an annotated accessor, has an
+// annotated getter or setter method, as UAST sees it; @field: does not. Lines marked `// report` are expected.
+const javascriptInterfaceAccessorSource = `package com.example
+
+import android.webkit.JavascriptInterface
+import android.webkit.WebView
+
+class GetterBridge { @get:JavascriptInterface val name: String = "x" }
+class SetterBridge { @set:JavascriptInterface var name: String = "x" }
+class AccessorBridge {
+    val name: String
+        @JavascriptInterface get() = "x"
+}
+class FieldBridge { @field:JavascriptInterface val name: String = "x" }
+class PrivateGetter {
+    @get:JavascriptInterface private val secret: String = "x" // report
+    @JavascriptInterface fun ok() = Unit
+}
+
+fun add(web: WebView) {
+    web.addJavascriptInterface(GetterBridge(), "a")
+    web.addJavascriptInterface(SetterBridge(), "b")
+    web.addJavascriptInterface(AccessorBridge(), "c")
+    web.addJavascriptInterface(FieldBridge(), "d") // report
+}
+`
+
+func TestJavascriptInterfaceReadsAccessorUseSiteTargets(t *testing.T) {
+	findings := runAndroidSecurityProjectRule(t, "JavascriptInterface", "K.kt", 21, 34, javascriptInterfaceAccessorSource)
+	var want []int
+	for i, line := range strings.Split(javascriptInterfaceAccessorSource, "\n") {
+		if strings.HasSuffix(line, "// report") {
+			want = append(want, i+1)
+		}
+	}
+	var got []int
+	for _, f := range findings {
+		got = append(got, f.Line)
+	}
+	sort.Ints(got)
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("finding lines %v, want %v (%v)", got, want, findings)
 	}
 }

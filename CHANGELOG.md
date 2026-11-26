@@ -429,6 +429,12 @@ All notable changes to Krit will be documented in this file.
 - `CompileTimeConstant` only runs on files that mention `CompileTimeConstant`. Every finding needs an annotated
   declaration in the same file, so other files cannot be reported; the rule spent about 2s on element-x-android and
   0.7s on okhttp finding nothing. Lint ports can opt into the same gate by declaring `fileMentions()`.
+- Module-aware rules run when the scan paths are files (Bazel rules, pre-commit hooks, editors, the Gradle plugin's
+  per-module `kritCheck`): module discovery used to open `<file>/settings.gradle.kts`, warn `module discovery failed`
+  and skip them. A file's build is the nearest directory above the first file with a Gradle settings file or a Bazel
+  `MODULE.bazel`/`WORKSPACE`, looking no higher than a repository root (`.git`) or a Bazel execution root. A file in no
+  build has no module graph and walks no directory tree, and `--only-scope file` scans of a file skip discovery unless
+  the type oracle or custom rule jars read the graph (#1548, #1669, #1704).
 - Source-only scans of large Android projects are fast again: `ProviderReadPermissionOnly`,
   `UnsafeImplicitIntentLaunch` and `UnsafeIntentLaunch` index project classes once per run instead of rebuilding the
   index on every superclass query, and run concurrently. On a 300-module synthetic project the manifest-source phase

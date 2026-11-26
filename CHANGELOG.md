@@ -10,6 +10,12 @@ All notable changes to Krit will be documented in this file.
   `androidx.compose.material3` 1.5.0, under their Lint IDs. Their findings match the Lint CLI running those releases'
   `lint.jar` on the inputs under `internal/rules/testdata/androidx_compose_material/`. The material3 import check needs
   a material3 import in the file or a material3 dependency in the build (#1457, #1458, #1459, #1461).
+- Compose lint parity, first batch of [compose-lints](https://github.com/slackhq/compose-lints) 1.6.1 ports:
+  `ComposeCompositionLocalUsage` (with the `allowedCompositionLocals` option) and `ComposeCompositionLocalGetter`,
+  under their Lint IDs, messages and severities, experimental and off by default. `ComposeNamingUppercase` and
+  `ComposeNamingLowercase` map onto the existing `ComposableNaming`: suppressing either ID silences its casing direction,
+  and `ComposableNaming` gains compose-lints' `allowedComposableFunctionNames` option. Findings are checked against the Lint CLI running compose-lint-checks
+  1.6.1 on the same inputs (#1332, #1333, #1334, #1335).
 - FIR sessions resolve Java sources: every `.java` file under the source dirs, generated source dirs and unpacked
   srcjars (same-module Java, view binding, BuildConfig, Wire-Java, kapt/KSP Java output) is given to K2 as a Java
   source root, so Kotlin that uses them is no longer gated `Unresolved reference` on an unbuilt checkout. The Java is

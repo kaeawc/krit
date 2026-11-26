@@ -265,8 +265,15 @@ jobs:
         working-directory: ${{ env.SAMPLE }}
         run: |
           bazel build //... 2>&1 | tee "$RUNNER_TEMP/fir/bazel-rebuild.log"
-          # "INFO: N processes: N internal." means no action ran again.
-          if grep -Eq 'INFO: [0-9]+ process(es)?: [0-9]+ internal\.$' "$RUNNER_TEMP/fir/bazel-rebuild.log"; then hit=true; else hit=false; fi
+          # Bazel's summary, e.g. "INFO: 1 process: 2063 action cache hit, 1 internal.":
+          # no action ran again when every kind is internal or a cache hit.
+          summary=$(grep -E '^INFO: [0-9,]+ process(es)?:' "$RUNNER_TEMP/fir/bazel-rebuild.log" | tail -1)
+          kinds=$(printf '%s\n' "$summary" | sed -E 's/^INFO: [0-9,]+ process(es)?: //; s/\.$//' | tr ',' '\n' | sed -E 's/^ *[0-9,]+ //')
+          if [ -n "$summary" ] && ! printf '%s\n' "$kinds" | grep -qvE '^(internal|action cache hit|disk cache hit|remote cache hit)$'; then
+            hit=true
+          else
+            hit=false
+          fi
           echo "{\"name\": \"bazel-action-cache\", \"passed\": $hit}" > "$RUNNER_TEMP/fir/bazel-action-cache.check.json"
       - name: krit_aspect after bazel clean (every Krit action a cache hit)
         working-directory: ${{ env.SAMPLE }}

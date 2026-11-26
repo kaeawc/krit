@@ -185,6 +185,8 @@ type File struct {
 	// callNames is the call-expression name memo published by the rule
 	// dispatcher while it runs this file. See CallNameMemo.
 	callNames atomic.Pointer[CallNameMemo]
+	// passMemo holds rule facts for the dispatch pass running this file. See PassMemo.
+	passMemo atomic.Pointer[PassMemo]
 }
 
 // LineOffsets returns the byte offset of each line start, computed lazily
@@ -364,7 +366,7 @@ func collectKotlinJavaFromGit(ctx context.Context, dir string, excludes []string
 			continue
 		}
 		path := filepath.Join(dir, rel)
-		if matcher.Ignored(path, false) || isExcluded(path, excludes) {
+		if matcher.Ignored(path, false) || isExcluded(dir, path, excludes) {
 			continue
 		}
 		collectKotlinJavaFile(path, excludes, matcher, seenKt, seenJv, kotlin, java)
@@ -388,7 +390,7 @@ func collectKotlinJavaByWalk(dir string, excludes []string, matcher *fileignore.
 		if !isKt && !isJv {
 			return nil
 		}
-		if matcher.Ignored(path, false) || isExcluded(path, excludes) {
+		if matcher.Ignored(path, false) || isExcluded(dir, path, excludes) {
 			return nil
 		}
 		collectKotlinJavaFile(path, excludes, matcher, seenKt, seenJv, kotlin, java)
@@ -561,7 +563,7 @@ func collectSourceFiles(paths []string, excludes []string, isSourceFile func(str
 			if !isSourceFile(path) {
 				return nil
 			}
-			if matcher.Ignored(path, false) || isExcluded(path, excludes) {
+			if matcher.Ignored(path, false) || isExcluded(p, path, excludes) {
 				return nil
 			}
 			addFile(path)
@@ -833,30 +835,12 @@ func partitionIndexedPaths(paths []string, workers int) [][]indexedPath {
 	return batches
 }
 
-func isExcluded(path string, excludes []string) bool {
-	return isExcludedBuiltinDir(path) || fileignore.DocSamplePath(path) || isExcludedByPattern(path, excludes)
-}
-
-func isExcludedBuiltinDir(path string) bool {
-	path = filepath.ToSlash(path)
-	// filepath.ToSlash only replaces the current platform's separator. Also
-	// normalize Windows paths when running on Unix so path checks are stable.
-	path = strings.ReplaceAll(path, `\`, "/")
-	if isTestResourcePath(path) {
-		return true
-	}
-	// Test-data directories contain deliberately malformed Kotlin used to
-	// exercise compiler/IDE behavior — not user code and not subject to
-	// style rules. Skip common paths.
-	if strings.Contains(path, "/test/data/") ||
-		strings.Contains(path, "/testData/") ||
-		strings.Contains(path, "/testdata/") ||
-		strings.Contains(path, "/test-data/") ||
-		strings.Contains(path, "/compiler-tests/") ||
-		strings.Contains(path, "/compilerTests/") {
-		return true
-	}
-	return false
+// isExcluded reports whether path, found while walking root, is skipped by
+// the built-in test-data heuristic, a documentation-sample check, or a user
+// exclude pattern. The built-in heuristic sees only the part of path below
+// root (#1549).
+func isExcluded(root, path string, excludes []string) bool {
+	return fileignore.TestDataPathUnder(root, path) || fileignore.DocSamplePath(path) || isExcludedByPattern(path, excludes)
 }
 
 func isExcludedByPattern(path string, excludes []string) bool {
@@ -867,22 +851,6 @@ func isExcludedByPattern(path string, excludes []string) bool {
 			return true
 		}
 		if strings.Contains(path, strings.Trim(pattern, "*")) {
-			return true
-		}
-	}
-	return false
-}
-
-// isTestResourcePath reports whether path is inside the resources directory
-// of a test source set (src/test/resources, src/commonTest/resources, etc.).
-func isTestResourcePath(path string) bool {
-	segments := strings.Split(filepath.ToSlash(path), "/")
-	for i := 0; i+3 < len(segments); i++ {
-		if segments[i] != "src" || segments[i+2] != "resources" {
-			continue
-		}
-		set := segments[i+1]
-		if set == "test" || set == "androidTest" || set == "testFixtures" || strings.HasSuffix(set, "Test") {
 			return true
 		}
 	}

@@ -19,7 +19,7 @@ func normalizeTopLevelAnnotations(t *FlatTree) *FlatTree {
 		return t
 	}
 	root := copyAnnotationTree(t, 0)
-	changed := false
+	changed := repairTopLevelAnnotatedAccessors(root)
 	// Walk backward so a run of annotation expressions attaches from the
 	// declaration outward.
 	for i := len(root.children) - 1; i >= 0; i-- {
@@ -43,6 +43,131 @@ func normalizeTopLevelAnnotations(t *FlatTree) *FlatTree {
 	appendAnnotationTree(out, root, 0, false)
 	out.buildNodesByType()
 	return out
+}
+
+// repairTopLevelAnnotatedAccessors rewrites top-level accessors that
+// tree-sitter-kotlin misparses. A top-level property's accessor on its own
+// line with a single annotation and a block body, such as
+//
+//	val Prop: Int
+//	    @Composable get() { ... }
+//
+// parses as a call to `get` with a trailing lambda, either wrapped with the
+// annotation in a prefix_expression or after a bare top-level annotation, so
+// the accessor and its annotation are lost (#1613). The same happens to
+// `@Ann set(value) { ... }`. Only those exact shapes directly after a
+// property or another accessor are rewritten into the getter/setter tree the
+// grammar produces for a class member.
+func repairTopLevelAnnotatedAccessors(root *annotationTreeNode) bool {
+	changed := false
+	prev := ""
+	for i := 0; i < len(root.children); i++ {
+		c := root.children[i]
+		switch c.typ {
+		case "line_comment", "multiline_comment":
+			continue
+		}
+		if prev == "property_declaration" || prev == "getter" || prev == "setter" {
+			var accessor *annotationTreeNode
+			switch {
+			case c.typ == "prefix_expression" && len(c.children) == 2 && c.children[0].typ == "annotation":
+				accessor = recoverAnnotatedAccessor(c.children[0], c.children[1])
+				if accessor != nil {
+					root.children[i] = accessor
+				}
+			case c.typ == "annotation" && i+1 < len(root.children):
+				accessor = recoverAnnotatedAccessor(c, root.children[i+1])
+				if accessor != nil {
+					root.children = append(root.children[:i], append([]*annotationTreeNode{accessor}, root.children[i+2:]...)...)
+				}
+			}
+			if accessor != nil {
+				c = accessor
+				changed = true
+			}
+		}
+		prev = c.typ
+	}
+	return changed
+}
+
+// recoverAnnotatedAccessor returns the getter or setter for annotation ann
+// followed by the misparsed call_expression(call_expression(get|set, (args)), { body }),
+// or nil when call has any other shape.
+func recoverAnnotatedAccessor(ann, call *annotationTreeNode) *annotationTreeNode {
+	keyword, args, lambda := misparsedAccessorParts(call)
+	if keyword == nil {
+		return nil
+	}
+	params := accessorParams(keyword.typ, args)
+	if params == nil {
+		return nil
+	}
+	typ := "getter"
+	if keyword.typ == "set" {
+		typ = "setter"
+	}
+	mods := &annotationTreeNode{typ: "modifiers", start: ann.start, end: ann.end, row: ann.row, col: ann.col, flags: flatNodeFlagNamed, children: []*annotationTreeNode{ann}}
+	body := &annotationTreeNode{typ: "function_body", start: lambda.start, end: lambda.end, row: lambda.row, col: lambda.col, flags: lambda.flags | flatNodeFlagNamed, children: lambda.children}
+	return &annotationTreeNode{typ: typ, start: ann.start, end: call.end, row: ann.row, col: ann.col, flags: call.flags | flatNodeFlagNamed,
+		children: append(append([]*annotationTreeNode{mods, keyword}, params...), body)}
+}
+
+// misparsedAccessorParts splits call_expression(call_expression(get|set, (args)), { body })
+// into the get/set keyword, the value_arguments and the parameterless lambda;
+// keyword is nil for any other shape.
+func misparsedAccessorParts(call *annotationTreeNode) (keyword, args, lambda *annotationTreeNode) {
+	if !treeShape(call, "call_expression", 2) {
+		return nil, nil, nil
+	}
+	inner, trailing := call.children[0], call.children[1]
+	if !treeShape(inner, "call_expression", 2) || !treeShape(trailing, "call_suffix", 1) {
+		return nil, nil, nil
+	}
+	name, suffix := inner.children[0], inner.children[1]
+	if !treeShape(name, "simple_identifier", 1) || !treeShape(suffix, "call_suffix", 1) || suffix.children[0].typ != "value_arguments" {
+		return nil, nil, nil
+	}
+	if k := name.children[0].typ; k != "get" && k != "set" {
+		return nil, nil, nil
+	}
+	lambdaArg := trailing.children[0]
+	if !treeShape(lambdaArg, "annotated_lambda", 1) || lambdaArg.children[0].typ != "lambda_literal" {
+		return nil, nil, nil
+	}
+	lambda = lambdaArg.children[0]
+	for _, part := range lambda.children {
+		if part.typ == "lambda_parameters" || part.typ == "->" {
+			return nil, nil, nil
+		}
+	}
+	return name.children[0], suffix.children[0], lambda
+}
+
+// accessorParams converts a misparsed call's value_arguments into accessor
+// parameters: `()` for a getter, `(name)` for a setter. nil means the
+// arguments cannot be accessor parameters.
+func accessorParams(keyword string, args *annotationTreeNode) []*annotationTreeNode {
+	n := len(args.children)
+	if n < 2 || args.children[0].typ != "(" || args.children[n-1].typ != ")" {
+		return nil
+	}
+	switch {
+	case keyword == "get" && n == 2:
+		return args.children
+	case keyword == "set" && n == 3:
+		arg := args.children[1]
+		if !treeShape(arg, "value_argument", 1) || arg.children[0].typ != "simple_identifier" {
+			return nil
+		}
+		param := &annotationTreeNode{typ: "parameter_with_optional_type", start: arg.start, end: arg.end, row: arg.row, col: arg.col, flags: arg.flags | flatNodeFlagNamed, children: arg.children}
+		return []*annotationTreeNode{args.children[0], param, args.children[2]}
+	}
+	return nil
+}
+
+func treeShape(n *annotationTreeNode, typ string, children int) bool {
+	return n != nil && n.typ == typ && len(n.children) == children
 }
 
 // hasTopLevelAnnotationCandidate reports whether the source file has a top-level node that may hold a detached annotation.

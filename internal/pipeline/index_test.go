@@ -397,3 +397,35 @@ func TestAttachOracleModules_PrefersTheExportedGradleModel(t *testing.T) {
 		t.Fatal("NoGradleModel must disable model discovery")
 	}
 }
+
+// The eager module graph for a file scan path is discovered only when
+// something reads it: the oracle's cross-module filter or custom rule jars
+// (#1704). Otherwise a single-file scan would discover the whole build.
+func TestDiscoverModuleGraph_FileScanPathOnlyWhenRead(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "settings.gradle.kts"), []byte("include(\":app\")\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "app", "src"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "app", "build.gradle.kts"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(dir, "app", "src", "A.kt")
+	if err := os.WriteFile(file, []byte("package a\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	in := IndexInput{Paths: []string{file}}
+	if g := (IndexPhase{}).discoverModuleGraph(t.Context(), in, typeinfer.NewResolver()); g != nil {
+		t.Errorf("no reader: graph = %v, want nil", g)
+	}
+	oracleResolver := oracle.NewCompositeResolver(oracle.NewFakeOracle(), typeinfer.NewResolver())
+	if g := (IndexPhase{}).discoverModuleGraph(t.Context(), in, oracleResolver); g == nil || g.Modules[":app"] == nil {
+		t.Errorf("oracle resolver: graph = %v, want the :app build", g)
+	}
+	in.CustomRuleJars = true
+	if g := (IndexPhase{}).discoverModuleGraph(t.Context(), in, nil); g == nil {
+		t.Error("custom rule jars: graph = nil, want the build")
+	}
+}

@@ -16948,7 +16948,7 @@
           }
         },
         "ComposableNaming": {
-          "description": "Detects @Composable functions whose name casing does not match their return type (Unit: uppercase, value: lowercase). [precision: ast-backed] [noisiness: normal]\nCaveat: Expression-bodied functions without a declared return type are skipped: their return type needs type inference.\nCaveat: Only Kotlin declarations are checked.",
+          "description": "Detects @Composable functions whose name casing does not match their return type (Unit: uppercase, value: lowercase). [precision: ast-backed] [noisiness: normal]\nCaveat: Expression-bodied functions without a declared return type are skipped: their return type needs type inference.\nCaveat: Only Kotlin declarations are checked.\nCaveat: Under the compose-lints aliases, krit also reports a lowercase Unit composable with a receiver (ComposeNamingUppercase exempts it) and casing on expression-bodied functions with a provable return type (compose-lints skips every expression body), and it skips overrides, which compose-lints reports.",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -16956,6 +16956,13 @@
               "description": "Enable ComposableNaming (default: true).",
               "type": "boolean",
               "default": true
+            },
+            "allowedComposableFunctionNames": {
+              "description": "Regexes matched against the whole function name; matching composables are not reported (compose-lints `allowed-composable-function-names`).",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
             },
             "excludes": {
               "description": "Glob patterns for paths to exclude from this rule.",
@@ -16989,6 +16996,79 @@
               "description": "Enable ComposeColumnRowInScrollable (default: true).",
               "type": "boolean",
               "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "ComposeCompositionLocalGetter": {
+          "description": "Detects CompositionLocal properties declared with a getter, which creates a new instance on every read. [precision: ast-backed] [noisiness: normal]\nCaveat: The compositionLocalOf/staticCompositionLocalOf callee must resolve to androidx.compose.runtime; Lint matches the name alone, so it also reports same-named local functions.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable ComposeCompositionLocalGetter (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "ComposeCompositionLocalUsage": {
+          "description": "Detects new CompositionLocal declarations, which are implicit dependencies. [precision: ast-backed] [noisiness: normal]\nCaveat: The compositionLocalOf/staticCompositionLocalOf callee must resolve to androidx.compose.runtime; Lint matches the name alone, so it also reports same-named local functions.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable ComposeCompositionLocalUsage (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "allowedCompositionLocals": {
+              "description": "Property names allowed to declare a CompositionLocal (compose-lints `allowed-composition-locals`).",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
             },
             "excludes": {
               "description": "Glob patterns for paths to exclude from this rule.",

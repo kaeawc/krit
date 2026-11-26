@@ -123,6 +123,55 @@ func TestFirSplitsSessionsBySourceSetSettingsEndToEnd(t *testing.T) {
 		}
 	})
 
+	// Gradle records the resolved root (macOS /tmp is /private/tmp); a scan
+	// path through a symlink to it still splits the session (#1674).
+	t.Run("symlinked scan path", func(t *testing.T) {
+		project := writeSettingsSplitProject(t, false)
+		link := filepath.Join(t.TempDir(), "link")
+		if err := os.Symlink(project, link); err != nil {
+			t.Skipf("symlinks unavailable: %v", err)
+		}
+		split := runSettingsSplitKrit(t, bin, jar, link, "")
+		for _, line := range []string{
+			"verbose: FIR settings: 3 sessions for 2 settings groups (grouping key: ",
+			"1 gated files now authoritative, 0 now gated on a missing opt-in",
+			"verbose: FIR verdict: 2 authoritative files, 0 gated (compiler error or crash)",
+		} {
+			if !strings.Contains(split, line) {
+				t.Fatalf("split sessions through %s: missing %q; stderr:\n%s", link, line, split)
+			}
+		}
+	})
+
+	// A group that differs from the merged session only in JVM target keeps
+	// the merged verdicts by default and is reported, so the extra sessions
+	// can be measured; KRIT_FIR_SPLIT_JVM_TARGET=1 compiles it at its own
+	// target, where its real build's JVM-target error gates its file (#1648).
+	t.Run("jvm target only", func(t *testing.T) {
+		project := writeJvmTargetSplitProject(t)
+		pair := filepath.Join(project, "legacy", "src", "main", "kotlin", "legacy", "Pair.kt")
+		merged := runSettingsSplitKrit(t, bin, jar, project, "")
+		for _, line := range []string{
+			"verbose: FIR settings: 1 settings groups differ from the merged session only in JVM target (merged: 17) and keep its verdicts; KRIT_FIR_SPLIT_JVM_TARGET=1 compiles each on its own: :legacy:main [(compiler defaults) jvm=11]",
+			"verbose: FIR verdict: 3 authoritative files, 0 gated (compiler error or crash)",
+		} {
+			if !strings.Contains(merged, line) {
+				t.Fatalf("default: missing %q; stderr:\n%s", line, merged)
+			}
+		}
+		t.Setenv("KRIT_FIR_SPLIT_JVM_TARGET", "1")
+		split := runSettingsSplitKrit(t, bin, jar, project, "")
+		for _, line := range []string{
+			"verbose: FIR settings: session 2: :legacy:main [(compiler defaults) jvm=11]",
+			"0 gated files now authoritative, 0 now gated on a missing opt-in, 1 on their own JVM target, 0 kept the merged verdict",
+			"verbose: FIR gated: " + pair + ": Using @JvmRecord is only allowed with -jvm-target 16 or later",
+		} {
+			if !strings.Contains(split, line) {
+				t.Fatalf("KRIT_FIR_SPLIT_JVM_TARGET=1: missing %q; stderr:\n%s", line, split)
+			}
+		}
+	})
+
 	t.Run("hidden opt-in", func(t *testing.T) {
 		project := writeSettingsSplitProject(t, true)
 		bad := filepath.Join(project, "other", "src", "main", "kotlin", "other", "Bad.kt")

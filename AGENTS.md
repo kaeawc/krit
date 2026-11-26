@@ -26,7 +26,7 @@ scripts/lint-actions.sh         # actionlint — REQUIRED after `.github/workflo
 make prepush                    # Fast local mirror of CI for the changed files (also the pre-push hook)
 ```
 
-Install the hooks once per clone with `make hooks` (`git config core.hooksPath .githooks`; worktrees share it). The pre-push hook runs `scripts/pre-push.sh`: merge-with-origin/main build, gofmt, build, vet, golangci-lint on changed packages, rule gates, oracle fingerprints, schema freshness, changed-package tests, actionlint and docs nav, each only when relevant. See CONTRIBUTING.md "Pre-push Hook". When CI catches something it missed, file a `prepush-gap` issue.
+Install the hooks once per clone with `make hooks` (`scripts/install-hooks.sh`; worktrees share it; existing hooks keep running, so don't set `core.hooksPath`). The pre-push hook runs `scripts/pre-push.sh`: merge-with-origin/main build, gofmt, build, vet, golangci-lint on changed packages, rule gates, oracle fingerprints, schema freshness, changed-package tests, actionlint and docs nav, each only when relevant. See CONTRIBUTING.md "Pre-push Hook". When CI catches something it missed, file a `prepush-gap` issue.
 
 After implementation changes, run all four Go steps: `go build -o krit ./cmd/krit/`, `go vet ./...`, `golangci-lint run ./...`, and `make test`. CI runs `golangci-lint`, so missing a gofmt/unused/lint issue locally just causes a CI round-trip — always run it before pushing. Use focused package tests while iterating.
 

@@ -200,3 +200,49 @@ func TestPlanSettingsSessionsKeepsFilesSharedWithMergedCoveredGroups(t *testing.
 		t.Fatalf("got %d sessions; :b:main shares S.kt with :a:main, which the merged session covers", len(units))
 	}
 }
+
+func TestJvmTargetDiffers(t *testing.T) {
+	for _, c := range []struct {
+		group, merged string
+		want          bool
+	}{
+		{"", "17", false}, // no declared target compiles at the session's
+		{"17", "17", false},
+		{"1.8", "8", false},
+		{"11", "17", true},
+		{"11", "", true}, // the merged session used krit-fir's default
+	} {
+		if got := jvmTargetDiffers(c.group, c.merged); got != c.want {
+			t.Errorf("jvmTargetDiffers(%q, %q) = %v, want %v", c.group, c.merged, got, c.want)
+		}
+	}
+}
+
+// A group that differs from the merged session only in JVM target keeps the
+// merged verdicts and is logged; KRIT_FIR_SPLIT_JVM_TARGET=1 gives it a
+// session at its own target (#1648).
+func TestPlanSettingsSessionsSplitsOnJvmTargetOnlyWhenEnabled(t *testing.T) {
+	model, dirs := writeSettingsModel(t, map[string][]string{"a": nil, "b": nil}, false)
+	for i := range model.Projects {
+		model.Projects[i].SourceSets[0].JvmTarget = map[string]string{":a": "17", ":b": "11"}[model.Projects[i].Path]
+	}
+	root := filepath.Dir(dirs["a"])
+	check := &checkContext{jvmTarget: "17"}
+	var log strings.Builder
+	logf := func(format string, args ...any) { fmt.Fprintf(&log, format, args...) }
+
+	t.Setenv(SplitJVMTargetEnv, "")
+	units, split := planSettingsSessions(Input{ScanPaths: []string{root}}, model, root, check, logf)
+	if len(units) != 0 || split.Sessions != 1 {
+		t.Fatalf("units=%d split=%+v; want no session of its own", len(units), split)
+	}
+	if want := "verbose: FIR settings: 1 settings groups differ from the merged session only in JVM target (merged: 17) and keep its verdicts; KRIT_FIR_SPLIT_JVM_TARGET=1 compiles each on its own: :b:main [(compiler defaults) jvm=11]"; !strings.Contains(log.String(), want) {
+		t.Fatalf("log lacks %q:\n%s", want, log.String())
+	}
+
+	t.Setenv(SplitJVMTargetEnv, "1")
+	units, split = planSettingsSessions(Input{ScanPaths: []string{root}}, model, root, check, logf)
+	if len(units) != 1 || units[0].Spec.JVMTarget != "11" || split.Sessions != 2 {
+		t.Fatalf("units=%+v split=%+v; want one session for :b:main at JVM target 11", units, split)
+	}
+}

@@ -182,6 +182,12 @@ run_merge() {
 	elif ! (cd "$tmp/tree" && go build ./... && go vet ./...); then
 		fail merge "your branch builds, but not merged with origin/main (another PR changed an API you use). Rebase onto origin/main and fix the build."
 		rc=1
+	elif has_match '^internal/(rules|schema|config)/|^schemas/|^cmd/krit/' &&
+		! (cd "$tmp/tree" && go run ./cmd/krit --generate-schema | diff -q - schemas/krit-config.schema.json >/dev/null); then
+		# Generated from every rule's metadata, so a rule change and another
+		# PR's schema change can each be fresh alone and stale together.
+		fail merge "schemas/krit-config.schema.json is stale once merged with origin/main. Merge or rebase onto origin/main, run make schema, and commit it."
+		rc=1
 	else
 		echo "merged tree builds and vets clean"
 	fi

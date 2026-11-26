@@ -1,0 +1,9 @@
+src/com/example/JActivity.java:10:9: InvalidSetHasFixedSize: When using `setHasFixedSize() in an `RecyclerView`, `wrap_content` cannot be used as a value for `size` in the scrolling direction.
+src/com/example/JActivity.java:9:9: InvalidSetHasFixedSize: When using `setHasFixedSize() in an `RecyclerView`, `wrap_content` cannot be used as a value for `size` in the scrolling direction.
+src/com/example/MainActivity.kt:12:9: InvalidSetHasFixedSize: When using `setHasFixedSize() in an `RecyclerView`, `wrap_content` cannot be used as a value for `size` in the scrolling direction.
+src/com/example/MainActivity.kt:12:9: InvalidSetHasFixedSize: When using `setHasFixedSize() in an `RecyclerView`, `wrap_content` cannot be used as a value for `size` in the scrolling direction.
+src/com/example/MainActivity.kt:14:9: InvalidSetHasFixedSize: When using `setHasFixedSize() in an `RecyclerView`, `wrap_content` cannot be used as a value for `size` in the scrolling direction.
+src/com/example/MainActivity.kt:16:9: InvalidSetHasFixedSize: When using `setHasFixedSize() in an `RecyclerView`, `wrap_content` cannot be used as a value for `size` in the scrolling direction.
+src/com/example/MainActivity.kt:16:9: InvalidSetHasFixedSize: When using `setHasFixedSize() in an `RecyclerView`, `wrap_content` cannot be used as a value for `size` in the scrolling direction.
+src/com/example/MainActivity.kt:20:9: InvalidSetHasFixedSize: When using `setHasFixedSize() in an `RecyclerView`, `wrap_content` cannot be used as a value for `size` in the scrolling direction.
+src/com/example/MainActivity.kt:20:9: InvalidSetHasFixedSize: When using `setHasFixedSize() in an `RecyclerView`, `wrap_content` cannot be used as a value for `size` in the scrolling direction.

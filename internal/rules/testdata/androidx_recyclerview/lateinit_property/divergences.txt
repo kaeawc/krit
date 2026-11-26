@@ -1,0 +1,1 @@
+- src/com/example/ListActivity.kt:21:9: InvalidSetHasFixedSize: When using `setHasFixedSize() in an `RecyclerView`, `wrap_content` cannot be used as a value for `size` in the scrolling direction. # grid is assigned R.id.grid (match_parent); Lint reports it because the class also looks up R.id.list

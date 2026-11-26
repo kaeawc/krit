@@ -5910,6 +5910,39 @@
             }
           }
         },
+        "InvalidSetHasFixedSize": {
+          "description": "When using `setHasFixedSize() in an `RecyclerView`, `wrap_content` cannot be used as a value for `size` in the scrolling direction. [precision: project-structure-aware] [noisiness: normal] [capabilities: resources]\nCaveat: The receiver must be traced to findViewById(R.id.x) through an initializer, a cast, a type argument or a single same-file assignment, and proven to be a RecyclerView; view-binding receivers are not checked (Lint does not check them either).\nCaveat: Lint reports every setHasFixedSize(true) on a RecyclerView in a scope that also looks up such an id, even on another view, and once per matching lookup; krit reports a call once and only for its own receiver.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable InvalidSetHasFixedSize (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "InvalidUseOfOnBackPressed": {
           "description": "Do not call onBackPressed() within OnBackPressedDisptacher [precision: ast-backed] [noisiness: normal]",
           "type": "object",

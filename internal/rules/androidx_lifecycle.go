@@ -71,8 +71,9 @@ func (r *LifecycleCurrentStateInCompositionRule) Meta() api.RuleDescriptor {
 func (r *ViewModelConstructorInComposableRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{ID: "ViewModelConstructorInComposable", RuleSet: "compose", DefaultActive: true,
 		KnownLimitations: append([]string{
-			"The constructed class must be proven to extend androidx.lifecycle.ViewModel through same-file classes, " +
-				"the type resolver's class hierarchy, or a ViewModel/AndroidViewModel supertype.",
+			"The constructed class must be declared in the same file and extend androidx.lifecycle.ViewModel through " +
+				"same-file classes and imports; a ViewModel declared in another file is not checked until the per-file " +
+				"cache tracks cross-file inputs (#1778).",
 		}, acrCompositionLimitations...)}
 }
 
@@ -90,6 +91,9 @@ func (r *RepeatOnLifecycleWrongUsageRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{ID: "RepeatOnLifecycleWrongUsage", RuleSet: "android-lint", DefaultActive: true,
 		KnownLimitations: []string{
 			"Calls are followed into functions declared in the same file; Lint also follows them into other files.",
+			"The Fragment or Activity ancestry is proven from the file alone (a supertype imported from androidx, or " +
+				"a same-file base class); a base class declared in another file is not followed until the per-file cache " +
+				"tracks cross-file inputs (#1778).",
 		}}
 }
 
@@ -125,7 +129,7 @@ func axlExprIsLifecycle(file *scanner.File, expr uint32, depth int) bool {
 	case "navigation_expression":
 		if suffix := flatLastNamedChild(file, expr); suffix != 0 && file.FlatType(suffix) == "navigation_suffix" &&
 			file.FlatNodeTextEquals(file.FlatNamedChild(suffix, 0), "lifecycle") {
-			return true
+			return axlLifecyclePropertyIsLifecycle(file, file.FlatFirstChild(expr))
 		}
 		fallthrough
 	case "simple_identifier":
@@ -139,6 +143,81 @@ func axlExprIsLifecycle(file *scanner.File, expr uint32, depth int) bool {
 		return axlExprIsLifecycle(file, acrInitializer(file, decl), depth+1)
 	case "call_expression":
 		return acrCallTargets(file, expr, axlLifecyclePackage, "LifecycleRegistry")
+	}
+	return false
+}
+
+// axlLifecycleOwnerTypes are the library LifecycleOwner types whose `lifecycle` is a Lifecycle.
+var axlLifecycleOwnerTypes = map[string][]string{
+	axlLifecyclePackage:          {"LifecycleOwner", "LifecycleService", "ProcessLifecycleOwner"},
+	"androidx.activity":          {"ComponentActivity"},
+	"androidx.core.app":          {"ComponentActivity"},
+	"androidx.fragment.app":      {"Fragment", "FragmentActivity", "DialogFragment"},
+	"androidx.appcompat.app":     {"AppCompatActivity"},
+	"androidx.lifecycle.testing": {"TestLifecycleOwner"},
+	"androidx.navigation":        {"NavBackStackEntry"},
+}
+
+// axlLifecyclePropertyIsLifecycle reports whether `<owner>.lifecycle` is a Lifecycle: the owner's same-file type
+// declares a `lifecycle` property typed or initialized as one (or none, while extending a known owner), or the owner
+// is a known LifecycleOwner. An owner whose declaration or type is not in the file falls back to the property name,
+// which LifecycleOwner defines.
+func axlLifecyclePropertyIsLifecycle(file *scanner.File, owner uint32) bool {
+	owner = acrUnwrapParens(file, owner)
+	if owner == 0 {
+		return false
+	}
+	if nav := strings.Join(strings.Fields(file.FlatNodeText(owner)), ""); strings.HasSuffix(nav, "LocalLifecycleOwner.current") {
+		return true
+	}
+	var typeNode uint32
+	switch file.FlatType(owner) {
+	case "simple_identifier", "navigation_expression":
+		decl := acrExprDeclaration(file, owner)
+		if decl == 0 {
+			return true
+		}
+		if typeNode = acrDeclaredType(file, decl); typeNode == 0 {
+			init := acrInitializer(file, decl)
+			if init == 0 || file.FlatType(init) != "call_expression" {
+				return true
+			}
+			name, _, hasReceiver := acrCallCallee(file, init)
+			if hasReceiver {
+				return true
+			}
+			if class := lintSameFileClass(file, name); class != 0 {
+				return axlClassLifecycleMember(file, class)
+			}
+			return true
+		}
+	default:
+		return true
+	}
+	for pkg, names := range axlLifecycleOwnerTypes {
+		if acrTypeIs(file, typeNode, pkg, names...) {
+			return true
+		}
+	}
+	if class := acrSameFileClass(file, typeNode); class != 0 {
+		return axlClassLifecycleMember(file, class)
+	}
+	return true
+}
+
+// axlClassLifecycleMember reports whether a same-file class's `lifecycle` member is a Lifecycle: a property typed
+// or initialized as one, or, with no such member, a class extending a known LifecycleOwner.
+func axlClassLifecycleMember(file *scanner.File, class uint32) bool {
+	if member := acrClassMember(file, class, "lifecycle"); member != 0 {
+		if t := acrDeclaredType(file, member); t != 0 {
+			return acrTypeIs(file, t, axlLifecyclePackage, "Lifecycle", "LifecycleRegistry")
+		}
+		return axlExprIsLifecycle(file, acrInitializer(file, member), 1)
+	}
+	for pkg, names := range axlLifecycleOwnerTypes {
+		if acrClassSupertypeIs(file, class, 0, pkg, names...) {
+			return true
+		}
 	}
 	return false
 }
@@ -181,29 +260,26 @@ func (r *ViewModelConstructorInComposableRule) check(ctx *api.Context) {
 	ctx.EmitAtNode(nameNode, "Constructing a view model in a composable")
 }
 
-// axlClassReachesViewModel reports whether the class a constructor call names extends androidx.lifecycle.ViewModel:
-// a same-file class through its supertypes, otherwise the import (or same-package) FQN through the resolver's
-// class index. It avoids re-reading the file's imports for every call.
+// axlClassReachesViewModel reports whether the class a constructor call names extends androidx.lifecycle.ViewModel,
+// proven from this file alone: a same-file class whose supertype chain reaches ViewModel or AndroidViewModel through
+// same-file classes and imports. The per-file findings cache is keyed by the file's own content (#1778), so a
+// hierarchy declared in another file is not used.
 func axlClassReachesViewModel(ctx *api.Context, name, simple string) bool {
-	const viewModel = axlLifecyclePackage + ".ViewModel"
-	file := ctx.File
-	if name == simple {
-		if local := lintSameFileClass(file, simple); local != 0 {
-			return lintClassExtends(ctx, local, viewModel, axlViewModelKnown)
-		}
-	}
-	if ctx.Resolver == nil {
+	if name != simple {
 		return false
 	}
-	full := name
-	if name == simple {
-		if target, ok := fileFactsCache().Imports(file).Aliases[simple]; ok {
-			full = target
-		} else if pkg := filePackageName(file); pkg != "" {
-			full = pkg + "." + simple
-		}
+	local := lintSameFileClass(ctx.File, simple)
+	return local != 0 && lintClassExtends(axlFileOnlyContext(ctx), local, axlLifecyclePackage+".ViewModel", axlViewModelKnown)
+}
+
+// axlFileOnlyContext returns ctx without the type resolver, so class-hierarchy helpers only use the file itself.
+func axlFileOnlyContext(ctx *api.Context) *api.Context {
+	if ctx.Resolver == nil {
+		return ctx
 	}
-	return lintHierarchyReaches(ctx.Resolver, full, viewModel, axlViewModelKnown, map[string]bool{})
+	c := *ctx
+	c.Resolver = nil
+	return &c
 }
 
 // axlLifecycleStates are the Lifecycle.State constants.
@@ -224,11 +300,12 @@ func (r *TestLifecycleOwnerInCoroutineRule) check(ctx *api.Context) {
 	file.FlatWalkNodes(lambda, "assignment", func(a uint32) {
 		target := file.FlatFirstChild(a)
 		value := flatLastNamedChild(file, a)
-		if target == 0 || value == 0 || !axlNameLike(file, value) {
+		// The detector only updates its verdict when the left side resolves to a field or method (not a local) and
+		// the right side to a field.
+		if target == 0 || value == 0 || axlAssignsLocal(file, target) || !axlFieldLike(file, value) {
 			return
 		}
-		valueName := axlRightmostName(file, value)
-		sets = axlRightmostName(file, target) == "currentState" && axlLifecycleStates[valueName]
+		sets = axlRightmostName(file, target) == "currentState" && axlLifecycleStates[axlRightmostName(file, value)]
 	})
 	if !sets {
 		return
@@ -236,6 +313,29 @@ func (r *TestLifecycleOwnerInCoroutineRule) check(ctx *api.Context) {
 	_, nameNode, _ := acrCallCallee(file, call)
 	ctx.EmitAtNode(nameNode, "Incorrect use of currentState property inside of Coroutine, please use the "+
 		"suspending setCurrentState() function.")
+}
+
+// axlAssignsLocal reports whether an assignment target is a bare name declared as a local or parameter.
+func axlAssignsLocal(file *scanner.File, target uint32) bool {
+	first := file.FlatFirstChild(target)
+	if first == 0 || file.FlatType(first) != "simple_identifier" || file.FlatNextSib(first) != 0 {
+		return false
+	}
+	decl := acrValueDeclaration(file, first, file.FlatNodeText(first))
+	return decl != 0 && (file.FlatType(decl) != "property_declaration" || acrIsLocalDeclaration(file, decl))
+}
+
+// axlFieldLike reports whether an expression can resolve to a field: a qualified name (`Lifecycle.State.STARTED`),
+// or a simple name that is not a local or parameter.
+func axlFieldLike(file *scanner.File, expr uint32) bool {
+	if !axlNameLike(file, expr) {
+		return false
+	}
+	if file.FlatType(expr) != "simple_identifier" {
+		return true
+	}
+	decl := acrValueDeclaration(file, expr, file.FlatNodeText(expr))
+	return decl == 0 || (file.FlatType(decl) == "property_declaration" && !acrIsLocalDeclaration(file, decl))
 }
 
 // axlNameLike reports whether expr is a simple or qualified name (`X`, `a.b.X`), the shape that can resolve to a
@@ -362,12 +462,13 @@ func axlSameFileCallee(file *scanner.File, cls uint32, name string) uint32 {
 
 // axlClassIsLifecycleHost reports whether a class extends androidx.fragment.app.Fragment or
 // androidx.core.app.ComponentActivity (which androidx.activity.ComponentActivity, FragmentActivity and
-// AppCompatActivity extend).
+// AppCompatActivity extend), proven from the file alone (see axlClassReachesViewModel).
 func axlClassIsLifecycleHost(ctx *api.Context, cls uint32) bool {
 	if ctx.File.FlatType(cls) != "class_declaration" {
 		return false
 	}
-	return lintClassExtends(ctx, cls, "androidx.fragment.app.Fragment", axlLifecycleHostKnown) ||
-		lintClassExtends(ctx, cls, "androidx.core.app.ComponentActivity", axlLifecycleHostKnown) ||
-		lintClassExtends(ctx, cls, "androidx.activity.ComponentActivity", axlLifecycleHostKnown)
+	fileOnly := axlFileOnlyContext(ctx)
+	return lintClassExtends(fileOnly, cls, "androidx.fragment.app.Fragment", axlLifecycleHostKnown) ||
+		lintClassExtends(fileOnly, cls, "androidx.core.app.ComponentActivity", axlLifecycleHostKnown) ||
+		lintClassExtends(fileOnly, cls, "androidx.activity.ComponentActivity", axlLifecycleHostKnown)
 }

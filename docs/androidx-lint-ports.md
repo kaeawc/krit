@@ -49,12 +49,15 @@ import, as it does in Kotlin.
 `androidx.lifecycle` 2.11.1 (`lifecycle-runtime`, `lifecycle-runtime-compose`, `lifecycle-runtime-testing`,
 `lifecycle-viewmodel-compose`), Kotlin:
 
-- `LifecycleCurrentStateInComposition` reports `….currentState` read in composition on a `Lifecycle`: an
-  `owner.lifecycle` read, or a value declared or initialized as a `Lifecycle` or `LifecycleRegistry`. Lint's quick fix
+- `LifecycleCurrentStateInComposition` reports `….currentState` read in composition on a `Lifecycle`: a value
+  declared or initialized as a `Lifecycle` or `LifecycleRegistry`, or `owner.lifecycle` where the owner is a known
+  `LifecycleOwner` (Activity, Fragment, `LocalLifecycleOwner.current`, …) or a same-file class whose `lifecycle` is a
+  `Lifecycle`. An owner whose type is not in the file falls back to the property name, which `LifecycleOwner`
+  defines; a same-file class whose `lifecycle` is something else is not reported. Lint's quick fix
   (`currentStateAsState().value` plus an import) is not ported.
-- `ViewModelConstructorInComposable` reports a constructor call of an `androidx.lifecycle.ViewModel` subclass in
-  composition, at the class name. The hierarchy is followed through same-file classes and, in a scan, the type
-  resolver's class index, so a ViewModel declared in another file is found without walking the project per call.
+- `ViewModelConstructorInComposable` reports a constructor call of an `androidx.lifecycle.ViewModel` subclass declared
+  in the same file, in composition, at the class name. The per-file findings cache is keyed by the file's own content
+  (#1778), so a ViewModel declared in another file is not checked yet.
 - `TestLifecycleOwnerInCoroutine` reports a `kotlinx.coroutines.test.runTest { }` whose body's last assignment of a
   constant is `….currentState = Lifecycle.State.X` (the blocking setter hangs inside a coroutine; use
   `setCurrentState`), at `runTest`. It follows the detector source and its tests: the Lint CLI 9.4 reported nothing
@@ -62,6 +65,7 @@ import, as it does in Kotlin.
   detector, the owner's type is not checked, and a later assignment of another constant clears the report.
 - `RepeatOnLifecycleWrongUsage` reports `repeatOnLifecycle` reached from `onStart` or `onResume` of a Kotlin class
   extending `Fragment` or `androidx.core.app.ComponentActivity` (so also `ComponentActivity`, `FragmentActivity` and
-  `AppCompatActivity`), in production sources, with Lint's message naming the class and method. Unqualified and
+  `AppCompatActivity`), proven from the file alone (an imported androidx supertype or a same-file base class, for the
+  same cache reason), in production sources, with Lint's message naming the class and method. Unqualified and
   `this.` calls are followed into functions declared in the same file, each once per class, as Lint follows each
   method once; Lint also follows calls into other files. `super` calls are not followed.

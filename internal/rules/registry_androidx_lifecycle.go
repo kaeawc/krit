@@ -17,7 +17,7 @@ func registerAndroidxLifecycleRules() {
 	vm := &ViewModelConstructorInComposableRule{BaseRule: BaseRule{RuleName: "ViewModelConstructorInComposable",
 		RuleSetName: "compose", Sev: "error",
 		Desc: "Detects ViewModels constructed directly in composition instead of through viewModel()."}}
-	registerAxlRule(vm.BaseRule, vm, []string{"call_expression"}, kotlin, axlRuleOptions{OptionalResolver: true}, vm.check)
+	registerAxlRule(vm.BaseRule, vm, []string{"call_expression"}, kotlin, axlRuleOptions{}, vm.check)
 
 	owner := &TestLifecycleOwnerInCoroutineRule{BaseRule: BaseRule{RuleName: "TestLifecycleOwnerInCoroutine",
 		RuleSetName: "android-lint", Sev: "error",
@@ -27,6 +27,5 @@ func registerAndroidxLifecycleRules() {
 	repeat := &RepeatOnLifecycleWrongUsageRule{BaseRule: BaseRule{RuleName: "RepeatOnLifecycleWrongUsage",
 		RuleSetName: "android-lint", Sev: "error",
 		Desc: "Detects repeatOnLifecycle reached from onStart or onResume of a Fragment or Activity instead of onCreate/onViewCreated."}}
-	registerAxlRule(repeat.BaseRule, repeat, []string{"class_declaration"}, kotlin, axlRuleOptions{OptionalResolver: true},
-		repeat.check)
+	registerAxlRule(repeat.BaseRule, repeat, []string{"class_declaration"}, kotlin, axlRuleOptions{}, repeat.check)
 }

@@ -9694,7 +9694,7 @@
           }
         },
         "RepeatOnLifecycleWrongUsage": {
-          "description": "Detects repeatOnLifecycle reached from onStart or onResume of a Fragment or Activity instead of onCreate/onViewCreated. [precision: ast-backed] [noisiness: normal]\nCaveat: Calls are followed into functions declared in the same file; Lint also follows them into other files.",
+          "description": "Detects repeatOnLifecycle reached from onStart or onResume of a Fragment or Activity instead of onCreate/onViewCreated. [precision: ast-backed] [noisiness: normal]\nCaveat: Calls are followed into functions declared in the same file; Lint also follows them into other files.\nCaveat: The Fragment or Activity ancestry is proven from the file alone (a supertype imported from androidx, or a same-file base class); a base class declared in another file is not followed until the per-file cache tracks cross-file inputs (#1778).",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -19218,7 +19218,7 @@
           }
         },
         "ViewModelConstructorInComposable": {
-          "description": "Detects ViewModels constructed directly in composition instead of through viewModel(). [precision: ast-backed] [noisiness: normal]\nCaveat: The constructed class must be proven to extend androidx.lifecycle.ViewModel through same-file classes, the type resolver's class hierarchy, or a ViewModel/AndroidViewModel supertype.\nCaveat: A lambda counts as composition only when the file proves its parameter is @Composable: a same-file declaration, a @Composable-annotated or -typed variable, or a known Compose content API (Column, Box, Scaffold, CompositionLocalProvider, lazy item content, ...).\nCaveat: Receivers must be proven by a same-file declaration or initializer; values typed only by inference across files are not checked.",
+          "description": "Detects ViewModels constructed directly in composition instead of through viewModel(). [precision: ast-backed] [noisiness: normal]\nCaveat: The constructed class must be declared in the same file and extend androidx.lifecycle.ViewModel through same-file classes and imports; a ViewModel declared in another file is not checked until the per-file cache tracks cross-file inputs (#1778).\nCaveat: A lambda counts as composition only when the file proves its parameter is @Composable: a same-file declaration, a @Composable-annotated or -typed variable, or a known Compose content API (Column, Box, Scaffold, CompositionLocalProvider, lazy item content, ...).\nCaveat: Receivers must be proven by a same-file declaration or initializer; values typed only by inference across files are not checked.",
           "type": "object",
           "additionalProperties": false,
           "properties": {

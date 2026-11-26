@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/kaeawc/krit/internal/librarymodel"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/typeinfer"
@@ -44,31 +45,84 @@ func runAxlRuleWithResolver(t *testing.T, ruleID string, sources map[string]stri
 	return nil
 }
 
-// The resolver's class hierarchy proves a ViewModel declared in another file, which the per-file parity harness
-// cannot (see testdata/androidx_lifecycle/compose/divergences.txt).
-func TestViewModelConstructorInComposableAcrossFiles(t *testing.T) {
+// The per-file findings cache is keyed by the file's own content (#1778), so the ViewModel ancestry is proven from
+// the file alone: a ViewModel declared in another file is not reported even when the resolver indexes it, and a
+// same-file one is.
+func TestViewModelConstructorInComposableIsFileLocal(t *testing.T) {
 	models := `package com.example
 
 import androidx.lifecycle.ViewModel
 
 open class BaseViewModel : ViewModel()
 class ChildViewModel : BaseViewModel()
-class Plain
 `
 	screen := `package com.example
 
 import androidx.compose.runtime.Composable
+import androidx.lifecycle.ViewModel
+
+class LocalViewModel : ViewModel()
 
 @Composable
 fun Screen() {
     val vm = ChildViewModel()
-    val plain = Plain()
+    val local = LocalViewModel()
 }
 `
 	got := runAxlRuleWithResolver(t, "ViewModelConstructorInComposable",
 		map[string]string{"Models.kt": models, "Screen.kt": screen}, "Screen.kt")
-	if len(got) != 1 || got[0].Line != 7 {
-		t.Fatalf("want one finding on line 7 (ChildViewModel), got %v", got)
+	if len(got) != 1 || got[0].Line != 11 {
+		t.Fatalf("want only the same-file LocalViewModel (line 11), got %v", got)
+	}
+}
+
+// #1759 review (P2): a `.lifecycle` property of a same-file class that is not a Lifecycle is not reported.
+func TestLifecycleCurrentStateNeedsLifecycleReceiver(t *testing.T) {
+	src := `package com.example
+
+import androidx.compose.material.Text
+import androidx.compose.runtime.Composable
+import androidx.lifecycle.LifecycleOwner
+
+class FakeLifecycle { val currentState = 0 }
+class Screen { val lifecycle = FakeLifecycle() }
+
+@Composable
+fun Status(screen: Screen, owner: LifecycleOwner, other: Unknown) {
+    Text("${screen.lifecycle.currentState}")
+    Text("${owner.lifecycle.currentState}")
+    Text("${other.lifecycle.currentState}")
+}
+`
+	got := runAxlRule(t, "LifecycleCurrentStateInComposition", "S.kt", src, librarymodel.ProjectProfile{})
+	var lines []int
+	for _, f := range got {
+		lines = append(lines, f.Line)
+	}
+	// Line 13 is a LifecycleOwner; line 14's owner type is not in the file, so the property name decides.
+	if len(lines) != 2 || lines[0] != 13 || lines[1] != 14 {
+		t.Fatalf("want findings on lines 13 and 14, got %v", lines)
+	}
+}
+
+// #1759 review (P3): as in the detector, an assignment to a local, or of a local, does not reset the verdict.
+func TestTestLifecycleOwnerInCoroutineLocalAssignments(t *testing.T) {
+	src := `package com.example
+
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.testing.TestLifecycleOwner
+import kotlinx.coroutines.test.runTest
+
+fun t() = runTest {
+    val owner = TestLifecycleOwner()
+    owner.currentState = Lifecycle.State.RESUMED
+    var x = 0
+    val y = 1
+    x = y
+}
+`
+	if got := runAxlRule(t, "TestLifecycleOwnerInCoroutine", "T.kt", src, librarymodel.ProjectProfile{}); len(got) != 1 {
+		t.Fatalf("want 1 finding, got %v", got)
 	}
 }
 

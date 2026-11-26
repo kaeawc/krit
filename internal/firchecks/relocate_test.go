@@ -4,6 +4,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -31,6 +32,21 @@ func copyTree(t *testing.T, src, dst string) {
 	if err != nil {
 		t.Fatal(err)
 	}
+}
+
+// neutralTempDir is a temp dir whose path holds no checker path-heuristic
+// token: t.TempDir() is named after the test, and "test" is one.
+func neutralTempDir(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "krit-reloc-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	if rootAffectsVerdicts(dir, nil) {
+		t.Skipf("temp dir %s contains a path-heuristic token", dir)
+	}
+	return dir
 }
 
 type relocationCheckout struct {
@@ -87,7 +103,7 @@ func (c relocationCheckout) invoke(t *testing.T, calls *int) *Result {
 // another absolute path, with the jars under another GRADLE_USER_HOME,
 // serves every unchanged file from the FIR cache.
 func TestFirCacheHitsAfterRelocatingCheckoutAndJars(t *testing.T) {
-	base := t.TempDir()
+	base := neutralTempDir(t)
 	first := newRelocationCheckout(t, filepath.Join(base, "agent-1", "repo"), filepath.Join(base, "home-1"))
 	calls := 0
 	first.invoke(t, &calls)
@@ -123,7 +139,7 @@ func TestFirCacheHitsAfterRelocatingCheckoutAndJars(t *testing.T) {
 
 // A changed jar under the new GRADLE_USER_HOME is a different input.
 func TestFirCacheMissesAfterRelocatingWithChangedJar(t *testing.T) {
-	base := t.TempDir()
+	base := neutralTempDir(t)
 	first := newRelocationCheckout(t, filepath.Join(base, "agent-1", "repo"), filepath.Join(base, "home-1"))
 	calls := 0
 	first.invoke(t, &calls)
@@ -135,5 +151,74 @@ func TestFirCacheMissesAfterRelocatingWithChangedJar(t *testing.T) {
 	second.invoke(t, &calls)
 	if calls != 2 {
 		t.Fatalf("a different dependency jar was served from the cache (calls = %d)", calls)
+	}
+}
+
+// Checkers apply path heuristics ("/samples/", "playground", configured
+// markers) to the absolute path, so a cache must not follow a checkout into
+// a root where one matches (review of #1776).
+func TestFirCacheMissesAfterRelocatingUnderAHeuristicDirectory(t *testing.T) {
+	for _, dest := range []string{filepath.Join("samples", "repo"), filepath.Join("work", "playground-app")} {
+		t.Run(dest, func(t *testing.T) {
+			base := neutralTempDir(t)
+			first := newRelocationCheckout(t, filepath.Join(base, "agent-1", "repo"), filepath.Join(base, "home"))
+			calls := 0
+			first.invoke(t, &calls)
+			copyTree(t, first.root, filepath.Join(base, dest))
+			second := newRelocationCheckout(t, filepath.Join(base, dest), filepath.Join(base, "home"))
+			second.invoke(t, &calls)
+			if calls != 2 {
+				t.Fatalf("a cache moved under %s was served (calls = %d)", dest, calls)
+			}
+		})
+	}
+}
+
+func TestRootAffectsVerdictsSeesConfiguredMarkers(t *testing.T) {
+	root := filepath.FromSlash("/work/acme-internal/repo")
+	if rootAffectsVerdicts(root, nil) {
+		t.Fatalf("%s holds no built-in token", root)
+	}
+	configs := RuleConfigs{"ComposeRawTextLiteral": {"nonProductionPathMarkers": []any{"acme-internal"}}}
+	if !rootAffectsVerdicts(root, configs) {
+		t.Fatal("a configured path marker inside the root must keep the root in the key")
+	}
+}
+
+// Every path-shaped literal a krit-fir path heuristic tests must contain one
+// of firPathHeuristicTokens, so a root holding it keeps the root in the key.
+// Adding a heuristic with a new marker fails here: add a token that covers it.
+func TestFirPathHeuristicTokensCoverCheckers(t *testing.T) {
+	src := filepath.Join("..", "..", "tools", "krit-fir", "src", "main", "kotlin")
+	uses := regexp.MustCompile(`containingScanPath\(|scanPath\(|isPrintToolingPath|isNonProductionPath|NON_PRODUCTION_DIRECTORIES`)
+	literal := regexp.MustCompile(`"([^"$\\]{2,60})"`)
+	// Path-shaped literals that are not directory markers.
+	notMarkers := map[string]bool{"*/": true, "/**": true, "...": true}
+	checked := 0
+	err := filepath.WalkDir(src, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(p, ".kt") {
+			return err
+		}
+		data, err := os.ReadFile(p)
+		if err != nil || !uses.Match(data) {
+			return err
+		}
+		for _, m := range literal.FindAllStringSubmatch(string(data), -1) {
+			lit := strings.ToLower(m[1])
+			if !strings.Contains(lit, "/") || notMarkers[lit] {
+				continue
+			}
+			checked++
+			if !rootAffectsVerdicts("/x/"+strings.Trim(lit, "/")+"/y", nil) {
+				t.Errorf("%s: path heuristic literal %q matches no firPathHeuristicTokens entry", p, m[1])
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Skipf("krit-fir sources unavailable: %v", err)
+	}
+	if checked == 0 {
+		t.Fatal("found no path heuristic literals: the scan no longer recognizes krit-fir's heuristics")
 	}
 }

@@ -102,6 +102,11 @@ func FirInvocationFingerprint(classpath []string, jarPath string, rules []string
 func firInvocationFingerprintAt(root string, classpath []string, jarPath string, rules []string, ruleConfigs RuleConfigs, facts FileFacts, target ...CompileTarget) string {
 	facts = facts.keyedUnder(root)
 	jarIdentity := buildid.JarToken(jarPath)
+	if root != "" && rootAffectsVerdicts(root, ruleConfigs) {
+		// The checkers see absolute paths; a heuristic could match in the
+		// root itself, so a cache moved to another root must miss.
+		jarIdentity += "\x00root:" + root
+	}
 	ids := slices.Clone(rules)
 	slices.Sort(ids)
 	ids = slices.Compact(ids)
@@ -118,7 +123,7 @@ func firInvocationFingerprintAt(root string, classpath []string, jarPath string,
 	if err != nil {
 		testsJSON = []byte(fmt.Sprintf("unencodable:%v", err))
 	}
-	fingerprint := cache.ComputeCacheKeyHash(nil, nil, false) + "\x00" + ClasspathFingerprint(classpath) + "\x00" + gradlemodel.ClasspathFingerprint(classpath) + "\x00" + jarIdentity + "\x00" +
+	fingerprint := cache.ComputeCacheKeyHash(nil, nil, false) + "\x00" + ClasspathFingerprint(classpath) + "\x00" + gradlemodel.ClasspathContentFingerprint(classpath) + "\x00" + jarIdentity + "\x00" +
 		strings.Join(ids, "\x00") + "\x00" + string(options) + "\x00" + string(testsJSON)
 	if compile := firstTarget(target); compile.JvmTarget != "" {
 		fingerprint += "\x00jvmTarget:" + compile.JvmTarget

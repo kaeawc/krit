@@ -406,6 +406,13 @@ another `GRADLE_USER_HOME`. Any changed input re-runs FIR for its
 compilation. On a 195-file module with an 80-jar classpath, a restored
 `.krit/` takes a `--fir` run from about 25 s to about 1.5 s.
 
+Some checkers apply path heuristics (`/samples/`, `playground`, configured
+`nonProductionPathMarkers`) to a file's absolute path. When the checkout root
+itself contains such a marker, or a word like `test`, `sample` or `debug`,
+the root stays part of the key and a cache moved there misses rather than
+replaying verdicts computed elsewhere. Typical CI workspace paths
+(`/home/runner/work/app/app`, `/builds/group/app`) don't.
+
 Restore the last build's `.krit/` before the scan and save it from the
 default branch:
 
@@ -428,10 +435,13 @@ steps:
       key: krit-${{ runner.os }}-${{ github.sha }}
 ```
 
-Restoring by prefix is safe: every cache checks its entries against the
-current content (the per-file analysis cache `.krit/cache/` compares git blob
-IDs, not "clean against HEAD"), so a cache from another commit only costs
-misses. `.krit/cache/` and the oracle caches still key on absolute paths and
+Restoring by prefix doesn't replay another commit's findings: the caches
+check their entries against the current content (the per-file analysis cache
+`.krit/cache/` compares git blob IDs, not "clean against HEAD"), so a cache
+from another commit only costs misses. One known gap applies to warm runs in
+general, not just to restored caches: `.krit/cache/` keys a file's findings
+by that file alone, so resolver-backed rules can keep a stale finding when a
+declaration in another file changes (#1778). `.krit/cache/` and the oracle caches still key on absolute paths and
 hit only when the checkout path is the same. `.krit/fir-incremental/` (the
 JVM's incremental state) is keyed by absolute paths and jar mtimes on the
 `krit-fir` side and is rebuilt after a move; restoring it is harmless.

@@ -160,7 +160,8 @@ func daggerIssueOf(file *scanner.File, fn uint32) (daggerIssue, bool) {
 	if receiver := daggerKotlinReceiverType(file, fn); receiver != 0 {
 		return daggerIssue{daggerBindingReceiverParameter, receiver}, true
 	}
-	// RedundantBinds and BindsTypeMismatch need the parameter and return types; not ported here.
+	// RedundantBinds is BindsReturnTypeMatchesParam; BindsTypeMismatch needs the project's class hierarchy and runs in
+	// thirdparty_dagger_crossfile.go once this returns no issue.
 	return daggerIssue{}, false
 }
 

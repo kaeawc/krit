@@ -217,6 +217,18 @@ rules instead: `BindsWrongParameterCount` is a Lint alias of `BindsMismatchedAri
   method covers;
 - `BindingReturnType` abstains on a Kotlin expression body without a declared type, unless the body is `Unit`.
 
+`BindsTypeMismatch` and `DoNotCallProviders` complete the Dagger checks and look across the project:
+
+- `BindsTypeMismatch` is the detector's last check: a `@Binds` method none of the earlier checks reported whose
+  parameter type is not assignable to its return type. krit reports it only when the return type is a project class
+  and the parameter is either a project class whose project supertypes never reach it, or a library type, which
+  cannot implement a project type. It abstains on a parameterized return type, a library return type and a parameter
+  type the source does not show.
+- `DoNotCallProviders` reports a call from main sources to a project method annotated `@Binds`, `@Provides` or
+  `@Produces`, unless the innermost class is annotated `@Generated`. The call is matched through the class name
+  (`Module.INSTANCE.m()` and `Module.Companion.m()` from Java too), the receiver's resolved or declared type, a
+  `with`/`run`/`apply` receiver, or the enclosing class. Provider methods in libraries are not seen.
+
 The `DoNotMock*` rules port `MockDetector` and, as in Lint, look only at test sources (`src/test`, `src/androidTest`
 and the other test source sets). A mock site is a call to one of the detector's default factories
 (`org.mockito.Mockito.mock`/`spy`, `org.mockito.kotlin.mock`/`spy`, `slack.test.mockito.mock`), also under an import

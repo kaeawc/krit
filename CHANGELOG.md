@@ -5,6 +5,8 @@ All notable changes to Krit will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Gradle plugin: `kritCheck` with custom rule jars writes every enabled report from one krit run (one
+  `--report FORMAT=PATH` each), like every other scan, instead of analyzing once per report (#1634).
 - FIR sessions resolve Java sources: every `.java` file under the source dirs, generated source dirs and unpacked
   srcjars (same-module Java, view binding, BuildConfig, Wire-Java, kapt/KSP Java output) is given to K2 as a Java
   source root, so Kotlin that uses them is no longer gated `Unresolved reference` on an unbuilt checkout. The Java is

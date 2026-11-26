@@ -197,6 +197,81 @@ func TestExternalRuleExample_EndToEnd(t *testing.T) {
 		}
 	})
 
+	t.Run("one run writes plugin findings to every report", func(t *testing.T) {
+		// #1634: the Gradle plugin's kritCheck passes one --report FORMAT=PATH
+		// per enabled report, custom rules included, so a single analysis run
+		// must carry the plugin findings into each file.
+		reports := t.TempDir()
+		jsonReport := filepath.Join(reports, "krit.json")
+		sarifReport := filepath.Join(reports, "krit.sarif")
+		// The same flags KritCheckTask passes with custom rule jars.
+		runKrit(t, kritBin, repoRoot,
+			"--custom-rule-jars", jarPath,
+			"--daemon",
+			"--no-cache",
+			"-q",
+			"--report", "json="+jsonReport,
+			"--report", "sarif="+sarifReport,
+			samplesDir,
+		)
+
+		var payload struct {
+			Findings []struct {
+				Line int    `json:"line"`
+				Rule string `json:"rule"`
+			} `json:"findings"`
+		}
+		data, err := os.ReadFile(jsonReport)
+		if err != nil {
+			t.Fatalf("read JSON report: %v", err)
+		}
+		if err := json.Unmarshal(data, &payload); err != nil {
+			t.Fatalf("invalid JSON report: %v\n%s", err, data)
+		}
+		var jsonLines []int
+		for _, finding := range payload.Findings {
+			if finding.Rule == ruleID {
+				jsonLines = append(jsonLines, finding.Line)
+			}
+		}
+		if len(jsonLines) != 1 || jsonLines[0] != expectedPrintlnLine {
+			t.Fatalf("JSON report %s lines = %v, want [%d]", ruleID, jsonLines, expectedPrintlnLine)
+		}
+
+		var sarif struct {
+			Runs []struct {
+				Results []struct {
+					RuleID    string `json:"ruleId"`
+					Locations []struct {
+						PhysicalLocation struct {
+							Region struct {
+								StartLine int `json:"startLine"`
+							} `json:"region"`
+						} `json:"physicalLocation"`
+					} `json:"locations"`
+				} `json:"results"`
+			} `json:"runs"`
+		}
+		data, err = os.ReadFile(sarifReport)
+		if err != nil {
+			t.Fatalf("read SARIF report: %v", err)
+		}
+		if err := json.Unmarshal(data, &sarif); err != nil {
+			t.Fatalf("invalid SARIF report: %v\n%s", err, data)
+		}
+		var sarifLines []int
+		for _, run := range sarif.Runs {
+			for _, result := range run.Results {
+				if result.RuleID == ruleID && len(result.Locations) > 0 {
+					sarifLines = append(sarifLines, result.Locations[0].PhysicalLocation.Region.StartLine)
+				}
+			}
+		}
+		if len(sarifLines) != 1 || sarifLines[0] != expectedPrintlnLine {
+			t.Fatalf("SARIF report %s lines = %v, want [%d]", ruleID, sarifLines, expectedPrintlnLine)
+		}
+	})
+
 	t.Run("baseline captures and suppresses plugin findings", func(t *testing.T) {
 		// Issue #307: plugin findings must participate in baselines —
 		// write a baseline, then re-run with --baseline and confirm the

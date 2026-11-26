@@ -262,6 +262,19 @@ Differences from Lint:
   others stay silent;
 - `DoNotMockRecordClass` also reports Java records, which Lint 0.11.1's own tests leave out pending Lint support.
 
+`DenyListedApi` and `DenyListedBlockingApi` port `DenyListedApiDetector`'s fixed list for Kotlin and Java: RxJava 3
+`hide()` and `blocking*()` calls, `Schedulers.newThread()`, `ContextCompat.getDrawable(context, id)`, Espresso's
+`withId()`, `View.setOnClickListener(null)`, `Flow.launchIn()`, the kotlinx-coroutines-rx3 builders called without a
+dispatcher, `runCatching`, the `LinkedList`, `Stack` and `Vector` constructors, and every method, constructor and
+static field of `java.util.Date`, `java.util.Calendar` and `java.text.DateFormat`/`SimpleDateFormat`, including
+static field imports and Kotlin property access (`date.time`). An instance call needs the receiver's type from the
+source resolver or a declared type, so a receiver krit cannot type is not reported. As in Lint 0.11.1, the list's
+`ResourcesCompat.getDrawable`, `ViewPager2.setId` and `runBlocking` entries never match. Differences from Lint:
+
+- a same-file top-level `runCatching` shadows kotlin's, as the Kotlin compiler resolves it; Lint still reports it;
+- the detector also reports layout XML tags named after a listed constructor's class (`<java.util.LinkedList>`,
+  which no real layout contains); krit does not check layouts.
+
 `InclusiveNaming` ports `InclusiveNamingSourceCodeScanner` for Kotlin and Java. It reports nothing until its
 `blockList` option (Lint's `block-list`) lists words, for example:
 

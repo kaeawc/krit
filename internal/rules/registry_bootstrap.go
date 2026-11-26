@@ -148,12 +148,12 @@ func init() {
 	registerThirdPartyResourceAliasRules()
 	registerThirdPartyAnnotationRules()
 	registerThirdPartyMockingRules()
+	registerThirdPartyViewCheckRules()
 	registerThirdPartyDaggerRules()
 	registerThirdPartyKotlinCheckRules()
 	registerThirdPartyRxRules()
 	registerThirdPartyInclusiveRules()
 	registerThirdPartyDenyListRules()
-	registerThirdPartyViewCheckRules()
 
 	applySecurityTaxonomy()
 }

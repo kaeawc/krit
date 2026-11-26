@@ -251,7 +251,7 @@ near-zero on a warm run.
 
 | Flag | What it disables |
 |---|---|
-| `--no-cache` | Incremental analysis cache (findings reuse) and the `--fir` check cache `.krit/fir-cache` and the incremental FIR bundle `.krit/fir-incremental` (neither read nor written; applies to daemon-delegated scans too) |
+| `--no-cache` | Every cache that serves findings: the incremental analysis cache, the cross-file findings cache `.krit/cross-findings-cache`, the findings bundle and the Android findings cache, plus the `--fir` check cache `.krit/fir-cache` and the incremental FIR bundle `.krit/fir-incremental` (none read nor written; applies to daemon-delegated scans too). Index caches (parse, cross-file index, resource) keep their own flags |
 | `--no-parse-cache` | Tree-sitter parse-tree cache |
 | `--no-resource-cache` | Android values-XML ResourceIndex cache |
 | `--no-cross-file-cache` | Cross-file index cache |
@@ -432,7 +432,7 @@ The corpora are the pinned `nowinandroid` and `okhttp` commits from
 gen`: modules, manifests with activities/services/receivers/providers,
 component classes behind base classes, Compose functions, resources), and
 `playground/android-app`. Each scan is source-only and cold: `--no-fir --no-type-oracle --no-daemon`,
-every on-disk cache off (`--no-cache` covers only the incremental and FIR
+every on-disk cache off (`--no-cache` covers the caches that serve findings and the FIR
 caches, so `--no-parse-cache --no-cross-file-cache --no-resource-cache` too),
 and the corpus's `.krit/` deleted before each run.
 

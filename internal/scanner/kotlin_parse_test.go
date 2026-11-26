@@ -217,3 +217,68 @@ func TestSingleAnnotationFunctionUnchanged(t *testing.T) {
 		t.Fatalf("top level = %s", got)
 	}
 }
+
+// Regression for #1613: a top-level accessor on its own line with one
+// annotation and a block body parsed as a call to `get`/`set` with a trailing
+// lambda, so rules never saw the accessor or its annotation.
+func TestTopLevelAnnotatedAccessorsAreAccessors(t *testing.T) {
+	src := "import androidx.compose.runtime.Composable\n\n" +
+		"val Prop: Int\n    @Composable get() {\n        GlobalScope.launch {}\n        return 1\n    }\n\n" +
+		"var S: Int = 0\n    @Composable get() { return 1 }\n    @Deprecated(\"x\") set(value) { field = value }\n\n" +
+		"fun last() {}\n"
+	ft, content := parseSynthetic(t, src)
+	if got := strings.Join(topLevelTypes(ft), ","); got != "import_list,property_declaration,getter,property_declaration,getter,setter,function_declaration" {
+		t.Fatalf("top level = %s", got)
+	}
+	for i, want := range []string{"@Composable get() {", "@Composable get() { return 1 }", "@Deprecated(\"x\") set(value) { field = value }"} {
+		typ := "getter"
+		n := i
+		if i == 2 {
+			typ, n = "setter", 0
+		}
+		acc := topLevelOfType(ft, typ, n)
+		if got := string(content[ft.StartBytes[acc]:ft.EndBytes[acc]]); !strings.HasPrefix(got, want) {
+			t.Fatalf("%s %d spans %q, want prefix %q", typ, n, got, want)
+		}
+		mods := childOfType(ft, acc, "modifiers")
+		if mods == 0 || childOfType(ft, mods, "annotation") == 0 {
+			t.Fatalf("%s %d: annotation not under modifiers", typ, n)
+		}
+		body := childOfType(ft, acc, "function_body")
+		if body == 0 || childOfType(ft, body, "statements") == 0 {
+			t.Fatalf("%s %d: no function_body statements", typ, n)
+		}
+	}
+	setter := topLevelOfType(ft, "setter", 0)
+	if childOfType(ft, setter, "parameter_with_optional_type") == 0 {
+		t.Fatal("setter parameter not recovered")
+	}
+}
+
+// The fixture from #1613 parses the accessor as a bare top-level annotation
+// followed by the call, rather than one prefix_expression.
+func TestTopLevelAnnotatedAccessorAfterBareAnnotation(t *testing.T) {
+	src := "package c\n\nimport androidx.compose.runtime.Composable\n\n" +
+		"@Composable\nfun Accessor(scope: CoroutineScope) = Unit\n\n" +
+		"val Prop: Int\n    @Composable get() {\n        GlobalScope.launch {}\n        return 1\n    }\n"
+	ft, _ := parseSynthetic(t, src)
+	if got := strings.Join(topLevelTypes(ft), ","); got != "package_header,import_list,function_declaration,property_declaration,getter" {
+		t.Fatalf("top level = %s", got)
+	}
+	getter := topLevelOfType(ft, "getter", 0)
+	if mods := childOfType(ft, getter, "modifiers"); mods == 0 || childOfType(ft, mods, "annotation") == 0 {
+		t.Fatal("annotation not under the getter's modifiers")
+	}
+}
+
+func TestTopLevelAnnotatedCallsThatAreNotAccessorsUnchanged(t *testing.T) {
+	for _, src := range []string{
+		"val p: Int\n    @Composable get() { x -> 1 }\n",
+		"val p: Int\n    @Composable foo() { }\n",
+	} {
+		ft, _ := parseSynthetic(t, src)
+		if got := strings.Join(topLevelTypes(ft), ","); got != "property_declaration,prefix_expression" {
+			t.Fatalf("%q: top level = %s", src, got)
+		}
+	}
+}

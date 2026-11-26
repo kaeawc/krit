@@ -13,9 +13,12 @@ import (
 )
 
 // CompilationSources lists every file krit-fir compiles for sourceDirs: each
-// `.kt` file under them, with none of the pruning CollectKtFiles applies.
-// Generated sources under build directories and ignored paths are in the
-// compilation, so their changes must reach the fingerprint too.
+// `.kt` file under them, with none of the pruning CollectKtFiles applies, and
+// each `.java` file, which krit-fir hands to K2 as a Java source root so
+// Kotlin resolves against it. Generated sources under build directories and
+// ignored paths are in the compilation, so their changes must reach the
+// fingerprint too; so must a Java edit, which can change a Kotlin verdict
+// without changing any Kotlin source.
 func CompilationSources(sourceDirs []string) []string {
 	seen := map[string]bool{}
 	var out []string
@@ -24,7 +27,7 @@ func CompilationSources(sourceDirs []string) []string {
 			if err != nil {
 				return nil //nolint:nilerr // skip an unreadable entry and keep walking
 			}
-			if !d.IsDir() && strings.HasSuffix(p, ".kt") && !seen[p] {
+			if !d.IsDir() && (strings.HasSuffix(p, ".kt") || strings.HasSuffix(p, ".java")) && !seen[p] {
 				seen[p] = true
 				out = append(out, p)
 			}

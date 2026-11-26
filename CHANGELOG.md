@@ -5,6 +5,12 @@ All notable changes to Krit will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- FIR sessions resolve Java sources: every `.java` file under the source dirs, generated source dirs and unpacked
+  srcjars (same-module Java, view binding, BuildConfig, Wire-Java, kapt/KSP Java output) is given to K2 as a Java
+  source root, so Kotlin that uses them is no longer gated `Unresolved reference` on an unbuilt checkout. The Java is
+  read for resolution only, never checked. A Java edit changes krit-fir's compile key and the Go FIR and oracle cache
+  fingerprints, so no stale verdict is served (#1626, #1630).
+  longer gated; generated Java is resolved too (#1626). Each srcjar is unpacked once into
 
 - `CompileTimeConstant`, a partial port of Android Lint 32.4.1's `CompileTimeConstantDetector` under its Lint ID for
   Kotlin and Java, checked against the Lint CLI on the same inputs. For callees and variables declared in the same

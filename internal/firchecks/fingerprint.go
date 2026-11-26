@@ -147,8 +147,8 @@ func FirInvocationFingerprint(classpath []string, jarPath string, rules []string
 // CheckCacheFingerprint is the closure fingerprint every FIR finding cache
 // entry is validated against: the invocation (classpath, jar, rules,
 // options, file facts) plus the whole compilation the check
-// runs, i.e. every `.kt` under sourceDirs and every requested file, by path
-// and content. krit-fir compiles
+// runs, i.e. every `.kt` and `.java` under sourceDirs and every requested
+// file, by path and content. krit-fir compiles
 // the module as one unit, so a file's findings can change when any other
 // source in it changes; keying on the compilation makes any source edit
 // invalidate every cached FIR verdict (coarse but correct, the same trade-off
@@ -159,7 +159,8 @@ func CheckCacheFingerprint(sourceDirs, files, classpath []string, jarPath string
 }
 
 // checkCompilation fingerprints the compilation a check of files runs:
-// every `.kt` under sourceDirs plus the requested files, by path and content.
+// every `.kt` and `.java` under sourceDirs plus the requested files, by path
+// and content.
 func checkCompilation(sourceDirs, files, classpath []string, jarPath string) string {
 	return oracle.CompilationFingerprint(checkCompilationSources(sourceDirs, files), classpath, jarPath)
 }

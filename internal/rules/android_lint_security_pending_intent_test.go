@@ -1,6 +1,7 @@
 package rules_test
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -174,5 +175,68 @@ class L {
 `
 	if got := runAndroidSecurityProjectRule(t, "MutableImplicitPendingIntent", "L.java", 21, 34, java); len(got) != 0 {
 		t.Fatalf("reported an intent of unknown origin: %v", got)
+	}
+}
+
+// #1622: getActivities intents built with listOf(...).toTypedArray() or arrayOfNulls plus indexed assignments, local
+// intent arrays, and let/run/with blocks that return the intent are followed. Lines marked `// report` are expected
+// findings; the rest abstain or are explicit.
+const mutableImplicitFollowSource = `package test.pkg
+
+import android.app.PendingIntent
+import android.app.PendingIntent.FLAG_MUTABLE
+import android.content.Context
+import android.content.Intent
+
+class Target
+
+class P(private val context: Context) {
+    fun lists() {
+        PendingIntent.getActivities(context, 0, listOf(Intent("a")).toTypedArray(), FLAG_MUTABLE) // report
+        PendingIntent.getActivities(context, 0, listOf(Intent(context, Target::class.java)).toTypedArray(), FLAG_MUTABLE)
+        PendingIntent.getActivities(context, 0, mutableListOf(Intent(context, Target::class.java), Intent("b")).toTypedArray(), FLAG_MUTABLE) // report
+        val arr = arrayOf(Intent("c"))
+        PendingIntent.getActivities(context, 0, arr, FLAG_MUTABLE) // report
+        val list = listOf(Intent(context, Target::class.java))
+        PendingIntent.getActivities(context, 0, list.toTypedArray(), FLAG_MUTABLE)
+        val nulls = arrayOfNulls<Intent>(2)
+        nulls[0] = Intent(context, Target::class.java)
+        nulls[1] = Intent("d")
+        PendingIntent.getActivities(context, 0, nulls, FLAG_MUTABLE) // report
+        val explicitNulls = arrayOfNulls<Intent>(1)
+        explicitNulls[0] = Intent(context, Target::class.java)
+        PendingIntent.getActivities(context, 0, explicitNulls, FLAG_MUTABLE)
+        val escaped = arrayOfNulls<Intent>(1)
+        escaped[0] = Intent("e")
+        consume(escaped)
+        PendingIntent.getActivities(context, 0, escaped, FLAG_MUTABLE)
+    }
+    fun scopes() {
+        PendingIntent.getActivity(context, 0, Intent("a").let { it.putExtra("k", 1); it }, FLAG_MUTABLE) // report
+        PendingIntent.getActivity(context, 0, Intent("a").let { it.setPackage("p"); it }, FLAG_MUTABLE)
+        PendingIntent.getActivity(context, 0, Intent("a").run { putExtra("k", 1); this }, FLAG_MUTABLE) // report
+        PendingIntent.getActivity(context, 0, Intent("a").run { setPackage("p"); this }, FLAG_MUTABLE)
+        PendingIntent.getActivity(context, 0, with(Intent("a")) { action = "b"; this }, FLAG_MUTABLE) // report
+        PendingIntent.getActivity(context, 0, with(Intent("a")) { setClassName("p", "c"); this }, FLAG_MUTABLE)
+        val viaLet = Intent("a").let { i -> i.addFlags(1); i }
+        PendingIntent.getActivity(context, 0, viaLet, FLAG_MUTABLE) // report
+        PendingIntent.getActivity(context, 0, Intent("a").let { other(it) }, FLAG_MUTABLE)
+        PendingIntent.getActivity(context, 0, Intent("a").run { consume(this); this }, FLAG_MUTABLE)
+    }
+    fun consume(any: Any?) {}
+    fun other(i: Intent): Intent = i
+}
+`
+
+func TestMutableImplicitPendingIntentFollowsListsArraysAndScopeBlocks(t *testing.T) {
+	findings := runAndroidSecurityProjectRule(t, "MutableImplicitPendingIntent", "P.kt", 21, 34, mutableImplicitFollowSource)
+	var want []string
+	for i, line := range strings.Split(mutableImplicitFollowSource, "\n") {
+		if strings.HasSuffix(line, "// report") {
+			want = append(want, fmt.Sprintf("%d:9", i+1))
+		}
+	}
+	if got := findingPositions(findings); got != strings.Join(want, ",") {
+		t.Fatalf("positions = %s, want %s", got, strings.Join(want, ","))
 	}
 }

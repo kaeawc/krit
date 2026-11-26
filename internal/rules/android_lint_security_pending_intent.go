@@ -93,13 +93,23 @@ func intentExpressionImplicit(file *scanner.File, expr, pendingCall uint32, dept
 	}
 	switch file.FlatType(expr) {
 	case "call_expression":
-		if call, ok := lintCallAt(file, expr); ok && call.ReceiverNode == 0 && (call.Name == "arrayOf") {
-			for _, arg := range call.Args {
-				if intentExpressionImplicit(file, arg, pendingCall, depth+1) {
-					return true
+		if call, ok := lintCallAt(file, expr); ok {
+			switch {
+			case call.ReceiverNode == 0 && intentCollectionFactories[call.Name]:
+				for _, arg := range call.Args {
+					if intentExpressionImplicit(file, arg, pendingCall, depth+1) {
+						return true
+					}
 				}
+				return false
+			case call.ReceiverNode != 0 && call.Name == "toTypedArray" && len(call.Args) == 0:
+				// listOf(...).toTypedArray(), or a local list (#1622).
+				return intentExpressionImplicit(file, call.ReceiverNode, pendingCall, depth+1)
 			}
-			return false
+		}
+	case "simple_identifier", "identifier":
+		if implicit, ok := intentLocalArrayImplicit(file, file.FlatNodeText(expr), expr, pendingCall, depth); ok {
+			return implicit
 		}
 	case "array_creation_expression":
 		init, ok := file.FlatFindChild(expr, "array_initializer")
@@ -117,6 +127,90 @@ func intentExpressionImplicit(file *scanner.File, expr, pendingCall uint32, dept
 	return ok && state.implicit()
 }
 
+// intentWithBlockState classifies `with(intent) { ...; this }` (#1622), which parses as a call wrapping
+// `with(intent)` with the trailing lambda. isWith is false for any other expression.
+func intentWithBlockState(file *scanner.File, expr, pendingCall uint32, depth int) (state intentState, ok, isWith bool) {
+	inner := file.FlatFirstChild(expr)
+	if inner == 0 || file.FlatType(inner) != "call_expression" || intentTrailingLambda(file, expr) == 0 {
+		return intentState{}, false, false
+	}
+	call, ok := lintCallAt(file, inner)
+	if !ok || call.ReceiverNode != 0 || call.Name != "with" || len(call.Args) != 1 {
+		return intentState{}, false, false
+	}
+	state, ok = intentStateOf(file, call.Args[0], pendingCall, depth+1)
+	if !ok || !intentScopeBlockApply(file, lintCall{File: file, Idx: expr}, &state, false, true) {
+		return intentState{}, false, true
+	}
+	return state, true, true
+}
+
+// intentCollectionFactories build an array or list of intents from their arguments.
+var intentCollectionFactories = lintStringSet("arrayOf", "listOf", "mutableListOf", "arrayListOf")
+
+// intentLocalArrayImplicit classifies a local variable holding intents for getActivities: initialized with an array
+// or list of intents, or with arrayOfNulls(n) and then filled by indexed assignments before the call. ok is false
+// when the local is not such a collection; any other use of it before the call is an escape, which abstains.
+func intentLocalArrayImplicit(file *scanner.File, name string, ref, pendingCall uint32, depth int) (implicit, ok bool) {
+	assignNode, value, fn, found := intentLocalAssignment(file, name, pendingCall)
+	if !found {
+		return false, false
+	}
+	value = lintSkipParensPI(file, value)
+	call, isCall := lintCallAt(file, value)
+	if !isCall {
+		return false, false
+	}
+	nulls := call.ReceiverNode == 0 && call.Name == "arrayOfNulls"
+	collection := nulls || (call.ReceiverNode == 0 && intentCollectionFactories[call.Name]) ||
+		(call.ReceiverNode != 0 && call.Name == "toTypedArray")
+	if !collection {
+		return false, false
+	}
+	callStart := file.FlatStartByte(pendingCall)
+	var filled []uint32
+	escaped := false
+	file.FlatWalkAllNodes(fn, func(n uint32) {
+		if escaped || n == ref {
+			return
+		}
+		switch file.FlatType(n) {
+		case "simple_identifier", "identifier":
+		default:
+			return
+		}
+		if file.FlatNodeText(n) != name || file.FlatStartByte(n) <= file.FlatEndByte(value) || file.FlatStartByte(n) >= callStart ||
+			piContains(file, assignNode, n) {
+			return
+		}
+		// `name[i] = intent`: the only use that keeps the collection known.
+		if dae, ok := file.FlatParent(n); ok && file.FlatType(dae) == "directly_assignable_expression" && file.FlatNamedChild(dae, 0) == n {
+			if _, indexed := file.FlatFindChild(dae, "indexing_suffix"); indexed {
+				if assign, ok := file.FlatParent(dae); ok && file.FlatType(assign) == "assignment" {
+					filled = append(filled, file.FlatNamedChild(assign, file.FlatNamedChildCount(assign)-1))
+					return
+				}
+			}
+		}
+		escaped = true
+	})
+	if escaped {
+		return false, true
+	}
+	if nulls {
+		for _, v := range filled {
+			if intentExpressionImplicit(file, v, pendingCall, depth+1) {
+				return true, true
+			}
+		}
+		return false, true
+	}
+	if len(filled) > 0 {
+		return false, true
+	}
+	return intentExpressionImplicit(file, value, pendingCall, depth+1), true
+}
+
 // intentStateOf classifies an intent-valued expression: a constructor call, a chain of calls on one, or a local
 // variable assigned in the same function.
 func intentStateOf(file *scanner.File, expr, pendingCall uint32, depth int) (intentState, bool) {
@@ -129,6 +223,9 @@ func intentStateOf(file *scanner.File, expr, pendingCall uint32, depth int) (int
 	}
 	switch file.FlatType(expr) {
 	case "call_expression", "method_invocation":
+		if state, ok, isWith := intentWithBlockState(file, expr, pendingCall, depth); isWith {
+			return state, ok
+		}
 		call, ok := lintCallAt(file, expr)
 		if !ok || call.ReceiverNode == 0 {
 			return intentState{}, false
@@ -227,7 +324,12 @@ func intentAfterCall(file *scanner.File, state intentState, call lintCall) inten
 	case "setClass", "setClassName":
 		state.component = true
 	case "apply", "also":
-		if !intentScopeBlockKnown(file, call, &state, name == "also") {
+		if len(call.Args) != 0 || !intentScopeBlockApply(file, call, &state, name == "also", false) {
+			state.escaped = true
+		}
+	case "let", "run":
+		// The block's value is the call's value: followed only when it returns the scope object (#1622).
+		if len(call.Args) != 0 || !intentScopeBlockApply(file, call, &state, name == "let", true) {
 			state.escaped = true
 		}
 	default:
@@ -250,18 +352,12 @@ var intentMethods = lintStringSet(
 var intentProperties = lintStringSet("action", "data", "type", "flags", "selector", "clipData", "identifier",
 	"sourceBounds")
 
-// intentScopeBlockKnown applies the statements of an apply or also block on the intent. It reports false when a
-// statement is anything but an Intent setter call or property assignment on the scope object.
-func intentScopeBlockKnown(file *scanner.File, call lintCall, state *intentState, viaIt bool) bool {
-	if len(call.Args) != 0 {
-		return false
-	}
-	lambda := uint32(0)
-	file.FlatWalkNodes(call.Idx, "lambda_literal", func(n uint32) {
-		if lambda == 0 {
-			lambda = n
-		}
-	})
+// intentScopeBlockApply applies the statements of the trailing scope block (apply, also, let, run or with) on the
+// intent: viaIt for blocks that name it as a parameter (also, let), receiver for the others. With returnsSelf the
+// last statement must be the scope object, which the block returns. It reports false when any statement is anything
+// but an Intent setter call or property assignment on the scope object.
+func intentScopeBlockApply(file *scanner.File, call lintCall, state *intentState, viaIt, returnsSelf bool) bool {
+	lambda := intentTrailingLambda(file, call.Idx)
 	if lambda == 0 {
 		return false
 	}
@@ -277,14 +373,25 @@ func intentScopeBlockKnown(file *scanner.File, call lintCall, state *intentState
 	} else if _, ok := file.FlatFindChild(lambda, "lambda_parameters"); ok {
 		return false
 	}
-	stmts, ok := file.FlatFindChild(lambda, "statements")
-	if !ok {
-		return true
-	}
-	for stmt := file.FlatFirstChild(stmts); stmt != 0; stmt = file.FlatNextSib(stmt) {
-		if !file.FlatIsNamed(stmt) {
-			continue
+	var stmts []uint32
+	if block, ok := file.FlatFindChild(lambda, "statements"); ok {
+		for stmt := file.FlatFirstChild(block); stmt != 0; stmt = file.FlatNextSib(stmt) {
+			if file.FlatIsNamed(stmt) {
+				stmts = append(stmts, stmt)
+			}
 		}
+	}
+	if returnsSelf {
+		if len(stmts) == 0 {
+			return false
+		}
+		last := strings.TrimSpace(file.FlatNodeText(stmts[len(stmts)-1]))
+		if (viaIt && last != self) || (!viaIt && last != "this") {
+			return false
+		}
+		stmts = stmts[:len(stmts)-1]
+	}
+	for _, stmt := range stmts {
 		switch file.FlatType(stmt) {
 		case "call_expression":
 			inner, ok := lintCallAt(file, stmt)
@@ -295,7 +402,8 @@ func intentScopeBlockKnown(file *scanner.File, call lintCall, state *intentState
 			if (viaIt && recv != self) || (!viaIt && recv != "" && recv != "this") {
 				return false
 			}
-			if inner.Name == "apply" || inner.Name == "also" {
+			switch inner.Name {
+			case "apply", "also", "let", "run", "with":
 				return false
 			}
 			*state = intentAfterCall(file, *state, inner)
@@ -311,6 +419,22 @@ func intentScopeBlockKnown(file *scanner.File, call lintCall, state *intentState
 		}
 	}
 	return true
+}
+
+// intentTrailingLambda returns the trailing lambda of a call, or 0.
+func intentTrailingLambda(file *scanner.File, call uint32) uint32 {
+	var lambda uint32
+	for suffix := file.FlatFirstChild(call); suffix != 0; suffix = file.FlatNextSib(suffix) {
+		if file.FlatType(suffix) != "call_suffix" {
+			continue
+		}
+		if annotated, ok := file.FlatFindChild(suffix, "annotated_lambda"); ok {
+			if l, ok := file.FlatFindChild(annotated, "lambda_literal"); ok {
+				lambda = l
+			}
+		}
+	}
+	return lambda
 }
 
 // intentPropertyAssignment applies `owner.prop = value` (or `prop = value` inside apply when owner is "") to the
@@ -345,50 +469,11 @@ func intentPropertyAssignment(file *scanner.File, assign uint32, owner string, s
 // intentLocalState classifies a local variable at the PendingIntent call: its last assignment before the call, then
 // every use between that assignment and the call.
 func intentLocalState(file *scanner.File, name string, ref, pendingCall uint32, depth int) (intentState, bool) {
-	fn, ok := flatEnclosingCallable(file, pendingCall)
-	if !ok || lintNameIsParameterAt(file, pendingCall, name) {
+	assignNode, value, fn, ok := intentLocalAssignment(file, name, pendingCall)
+	if !ok {
 		return intentState{}, false
 	}
 	callStart := file.FlatStartByte(pendingCall)
-	// The last assignment before the call, as a declaration initializer or a plain assignment.
-	var assignNode, value uint32
-	consider := func(node, v uint32) {
-		if v == 0 || file.FlatStartByte(node) >= callStart {
-			return
-		}
-		if assignNode == 0 || file.FlatStartByte(node) > file.FlatStartByte(assignNode) {
-			assignNode, value = node, v
-		}
-	}
-	file.FlatWalkNodes(fn, "property_declaration", func(decl uint32) {
-		if vd, ok := file.FlatFindChild(decl, "variable_declaration"); ok && lintDeclaredName(file, vd) == name {
-			consider(decl, lintInitializerAfterEquals(file, decl))
-		}
-	})
-	file.FlatWalkNodes(fn, "variable_declarator", func(decl uint32) {
-		if id, ok := file.FlatFindChild(decl, "identifier"); ok && file.FlatNodeText(id) == name {
-			consider(decl, lintInitializerAfterEquals(file, decl))
-		}
-	})
-	for _, kind := range []string{"assignment", "assignment_expression"} {
-		file.FlatWalkNodes(fn, kind, func(assign uint32) {
-			lhs := file.FlatNamedChild(assign, 0)
-			if strings.TrimSpace(file.FlatNodeText(lhs)) == name {
-				consider(assign, file.FlatNamedChild(assign, file.FlatNamedChildCount(assign)-1))
-			}
-		})
-	}
-	if assignNode == 0 {
-		return intentState{}, false
-	}
-	// The assignment must reach the call on every path: its block has to enclose the call.
-	block, ok := file.FlatParent(assignNode)
-	if file.FlatType(block) == "local_variable_declaration" || file.FlatType(block) == "expression_statement" {
-		block, ok = file.FlatParent(block)
-	}
-	if !ok || !piContains(file, block, pendingCall) {
-		return intentState{}, false
-	}
 	state, ok := intentStateOf(file, value, pendingCall, depth+1)
 	if !ok {
 		return intentState{}, false
@@ -418,6 +503,54 @@ func intentLocalState(file *scanner.File, name string, ref, pendingCall uint32, 
 		return intentState{}, false
 	}
 	return state, true
+}
+
+// intentLocalAssignment finds a local variable's last assignment before the PendingIntent call, as a declaration
+// initializer or a plain assignment, in a block that encloses the call. It also returns the enclosing function.
+func intentLocalAssignment(file *scanner.File, name string, pendingCall uint32) (assignNode, value, fn uint32, found bool) {
+	fn, ok := flatEnclosingCallable(file, pendingCall)
+	if !ok || lintNameIsParameterAt(file, pendingCall, name) {
+		return 0, 0, 0, false
+	}
+	callStart := file.FlatStartByte(pendingCall)
+	consider := func(node, v uint32) {
+		if v == 0 || file.FlatStartByte(node) >= callStart {
+			return
+		}
+		if assignNode == 0 || file.FlatStartByte(node) > file.FlatStartByte(assignNode) {
+			assignNode, value = node, v
+		}
+	}
+	file.FlatWalkNodes(fn, "property_declaration", func(decl uint32) {
+		if vd, ok := file.FlatFindChild(decl, "variable_declaration"); ok && lintDeclaredName(file, vd) == name {
+			consider(decl, lintInitializerAfterEquals(file, decl))
+		}
+	})
+	file.FlatWalkNodes(fn, "variable_declarator", func(decl uint32) {
+		if id, ok := file.FlatFindChild(decl, "identifier"); ok && file.FlatNodeText(id) == name {
+			consider(decl, lintInitializerAfterEquals(file, decl))
+		}
+	})
+	for _, kind := range []string{"assignment", "assignment_expression"} {
+		file.FlatWalkNodes(fn, kind, func(assign uint32) {
+			lhs := file.FlatNamedChild(assign, 0)
+			if strings.TrimSpace(file.FlatNodeText(lhs)) == name {
+				consider(assign, file.FlatNamedChild(assign, file.FlatNamedChildCount(assign)-1))
+			}
+		})
+	}
+	if assignNode == 0 {
+		return 0, 0, 0, false
+	}
+	// The assignment must reach the call on every path: its block has to enclose the call.
+	block, ok := file.FlatParent(assignNode)
+	if file.FlatType(block) == "local_variable_declaration" || file.FlatType(block) == "expression_statement" {
+		block, ok = file.FlatParent(block)
+	}
+	if !ok || !piContains(file, block, pendingCall) {
+		return 0, 0, 0, false
+	}
+	return assignNode, value, fn, true
 }
 
 // intentUse applies one use of the intent variable: a call on it, or an assignment to one of its properties. It

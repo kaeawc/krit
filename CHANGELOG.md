@@ -563,6 +563,10 @@ All notable changes to Krit will be documented in this file.
   `ContextCompat.registerReceiver`, without `RECEIVER_NOT_EXPORTED` or a broadcast permission, as an unprotected
   component, and follows the incoming intent into helpers declared in other files: imported or same-package top-level
   functions and members of project classes or objects (`Launcher.launch(this, intent)`) (#1623).
+- `UnsafeNativeCodeLocation` reads the assets folders of every source set of the module (`src/debug/assets`,
+  `src/<flavor>/assets`, ...) and the `res/raw*` folders of the other source sets' res directories, not only those
+  beside `src/main/res`; test source sets are skipped. The resource cache key now covers those assets folders, so an
+  ELF binary added under `src/debug/assets` invalidates cached findings (#1619).
 - `UnsanitizedFilenameFromContentProvider` proves a Cursor local whose type is inferred from its initializer:
   `ContentResolver.query`, `SQLiteDatabase.query`/`rawQuery` and their variants (also through `!!` or an Elvis that
   returns or throws), or a call to a function or method in the same file declared to return `Cursor`, in Kotlin and

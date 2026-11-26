@@ -90,29 +90,30 @@ func resDirManifestFingerprint(resDir string) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// resDirAssetsFingerprint fingerprints the regular files directly inside the assets folder beside resDir, or returns
-// "" when there are none.
+// resDirAssetsFingerprint fingerprints what UnsafeNativeCodeLocation reads from the assets folders of resDir (every
+// source set's, see android.SourceSetAssetDirs): the names of the entries directly inside them that are ELF binaries,
+// decided by android.IsELFFile exactly as the rule decides (following symlinks, reading the 4-byte header). Other
+// content does not affect the findings, so it is not hashed; a large model or media asset costs one 4-byte read per
+// run instead of a full hash. Returns "" when no asset folder holds an ELF binary.
 func resDirAssetsFingerprint(resDir string) string {
-	entries, err := os.ReadDir(filepath.Join(filepath.Dir(resDir), "assets"))
-	if err != nil {
-		return ""
-	}
 	h := hashutil.Hasher().New()
-	memo := hashutil.Default()
 	found := false
-	for _, e := range entries {
-		if !e.Type().IsRegular() {
+	for _, dir := range android.SourceSetAssetDirs(resDir) {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
 			continue
 		}
-		hx, err := memo.HashFile(filepath.Join(filepath.Dir(resDir), "assets", e.Name()), nil)
-		if err != nil {
-			hx = "\x00err"
+		set := filepath.Base(filepath.Dir(dir))
+		for _, e := range entries {
+			if !android.IsELFFile(filepath.Join(dir, e.Name())) {
+				continue
+			}
+			h.Write([]byte(set))
+			h.Write([]byte{0})
+			h.Write([]byte(e.Name()))
+			h.Write([]byte{0})
+			found = true
 		}
-		h.Write([]byte(e.Name()))
-		h.Write([]byte{0})
-		h.Write([]byte(hx))
-		h.Write([]byte{0})
-		found = true
 	}
 	if !found {
 		return ""

@@ -554,6 +554,10 @@ All notable changes to Krit will be documented in this file.
   top-level or in a class, object or companion object), so an implicit intent with such an action that matches a
   non-exported component is reported as Lint reports it. A same-named parameter or local shadows a constant from
   another file (#1624).
+- Incremental FIR checking works again: the krit-fir shadow jar left out the IR manglers the JVM backend needs, so
+  every incremental snapshot build failed, no `.krit/fir-incremental` bundle was written and every scan was a full
+  compile, reported as `N requested files gated by compiler errors, no snapshot`. A full check now says under `-v`
+  whether it left a snapshot (`snapshot built without 9 files with compiler errors`) or why not, with counts (#1599).
 - The dispatch phase appends each file's findings to the run's findings once, instead of rebuilding all findings so far
   for every file that has any, under a lock all workers share. Rule execution on a 12,000-file synthetic project went
   from 16-17s to 5s (total 21s to 10s), and on element-x-android from 9.1-9.5s to 7.3-7.9s, with the same findings.

@@ -283,8 +283,19 @@ internal fun runOneShot(
     incremental: Boolean = incrementalRecordingFromEnv(),
     snapshotRoot: java.io.File? = null,
 ) {
+    // A check request rides on the oracle's compilation when both compile the
+    // same sources; otherwise --check-out is left empty and the caller checks
+    // on its own.
+    val checkRequest = if (checkRequestPath.isNullOrBlank() || checkOutPath.isNullOrBlank()) {
+        null
+    } else {
+        parseRequest(java.io.File(checkRequestPath).readText())
+    }
+    // This process exits after one compile: a check with nowhere to persist its incremental state (--no-cache, no
+    // repository) would build a snapshot only to drop it, so it records nothing, as the daemon's check does (#1599).
+    val keepIncremental = incremental && (checkRequest == null || checkRequest.incrementalDir != null)
     val session = AnalysisSession(
-        sources, classpath, jvmTarget, kotlinArgs, incrementalRecording = incremental, incrementalPlanning = incremental,
+        sources, classpath, jvmTarget, kotlinArgs, incrementalRecording = keepIncremental, incrementalPlanning = keepIncremental,
         compilerPlugins = compilerPlugins,
     ).also { it.snapshotRootOverride = snapshotRoot }
     (session.kotlinSettingsWarnings + session.compilerPluginWarnings).forEach { System.err.println(it) }
@@ -294,14 +305,6 @@ internal fun runOneShot(
         // `--files` is a newline-delimited list of absolute paths to
         // restrict analysis to.
         java.io.File(filesListPath).readLines().map { it.trim() }.filter { it.isNotEmpty() }
-    }
-    // A check request rides on the oracle's compilation when both compile the
-    // same sources; otherwise --check-out is left empty and the caller checks
-    // on its own.
-    val checkRequest = if (checkRequestPath.isNullOrBlank() || checkOutPath.isNullOrBlank()) {
-        null
-    } else {
-        parseRequest(java.io.File(checkRequestPath).readText())
     }
     val (outcome, checked) = if (checkRequest == null) {
         session.analyzeFull(files) to null
@@ -902,7 +905,8 @@ fun buildCheckResponse(result: BatchResult): String {
     // How the incremental planner served the check, when it ran: "incremental", or "full" with the reason.
     val planJson = result.plan?.let { plan ->
         val reason = plan.reason?.let { ""","reason":${jsonStr(it)}""" }.orEmpty() +
-            plan.detail?.let { ""","detail":${jsonStr(it)}""" }.orEmpty()
+            plan.detail?.let { ""","detail":${jsonStr(it)}""" }.orEmpty() +
+            plan.snapshot?.let { ""","snapshot":${jsonStr(it)}""" }.orEmpty()
         ""","incremental":{"path":${jsonStr(plan.path)}$reason,"dirtyFiles":${plan.dirtyFiles},"totalMs":${plan.totalMillis}}"""
     }.orEmpty()
     return """{"id":${result.id},"succeeded":${result.succeeded},"skipped":${result.skipped},"findings":[$findingsJson],"rules":$rulesJson,"crashed":$crashedJson,"errorFiles":$errorFilesJson,"ruleErrors":$ruleErrorsJson$moduleJson$planJson}"""

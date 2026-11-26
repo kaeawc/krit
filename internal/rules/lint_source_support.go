@@ -197,11 +197,32 @@ type lintCall struct {
 	TypeText string
 }
 
-// lintCallAt describes the call at idx, or reports false when idx is not a call.
+// lintCallAt describes the call at idx, or reports false when idx is not a call. Many Lint ports describe
+// each call, so during a dispatch pass the result is memoized per node. Callers only read Args and Labels.
 func lintCallAt(file *scanner.File, idx uint32) (lintCall, bool) {
 	if file == nil {
 		return lintCall{}, false
 	}
+	memo := file.PassMemo()
+	if v, ok := memo.Load(passMemoLintCall, idx); ok {
+		m := v.(*lintCallMemo)
+		return m.call, m.ok
+	}
+	c, ok := computeLintCallAt(file, idx)
+	memo.Store(passMemoLintCall, idx, &lintCallMemo{call: c, ok: ok})
+	return c, ok
+}
+
+// passMemoLintCall is the PassMemo slot of lintCallAt.
+const passMemoLintCall scanner.PassMemoSlot = 1
+
+type lintCallMemo struct {
+	call lintCall
+	ok   bool
+}
+
+// computeLintCallAt is lintCallAt without the memo.
+func computeLintCallAt(file *scanner.File, idx uint32) (lintCall, bool) {
 	c := lintCall{File: file, Idx: idx}
 	switch file.FlatType(idx) {
 	case "call_expression":
@@ -293,6 +314,9 @@ func (c lintCall) Arg(index int, name string) uint32 {
 
 var lintImportRe = lazyre.New(`(?m)^\s*import\s+(static\s+)?([A-Za-z_][\w.]*?)(\.\*)?(?:\s+as\s+(\w+))?\s*;?\s*$`)
 
+// lintImportTailRe is lintImportRe after its `^\s*` prefix, anchored at an `import` keyword, for findImportMatches.
+var lintImportTailRe = lazyre.New(`(?m)\Aimport\s+(static\s+)?([A-Za-z_][\w.]*?)(\.\*)?(?:\s+as\s+(\w+))?\s*;?\s*$`)
+
 // lintImports is the import set of one source file.
 type lintImports struct {
 	// bySimple maps a simple or aliased name to the imported name (a class or a static member).
@@ -304,7 +328,7 @@ type lintImports struct {
 func lintImportsOf(file *scanner.File) *lintImports {
 	return filefacts.FileFact(fileFactsCache(), file, slotLintImports, func() *lintImports {
 		imp := &lintImports{bySimple: map[string]string{}}
-		for _, m := range lintImportRe.FindAllStringSubmatch(string(file.Content), -1) {
+		for _, m := range findImportMatches(string(file.Content), lintImportTailRe) {
 			full := m[2]
 			if m[3] != "" {
 				imp.stars = append(imp.stars, full)

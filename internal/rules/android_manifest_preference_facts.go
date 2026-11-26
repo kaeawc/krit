@@ -18,13 +18,20 @@ var (
 
 // findSourceImports returns the submatches sourceImportRe.FindAllStringSubmatch(content, -1)
 // would, except that element 0 starts at the `import` keyword rather than at the line start.
+func findSourceImports(content string) [][]string {
+	return findImportMatches(content, sourceImportTailRe)
+}
+
+// findImportMatches returns the submatches FindAllStringSubmatch(content, -1) would for a
+// `(?m)^\s*import...` pattern whose remainder after `^\s*` is tail, anchored with `\A`, except
+// that element 0 starts at the `import` keyword rather than at the line start.
 //
-// The regex starts with `^\s*`, so Go's matcher tries it at every byte of the file; on a
-// large project that was most of the cost of the preference facts. Every match begins with
+// Such a regex starts with `^\s*`, so Go's matcher tries it at every byte of the file; on a
+// large project that was most of the cost of the import scans. Every match begins with
 // whitespace from a line start up to an `import` keyword, so it is enough to find each
 // keyword with strings.Index, check that only whitespace separates it from a line start at
 // or after the previous match's end, and run the remainder of the pattern anchored there.
-func findSourceImports(content string) [][]string {
+func findImportMatches(content string, tail *lazyre.Regexp) [][]string {
 	var out [][]string
 	prevEnd, cursor := 0, 0
 	for cursor < len(content) {
@@ -37,7 +44,7 @@ func findSourceImports(content string) [][]string {
 		if !reWhitespaceFromLineStart(content, pos, prevEnd) {
 			continue
 		}
-		loc := sourceImportTailRe.FindStringSubmatchIndex(content[pos:])
+		loc := tail.FindStringSubmatchIndex(content[pos:])
 		if loc == nil {
 			continue
 		}

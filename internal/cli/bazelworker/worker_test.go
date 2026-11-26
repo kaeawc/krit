@@ -207,6 +207,7 @@ func TestScanEnvPointsStateIntoScratch(t *testing.T) {
 	t.Setenv("KRIT_FIR_JAR", "rel/krit-fir.jar")
 	t.Setenv("KRIT_STATE_DIR", "/elsewhere")
 	t.Setenv(firchecks.FirDaemonPoolEnv, "gradle-0")
+	t.Setenv("KRIT_DAEMON_REGISTRY_DIR", "/shared/registry")
 	s, err := newScratch()
 	if err != nil {
 		t.Fatal(err)
@@ -225,6 +226,9 @@ func TestScanEnvPointsStateIntoScratch(t *testing.T) {
 		t.Fatalf("env = %v", env)
 	}
 	// One pool slot of the worker's own: one JVM serves every target (#1666).
+	if _, ok := env["KRIT_DAEMON_REGISTRY_DIR"]; ok {
+		t.Fatal("KRIT_DAEMON_REGISTRY_DIR reached the scan: workers would share a daemon registry")
+	}
 	if env[firchecks.FirDaemonPoolEnv] != "bazel-worker" {
 		t.Fatalf("%s = %q, want the worker's slot", firchecks.FirDaemonPoolEnv, env[firchecks.FirDaemonPoolEnv])
 	}
@@ -267,19 +271,32 @@ func TestKeepNewestDaemonBoundsTheWorkerToOneJVM(t *testing.T) {
 	}
 	defer s.remove()
 	old := sleeper(t)
-	registerDaemon(t, s, "check-old", old.Process.Pid)
+	registerDaemon(t, s, "check-old.krit-fir", old.Process.Pid)
 
 	// A request that reused the daemon stops nothing.
-	before := s.daemons()
+	before := s.daemons(checkDaemons)
 	s.keepNewestDaemon(before, io.Discard)
 	if err := old.Process.Signal(syscall.Signal(0)); err != nil {
 		t.Fatalf("a reused daemon was stopped: %v", err)
 	}
 
+	// A request that started some other daemon (a type oracle) keeps the
+	// warm check JVM: only check daemons are bounded.
+	before = s.daemons(checkDaemons)
+	oracle := sleeper(t)
+	registerDaemon(t, s, "types-abc", oracle.Process.Pid)
+	s.keepNewestDaemon(before, io.Discard)
+	if err := old.Process.Signal(syscall.Signal(0)); err != nil {
+		t.Fatalf("a new non-check daemon stopped the warm check JVM: %v", err)
+	}
+	if err := oracle.Process.Signal(syscall.Signal(0)); err != nil {
+		t.Fatalf("the non-check daemon was stopped: %v", err)
+	}
+
 	// A request that started a daemon for another target stops the old one.
-	before = s.daemons()
+	before = s.daemons(checkDaemons)
 	newer := sleeper(t)
-	registerDaemon(t, s, "check-new", newer.Process.Pid)
+	registerDaemon(t, s, "check-new.krit-fir", newer.Process.Pid)
 	s.keepNewestDaemon(before, io.Discard)
 	if _, err := old.Process.Wait(); err != nil {
 		var exit *exec.ExitError
@@ -294,10 +311,10 @@ func TestKeepNewestDaemonBoundsTheWorkerToOneJVM(t *testing.T) {
 	// A daemon restarted under an existing key (same PID file, new PID)
 	// counts as new too: the other daemon is stopped, the restarted one kept.
 	other := sleeper(t)
-	registerDaemon(t, s, "check-other", other.Process.Pid)
-	before = s.daemons()
+	registerDaemon(t, s, "check-other.krit-fir", other.Process.Pid)
+	before = s.daemons(checkDaemons)
 	restarted := sleeper(t)
-	registerDaemon(t, s, "check-new", restarted.Process.Pid)
+	registerDaemon(t, s, "check-new.krit-fir", restarted.Process.Pid)
 	s.keepNewestDaemon(before, io.Discard)
 	if _, err := other.Process.Wait(); err != nil {
 		var exit *exec.ExitError

@@ -251,6 +251,11 @@ if not runners or any("worker" not in r for r in runners):
 print("OK: persistent worker (%s)" % ", ".join(runners))
 PY
 
+# One worker JVM serves every target (#1666): its reports must match one
+# JVM per action on targets that share file and declaration names.
+echo "== persistent worker: one JVM for every target, the same reports as one-shot"
+BAZEL="$BAZEL" bash "$repo_root/scripts/bazel-worker-parity.sh" ${extra[@]+"${extra[@]}"}
+
 # export_model: a krit model of the Bazel graph for scans outside Bazel. A
 # plain krit run in the workspace then finds .krit/bazel-model and gets the
 # targets' classpath and Kotlin settings: the FIR-only findings of //typed/app

@@ -53,21 +53,48 @@ cd "$e2e"
 # shellcheck disable=SC2086
 build() {
   $BAZEL build --lockfile_mode=off --noshow_progress --symlink_prefix=/ --aspects=@krit//:defs.bzl%krit_aspect \
-    --output_groups=krit "${extra[@]}" "$@" //parity_generated/... > "$out/build.log" 2>&1 || {
+    --output_groups=krit ${extra[@]+"${extra[@]}"} "$@" //parity_generated/... > "$out/build.log" 2>&1 || {
     cat "$out/build.log"
     exit 1
   }
 }
 extra=("$@")
+# ${extra[@]+...}: an empty array is unset to bash 3.2 under set -u.
 # shellcheck disable=SC2086
-bin="$($BAZEL info --lockfile_mode=off "${extra[@]}" bazel-bin 2> /dev/null)"
+bin="$($BAZEL info --lockfile_mode=off ${extra[@]+"${extra[@]}"} bazel-bin 2> /dev/null)"
+# One worker instance, so one JVM serves every target of the worker run.
 for mode in false true; do
-  build --@krit//:worker=$mode
+  build --@krit//:worker=$mode --worker_max_instances=Krit=1 --execution_log_json_file="$out/$mode.json"
   mkdir -p "$out/$mode"
   for i in $(seq 1 $n); do cp "$bin/parity_generated/t$i/t$i.krit.txt" "$out/$mode/t$i.txt"; done
 done
+python3 - "$out/true.json" "$n" << 'PY'
+import json, sys
+text = open(sys.argv[1]).read()
+decoder, pos, runners = json.JSONDecoder(), 0, []
+while pos < len(text):
+    while pos < len(text) and text[pos].isspace():
+        pos += 1
+    if pos >= len(text):
+        break
+    entry, pos = decoder.raw_decode(text, pos)
+    if entry.get("mnemonic") == "Krit" and not (entry.get("cacheHit") or entry.get("remoteCacheHit")):
+        runners.append(entry.get("runner", ""))
+if len(runners) != int(sys.argv[2]) or any("worker" not in r for r in runners):
+    sys.exit("ERROR: want %s Krit actions run on the persistent worker, got runners %s" % (sys.argv[2], runners))
+PY
+findings="$(cat "$out/true"/*.txt | grep -c UnnecessarySafeCall || true)"
+# Targets 2, 4, 6, 8 (non-null names) and the Up.kt of 3, 5, 7 (a non-null
+# dependency's type): a FIR-only finding each.
+want=$((n / 2 + (n - 1) / 2))
+if [ "$findings" != "$want" ]; then
+  cat "$out/true"/*.txt >&2
+  echo "ERROR: $findings UnnecessarySafeCall findings on the worker, want $want" >&2
+  exit 1
+fi
 if diff -r "$out/false" "$out/true"; then
-  echo "OK: $n targets, identical reports one-shot and on the shared worker JVM; UnnecessarySafeCall findings: $(cat "$out/true"/*.txt | grep -c UnnecessarySafeCall)"
+  echo "OK: $n targets on one worker JVM, the same reports as one JVM per action ($findings FIR-only findings)"
 else
-  echo "ERROR: the shared worker JVM changed results"; exit 1
+  echo "ERROR: the shared worker JVM changed results"
+  exit 1
 fi

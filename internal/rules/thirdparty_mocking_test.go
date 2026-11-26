@@ -372,15 +372,36 @@ class StarTest {
   val context = mock<Context>()
 }
 `,
-		// With two on-demand imports the package of Context is unknown, so only the class is mocked.
+		// Fragment is a known class of both star-imported packages, so its package is unknown.
 		"src/test/java/com/example/TwoStarsTest.kt": `package com.example
 
-import android.content.*
 import android.app.*
+import androidx.fragment.app.*
 import org.mockito.kotlin.mock
 
 class TwoStarsTest {
-  val context = mock<Context>()
+  val fragment = mock<Fragment>()
+}
+`,
+		// Review of #1789 (P2): an unindexed name (generated code, another module) may be a same-package class,
+		// which Kotlin and Java resolve before an on-demand import, so it is not claimed for the platform package.
+		"src/test/java/com/example/UnindexedTest.kt": `package com.example
+
+import java.util.*
+import org.mockito.kotlin.mock
+
+class UnindexedTest {
+  val repository = mock<UserRepository>()
+}
+`,
+		"src/test/java/com/example/UnindexedJavaTest.java": `package com.example;
+
+import static org.mockito.Mockito.mock;
+import java.util.*;
+
+class UnindexedJavaTest {
+  Object config = mock(BuildConfig.class);
+  Object date = mock(Date.class);
 }
 `,
 	})
@@ -388,6 +409,7 @@ class TwoStarsTest {
 		"src/test/java/com/example/AliasTest.kt:7: DoNotMockDataClass: 'com.example.Data' is a data class, so mocking it should not be necessary",
 		"src/test/java/com/example/AliasTest.kt:8: DoNotMockDataClass: 'com.example.Data' is a data class, so mocking it should not be necessary",
 		"src/test/java/com/example/StarTest.kt:7: DoNotMockPlatformTypes: platform type 'android.content.Context' should not be mocked",
+		"src/test/java/com/example/UnindexedJavaTest.java:8: DoNotMockPlatformTypes: platform type 'java.util.Date' should not be mocked",
 	}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Errorf("got:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
@@ -413,6 +435,27 @@ class NestedTest {
 `,
 	})
 	want := []string{"src/test/java/com/example/NestedTest.kt:8: DoNotMockDataClass: 'com.example.NestedTest.Value' is a data class, so mocking it should not be necessary"}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("got:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+
+	// Review of #1789 (P3): a class nested in another declaration is not in scope, so Value is the top-level class.
+	got = mockFindings(t, []string{"DoNotMockDataClass"}, map[string]string{
+		"src/main/java/com/example/Value.kt": "package com.example\n\nopen class Value\n",
+		"src/test/java/com/example/ScopeTest.kt": `package com.example
+
+import org.mockito.kotlin.mock
+
+class Other {
+  private data class Value(val a: Int)
+}
+
+class ScopeTest {
+  val v = mock<Value>()
+}
+`,
+	})
+	want = nil
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Errorf("got:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}

@@ -161,6 +161,8 @@ type mockType struct {
 	text string // without type arguments or nullability, e.g. "Foo" or "Outer.Inner"
 	// classOf marks a java.lang.Class<text> (from a class literal), which a `mock` call unwraps.
 	classOf bool
+	// at is the node the reference is written at, which decides the same-file classes in scope.
+	at uint32
 }
 
 func newMockType(file *scanner.File, node uint32, classOf bool) (mockType, bool) {
@@ -172,7 +174,7 @@ func newMockType(file *scanner.File, node uint32, classOf bool) (mockType, bool)
 	if text == "" || strings.ContainsAny(text, "()->*[]@") {
 		return mockType{}, false
 	}
-	return mockType{file: file, text: text, classOf: classOf}, true
+	return mockType{file: file, text: text, classOf: classOf, at: node}, true
 }
 
 // mockCallType returns the type a mock factory call creates, or false when idx is not one or the type is not
@@ -544,7 +546,7 @@ type mockClass struct {
 // resolve resolves a type reference to a class, or reports false when the source does not show which class it
 // names.
 func (a *mockAnalyzer) resolve(t mockType) (mockClass, bool) {
-	fqn, ok := mockQualifiedName(a.result.index, t.file, t.text)
+	fqn, ok := mockQualifiedName(a.result.index, t.file, t.text, t.at)
 	if !ok {
 		return mockClass{}, false
 	}
@@ -556,7 +558,7 @@ func (a *mockAnalyzer) resolve(t mockType) (mockClass, bool) {
 }
 
 // mockQualifiedName resolves a type reference written in file to a fully qualified name.
-func mockQualifiedName(index *scanner.CodeIndex, file *scanner.File, text string) (string, bool) {
+func mockQualifiedName(index *scanner.CodeIndex, file *scanner.File, text string, at uint32) (string, bool) {
 	head, rest, nested := strings.Cut(text, ".")
 	imp := lintImportsOf(file)
 	if full, ok := imp.bySimple[head]; ok {
@@ -570,9 +572,10 @@ func mockQualifiedName(index *scanner.CodeIndex, file *scanner.File, text string
 			return text, true
 		}
 	}
-	// A class declared in the file, such as a test's private nested class, is in scope by its simple name.
+	// A class declared in the file, at top level or nested in a declaration enclosing the reference (such as a
+	// test's private nested class), is in scope by its simple name.
 	if !nested {
-		if fqn, ok := mockSameFileClass(index, file, text); ok {
+		if fqn, ok := mockSameFileClass(index, file, text, at); ok {
 			return fqn, true
 		}
 	}
@@ -599,20 +602,33 @@ func mockQualifiedName(index *scanner.CodeIndex, file *scanner.File, text string
 	if javaLangClasses[text] {
 		return "java.lang." + text, true
 	}
-	// A class outside the project named through the file's only on-demand import of a platform package
-	// (`import android.content.*`) comes from that package. With several on-demand imports the package is unknown.
-	if len(imp.stars) == 1 && mockPlatformRoots[strings.SplitN(imp.stars[0], ".", 2)[0]] && mockLooksLikeClass(text) &&
-		len(index.SymbolsNamed(text)) == 0 {
-		return imp.stars[0] + "." + text, true
+	// A well-known platform class named through an on-demand import of its package (`import android.content.*`)
+	// comes from that package. Any other unindexed name could be a same-package class krit does not see (generated
+	// code, another module, a partial scan), which Kotlin and Java resolve before on-demand imports, so it abstains.
+	if len(index.SymbolsNamed(text)) == 0 {
+		found := ""
+		for _, star := range imp.stars {
+			if mockPlatformStarClasses[star][text] {
+				if found != "" {
+					return "", false
+				}
+				found = star + "." + text
+			}
+		}
+		if found != "" {
+			return found, true
+		}
 	}
 	return "", false
 }
 
-// mockSameFileClass returns the FQN of the one class the file declares with this simple name, at any nesting.
-func mockSameFileClass(index *scanner.CodeIndex, file *scanner.File, name string) (string, bool) {
+// mockSameFileClass returns the FQN of the one class with this simple name the file declares at top level or nested
+// in a declaration that encloses at.
+func mockSameFileClass(index *scanner.CodeIndex, file *scanner.File, name string, at uint32) (string, bool) {
+	scopes := mockEnclosingClassFQNs(file, at)
 	fqn := ""
 	for _, sym := range index.SymbolsNamed(name) {
-		if sym.File != file.Path || sym.Name != name {
+		if sym.File != file.Path || sym.Name != name || !scopes[strings.TrimSuffix(sym.FQN, "."+name)] {
 			continue
 		}
 		switch sym.Kind {
@@ -625,6 +641,72 @@ func mockSameFileClass(index *scanner.CodeIndex, file *scanner.File, name string
 	}
 	return fqn, fqn != ""
 }
+
+// mockEnclosingClassFQNs returns the FQNs of the file's package and of every class declaration enclosing at, the
+// scopes whose nested classes at can name without a qualifier.
+func mockEnclosingClassFQNs(file *scanner.File, at uint32) map[string]bool {
+	pkg := moshiFilePackage(file)
+	var names []string
+	for n, ok := file.FlatParent(at); ok; n, ok = file.FlatParent(n) {
+		switch file.FlatType(n) {
+		case "class_declaration", "object_declaration", "interface_declaration", "enum_declaration", "record_declaration":
+			if name := extractIdentifierFlat(file, n); name != "" {
+				names = append(names, name)
+			}
+		}
+	}
+	scopes := map[string]bool{pkg: true}
+	prefix := pkg
+	for i := len(names) - 1; i >= 0; i-- {
+		if prefix == "" {
+			prefix = names[i]
+		} else {
+			prefix += "." + names[i]
+		}
+		scopes[prefix] = true
+	}
+	return scopes
+}
+
+// mockPlatformStarClasses are commonly mocked platform classes, by package, that an on-demand import of the package
+// can name. A name outside this list is not claimed for a star-imported platform package.
+var mockPlatformStarClasses = func() map[string]map[string]bool {
+	m := map[string]map[string]bool{}
+	for pkg, names := range map[string]string{
+		"android.app":                  "Activity Application AlarmManager Dialog Fragment NotificationManager PendingIntent Service",
+		"android.content":              "BroadcastReceiver ClipboardManager ComponentName ContentResolver ContentValues Context Intent ServiceConnection SharedPreferences",
+		"android.content.pm":           "ApplicationInfo PackageInfo PackageManager",
+		"android.content.res":          "AssetManager Configuration Resources TypedArray",
+		"android.database":             "Cursor",
+		"android.graphics":             "Bitmap Canvas Paint Typeface",
+		"android.location":             "Location LocationManager",
+		"android.net":                  "ConnectivityManager NetworkInfo Uri",
+		"android.os":                   "Bundle Handler Looper Parcel PowerManager Vibrator",
+		"android.view":                 "LayoutInflater MenuItem MotionEvent View ViewGroup Window WindowManager",
+		"android.widget":               "Button EditText ImageView TextView Toast",
+		"java.io":                      "BufferedReader File FileInputStream FileOutputStream InputStream OutputStream PrintStream Reader Writer",
+		"java.net":                     "HttpURLConnection Socket URI URL",
+		"java.nio.file":                "FileSystem Path",
+		"java.sql":                     "Connection PreparedStatement ResultSet Statement",
+		"java.time":                    "Clock Instant LocalDate LocalDateTime ZonedDateTime",
+		"java.util":                    "ArrayList Calendar Collection Comparator Date HashMap Iterator LinkedList List Locale Map Optional Properties Random Scanner Set Timer UUID",
+		"java.util.concurrent":         "Callable CompletableFuture ConcurrentHashMap CountDownLatch Executor ExecutorService Future ScheduledExecutorService",
+		"javax.inject":                 "Provider",
+		"kotlin.coroutines":            "Continuation CoroutineContext",
+		"kotlinx.coroutines":           "CoroutineDispatcher CoroutineScope Deferred Job",
+		"androidx.lifecycle":           "Lifecycle LifecycleOwner LiveData SavedStateHandle ViewModel",
+		"androidx.fragment.app":        "Fragment FragmentActivity FragmentManager",
+		"androidx.appcompat.app":       "AppCompatActivity",
+		"androidx.work":                "WorkManager WorkerParameters",
+		"androidx.recyclerview.widget": "RecyclerView",
+	} {
+		m[pkg] = map[string]bool{}
+		for _, n := range strings.Fields(names) {
+			m[pkg][n] = true
+		}
+	}
+	return m
+}()
 
 // declaration returns the declaration node of an indexed class.
 func (a *mockAnalyzer) declaration(sym scanner.Symbol) (*scanner.File, uint32) {

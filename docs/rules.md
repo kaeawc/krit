@@ -155,7 +155,9 @@ alias, or a field annotated `@org.mockito.Mock` or `@org.mockito.Spy`; Lint's `m
 options are not read yet. The mocked type comes from a type argument, a class literal, the declared type of the field
 or of the variable a `mock()` initializes, or a local variable those initialize. The detector's checkers run in its
 order (platform, data, `@DoNotMock`, sealed, AutoValue, object, record), so a platform data class such as `kotlin.Pair`
-is reported as a platform type, and a type annotated `@DoNotMock` is left to that check.
+is reported as a platform type, and a type annotated `@DoNotMock` is left to that check. A class reached only through an
+on-demand import is resolved to that package when it is a well-known platform class (`android.content.Context`,
+`java.util.Date`, ...); any other unindexed name might be a same-package class krit does not see, so it abstains.
 
 `DoNotMockAnything` reports every mock. Lint keeps it disabled unless it is named, and so does krit: it is not
 experimental, so `--experimental` does not turn it on, and it is marked noisy, so `--strict` leaves it off. Enable it

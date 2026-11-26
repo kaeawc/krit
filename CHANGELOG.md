@@ -32,7 +32,7 @@ All notable changes to Krit will be documented in this file.
   longer recognizes (#1505, #1506, #1507).
 - `DoNotMockSealedClass`, `DoNotMockAutoValue` and `DoNotMockRecordClass`, the rest of slack-lints' `MockDetector`
   checks, matched against slack-lints' detector tests like the first four. The factories also resolve under an import
-  alias, and a class named through the file's only on-demand import of a platform package is a platform type
+  alias, and a well-known platform class named through an on-demand import of its package is a platform type
   (#1378, #1379, #1381).
 
 - Gradle plugin: `kritCheck` with custom rule jars writes every enabled report from one krit run (one

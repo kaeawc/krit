@@ -5943,6 +5943,39 @@
             }
           }
         },
+        "InvalidNavigation": {
+          "description": "No start destination specified [precision: project-structure-aware] [noisiness: normal] [capabilities: resources]\nCaveat: An included graph is looked up in the res directory being checked; one defined only in another source set or module is skipped (Lint looks across the module's source sets).",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable InvalidNavigation (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "InvalidPeriodicWorkRequestInterval": {
           "description": "Invalid interval duration [precision: ast-backed] [noisiness: normal]\nCaveat: Follows the detector source: the Android Lint CLI (9.4) running the 2.12.0 lint.jar against compiled WorkManager reported none of these intervals, so Lint-side parity could not be observed.\nCaveat: Like the detector, a Java int argument (`10` instead of `10L`) is not evaluated, and PeriodicWorkRequestBuilder\u003cW\u003e(...) is left to PeriodicWorkRequestLessThan15Min.",
           "type": "object",
@@ -9792,6 +9825,39 @@
             }
           }
         },
+        "RelativeClassResolution": {
+          "description": "Relative class names resolve to applicationId, not namespace [precision: project-structure-aware] [noisiness: normal] [capabilities: resources]\nCaveat: The namespace and applicationId come from literal `namespace` / `applicationId` assignments in the module's build script (or the manifest package); values set through variables, flavors or convention plugins are not seen, and the check is skipped without a namespace.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable RelativeClassResolution (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "RelativeOverlapResource": {
           "description": "Views in RelativeLayout may overlap [precision: project-structure-aware] [noisiness: normal] [capabilities: resources]",
           "type": "object",
@@ -11352,6 +11418,39 @@
               "description": "Enable StopShip (default: false).",
               "type": "boolean",
               "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "StringEscaping": {
+          "description": "Invalid string escapes [precision: project-structure-aware] [noisiness: normal] [capabilities: resources]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable StringEscaping (default: true).",
+              "type": "boolean",
+              "default": true
             },
             "excludes": {
               "description": "Glob patterns for paths to exclude from this rule.",
@@ -14287,6 +14386,39 @@
           "properties": {
             "active": {
               "description": "Enable UsingOnClickInXml (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "ValidRestrictions": {
+          "description": "Invalid Restrictions Descriptor [precision: project-structure-aware] [noisiness: normal] [capabilities: resources]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable ValidRestrictions (default: true).",
               "type": "boolean",
               "default": true
             },

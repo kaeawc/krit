@@ -71,8 +71,10 @@ func Load(dir string) (*Model, []string, error) {
 			continue
 		}
 		var file struct {
-			Schema   int       `json:"schema"`
-			Projects []Project `json:"projects"`
+			Schema         int       `json:"schema"`
+			RootDir        string    `json:"rootDir"`
+			GradleUserHome string    `json:"gradleUserHome"`
+			Projects       []Project `json:"projects"`
 		}
 		if err := json.Unmarshal(data, &file); err != nil {
 			warnings = append(warnings, fmt.Sprintf("%s: malformed JSON: %v", path, err))
@@ -82,7 +84,9 @@ func Load(dir string) (*Model, []string, error) {
 			warnings = append(warnings, fmt.Sprintf("%s: unsupported schema %d", path, file.Schema))
 			continue
 		}
+		rewrites := modelRelocations(dir, file.RootDir, file.GradleUserHome)
 		for _, project := range file.Projects {
+			relocateProject(&project, rewrites)
 			info, err := os.Stat(project.Dir)
 			if err != nil || !info.IsDir() {
 				warnings = append(warnings, fmt.Sprintf("%s: project %s directory missing: %s", path, project.Path, project.Dir))

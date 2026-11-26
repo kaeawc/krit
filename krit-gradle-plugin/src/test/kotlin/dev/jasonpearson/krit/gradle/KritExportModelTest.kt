@@ -46,6 +46,38 @@ class KritExportModelTest {
         .build()
 
     @Test
+    fun `exportTests false exports main only and resolves no test classpath`() {
+        val root = fixture()
+        File(root, "app/build.gradle.kts").appendText("""
+
+            apply(plugin = "java-test-fixtures")
+            krit { exportTests = false }
+            configurations.configureEach { incoming.beforeResolve { println("RESOLVED_CLASSPATH:" + name) } }
+        """.trimIndent())
+        val result = run(root, ":app:kritExportModel")
+        val sets = sourceSets(File(root, ".krit/gradle-model/app.json"))
+        assertEquals(listOf("main"), sets.map { it["kind"] }, "only production source sets are exported")
+        val resolved = Regex("RESOLVED_CLASSPATH:(\\S+)").findAll(result.output).map { it.groupValues[1] }.toSet()
+        assertTrue("compileClasspath" in resolved, result.output)
+        assertEquals(emptySet<String>(), resolved.filter { it.contains("test", ignoreCase = true) }.toSet(), result.output)
+        val defaults = run(root, ":lib:kritExportModel")
+        assertEquals(setOf("main", "test"), sourceSets(File(root, ".krit/gradle-model/lib.json")).map { it["kind"] }.toSet(),
+            defaults.output)
+    }
+
+    @Test
+    fun `model records the Gradle user home its jars come from`() {
+        val root = fixture()
+        val home = File(directory, "custom-gradle-home")
+        GradleRunner.create().withProjectDir(root).withPluginClasspath()
+            .withTestKitDir(home)
+            .withArguments(":lib:kritExportModel", "--offline", "--stacktrace").build()
+        @Suppress("UNCHECKED_CAST")
+        val model = JsonSlurper().parse(File(root, ".krit/gradle-model/lib.json")) as Map<String, Any>
+        assertEquals(home.canonicalPath, File(model["gradleUserHome"] as String).canonicalPath)
+    }
+
+    @Test
     fun `kritCheck reruns when exported dependency model changes`() {
         val root = fixture()
         val app = File(root, "app")

@@ -1126,7 +1126,7 @@ public class JavaQuietActivity extends Activity {
 // permission that is not null, blank, a known normal permission, or a value Lint cannot evaluate (a call or a
 // parameter), while an unresolved field or property reference counts; by flags that evaluate to include
 // RECEIVER_NOT_EXPORTED, read by argument position; or (#1813 review) by a null filter or one whose actions are all
-// protected broadcasts. Registrations on LocalBroadcastManager or on a project class's own registerReceiver are not
+// protected broadcasts, all of them evaluated. Registrations on LocalBroadcastManager or on a project class's own registerReceiver are not
 // Context registrations.
 func TestUnsafeIntentLaunchRuntimeReceiverProtection(t *testing.T) {
 	manifest := `<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.example">
@@ -1137,7 +1137,8 @@ func TestUnsafeIntentLaunchRuntimeReceiverProtection(t *testing.T) {
 	receivers := []string{"NormalPermConst", "NormalPermString", "NullPerm", "ResourcePerm", "FieldPerm", "SignaturePerm",
 		"FlagsConst", "ExportedFlag", "CompatExported", "CompatNotExported", "CompatPermission", "PropertyHeld",
 		"LocalBroadcast", "CustomOwner", "BlankPerm", "DirectFieldPerm", "OtherFilePerm", "FlagsOrUnknown", "FlagsOrKnown",
-		"ProtectedFilter", "NullFilter", "MixedFilter"}
+		"ProtectedFilter", "NullFilter", "MixedFilter", "InlineApplyFilter", "OtherFileActionFilter", "ParamActionFilter",
+		"ApplyParamActionFilter", "ProtectedApplyFilter", "ObjectBlankPerm", "ObjectPerm", "ItPerm"}
 	var decls strings.Builder
 	decls.WriteString("package com.example\n\nimport android.content.BroadcastReceiver\nimport android.content.Context\nimport android.content.Intent\n\n")
 	for _, name := range receivers {
@@ -1146,6 +1147,12 @@ func TestUnsafeIntentLaunchRuntimeReceiverProtection(t *testing.T) {
 	sources := map[string]string{
 		// Receivers.kt declares receiver i (0-based) of the list above on line 7+i.
 		"com/example/Receivers.kt": decls.String(),
+		"com/example/Actions.kt": `package com.example
+
+object Actions {
+    const val CUSTOM = "com.example.CUSTOM"
+}
+`,
 		"com/example/Outer.kt": `package com.example
 
 import android.content.BroadcastReceiver
@@ -1168,6 +1175,11 @@ import androidx.localbroadcastmanager.content.LocalBroadcastManager
 
 private val FLAGS = ContextCompat.RECEIVER_NOT_EXPORTED
 
+object Perms {
+    const val EMPTY = ""
+    const val SIGNED = "com.example.SIGNED"
+}
+
 class Bus {
     fun registerReceiver(receiver: BroadcastReceiver, filter: IntentFilter) {}
 }
@@ -1175,7 +1187,7 @@ class Bus {
 class Registrar(private val context: Context, private val bus: Bus) {
     private val held = PropertyHeld()
 
-    fun register(filter: IntentFilter, extraFlags: Int) {
+    fun register(filter: IntentFilter, extraFlags: Int, action: String) {
         val permission = BuildConfig.PERM
         context.registerReceiver(NormalPermConst(), filter, Manifest.permission.INTERNET, null)
         context.registerReceiver(NormalPermString(), filter, "android.permission.INTERNET", null)
@@ -1202,6 +1214,14 @@ class Registrar(private val context: Context, private val bus: Bus) {
         val mixed = IntentFilter(Intent.ACTION_SCREEN_ON)
         mixed.addAction("com.example.CUSTOM")
         context.registerReceiver(MixedFilter(), mixed)
+        context.registerReceiver(InlineApplyFilter(), IntentFilter().apply { addAction("com.example.CUSTOM") })
+        context.registerReceiver(OtherFileActionFilter(), IntentFilter(Actions.CUSTOM))
+        context.registerReceiver(ParamActionFilter(), IntentFilter(action))
+        context.registerReceiver(ApplyParamActionFilter(), IntentFilter().apply { addAction(action) })
+        context.registerReceiver(ProtectedApplyFilter(), IntentFilter().apply { addAction(Intent.ACTION_SCREEN_OFF) })
+        context.registerReceiver(ObjectBlankPerm(), filter, Perms.EMPTY, null)
+        context.registerReceiver(ObjectPerm(), filter, Perms.SIGNED, null)
+        listOf(BuildConfig.PERM).forEach { context.registerReceiver(ItPerm(), filter, it, null) }
     }
 }
 `,
@@ -1254,6 +1274,11 @@ class JavaRegistrar {
 	assertUnsafeIntentLaunchLocs(t, manifest, sources, []string{
 		line("NormalPermConst"), line("NormalPermString"), line("NullPerm"), line("ResourcePerm"), line("ExportedFlag"),
 		line("CompatExported"), line("PropertyHeld"), line("BlankPerm"), line("FlagsOrUnknown"), line("MixedFilter"),
+		// #1813 review: addAction in an inline filter's scope function counts, and a filter with an action Krit
+		// cannot evaluate is not known to hold only protected broadcasts.
+		line("InlineApplyFilter"), line("OtherFileActionFilter"), line("ParamActionFilter"), line("ApplyParamActionFilter"),
+		// A same-file constant evaluates to blank, and a lambda's implicit parameter has no value to evaluate.
+		line("ObjectBlankPerm"), line("ItPerm"),
 		"com/example/Outer.kt:8",
 		"com/example/JavaReceivers.java:7",
 		// A String parameter is not a value Lint can evaluate, so it does not protect the receiver.

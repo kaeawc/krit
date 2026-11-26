@@ -997,8 +997,8 @@ func (s *unsafeIntentScan) addRuntimeRegisteredReceivers() {
 //   - registerReceiver(receiver, filter[, broadcastPermission, scheduler], flags) is protected when the flags
 //     evaluate, as constants through locals and properties, to a value that includes RECEIVER_NOT_EXPORTED. As in
 //     Lint, flags that cannot be evaluated (`RECEIVER_NOT_EXPORTED or extra`) do not protect.
-//   - A null filter, or one whose actions are all protected broadcasts, only receives broadcasts other apps cannot
-//     send. A filter that cannot be traced does not protect.
+//   - A null filter, or one whose actions all evaluate to protected broadcasts, only receives broadcasts other apps
+//     cannot send. A filter that cannot be traced, or has an action that cannot be evaluated, does not protect.
 func unsafeIntentRegistrationProtected(file *scanner.File, reg lintCall) bool {
 	var permission, flags uint32
 	switch len(reg.Args) {
@@ -1022,8 +1022,10 @@ func unsafeIntentRegistrationProtected(file *scanner.File, reg lintCall) bool {
 	if filter == 0 || strings.TrimSpace(file.FlatNodeText(filter)) == "null" {
 		return true
 	}
-	protected, _, inspected := receiverFilterActions(file, filter, reg.Idx)
-	return protected && inspected
+	// An action Krit cannot evaluate (a parameter, a constant declared in another file) may be any broadcast, so the
+	// filter is not known to hold only protected ones.
+	protected, _, inspected, unevaluated := receiverFilterActions(file, filter, reg.Idx)
+	return protected && inspected && !unevaluated
 }
 
 // unsafeIntentPermissionProtects reports whether a broadcastPermission argument protects a runtime receiver. Lint
@@ -1049,8 +1051,9 @@ func unsafeIntentPermissionProtects(file *scanner.File, arg uint32, depth int) b
 		if init := lintInitializerOf(file, arg, text, true); init != 0 {
 			return unsafeIntentPermissionProtects(file, init, depth+1)
 		}
-		// A parameter has no value to evaluate; any other name is a field or property declared elsewhere.
-		return !lintNameIsParameterAt(file, arg, text)
+		// A parameter, including a lambda's implicit `it`, has no value to evaluate; any other name is a field or
+		// property declared elsewhere.
+		return text != "it" && !lintNameIsParameterAt(file, arg, text)
 	case "navigation_expression", "field_access":
 		cut := strings.LastIndexByte(text, '.')
 		if cut <= 0 || !lintIdentOnly(strings.ReplaceAll(text, ".", "")) {
@@ -1058,6 +1061,10 @@ func unsafeIntentPermissionProtects(file *scanner.File, arg uint32, depth int) b
 		}
 		if lintTypeRefMatches(file, text[:cut], "android.Manifest.permission") {
 			return !lintKnownNormalPermissions["android.permission."+text[cut+1:]]
+		}
+		if init := lintQualifiedConstantInitializer(file, text[:cut], text[cut+1:]); init != 0 {
+			// A constant of a class or object declared in this file (Perms.EMPTY).
+			return unsafeIntentPermissionProtects(file, init, depth+1)
 		}
 		return true
 	}

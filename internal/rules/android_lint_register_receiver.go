@@ -85,7 +85,8 @@ func (r *UnspecifiedRegisterReceiverFlagRule) check(ctx *api.Context) {
 			return
 		}
 	}
-	protected, unprotected, inspected := receiverFilterActions(file, filterArg, ctx.Idx)
+	// An action that cannot be evaluated is ignored, as before #1813.
+	protected, unprotected, inspected, _ := receiverFilterActions(file, filterArg, ctx.Idx)
 	if protected && inspected {
 		return
 	}
@@ -142,49 +143,61 @@ func lintEnclosingClassIsContext(file *scanner.File, idx uint32, depth int) bool
 }
 
 // receiverFilterActions follows the IntentFilter argument to its construction and collects the actions given to the
-// constructor and to addAction calls before the registration. inspected is false when the filter cannot be traced.
-func receiverFilterActions(file *scanner.File, filter, call uint32) (protected bool, unprotected []string, inspected bool) {
+// constructor, to addAction calls in the scope function that builds it, and, for a filter held in a variable, to
+// addAction calls on the variable before the registration. inspected is false when the filter cannot be traced.
+// protected and unprotected cover only the actions that evaluate; unevaluated reports that some action did not.
+func receiverFilterActions(file *scanner.File, filter, call uint32) (protected bool, unprotected []string, inspected, unevaluated bool) {
 	construction, blockScope, name := uint32(0), uint32(0), ""
 	switch file.FlatType(filter) {
 	case "simple_identifier", "identifier":
 		name = file.FlatNodeText(filter)
 		init := lintVariableInitializer(file, call, name)
 		if init == 0 {
-			return false, nil, false
+			return false, nil, false, false
 		}
 		construction, blockScope = unwrapFilterConstruction(file, init)
 	default:
 		construction, blockScope = unwrapFilterConstruction(file, filter)
 	}
 	if construction == 0 {
-		return false, nil, false
+		return false, nil, false, false
 	}
 	var actions []string
-	if inner, ok := lintCallAt(file, construction); ok && len(inner.Args) > 0 {
-		if v, known := receiverActionValue(file, inner.Args[0]); known {
+	add := func(arg uint32) {
+		if v, known := receiverActionValue(file, arg); known {
 			actions = append(actions, v)
+		} else {
+			unevaluated = true
 		}
 	}
-	collect := func(root uint32) {
+	if inner, ok := lintCallAt(file, construction); ok && len(inner.Args) > 0 {
+		add(inner.Args[0])
+	}
+	// The scope function's walk takes addAction on its receiver. The variable's walk takes addAction on the variable
+	// that runs before the registration; the scope function of an inline filter is inside the registerReceiver call,
+	// so only the variable's walk stops there.
+	collect := func(root uint32, variable bool) {
 		file.FlatWalkAllNodes(root, func(n uint32) {
 			c, ok := lintCallAt(file, n)
-			if !ok || c.Name != "addAction" || len(c.Args) == 0 || file.FlatStartByte(n) >= file.FlatStartByte(call) {
+			if !ok || c.Name != "addAction" || len(c.Args) == 0 {
 				return
 			}
 			receiver := strings.TrimSpace(c.ReceiverText)
-			if (name != "" && receiver == name) || (blockScope != 0 && (receiver == "" || receiver == "this" || receiver == "it")) {
-				if v, known := receiverActionValue(file, c.Args[0]); known {
-					actions = append(actions, v)
+			if variable {
+				if receiver == name && file.FlatStartByte(n) < file.FlatStartByte(call) {
+					add(c.Args[0])
 				}
+			} else if receiver == "" || receiver == "this" || receiver == "it" {
+				add(c.Args[0])
 			}
 		})
 	}
 	if blockScope != 0 {
-		collect(blockScope)
+		collect(blockScope, false)
 	}
 	if name != "" {
 		if fn, ok := flatEnclosingCallable(file, call); ok {
-			collect(fn)
+			collect(fn, true)
 		}
 	}
 	protected = true
@@ -194,7 +207,7 @@ func receiverFilterActions(file *scanner.File, filter, call uint32) (protected b
 			unprotected = append(unprotected, a)
 		}
 	}
-	return protected, unprotected, true
+	return protected, unprotected, true, unevaluated
 }
 
 // unwrapFilterConstruction finds the IntentFilter construction behind an expression, looking through Kotlin scope

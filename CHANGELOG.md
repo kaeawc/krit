@@ -506,11 +506,15 @@ All notable changes to Krit will be documented in this file.
   catalog-less result until restart (#1784). CLI scans already built a fresh memo per run.
 - `UnsafeIntentLaunch` treats a receiver class registered at runtime with `Context.registerReceiver` or
   `ContextCompat.registerReceiver` as an unprotected component unless, as in Lint, its flags include
-  `RECEIVER_NOT_EXPORTED`, its filter holds only protected broadcasts, or its broadcast permission is set to a value
-  other than null, blank or a normal one such as `INTERNET`. It also follows the incoming intent into helpers declared
+  `RECEIVER_NOT_EXPORTED`, its filter holds only protected broadcasts (a filter with an action krit cannot evaluate
+  does not count), or its broadcast permission is set to a value other than null, blank or a normal one such as
+  `INTERNET`. It also follows the incoming intent into helpers declared
   in other files: top-level functions imported (also under an alias or through a wildcard) or from the same package,
   members brought in by member or static imports, and members of project classes, objects and companion objects
   (`Launcher.launch(this, intent)`), including through aliased or nested imports (#1623).
+- `UnspecifiedRegisterReceiverFlag` reads the `addAction` calls of a filter built inline in the registration,
+  `registerReceiver(r, IntentFilter().apply { addAction("custom") })`, which it skipped before, so such a filter with
+  an unprotected action is reported (#1813).
 - `JavascriptInterface` reads Kotlin accessor use-site targets: a property or primary-constructor property annotated
   `@get:`/`@set:JavascriptInterface` (including the array form `@get:[... JavascriptInterface]`), or whose getter or
   setter carries the annotation, counts as an annotated bridge method, and a protected one is reported as

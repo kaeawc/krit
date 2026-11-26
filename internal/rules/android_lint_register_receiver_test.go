@@ -67,3 +67,25 @@ class B : android.app.Activity() {
 		t.Fatalf("positions = %s, want %s", got, want)
 	}
 }
+
+// #1813 review: an inline filter's addAction calls run inside the registerReceiver call and still count; an action
+// that cannot be evaluated is still ignored here, as before.
+func TestUnspecifiedRegisterReceiverFlagInlineFilterActions(t *testing.T) {
+	got := findingPositions(runRuleByName(t, "UnspecifiedRegisterReceiverFlag", `package com.example
+import android.content.BroadcastReceiver
+import android.content.Intent
+import android.content.IntentFilter
+class C : android.app.Activity() {
+  val r: BroadcastReceiver? = null
+  fun f(action: String) {
+    registerReceiver(r, IntentFilter().apply { addAction("com.example.CUSTOM") })
+    registerReceiver(r, IntentFilter().apply { addAction(Intent.ACTION_SCREEN_ON) })
+    registerReceiver(r, IntentFilter(action))
+    registerReceiver(r, IntentFilter().apply { addAction(action) })
+  }
+}
+`))
+	if want := "8:5"; got != want {
+		t.Fatalf("positions = %s, want %s", got, want)
+	}
+}

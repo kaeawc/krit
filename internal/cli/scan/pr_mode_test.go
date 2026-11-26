@@ -57,6 +57,12 @@ func TestPRModeFilesAreTheChangedKotlinFiles(t *testing.T) {
 	if got := runner("--diff", "HEAD").prModeFiles(); !slices.Equal(got, []string{a}) {
 		t.Fatalf("PR mode files = %v, want only the changed %s", got, a)
 	}
+	// A relative spelling of the scanned files (`krit --diff HEAD .`) finds them too.
+	rel := runner("--diff", "HEAD")
+	rel.paths, rel.files = []string{"."}, []string{"app/src/main/kotlin/A.kt", "app/src/main/kotlin/B.kt"}
+	if got := rel.prModeFiles(); !slices.Equal(got, []string{"app/src/main/kotlin/A.kt"}) {
+		t.Fatalf("relative PR mode files = %v", got)
+	}
 	if got := runner("--diff", "HEAD", "--no-pr-mode").prModeFiles(); got != nil {
 		t.Fatalf("--no-pr-mode: %v", got)
 	}

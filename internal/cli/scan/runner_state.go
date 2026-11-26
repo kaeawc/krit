@@ -1290,7 +1290,13 @@ func (r *runner) prModeFiles() []string {
 	}
 	files := []string{}
 	for _, path := range r.files {
-		if changed[filepath.Clean(path)] {
+		// getChangedFiles spells paths absolutely; compare in that spelling and
+		// keep the scan's own (absoluteScanPaths already makes it absolute).
+		abs, err := filepath.Abs(path)
+		if err != nil {
+			continue
+		}
+		if changed[filepath.Clean(abs)] {
 			files = append(files, path)
 		}
 	}

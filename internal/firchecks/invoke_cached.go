@@ -204,6 +204,12 @@ func invokeCachedWith(
 		if verbose {
 			reporter().Verbosef("verbose: fir cache: not caching %d files that crashed together\n", len(misses))
 		}
+	} else if resp != nil && resp.Scope != "" {
+		// Per-module verdicts are not the whole compile's the fingerprint names:
+		// a later whole-repository check must not be served them (#1660).
+		if verbose {
+			reporter().Verbosef("verbose: fir cache: not caching %d files checked in %s compiles\n", len(misses), resp.Scope)
+		}
 	} else if CheckCacheFingerprint(sourceDirs, files, classpath, jarPath, rules, ruleConfigs, facts, target...) == cacheFingerprint && sourceStatsUnchanged(sourceStats) {
 		written = WriteFreshEntriesForFingerprint(cacheDir, misses, resp, cacheFingerprint)
 	}

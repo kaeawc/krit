@@ -72,6 +72,37 @@ func TestProductionFirCheckerNoCacheBypassesReadsAndWrites(t *testing.T) {
 	}
 }
 
+// PR mode (#1660): verdicts from per-module compiles are never cached under the
+// whole compile's fingerprint, so a later whole-repository check (--no-pr-mode)
+// compiles instead of replaying them. Whole-compile verdicts are cached as before.
+func TestInvokeCachedKeepsModuleScopedVerdictsOutOfTheCache(t *testing.T) {
+	root := t.TempDir()
+	file := filepath.Join(root, "Sample.kt")
+	if err := os.WriteFile(file, []byte("fun sample() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	old := runMissesForCache
+	defer func() { runMissesForCache = old }()
+	calls, scope := 0, "modules"
+	runMissesForCache = func(_ string, files, _, _, _ []string, _ RuleConfigs, _ FileFacts, _, _ bool, _ ...CompileTarget) (*CheckResponse, error) {
+		calls++
+		return &CheckResponse{Succeeded: len(files), Rules: []string{"R"}, Scope: scope}, nil
+	}
+	check := func() {
+		t.Helper()
+		if _, err := InvokeCached("krit-fir.jar", []string{file}, []string{root}, nil, []string{"R"}, nil, FileFacts{}, root, false, false); err != nil {
+			t.Fatal(err)
+		}
+	}
+	check() // PR mode: per-module verdicts
+	scope = ""
+	check() // whole repository: must compile, not replay them
+	check() // whole repository again: served from the cache
+	if calls != 2 {
+		t.Fatalf("checker calls = %d, want 2: the module-scoped verdict must not be cached, the whole compile's must", calls)
+	}
+}
+
 func TestInvokeCached_AllCacheHits(t *testing.T) {
 	tmp := t.TempDir()
 

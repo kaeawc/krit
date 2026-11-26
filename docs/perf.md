@@ -201,6 +201,11 @@ PR mode falls back to the whole-repository compile, and says why under
   (their unbuilt sources exceed 3000 files);
 - too few changed files get facts.
 
+A dependency whose own sources changed is compiled from those sources, not
+from a built jar that predates the change. PR-mode verdicts are kept out of
+the FIR check cache, which holds whole-repository verdicts only, so a later
+`--no-pr-mode` scan never replays them.
+
 `--no-pr-mode` keeps the whole-repository compile. It also takes precedence
 over `--daemon`'s resident oracle, and PR-mode scans run in-process rather
 than through the krit daemon. Module compiles are cached by content under

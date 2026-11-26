@@ -106,7 +106,7 @@ func Run(ctx context.Context, in Input) (Result, error) {
 		logf("verbose: module oracle: %s took %s\n", what, time.Since(stamp).Round(time.Millisecond))
 		stamp = time.Now()
 	}
-	units, missing := Plan(model, repoRoot, in.ScanPaths)
+	units, missing := planWith(model, repoRoot, in.ScanPaths, projectsHolding(model, in.Only))
 	lap("planning")
 	res.Units, res.MissingJars = len(units), missing
 	if len(units) == 0 {
@@ -170,6 +170,32 @@ func Run(ctx context.Context, in Input) (Result, error) {
 		}
 	}
 	return res, nil
+}
+
+// projectsHolding returns the model projects with a source root that holds one of files: their
+// built jars predate those files.
+func projectsHolding(model *gradlemodel.Model, files []string) map[string]bool {
+	if len(files) == 0 {
+		return nil
+	}
+	clean := make([]string, len(files))
+	for i, f := range files {
+		clean[i] = filepath.Clean(oracle.AbsolutePath(f))
+	}
+	out := map[string]bool{}
+	for _, p := range model.Projects {
+		for _, set := range p.SourceSets {
+			for _, root := range append(append([]string{}, set.SourceDirs...), set.GeneratedSourceDirs...) {
+				root = filepath.Clean(oracle.AbsolutePath(root))
+				for _, f := range clean {
+					if strings.HasPrefix(f, root+string(filepath.Separator)) {
+						out[p.Path] = true
+					}
+				}
+			}
+		}
+	}
+	return out
 }
 
 // onlyUnits returns the units an Input.Only run analyzes, or why it does not apply.

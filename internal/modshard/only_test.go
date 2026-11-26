@@ -99,3 +99,34 @@ func TestRunOnlyDeclinesAModuleWithoutItsFullContext(t *testing.T) {
 		t.Fatalf("a change outside every module: %+v %v", res, err)
 	}
 }
+
+// A dependency whose sources hold a changed file has a built jar that predates the change: a module
+// depending on it compiles its sources as context instead (#1660).
+func TestRunOnlyCompilesAChangedDependencyFromSource(t *testing.T) {
+	model, root := fixtureModel(t)
+	lib := filepath.Join(root, "lib", "src", "main", "kotlin", "L.kt")
+	app := filepath.Join(root, "app", "src", "main", "kotlin", "A.kt")
+	jar := filepath.Join(root, "lib/build/intermediates/compile_library_classes_jar/release/bundleLibCompileToJarRelease/classes.jar")
+	appUnit := func(units []Unit) Unit {
+		for _, u := range units {
+			if u.Spec.ID == ":app:release" {
+				return u
+			}
+		}
+		t.Fatal("no :app:release unit")
+		return Unit{}
+	}
+	unchanged, _ := planWith(model, root, []string{root}, projectsHolding(model, []string{app}))
+	before := appUnit(unchanged)
+	if !slices.Contains(before.Spec.Classpath, jar) || len(before.Spec.ContextSourceRoots) != 0 {
+		t.Fatalf("an unchanged dependency uses its built jar: %+v", before.Spec)
+	}
+	if stale := projectsHolding(model, []string{app, lib}); !stale[":lib"] || !stale[":app"] || len(stale) != 2 {
+		t.Fatalf("projectsHolding = %v", stale)
+	}
+	changed, _ := planWith(model, root, []string{root}, projectsHolding(model, []string{app, lib}))
+	after := appUnit(changed)
+	if slices.Contains(after.Spec.Classpath, jar) || !slices.Contains(after.Spec.ContextSourceRoots, filepath.Dir(lib)) {
+		t.Fatalf("a changed dependency should compile from source: classpath %v context %v", after.Spec.Classpath, after.Spec.ContextSourceRoots)
+	}
+}

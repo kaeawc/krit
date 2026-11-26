@@ -34,11 +34,33 @@ internal object KritModelInputs {
             file.name + " " + JsonOutput.toJson(normalize(model, root, classpath = false))
         }
 
-    /** Every classpath entry the models list, in model order. */
+    /**
+     * Every classpath entry the models list, in model order. A predicted Android R jar
+     * (`intermediates/<folder>/<component>/<task>/R.jar`, see KritPlugin.androidRJar) also
+     * brings the component's directory under each folder AGP writes that jar to: krit uses
+     * whichever R jar is there when it loads the model (gradlemodel.resolveRClassJars), so a
+     * jar written next to the prediction must change the key too. Missing directories
+     * fingerprint as empty.
+     */
     fun classpath(models: Collection<File>): List<File> =
         models.filter { it.isFile }.sortedBy { it.name }.flatMap { file ->
             buildList { collectClasspath(JsonSlurper().parse(file), classpath = false, into = this) }
-        }.distinct().map(::File)
+        }.flatMap { listOf(it) + rClassJarDirectories(it) }.distinct().map(::File)
+
+    /** AGP's folders for a module's own R jar, grouped by artifact (as in gradlemodel/rjar.go). */
+    private val R_CLASS_JAR_FOLDERS = listOf(
+        listOf("compile_and_runtime_not_namespaced_r_class_jar", "compile_and_runtime_r_class_jar"),
+        listOf("compile_r_class_jar"),
+    )
+
+    private fun rClassJarDirectories(entry: String): List<String> {
+        val parts = entry.split('/')
+        if (parts.size < 5 || parts.last() != "R.jar" || parts[parts.size - 5] != "intermediates") return emptyList()
+        val group = R_CLASS_JAR_FOLDERS.firstOrNull { parts[parts.size - 4] in it } ?: return emptyList()
+        val intermediates = parts.subList(0, parts.size - 4).joinToString("/")
+        val component = parts[parts.size - 3]
+        return group.map { "$intermediates/$it/$component" }
+    }
 
     private fun normalize(value: Any?, root: String?, classpath: Boolean): Any? = when (value) {
         is Map<*, *> -> value.entries.associate { (key, entry) ->

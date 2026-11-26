@@ -76,4 +76,28 @@ class KritModelInputsTest {
             KritModelInputs.classpath(listOf(model("/repo"))).map { it.path },
         )
     }
+
+    // #1645: krit loads the R jar AGP wrote for the component, which may sit next to the prediction.
+    @Test
+    fun `a predicted R jar brings the directories AGP writes R jars to`() {
+        val file = File(directory, "r/app.json").apply {
+            parentFile.mkdirs()
+            writeText("""{"schema": 2, "rootDir": "/repo", "projects": [{"path": ":app", "dir": "/repo/app", "sourceSets": [
+              {"name": "debug", "classpath": [], "generatedClasspath": [
+                "/repo/app/build/intermediates/compile_and_runtime_not_namespaced_r_class_jar/debug/processDebugResources/R.jar"]},
+              {"name": "main", "classpath": [], "generatedClasspath": [
+                "/repo/lib/build/intermediates/compile_r_class_jar/debug/generateDebugRFile/R.jar", "/repo/app/build/R.jar"]}]}]}""")
+        }
+        assertEquals(
+            listOf(
+                "/repo/app/build/intermediates/compile_and_runtime_not_namespaced_r_class_jar/debug/processDebugResources/R.jar",
+                "/repo/app/build/intermediates/compile_and_runtime_not_namespaced_r_class_jar/debug",
+                "/repo/app/build/intermediates/compile_and_runtime_r_class_jar/debug",
+                "/repo/lib/build/intermediates/compile_r_class_jar/debug/generateDebugRFile/R.jar",
+                "/repo/lib/build/intermediates/compile_r_class_jar/debug",
+                "/repo/app/build/R.jar",
+            ),
+            KritModelInputs.classpath(listOf(file)).map { it.path },
+        )
+    }
 }

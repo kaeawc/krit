@@ -176,12 +176,6 @@ All notable changes to Krit will be documented in this file.
   suggestions in the messages. `UseRequireInsteadOfGet` does not report a parameter that shadows a Fragment getter,
   which Lint does (#1446, #1447, #1448, #1450).
 
-### Fixed
-- Gradle plugin: the configuration cache is reused after the first build that creates an Android module's R jar.
-  `kritExportModel` recorded the R jar by listing `build/intermediates` while configuring, which made the directory a
-  configuration input. It now records the path AGP writes the jar to, and krit looks the jar up when it loads the model
-  (#1645).
-
 ### Added
 - `IdleBatteryChargingConstraints`, `InvalidPeriodicWorkRequestInterval`, `BadPeriodicWorkRequestEnqueue` and
   `UseRxSetProgress2`, ported from the Lint checks bundled in `androidx.work:work-runtime` 2.12.0 for Kotlin and Java
@@ -432,6 +426,10 @@ All notable changes to Krit will be documented in this file.
   `MoshiUsageNonMoshiClassInternal`/`External` (#1384, #1395, #1396, #1404, #1407, #1408, #1409).
 
 ### Fixed
+- Gradle plugin: the configuration cache is reused after the first build that creates an Android module's R jar.
+  `kritExportModel` recorded the R jar by listing `build/intermediates` while configuring, which made the directory a
+  configuration input. It now records the path AGP writes the jar to, and krit looks the jar up when it loads the model
+  (#1645).
 - `CompileTimeConstant` only runs on files that mention `CompileTimeConstant`. Every finding needs an annotated
   declaration in the same file, so other files cannot be reported; the rule spent about 2s on element-x-android and
   0.7s on okhttp finding nothing. Lint ports can opt into the same gate by declaring `fileMentions()`.

@@ -68,10 +68,16 @@ func findRClassJars(entry string) []string {
 	component := filepath.Base(componentDir)
 	var found []string
 	for _, folder := range group {
-		matches, _ := filepath.Glob(filepath.Join(intermediates, folder, component, "*", "R.jar"))
-		for _, match := range matches {
-			if info, err := os.Stat(match); err == nil && info.Mode().IsRegular() {
-				found = append(found, filepath.ToSlash(match))
+		// ReadDir, not Glob: a checkout path may contain Glob metacharacters ([, *, ?).
+		dir := filepath.Join(intermediates, folder, component)
+		tasks, _ := os.ReadDir(dir)
+		for _, task := range tasks {
+			if !task.IsDir() {
+				continue
+			}
+			jar := filepath.Join(dir, task.Name(), "R.jar")
+			if info, err := os.Stat(jar); err == nil && info.Mode().IsRegular() {
+				found = append(found, filepath.ToSlash(jar))
 			}
 		}
 	}

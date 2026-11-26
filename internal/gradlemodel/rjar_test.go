@@ -31,7 +31,8 @@ func writeRJarModel(t *testing.T, root string, generated map[string][]string) st
 }
 
 func TestLoadResolvesPredictedRClassJars(t *testing.T) {
-	root := t.TempDir()
+	// Glob metacharacters in the checkout path must not change the lookup.
+	root := filepath.Join(t.TempDir(), "repo [1] *")
 	inter := filepath.ToSlash(filepath.Join(root, "build", "intermediates"))
 	jar := func(rel string) string { return inter + "/" + rel }
 	// main: the predicted jar exists and is kept as is.

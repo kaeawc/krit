@@ -624,6 +624,24 @@ class KritExportModelTest {
     }
 
     @Test
+    fun `kritCheck reruns when AGP writes the R jar next to the prediction`() {
+        val root = File(directory, "r-jar-check-key").also { it.mkdirs() }
+        fakeKrit(root)
+        File(root, "settings.gradle.kts").writeText("rootProject.name = \"r-jar-check-key\"\n")
+        File(root, "build.gradle.kts").writeText("plugins { id(\"com.android.library\"); id(\"dev.jasonpearson.krit\") }\n" +
+            "krit { advanced { binary.set(file(\"fake-krit\")) }; fir = false }\n")
+        File(root, "src/main/kotlin/A.kt").apply { parentFile.mkdirs(); writeText("class A\n") }
+        assertEquals(TaskOutcome.SUCCESS, runWithFakeAndroid(root, "kritCheck").task(":kritCheck")?.outcome)
+        assertEquals(TaskOutcome.UP_TO_DATE, runWithFakeAndroid(root, "kritCheck").task(":kritCheck")?.outcome)
+        File(root, "build/intermediates/compile_and_runtime_r_class_jar/debugAndroidTest/customTask/R.jar").apply {
+            parentFile.mkdirs()
+            writeBytes(byteArrayOf(1))
+        }
+        val rerun = runWithFakeAndroid(root, "kritCheck")
+        assertEquals(TaskOutcome.SUCCESS, rerun.task(":kritCheck")?.outcome, rerun.output)
+    }
+
+    @Test
     fun `model registration does not realize compile tasks on help`() {
         val root = File(directory, "lazy-model").also { it.mkdirs() }
         File(root, "settings.gradle.kts").writeText("rootProject.name = \"lazy-model\"\n")

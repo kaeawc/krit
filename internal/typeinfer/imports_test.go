@@ -213,3 +213,21 @@ class Foo
 		t.Errorf("expected 'org.example', got %q", got)
 	}
 }
+
+func TestExtractPackageFlatReadsOnlyThePackageHeader(t *testing.T) {
+	for _, test := range []struct{ name, src, want string }{
+		{"package and imports", "@file:JvmName(\"X\")\npackage a.b.c\n\nimport x.Y\nimport z.*\n\nclass C\n", "a.b.c"},
+		{"no package", "import x.Y\n\nclass C\n", ""},
+		{"empty", "", ""},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			file := parseTestFile(t, test.src)
+			if got := extractPackageFlat(file); got != test.want {
+				t.Fatalf("extractPackageFlat = %q, want %q", got, test.want)
+			}
+			if got := scanFileHeadersFlat(file).pkg; got != test.want {
+				t.Fatalf("scanFileHeadersFlat().pkg = %q, want %q", got, test.want)
+			}
+		})
+	}
+}

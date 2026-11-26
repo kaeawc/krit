@@ -8,6 +8,10 @@ All notable changes to Krit will be documented in this file.
 - The per-file analysis cache (`.krit/cache`) survives a move to another absolute checkout path, such as a CI cache
   restored into another agent's workspace. Paths under the repository are stored relative to it, and the cache file
   name, rule hash and library facts fingerprint no longer include the checkout path (#1662).
+- Per-project attribution for whole-build scans: with a Gradle model loaded, JSON findings carry `project` and
+  `summary.byProject` counts findings, errors and warnings per Gradle project (files outside every project under `""`);
+  SARIF has the same in each result's `properties.project` and `runs[0].properties.byProject`. The Gradle plugin's
+  `kritCheckAll` logs the counts (#1635, #1651).
 - Gradle model: Kotlin Multiplatform Android targets record the generated roots AGP's Variant API registers for their
   component (view binding, BuildConfig, AIDL, `addGeneratedSourceDirectory`), and `kritCheck`/`exportGenerated` run
   their producers, as plain Android modules already did (#1643).
@@ -548,6 +552,10 @@ All notable changes to Krit will be documented in this file.
   `@AdaptedBy` adapters declared in the project (Kotlin or Java, followed through project base classes), and
   `MoshiUsageQualifierRetention` and `MoshiUsageQualifierTarget` for Kotlin and Java `@JsonQualifier` annotation
   classes (#1382, #1383, #1405, #1406).
+- `FullyQualifiedResource`, `MissingResourceImportAlias` and `WrongResourceImportAlias`, slack-lints 0.11.1's R class
+  import-alias checks for Kotlin, in the opt-in `slack-lint` rule set. Their `importAliases` option takes the
+  `package.R as Alias` entries of Lint's `import-aliases`. Findings match the Lint CLI with that option set in
+  `lint.xml` (`internal/rules/testdata/slack_lint/resource_aliases/`) (#1425, #1426, #1427).
 - `slack-lint` gains `MoshiUsageDetector`'s constructor-property type checks for Kotlin: `MoshiUsageArray`,
   `MoshiUsageMutableCollections`, `MoshiUsageNonMoshiClassCollection`, `MoshiUsageNonMoshiClassMap`,
   `MoshiUsageNonMoshiClassPlatform`, `MoshiUsageEnumPropertyCouldBeMoshi` and `MoshiUsageEnumPropertyDefaultUnknown`.
@@ -557,6 +565,9 @@ All notable changes to Krit will be documented in this file.
   `MoshiUsageNonMoshiClassInternal`/`External` (#1384, #1395, #1396, #1404, #1407, #1408, #1409).
 
 ### Fixed
+- `--no-cache` skips every cache that can change findings. A one-shot scan read the cross-file findings cache, so a
+  stale entry replayed into the run warm results are checked against; it now skips that cache and also the cross-file
+  index, resource index, file-walk and incremental oracle caches. Only the parse cache stays on (#1818).
 - Gradle plugin: the configuration cache is reused after the first build that creates an Android module's R jar.
   `kritExportModel` recorded the R jar by listing `build/intermediates` while configuring, which made the directory a
   configuration input. It now records the path AGP writes the jar to, and krit looks the jar up when it loads the model

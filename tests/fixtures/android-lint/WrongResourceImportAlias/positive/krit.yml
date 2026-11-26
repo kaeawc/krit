@@ -1,0 +1,5 @@
+slack-lint:
+  WrongResourceImportAlias:
+    active: true
+    importAliases:
+      - slack.l10n.R as L10nR

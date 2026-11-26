@@ -92,7 +92,8 @@ type sarifRun struct {
 	Taxonomies []sarifTaxonomy `json:"taxonomies,omitempty"`
 	// Invocations is set only for a degraded (no-FIR) scan.
 	Invocations []sarifInvocation `json:"invocations,omitempty"`
-	// Properties carries "fir", the FIR coverage, when the FIR pass ran.
+	// Properties carries "fir", the FIR coverage, when the FIR pass ran, and
+	// "byProject", the findings per Gradle project, when a model was loaded.
 	Properties map[string]any `json:"properties,omitempty"`
 }
 
@@ -205,6 +206,8 @@ type sarifProperties struct {
 	OWASP        []string `json:"owasp,omitempty"`
 	SEICert      []string `json:"sei-cert,omitempty"`
 	Mitre        []string `json:"mitre,omitempty"`
+	// Project is the Gradle project whose sources hold the result's file (#1635).
+	Project string `json:"project,omitempty"`
 }
 
 func sarifRegionAt(cols scanner.FindingColumns, row int) sarifRegion {
@@ -232,6 +235,9 @@ type SARIFOptions struct {
 	FirDegraded *FirDegraded
 	// FirCoverage, when non-nil, is reported as runs[0].properties.fir.
 	FirCoverage *FirCoverage
+	// Projects, when non-nil, attributes results to Gradle projects: each
+	// result's properties.project and runs[0].properties.byProject.
+	Projects *ProjectAttribution
 }
 
 // FormatSARIFColumnsReport is FormatSARIFColumns with run-level report options.
@@ -320,6 +326,7 @@ func FormatSARIFColumnsReport(w io.Writer, columns *scanner.FindingColumns, vers
 			}},
 		}
 		r.Properties = buildResultProperties(cols.ConfidenceAt(row), precisionMap[ruleID], effortMap[ruleID], capabilityMap[ruleID], securityMap[ruleID])
+		r.Properties = withProject(r.Properties, opts.Projects.ProjectOf(cols.FileAt(row)))
 		results = append(results, r)
 	})
 
@@ -342,9 +349,7 @@ func FormatSARIFColumnsReport(w io.Writer, columns *scanner.FindingColumns, vers
 		}},
 	}
 
-	if opts.FirCoverage != nil {
-		log.Runs[0].Properties = map[string]any{"fir": opts.FirCoverage}
-	}
+	log.Runs[0].Properties = sarifRunProperties(opts, columns)
 	if degraded != nil {
 		log.Runs[0].Invocations = []sarifInvocation{{
 			ExecutionSuccessful: true,
@@ -383,6 +388,34 @@ func sarifLevelForSeverity(severity string) string {
 	default:
 		return "warning"
 	}
+}
+
+// withProject sets a result's Gradle project, creating the property bag when needed.
+func withProject(props *sarifProperties, project string) *sarifProperties {
+	if project == "" {
+		return props
+	}
+	if props == nil {
+		props = &sarifProperties{}
+	}
+	props.Project = project
+	return props
+}
+
+// sarifRunProperties is runs[0].properties: "fir" (the FIR coverage) and
+// "byProject" (findings per Gradle project), or nil when neither applies.
+func sarifRunProperties(opts SARIFOptions, columns *scanner.FindingColumns) map[string]any {
+	if opts.FirCoverage == nil && opts.Projects == nil {
+		return nil
+	}
+	props := map[string]any{}
+	if opts.FirCoverage != nil {
+		props["fir"] = opts.FirCoverage
+	}
+	if opts.Projects != nil {
+		props["byProject"] = opts.Projects.ByProject(columns)
+	}
+	return props
 }
 
 func buildResultProperties(confidence float64, precision, effort string, caps []string, sec *api.SecurityTaxonomy) *sarifProperties {

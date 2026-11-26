@@ -285,7 +285,7 @@ near-zero on a warm run.
 
 | Flag | What it disables |
 |---|---|
-| `--no-cache` | Incremental analysis cache (findings reuse) and the `--fir` check cache `.krit/fir-cache` and the incremental FIR bundle `.krit/fir-incremental` (neither read nor written; applies to daemon-delegated scans too) |
+| `--no-cache` | Every cache that can change findings: the incremental analysis cache, the cross-file index and the cross-file findings cache, the findings bundle, the Android findings cache, the resource index, the file-walk cache, the type-index and library-profile caches, the incremental oracle cache, the `--fir` check cache `.krit/fir-cache` and the incremental FIR bundle `.krit/fir-incremental`. None is read or written. The parse cache stays on. A daemon-delegated scan forwards the flag, and the daemon also skips its parse cache for that call |
 | `--no-parse-cache` | Tree-sitter parse-tree cache |
 | `--no-resource-cache` | Android values-XML ResourceIndex cache |
 | `--no-cross-file-cache` | Cross-file index cache |
@@ -495,8 +495,8 @@ The corpora are the pinned `nowinandroid` and `okhttp` commits from
 gen`: modules, manifests with activities/services/receivers/providers,
 component classes behind base classes, Compose functions, resources), and
 `playground/android-app`. Each scan is source-only and cold: `--no-fir --no-type-oracle --no-daemon`,
-every on-disk cache off (`--no-cache` covers only the incremental and FIR
-caches, so `--no-parse-cache --no-cross-file-cache --no-resource-cache` too),
+every on-disk cache off (`--no-cache --no-parse-cache`; it also passes
+`--no-cross-file-cache --no-resource-cache`, which `--no-cache` now implies),
 and the corpus's `.krit/` deleted before each run.
 
 The job fails when head is slower than both thresholds of a gate:

@@ -31,8 +31,9 @@ import org.jetbrains.kotlin.fir.expressions.FirOperation
 /**
  * Whether a test body proves an assertion. TestWithoutAssertion is a confirm-only FIR rule: a Go finding stands only
  * where this checker reports it too, so "no finding" here removes Go's. Only proof may therefore suppress the report;
- * whatever FIR cannot see into (a helper in another file, module or jar, a constructor, a property read) is not
- * proof, and the report keeps Go's verdict, which Go reached with its own project-wide helper index (#1671).
+ * whatever FIR cannot see into (a helper in another file, module or jar, a constructor, a property read, a helper
+ * cycle or one past the visit limits) is not proof, and the report keeps Go's verdict, which Go reached with its own
+ * project-wide helper index (#1671).
  */
 internal class TestWithoutAssertionEvidence(
     private val file: FirFile,
@@ -62,7 +63,8 @@ internal class TestWithoutAssertionEvidence(
     @OptIn(SymbolInternals::class)
     fun helperPreventsFinding(symbol: FirNamedFunctionSymbol, depth: Int): Boolean {
         if (symbol.callableId.asSingleFqName().asString() in TestWithoutAssertionCalls.nonAssertingCalls) return false
-        if (symbol in active) return true
+        // A cycle's back edge adds nothing; whatever else the helpers on the cycle do still counts.
+        if (symbol in active) return false
         // A helper of another module, or one compiled to a jar, has no body to read: no proof.
         if (symbol.moduleData != file.moduleData) return false
         return resolveHelper(symbol, depth)
@@ -85,11 +87,12 @@ internal class TestWithoutAssertionEvidence(
         key: Pair<FirNamedFunctionSymbol, Int>,
         depth: Int,
     ): Boolean {
-        if (exceededHelperVisitLimit()) return true
+        // Past the visit budget or depth, or into a generated helper or another test, the body is not read: no proof.
+        if (exceededHelperVisitLimit()) return false
         val function = symbol.fir
         val eligibleSource = hasEligibleSource(function)
         val maximumDepthReached = isAtMaximumHelperDepth(depth)
-        if (!eligibleSource || maximumDepthReached) return true
+        if (!eligibleSource || maximumDepthReached) return false
         active += symbol
         val prevents = preventsFinding(body, depth + 1, helper = true)
         active -= symbol

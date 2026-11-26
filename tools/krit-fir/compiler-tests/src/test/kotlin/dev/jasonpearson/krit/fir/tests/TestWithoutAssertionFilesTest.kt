@@ -167,8 +167,9 @@ class TestWithoutAssertionFilesTest {
         assertEquals(emptyList(), findings(mapOf("LookalikesTest.kt" to source)))
     }
 
-    // A cycle and a conditional throw in a helper still suppress the report; a stub that only throws does not.
-    @Test fun cyclesAndConditionalThrowsSuppressButAStubDoesNot() {
+    // A conditional throw in a helper suppresses the report; a cycle without an assertion and a stub that only
+    // throws do not (Go reports all three; the conditional throw is FIR's proof).
+    @Test fun conditionalThrowsSuppressButCyclesAndStubsDoNot() {
         val source = """
             import org.junit.Test
             class HelpersTest {
@@ -181,7 +182,7 @@ class TestWithoutAssertionFilesTest {
                 private fun stub() { throw NotImplementedError("later") }
             }
         """.trimIndent()
-        assertEquals(listOf(5), findings(mapOf("HelpersTest.kt" to source)).map { it.line })
+        assertEquals(listOf(3, 5), findings(mapOf("HelpersTest.kt" to source)).map { it.line })
     }
 
     @Test fun optionsMatchResolvedDeclaredNamesNotImportAliases() {

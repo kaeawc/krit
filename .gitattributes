@@ -1,0 +1,4 @@
+# Git merges CHANGELOG.md additions from both sides instead of conflicting:
+# every PR appends to the same [Unreleased] lists, so parallel PRs otherwise
+# always conflict there on rebase. Review the result for duplicated entries.
+CHANGELOG.md merge=union

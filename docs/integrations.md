@@ -460,6 +460,17 @@ a daemon serves the scan:
 
 Baselines and `--fix` are unaffected: they match and edit files on disk.
 
+### Baseline IDs
+
+A baseline entry names a finding as `Rule:file:$Rule$message`, where `file` is
+the finding's path relative to the base path above. Both sides are made
+absolute (and, if needed, symlink-resolved) first, so the ID is the same
+whether the scan runs in-process or through the daemon, with or without FIR,
+from a cold or a warm `.krit/`, and whether `--base-path` is `.` or absolute.
+A baseline created in CI therefore matches a local daemon run. Matching also
+accepts the file's base name, so baselines written by Krit versions that fell
+back to base names keep working.
+
 ### JSON finding fields
 
 Each entry in `findings` has these fields:

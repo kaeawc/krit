@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kaeawc/krit/internal/hashutil"
 	"github.com/kaeawc/krit/internal/testutil"
 )
 
@@ -49,5 +50,27 @@ func TestUpdateEntryKeepsOldModTimeForFastPath(t *testing.T) {
 	}
 	if NeedsReanalysis(filePath, entry) {
 		t.Fatal("an old, unchanged file must hit the mtime fast path")
+	}
+}
+
+// An edit that lands between the analysis read and the cache write must not
+// pair the old findings with the new content, even when the new stat is old
+// enough to trust.
+func TestUpdateEntryFromContentKeysTheAnalyzedBytes(t *testing.T) {
+	filePath := filepath.Join(t.TempDir(), "A.kt")
+	analyzed := []byte("class A")
+	if err := os.WriteFile(filePath, []byte("class B"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	testutil.Age(t, filePath)
+	c := &Cache{RuleHash: "rh", Files: make(map[string]FileEntry)}
+	c.UpdateEntryFromContent(filePath, analyzed, nil, "")
+	abs, _ := filepath.Abs(filePath)
+	entry := c.Files[abs]
+	if entry.Hash != hashutil.HashHex(analyzed)[:16] {
+		t.Fatalf("entry hash %s is not the analyzed bytes' hash", entry.Hash)
+	}
+	if !NeedsReanalysis(filePath, entry) {
+		t.Fatal("findings for the analyzed bytes were served for the file's newer content")
 	}
 }

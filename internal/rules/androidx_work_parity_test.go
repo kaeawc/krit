@@ -9,6 +9,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kaeawc/krit/internal/android"
+	"github.com/kaeawc/krit/internal/manifest"
+	"github.com/kaeawc/krit/internal/pipeline"
+	"github.com/kaeawc/krit/internal/rules"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -89,7 +93,7 @@ func workParityExpected(t *testing.T, dir string) []string {
 func runWorkParityChecks(t *testing.T, dir string, checks []string) []string {
 	t.Helper()
 	var perFile []string
-	var project []*api.Rule
+	var project, manifestSource []*api.Rule
 	for _, check := range checks {
 		var rule *api.Rule
 		for _, r := range api.Registry {
@@ -100,7 +104,9 @@ func runWorkParityChecks(t *testing.T, dir string, checks []string) []string {
 		if rule == nil {
 			t.Fatalf("rule %q not registered", check)
 		}
-		if rule.Needs.Has(api.NeedsParsedFiles) {
+		if rules.RuleScope(rule) == api.ScopeManifestSource {
+			manifestSource = append(manifestSource, rule)
+		} else if rule.Needs.Has(api.NeedsParsedFiles) {
 			project = append(project, rule)
 		} else {
 			perFile = append(perFile, check)
@@ -110,7 +116,7 @@ func runWorkParityChecks(t *testing.T, dir string, checks []string) []string {
 	if len(perFile) > 0 {
 		out = append(out, runParityChecks(t, dir, perFile)...)
 	}
-	if len(project) == 0 {
+	if len(project) == 0 && len(manifestSource) == 0 {
 		return out
 	}
 	var files []*scanner.File
@@ -135,12 +141,34 @@ func runWorkParityChecks(t *testing.T, dir string, checks []string) []string {
 	if err != nil {
 		t.Fatal(err)
 	}
+	var manifests []*manifest.Manifest
+	err = filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() || d.Name() != "AndroidManifest.xml" {
+			return err
+		}
+		parsed, err := android.ParseManifest(path)
+		if err != nil {
+			return err
+		}
+		manifests = append(manifests, pipeline.ConvertManifestForRules(android.ConvertManifest(parsed, path)))
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, r := range project {
 		collector := scanner.NewFindingCollector(0)
 		r.Check(&api.Context{ParsedFiles: files, Collector: collector, Rule: r})
 		for _, f := range collector.Columns().Findings() {
 			rel, _ := filepath.Rel(dir, f.File)
 			out = append(out, fmt.Sprintf("%s:%d:%d: %s: %s", filepath.ToSlash(rel), f.Line, f.Col, r.ID, f.Message))
+		}
+	}
+	if len(manifestSource) > 0 {
+		cols, _ := rules.NewDispatcher(manifestSource, nil).RunManifestSource(manifests, files)
+		for _, f := range cols.Findings() {
+			rel, _ := filepath.Rel(dir, f.File)
+			out = append(out, fmt.Sprintf("%s:%d:%d: %s: %s", filepath.ToSlash(rel), f.Line, f.Col, f.Rule, f.Message))
 		}
 	}
 	sort.Strings(out)

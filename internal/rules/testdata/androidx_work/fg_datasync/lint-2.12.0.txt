@@ -1,0 +1,2 @@
+src/com/example/Fg.kt:10:5: SpecifyForegroundServiceType: Missing connectedDevice foregroundServiceType in the AndroidManifest.xml
+src/com/example/Fg.kt:9:5: SpecifyForegroundServiceType: Missing location foregroundServiceType in the AndroidManifest.xml

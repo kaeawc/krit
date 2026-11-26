@@ -497,3 +497,16 @@ Class hierarchies are followed through the project's own classes in any file and
 (`Worker`, `CoroutineWorker`, `RxWorker`, `RemoteListenableWorker`), `MultiDexApplication` and `SystemJobService`.
 Krit counts any `setJobSchedulerJobIdRange` / `setWorkerFactory` call without proving that its receiver is a
 `Configuration.Builder`, so a builder it cannot trace never leads to a report.
+
+`androidx.work:work-runtime` 2.12.0 source-and-manifest checks (Kotlin and Java), run once per scan with every parsed
+manifest and source file:
+
+- `RemoveWorkManagerInitializer` reports when a concrete `Application` implements `Configuration.Provider` (on-demand
+  initialization) and no manifest removes `androidx.startup.InitializationProvider` or the
+  `androidx.work.WorkManagerInitializer` meta-data with `tools:node="remove"`. As in Lint, it reports at the
+  `WorkManagerInitializer` meta-data, else the `InitializationProvider`, else `<application>`, here in the
+  Application's own module, and `@SuppressLint` on the Application class or `tools:ignore` in the manifest silences it.
+- `SpecifyForegroundServiceType` reports a `ForegroundInfo(id, notification, type)` constructor once for each of
+  `dataSync`, `mediaPlayback`, `phoneCall`, `location`, `connectedDevice` and `mediaProjection` in the folded `type`
+  that no `SystemForegroundService` `<service>` lists in `android:foregroundServiceType`. Types are collected from every
+  manifest of the scan.

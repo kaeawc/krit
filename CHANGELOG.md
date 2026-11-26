@@ -5,6 +5,10 @@ All notable changes to Krit will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- `RemoveWorkManagerInitializer` and `SpecifyForegroundServiceType`, the `androidx.work:work-runtime` 2.12.0 checks that
+  join source with `AndroidManifest.xml`, ported for Kotlin and Java on the new `manifest-source` scope under their Lint
+  IDs, severities and messages. Their findings match the Lint CLI running that release's `lint.jar`, including manifest
+  locations and the one-finding-per-missing-type order. `@SuppressLint` and `tools:ignore` are honored (#1512, #1514).
 - `BadConfigurationProvider`, `SpecifyJobSchedulerIdRange` and `WorkerHasAPublicModifier`, the project-wide checks
   bundled in `androidx.work:work-runtime` 2.12.0, ported for Kotlin and Java under their Lint IDs and checked against
   the Lint CLI running that release's `lint.jar` (`internal/rules/testdata/androidx_work/`). They collect classes and

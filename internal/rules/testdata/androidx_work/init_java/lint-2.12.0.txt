@@ -1,0 +1,1 @@
+AndroidManifest.xml:5:5: RemoveWorkManagerInitializer: Remove androidx.work.WorkManagerInitializer from your AndroidManifest.xml when using on-demand initialization.

@@ -55,3 +55,19 @@ func (r *WorkerHasAPublicModifierRule) Meta() api.RuleDescriptor {
 			"Worker hierarchies are followed through project sources and the androidx.work worker base classes.",
 		}}
 }
+
+func (r *RemoveWorkManagerInitializerRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "RemoveWorkManagerInitializer", RuleSet: "android-lint", DefaultActive: true,
+		KnownLimitations: []string{
+			"A tools:node=\"remove\" in any manifest of the scan counts; the location comes from the manifests of the Application's own module (nearest build file).",
+			"Class hierarchies are followed through project sources; a Configuration.Provider inherited from another library's base class is not seen.",
+		}}
+}
+
+func (r *SpecifyForegroundServiceTypeRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "SpecifyForegroundServiceType", RuleSet: "android-lint", DefaultActive: true,
+		KnownLimitations: []string{
+			"Service types are collected from every manifest of the scan, and nothing is reported when the scan has no manifest.",
+			"The type argument must fold to a constant from literals, ServiceInfo constants and same-file constants.",
+		}}
+}

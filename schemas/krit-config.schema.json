@@ -9594,6 +9594,39 @@
             }
           }
         },
+        "RemoveWorkManagerInitializer": {
+          "description": "Remove androidx.work.WorkManagerInitializer from your AndroidManifest.xml when using on-demand initialization. [precision: project-structure-aware] [noisiness: normal] [capabilities: manifest, parsed-files]\nCaveat: A tools:node=\"remove\" in any manifest of the scan counts; the location comes from the manifests of the Application's own module (nearest build file).\nCaveat: Class hierarchies are followed through project sources; a Configuration.Provider inherited from another library's base class is not seen.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable RemoveWorkManagerInitializer (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "RequiredSizeResource": {
           "description": "View missing layout_width or layout_height [precision: project-structure-aware] [noisiness: normal] [capabilities: resources]",
           "type": "object",
@@ -10822,6 +10855,39 @@
           "properties": {
             "active": {
               "description": "Enable SpUsageResource (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "SpecifyForegroundServiceType": {
+          "description": "Specify foreground service type [precision: project-structure-aware] [noisiness: normal] [capabilities: manifest, parsed-files]\nCaveat: Service types are collected from every manifest of the scan, and nothing is reported when the scan has no manifest.\nCaveat: The type argument must fold to a constant from literals, ServiceInfo constants and same-file constants.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable SpecifyForegroundServiceType (default: true).",
               "type": "boolean",
               "default": true
             },

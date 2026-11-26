@@ -1114,6 +1114,39 @@
             }
           }
         },
+        "BadConfigurationProvider": {
+          "description": "Invalid WorkManager Configuration Provider [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]\nCaveat: Class hierarchies are followed through the project's Kotlin and Java sources and a few library classes (MultiDexApplication); an Application whose Configuration.Provider comes from another library base class is not recognized.\nCaveat: Lint reports the whole file of the last Application subclass it visits; krit anchors the finding at that file's first line. Lint runs per root project, krit over every module of the scan.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable BadConfigurationProvider (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "BadHostnameVerifier": {
           "description": "Insecure HostnameVerifier [precision: ast-backed] [noisiness: normal]",
           "type": "object",
@@ -10815,6 +10848,39 @@
             }
           }
         },
+        "SpecifyJobSchedulerIdRange": {
+          "description": "Specify a range of JobScheduler ids [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]\nCaveat: Needs evidence that the project uses WorkManager (an androidx.work dependency or import), because a JobService alone does not bring the work lint.jar.\nCaveat: Any setJobSchedulerJobIdRange call counts, without proving its receiver is a Configuration.Builder.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable SpecifyJobSchedulerIdRange (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "StateListReachableResource": {
           "description": "Unreachable item in selector drawable [precision: project-structure-aware] [noisiness: normal] [capabilities: resources]",
           "type": "object",
@@ -14617,6 +14683,39 @@
           "properties": {
             "active": {
               "description": "Enable WifiManagerPotentialLeak (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "WorkerHasAPublicModifier": {
+          "description": "ListenableWorkers constructed using the default WorkerFactories need to be public [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]\nCaveat: Any setWorkerFactory call in the project counts as a custom WorkerFactory, without proving its receiver is a Configuration.Builder.\nCaveat: Worker hierarchies are followed through project sources and the androidx.work worker base classes.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable WorkerHasAPublicModifier (default: true).",
               "type": "boolean",
               "default": true
             },

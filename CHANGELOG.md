@@ -5,6 +5,13 @@ All notable changes to Krit will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- `BadConfigurationProvider`, `SpecifyJobSchedulerIdRange` and `WorkerHasAPublicModifier`, the project-wide checks
+  bundled in `androidx.work:work-runtime` 2.12.0, ported for Kotlin and Java under their Lint IDs and checked against
+  the Lint CLI running that release's `lint.jar` (`internal/rules/testdata/androidx_work/`). They collect classes and
+  calls over every main-source file, as Lint's `afterCheckRootProject` does, and follow class hierarchies across files.
+  Findings match Lint except that `BadConfigurationProvider`'s whole-file location is anchored at line 1.
+  `SpecifyJobSchedulerIdRange` also needs evidence that the project uses WorkManager. Any `setWorkerFactory` /
+  `setJobSchedulerJobIdRange` call counts as configured (#1508, #1515, #1516).
 - Bazel: `krit_aspect`'s per-target actions run only file-scope rules (`--only-scope file`; `--@krit//:scope=all`
   restores every rule), so project-scope rules no longer report cross-target false positives such as DeadCode on a
   function another target calls. The new `krit_project_report` rule runs the project-scope rules (cross-file, Android

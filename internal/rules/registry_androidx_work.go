@@ -31,6 +31,30 @@ func registerAndroidXWorkCallsiteChecks() {
 	})
 }
 
+// registerAndroidXWorkProjectChecks registers the project-wide checks from androidx.work:work-runtime 2.12.0.
+func registerAndroidXWorkProjectChecks() {
+	config := &BadConfigurationProviderRule{AndroidRule: lintAndroidRule("BadConfigurationProvider",
+		"Invalid WorkManager Configuration Provider", ALCCorrectness, ALSFatal, 5)}
+	registerWorkProjectRule(config.AndroidRule, config, config.Confidence(), config.check)
+
+	jobs := &SpecifyJobSchedulerIDRangeRule{AndroidRule: lintAndroidRule("SpecifyJobSchedulerIdRange",
+		"Specify a range of JobScheduler ids", ALCCorrectness, ALSWarning, 5)}
+	registerWorkProjectRule(jobs.AndroidRule, jobs, jobs.Confidence(), jobs.check)
+
+	workers := &WorkerHasAPublicModifierRule{AndroidRule: lintAndroidRule("WorkerHasAPublicModifier",
+		"ListenableWorkers constructed using the default WorkerFactories need to be public", ALCCorrectness, ALSFatal, 5)}
+	registerWorkProjectRule(workers.AndroidRule, workers, workers.Confidence(), workers.check)
+}
+
+// registerWorkProjectRule registers a WorkManager Lint port that runs once over every parsed Kotlin and Java file.
+func registerWorkProjectRule(rule AndroidRule, impl any, confidence float64, check func(*api.Context)) {
+	api.Register(&api.Rule{
+		ID: rule.RuleName, Category: rule.RuleSetName, Description: rule.Description(), Sev: api.Severity(rule.Sev),
+		Needs: api.NeedsParsedFiles, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava},
+		Confidence: confidence, Implementation: impl, NeedsLibraryFacts: true, Check: check,
+	})
+}
+
 // registerWorkRule registers a WorkManager Lint port for Kotlin and Java, skipping test sources as Lint does.
 func registerWorkRule(rule AndroidRule, impl any, confidence float64, check func(*api.Context), nodeTypes []string) {
 	api.Register(&api.Rule{

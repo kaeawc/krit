@@ -221,6 +221,9 @@ var javaSupportReadiness = JavaSupportMatrix{
 		"InvalidPeriodicWorkRequestInterval":      {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/androidx_work_parity_test.go"}},
 		"BadPeriodicWorkRequestEnqueue":           {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/androidx_work_parity_test.go"}},
 		"UseRxSetProgress2":                       {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/androidx_work_parity_test.go"}},
+		"BadConfigurationProvider":                {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/androidx_work_parity_test.go"}},
+		"SpecifyJobSchedulerIdRange":              {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/androidx_work_parity_test.go"}},
+		"WorkerHasAPublicModifier":                {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/androidx_work_parity_test.go"}},
 	},
 }
 

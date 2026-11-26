@@ -1,0 +1,1 @@
+src/com/example/App.kt:0:0: BadConfigurationProvider: Expected Application subtype to implement Configuration.Provider

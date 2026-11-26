@@ -340,10 +340,15 @@ func (r *ComposeModifierWithoutDefaultRule) check(ctx *api.Context) {
 }
 
 // composeLintsModifierDefault returns the Modifier parameter's type as written, without nullability, for use as
-// its default value (the Modifier and GlanceModifier companions), or "" when the type is not a plain user_type.
+// its default value (the Modifier and GlanceModifier companions). It returns "" when the type is not a plain
+// user_type or does not resolve to androidx.compose.ui.Modifier or androidx.glance.GlanceModifier: the finding
+// matches a lookalike by its text, as Lint does, but its companion is no Modifier.
 func composeLintsModifierDefault(file *scanner.File, param uint32) string {
 	t := composeLintsDeclaredType(file, param)
-	if t != 0 && file.FlatType(t) == "nullable_type" {
+	if t == 0 || !composeLintsTypeIsModifier(file, t) && !composeLintsTypeIsGlanceModifier(file, t) {
+		return ""
+	}
+	if file.FlatType(t) == "nullable_type" {
 		t, _ = file.FlatFindChild(t, "user_type")
 	}
 	if t == 0 || file.FlatType(t) != "user_type" || strings.ContainsRune(file.FlatNodeText(t), '<') {

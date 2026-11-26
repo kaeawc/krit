@@ -529,12 +529,16 @@ func (r *privacyBackgroundLocationResolver) expression(idx uint32) bool {
 		return matched
 	}
 	// Any descendant with a directly-evaluable shape decides the expression.
-	// Only those shapes are evaluated during the single walk; re-entering
-	// expression() for every descendant re-walked each subtree and grew
-	// exponentially with nesting depth.
+	// Only leaf shapes are evaluated during the single walk: calls and value
+	// arguments would start another walk over descendants this one visits
+	// anyway, which grew exponentially with nesting depth (#1611, #1705).
 	found := false
 	file.FlatWalkAllNodes(idx, func(node uint32) {
 		if found || node == idx {
+			return
+		}
+		switch file.FlatType(node) {
+		case "call_expression", "value_argument", "value_arguments":
 			return
 		}
 		if matched, ok := r.direct(node); ok && matched {
@@ -553,7 +557,7 @@ func (r *privacyBackgroundLocationResolver) direct(idx uint32) (matched, ok bool
 		value, ok := contactsStringLiteralValueFlat(file, idx)
 		return ok && value == "android.permission.ACCESS_BACKGROUND_LOCATION", true
 	case "simple_identifier":
-		return r.sameFileConstant(file.FlatNodeString(idx, nil)), true
+		return r.sameFileConstant(idx, file.FlatNodeString(idx, nil)), true
 	case "navigation_expression":
 		path := contactsIdentifierPathFlat(file, idx)
 		return contactsIdentifierPathHasSuffix(path, []string{"Manifest", "permission", "ACCESS_BACKGROUND_LOCATION"}) ||
@@ -591,28 +595,101 @@ func (r *privacyBackgroundLocationResolver) valueArguments(args uint32) bool {
 	return false
 }
 
-// sameFileConstant reports whether any same-file property named name has an
-// initializer that resolves to ACCESS_BACKGROUND_LOCATION. Each property is
-// followed at most once per resolution.
-func (r *privacyBackgroundLocationResolver) sameFileConstant(name string) bool {
+// sameFileConstant reports whether the same-file property that the
+// identifier use refers to resolves to ACCESS_BACKGROUND_LOCATION. Enclosing
+// owners are searched nearest first, as Kotlin resolves an unqualified name:
+// a same-named parameter shadows outer properties (its value is unknown), a
+// function-local property must be declared before the use, and a companion
+// object's properties count as its class's. Properties of unrelated classes
+// are not visible (#1705). Each property is followed at most once per
+// resolution (#1611).
+func (r *privacyBackgroundLocationResolver) sameFileConstant(use uint32, name string) bool {
 	file := r.file
 	if file == nil || name == "" {
 		return false
 	}
-	found := false
+	var candidates []uint32
 	file.FlatWalkNodes(0, "property_declaration", func(prop uint32) {
-		if found || r.visited[prop] || extractIdentifierFlat(file, prop) != name {
-			return
-		}
-		if r.visited == nil {
-			r.visited = make(map[uint32]bool)
-		}
-		r.visited[prop] = true
-		if r.expression(contactsPropertyInitializerFlat(file, prop)) {
-			found = true
+		if extractIdentifierFlat(file, prop) == name {
+			candidates = append(candidates, prop)
 		}
 	})
-	return found
+	useStart := file.FlatStartByte(use)
+	for _, owner := range contactsEnclosingOwnersFlat(file, use) {
+		if owner != 0 && privacyOwnerDeclaresParameterFlat(file, owner, name) {
+			return false
+		}
+		declared := false
+		for _, prop := range candidates {
+			if contactsDeclarationOwnerFlat(file, prop) != owner {
+				continue
+			}
+			if file.FlatType(owner) == "function_declaration" && file.FlatStartByte(prop) > useStart {
+				continue
+			}
+			declared = true
+			if r.visited[prop] {
+				continue
+			}
+			if r.visited == nil {
+				r.visited = make(map[uint32]bool)
+			}
+			r.visited[prop] = true
+			if r.expression(privacyPropertyValueFlat(file, prop)) {
+				return true
+			}
+		}
+		if declared {
+			return false
+		}
+	}
+	return false
+}
+
+// privacyOwnerDeclaresParameterFlat reports whether a function's value
+// parameters or a class's primary-constructor parameters include name.
+func privacyOwnerDeclaresParameterFlat(file *scanner.File, owner uint32, name string) bool {
+	var params uint32
+	switch file.FlatType(owner) {
+	case "function_declaration":
+		params, _ = file.FlatFindChild(owner, "function_value_parameters")
+	case "class_declaration":
+		params, _ = file.FlatFindChild(owner, "primary_constructor")
+	}
+	if params == 0 {
+		return false
+	}
+	for param := file.FlatFirstChild(params); param != 0; param = file.FlatNextSib(param) {
+		switch file.FlatType(param) {
+		case "parameter", "class_parameter":
+			if extractIdentifierFlat(file, param) == name {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// privacyPropertyValueFlat returns a property's initializer, or the body of
+// its getter when it has none. A getter on its own line parses as the
+// property's next sibling.
+func privacyPropertyValueFlat(file *scanner.File, prop uint32) uint32 {
+	if init := contactsPropertyInitializerFlat(file, prop); init != 0 {
+		return init
+	}
+	getter, ok := file.FlatFindChild(prop, "getter")
+	if !ok {
+		next := file.FlatNextSib(prop)
+		for next != 0 && !file.FlatIsNamed(next) {
+			next = file.FlatNextSib(next)
+		}
+		if next == 0 || file.FlatType(next) != "getter" {
+			return 0
+		}
+		getter = next
+	}
+	body, _ := file.FlatFindChild(getter, "function_body")
+	return body
 }
 
 func privacyOwnerHasBackgroundLocationRationaleFlat(file *scanner.File, call uint32) bool {

@@ -149,6 +149,126 @@ class LocationActivity {
 		}
 	})
 
+	// #1705: the fallback walk re-entered the resolver for every nested call
+	// argument, so `"" + f("" + f(...))` grew ~2.8x per level (2m18s at 18).
+	t.Run("deeply nested call arguments stay linear", func(t *testing.T) {
+		for _, test := range []struct {
+			leaf string
+			want int
+		}{
+			{"Manifest.permission.ACCESS_FINE_LOCATION", 0},
+			{"Manifest.permission.ACCESS_BACKGROUND_LOCATION", 1},
+		} {
+			expr := test.leaf
+			for i := 0; i < 18; i++ {
+				expr = "\"\" + f(" + expr + ")"
+			}
+			findings := runRuleByName(t, "LocationBackgroundWithoutRationale", `
+package test
+
+fun f(s: String) = s
+
+class LocationActivity {
+    fun request() {
+        requestPermissions(arrayOf(`+expr+`), 100)
+    }
+}
+`)
+			if len(findings) != test.want {
+				t.Fatalf("leaf %s: expected %d findings, got %d: %v", test.leaf, test.want, len(findings), findings)
+			}
+		}
+	})
+
+	t.Run("resolves getter-only properties", func(t *testing.T) {
+		findings := runRuleByName(t, "LocationBackgroundWithoutRationale", `
+package test
+
+class LocationActivity {
+    val inline get() = arrayOf(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+    val ownLine: Array<String>
+        get() = arrayOf(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+
+    fun request() {
+        requestPermissions(inline, 100)
+        requestPermissions(ownLine, 101)
+    }
+}
+`)
+		if len(findings) != 2 {
+			t.Fatalf("expected 2 findings, got %d: %v", len(findings), findings)
+		}
+	})
+
+	t.Run("terminates on mutually-referencing getters in scope", func(t *testing.T) {
+		findings := runRuleByName(t, "LocationBackgroundWithoutRationale", `
+package test
+
+class LocationActivity {
+    val first: Array<String> get() = second
+    val second: Array<String> get() = first
+    val third: Array<String>
+        get() = third
+
+    fun request() {
+        requestPermissions(first, 100)
+        requestPermissions(third, 101)
+    }
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d: %v", len(findings), findings)
+		}
+	})
+
+	t.Run("resolves members, companion constants and locals in scope", func(t *testing.T) {
+		findings := runRuleByName(t, "LocationBackgroundWithoutRationale", `
+package test
+
+class LocationActivity {
+    private val member = arrayOf(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+
+    companion object {
+        val PERMS = arrayOf(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+    }
+
+    fun requestMember() { requestPermissions(member, 100) }
+    fun requestCompanion() { requestPermissions(PERMS, 101) }
+    fun requestLocal() {
+        val local = arrayOf(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+        requestPermissions(local, 102)
+    }
+}
+`)
+		if len(findings) != 3 {
+			t.Fatalf("expected 3 findings, got %d: %v", len(findings), findings)
+		}
+	})
+
+	t.Run("parameters and other classes' properties do not resolve", func(t *testing.T) {
+		findings := runRuleByName(t, "LocationBackgroundWithoutRationale", `
+package test
+
+class Y {
+    val perms = arrayOf(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+}
+
+class LocationActivity {
+    val shadowed = arrayOf(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+
+    fun requestOther(perms: Array<String>) { requestPermissions(perms, 100) }
+    fun requestShadowed(shadowed: Array<String>) { requestPermissions(shadowed, 101) }
+    fun requestLater() {
+        requestPermissions(later, 102)
+        val later = arrayOf(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+    }
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d: %v", len(findings), findings)
+		}
+	})
+
 	t.Run("ignores non-background location permissions", func(t *testing.T) {
 		findings := runRuleByName(t, "LocationBackgroundWithoutRationale", `
 package test

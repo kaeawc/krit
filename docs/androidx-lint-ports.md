@@ -43,3 +43,19 @@ import, as it does in Kotlin.
   dependency added by a convention plugin or arriving through another project module is not seen; one read from a
   Bazel `MODULE.bazel`/`WORKSPACE` counts for the whole build.
   Fully qualified references such as `androidx.compose.material.Button()` are not reported, as in Lint.
+
+## ConstraintLayout Compose
+
+`androidx.constraintlayout:constraintlayout-compose-android` 1.1.2 (Kotlin, production sources). Like the detector,
+the checks compare source text. In UAST a lambda's last statement is an implicit return, which the detector's
+statement scans skip, so the port skips it too: a `linkTo` (or a `constrain { }` block) written last in its lambda is
+not looked at.
+
+- `IncorrectReferencesDeclaration` reports `val (a, b) = createRefsFor("a", "b", "c")` when the number of string ids
+  differs from the destructured variables, at `createRefsFor`. A spread array or a non-string id is not counted.
+- `IncorrectMatchParentUsage` reports `width = Dimension.matchParent` (or `height`) in a `constrain(ref) { }` block
+  that also links the same axis to something other than the matching parent anchor (`start.linkTo(button.end)`,
+  `centerHorizontallyTo(button)`), at `Dimension.matchParent`.
+- `IncorrectChainMarginsUsage` reports an element of `createHorizontalChain(...)` / `createVerticalChain(...)`
+  without `withChainParams` whose `constrain` block links it, with a margin, to its neighbour's opposite anchor (or
+  the parent's same anchor at the ends), at the element.

@@ -129,3 +129,18 @@ func TestRelocationMatchesWholePathSegments(t *testing.T) {
 		}
 	}
 }
+
+// Identity checks the relocated project directory, the one Load checks.
+func TestIdentityFollowsRelocatedProjectDirectory(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("GRADLE_USER_HOME", filepath.Join(t.TempDir(), "gradle-home"))
+	dir := writeRelocatedModel(t, root, "/agent/1/work/repo", "/agent/1/.gradle")
+	before := Identity(dir)
+	if before == "" || before != Identity(dir) {
+		t.Fatalf("Identity = %q, want a stable non-empty identity", before)
+	}
+	write(t, filepath.Join(root, "app", "build.gradle.kts"), "")
+	if after := Identity(dir); after == before {
+		t.Fatalf("Identity = %q after creating the relocated :app directory, want a change", after)
+	}
+}

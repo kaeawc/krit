@@ -3,9 +3,11 @@ package scanner
 import "testing"
 
 func TestCrossFileCacheMeta_CoversSourcePaths(t *testing.T) {
+	const hashA = "aaaaaaaaaaaaaaaa1111111111111111"
+	const hashB = "bbbbbbbbbbbbbbbb2222222222222222"
 	meta := CrossFileCacheMeta{Entries: []fingerprintEntry{
-		{Path: "A.kt", Hash: "1"},
-		{Path: "B.java", Hash: "2"},
+		{Path: "A.kt", Hash: hashA},
+		{Path: "B.java", Hash: hashB},
 		{Path: "res/layout/main.xml", Hash: "3"},
 	}}
 	cases := []struct {
@@ -18,11 +20,36 @@ func TestCrossFileCacheMeta_CoversSourcePaths(t *testing.T) {
 		{"added file", []string{"A.kt", "B.java", "C.kt"}, false},
 		{"renamed file", []string{"A.kt", "C.java"}, false},
 	}
-	if (CrossFileCacheMeta{}).CoversSourcePaths([]string{"A.kt"}) {
+	if (CrossFileCacheMeta{}).CoversSourcePaths([]string{"A.kt"}, nil) {
 		t.Error("old meta with empty Entries must be a miss")
 	}
 	for _, tc := range cases {
-		if got := meta.CoversSourcePaths(tc.paths); got != tc.want {
+		if got := meta.CoversSourcePaths(tc.paths, nil); got != tc.want {
+			t.Errorf("%s: CoversSourcePaths=%t, want %t", tc.name, got, tc.want)
+		}
+	}
+
+	// Content: a file at the same path with other content is a miss (#1820),
+	// whether hashOf knows the full hash or the per-file cache's 16-character
+	// prefix. Paths hashOf skips ("") are compared by path only.
+	both := []string{"A.kt", "B.java"}
+	hashes := func(m map[string]string) func(string) string {
+		return func(p string) string { return m[p] }
+	}
+	contentCases := []struct {
+		name   string
+		hashOf map[string]string
+		want   bool
+	}{
+		{"full hashes match", map[string]string{"A.kt": hashA, "B.java": hashB}, true},
+		{"cache prefixes match", map[string]string{"A.kt": hashA[:16], "B.java": hashB[:16]}, true},
+		{"unknown hash skipped", map[string]string{"A.kt": hashA}, true},
+		{"reverted Kotlin file", map[string]string{"A.kt": "cccccccccccccccc3333333333333333", "B.java": hashB}, false},
+		{"edited Java file", map[string]string{"A.kt": hashA, "B.java": "dddddddddddddddd"}, false},
+		{"too short to compare", map[string]string{"A.kt": "aaaa"}, false},
+	}
+	for _, tc := range contentCases {
+		if got := meta.CoversSourcePaths(both, hashes(tc.hashOf)); got != tc.want {
 			t.Errorf("%s: CoversSourcePaths=%t, want %t", tc.name, got, tc.want)
 		}
 	}

@@ -35,6 +35,7 @@ type OptionMeta struct {
 	Type        string // "int", "bool", "string", "string[]", "regex"
 	Default     interface{}
 	Description string
+	Enum        []string // accepted values of a string option, or nil
 }
 
 // CollectRuleMeta walks api.Registry and builds metadata for every rule,
@@ -116,12 +117,14 @@ func descriptorOptions(d api.RuleDescriptor) []OptionMeta {
 			Type:        optionTypeString(opt.Type),
 			Default:     optionDefault(opt),
 			Description: opt.Description,
+			Enum:        opt.Enum,
 		})
 		for _, alias := range opt.Aliases {
 			out = append(out, OptionMeta{
 				Name:        alias,
 				Type:        optionTypeString(opt.Type),
 				Description: fmt.Sprintf("Alias for %s.", opt.Name),
+				Enum:        opt.Enum,
 			})
 		}
 	}
@@ -333,6 +336,7 @@ func optionSchema(opt OptionMeta) *jsonschema.Schema {
 		s = jsonschema.Boolean(opt.Description)
 	case "string":
 		s = jsonschema.String(opt.Description)
+		s.Enum = opt.Enum
 	case "regex":
 		s = &jsonschema.Schema{Type: "string", Format: "regex", Description: opt.Description}
 	case "string[]":
@@ -404,6 +408,31 @@ func KnownOptionsByRule() map[string]map[string]OptionType {
 			}
 		}
 		result[r.ID] = keys
+	}
+	return result
+}
+
+// KnownOptionEnumsByRule returns rule name -> option key -> accepted values
+// for the string options whose Meta() descriptor declares an Enum.
+func KnownOptionEnumsByRule() map[string]map[string][]string {
+	result := map[string]map[string][]string{}
+	for _, r := range api.Registry {
+		desc, ok := rules.MetaForRule(r)
+		if !ok {
+			continue
+		}
+		for _, opt := range desc.Options {
+			if len(opt.Enum) == 0 {
+				continue
+			}
+			if result[r.ID] == nil {
+				result[r.ID] = map[string][]string{}
+			}
+			result[r.ID][opt.Name] = opt.Enum
+			for _, alias := range opt.Aliases {
+				result[r.ID][alias] = opt.Enum
+			}
+		}
 	}
 	return result
 }

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -183,6 +184,29 @@ func TestGenerateSchema_HasTestSourcePaths(t *testing.T) {
 		}
 		if prop.Type != "array" {
 			t.Fatalf("%s type = %v, want array", key, prop.Type)
+		}
+	}
+}
+
+// TestStringOptionEnum checks that a string option's declared Enum reaches both the schema and the validator.
+func TestStringOptionEnum(t *testing.T) {
+	want := []string{"only_public", "public_and_internal", "all"}
+	opt := GenerateSchema(CollectRuleMeta()).Properties["compose"].Properties["ComposeModifierMissing"].Properties["visibilityThreshold"]
+	if opt == nil || !slices.Equal(opt.Enum, want) {
+		t.Fatalf("visibilityThreshold schema = %+v, want enum %v", opt, want)
+	}
+
+	for value, wantErr := range map[string]bool{"all": false, "public_and_internal": false, "everything": true} {
+		cfg := config.NewConfig()
+		cfg.Set("compose", "ComposeModifierMissing", "visibilityThreshold", value)
+		var got []string
+		for _, e := range ValidateConfig(cfg) {
+			if e.Level == "error" {
+				got = append(got, e.String())
+			}
+		}
+		if (len(got) > 0) != wantErr {
+			t.Errorf("visibilityThreshold = %q: errors %v, want error %v", value, got, wantErr)
 		}
 	}
 }

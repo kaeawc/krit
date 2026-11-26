@@ -102,6 +102,54 @@ func Load(dir string) (*Model, []string, error) {
 	return model, warnings, nil
 }
 
+// Identity names what Load accepts from the model files directly in dir: each
+// file's current content and, since Load skips a project whose directory is
+// missing, which of its relocated project directories exist. Keys of cached
+// output that carries the model's project attribution use it. "" when dir
+// cannot be read; "unreadable" when one of its files cannot.
+func Identity(dir string) string {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return ""
+	}
+	var b strings.Builder
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
+			continue
+		}
+		// Read, not a memoized hash: a same-size rewrite within one mtime tick is new content.
+		data, err := os.ReadFile(filepath.Join(dir, entry.Name()))
+		if err != nil {
+			return "unreadable"
+		}
+		b.WriteString(entry.Name() + "=" + hashutil.HashHex(data) + ";")
+		var file struct {
+			RootDir        string `json:"rootDir"`
+			GradleUserHome string `json:"gradleUserHome"`
+			Projects       []struct {
+				Dir string `json:"dir"`
+			} `json:"projects"`
+		}
+		if json.Unmarshal(data, &file) != nil {
+			continue
+		}
+		rewrites := modelRelocations(dir, file.RootDir, file.GradleUserHome)
+		for _, project := range file.Projects {
+			projectDir := filepath.ToSlash(project.Dir)
+			for _, r := range rewrites {
+				projectDir = r.apply(projectDir)
+			}
+			if info, err := os.Stat(projectDir); err == nil && info.IsDir() {
+				b.WriteByte('1')
+			} else {
+				b.WriteByte('0')
+			}
+		}
+		b.WriteByte(';')
+	}
+	return hashutil.HashHex([]byte(b.String()))[:16]
+}
+
 // expandGeneratedSourceJars appends the unpacked root of every srcjar a
 // source set lists to its GeneratedSourceDirs. An unreadable srcjar is a
 // warning: its types resolve as unknown, as they do without it.

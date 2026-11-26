@@ -12,6 +12,7 @@ import (
 	"github.com/kaeawc/krit/internal/hashutil"
 	"github.com/kaeawc/krit/internal/javafacts"
 	"github.com/kaeawc/krit/internal/librarymodel"
+	"github.com/kaeawc/krit/internal/output"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/typeinfer"
 )
@@ -235,6 +236,8 @@ type CachedBundleOutput struct {
 	ByRuleSet     map[string]int
 	ByRule        map[string]int
 	FixableCount  int
+	// ByProject is summary.byProject when the scan read a Gradle model (#1635).
+	ByProject map[string]output.ProjectCounts
 }
 
 // xfileSlot pairs a fingerprint with a value. Zero value means

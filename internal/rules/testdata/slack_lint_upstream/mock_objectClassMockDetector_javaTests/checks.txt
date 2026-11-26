@@ -1,1 +1,1 @@
-DoNotMockDataClass,DoNotMockObjectClass,DoNotMockPlatformTypes
+DoNotMockAutoValue,DoNotMockDataClass,DoNotMockObjectClass,DoNotMockPlatformTypes,DoNotMockRecordClass,DoNotMockSealedClass

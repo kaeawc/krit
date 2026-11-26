@@ -12,6 +12,9 @@ var axlParityRoots = []string{
 	"androidx_activity_compose",
 	"androidx_compose_animation",
 	"androidx_compose_material",
+	"androidx_lifecycle_runtime",
+	"androidx_constraintlayout",
+	"androidx_startup",
 	"androidx_uiautomator",
 	"androidx_webkit",
 }
@@ -21,7 +24,9 @@ var axlParityRoots = []string{
 // Each case directory under a root holds Kotlin/Java inputs, checks.txt (the issue IDs) and one lint-<version>.txt:
 // what the Android Lint CLI 9.4 reported for those IDs on the same inputs, run as a standalone project with the
 // artifact's lint.jar on the rule path and its classes.jar (plus the Compose, kotlin-stdlib and kotlinx-coroutines
-// jars it needs) on the classpath, one `path:line:column: ID: message` line per finding.
+// jars it needs) on the classpath, one `path:line:column: ID: message` line per finding, with newlines in a message
+// written as `\n`. Lint ran on src/ only: a test/ directory holds test sources, where krit must report what the
+// recording expects there (nothing, for the issues Lint does not run on tests).
 //
 // divergences.txt, when present, lists where krit deliberately differs, one finding per line with ` # reason`:
 // `- finding` is a Lint line krit does not report and `+ finding` is a krit line Lint does not report. krit must
@@ -70,7 +75,12 @@ func TestAndroidxLintParity(t *testing.T) {
 					wantLines = append(wantLines, line)
 				}
 				wantText := strings.Join(parityLines(strings.Join(wantLines, "\n")), "\n")
-				got := strings.Join(runParityChecks(t, caseDir, checks), "\n")
+				var gotLines []string
+				for _, line := range runWorkParityChecks(t, caseDir, checks) {
+					// The recorded findings escape a message's newlines, one finding per line.
+					gotLines = append(gotLines, strings.ReplaceAll(line, "\n", `\n`))
+				}
+				got := strings.Join(gotLines, "\n")
 				if got != wantText {
 					t.Errorf("krit findings differ from Lint (with divergences.txt)\n--- want\n%s\n--- got\n%s", wantText, got)
 				}

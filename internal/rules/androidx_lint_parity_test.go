@@ -10,6 +10,7 @@ import (
 // axlParityRoots are the testdata directories of the AndroidX Lint ports checked by TestAndroidxLintParity.
 var axlParityRoots = []string{
 	"androidx_compose_material",
+	"androidx_lifecycle_runtime",
 }
 
 // TestAndroidxLintParity checks the AndroidX Lint ports against the real detectors.

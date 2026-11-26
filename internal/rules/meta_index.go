@@ -142,6 +142,8 @@ func AllMetaProviders() []api.MetaProvider {
 		(*RememberSaveableSaverParameterRule)(nil),
 		(*RetainUnitTypeRule)(nil),
 		(*RetainRememberObserverRule)(nil),
+		(*NullSafeMutableLiveDataRule)(nil),
+		(*UnsafeLifecycleWhenUsageRule)(nil),
 		(*RetainingDoNotRetainTypeRule)(nil),
 		(*RetainLeaksContextRule)(nil),
 		(*UnusedMaterialScaffoldPaddingParameterRule)(nil),

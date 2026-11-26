@@ -1,0 +1,3 @@
+src/com/example/When.kt:25:17: UnsafeLifecycleWhenUsage: Unsafe View access from finally/catch block inside of `Lifecycle.whenStarted` scope
+src/com/example/When.kt:40:21: UnsafeLifecycleWhenUsage: Unsafe View access from finally/catch block inside of `Lifecycle.whenStarted` scope
+src/com/example/When.kt:49:17: UnsafeLifecycleWhenUsage: Unsafe View access from finally/catch block inside of `Lifecycle.whenStarted` scope

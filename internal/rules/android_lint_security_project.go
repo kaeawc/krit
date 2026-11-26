@@ -1,15 +1,12 @@
 package rules
 
 import (
-	"bytes"
-	"io"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/android"
-
 	"github.com/kaeawc/krit/internal/manifest"
 	"github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
@@ -103,7 +100,7 @@ func (r *UnsafeNativeCodeLocationRule) check(ctx *api.Context) {
 				continue
 			}
 			seen[path] = true
-			if !isELFFile(path) {
+			if !android.IsELFFile(path) {
 				continue
 			}
 			msg := unsafeExecutableMessage
@@ -122,25 +119,4 @@ func lintSortedEntries(dir string) []os.DirEntry {
 		return nil
 	}
 	return entries
-}
-
-// elfMagic is the first four bytes of an ELF object file.
-var elfMagic = []byte{0x7f, 'E', 'L', 'F'}
-
-// isELFFile reports whether path is a regular file that starts with the ELF magic number.
-func isELFFile(path string) bool {
-	info, err := os.Stat(path)
-	if err != nil || !info.Mode().IsRegular() {
-		return false
-	}
-	f, err := os.Open(path)
-	if err != nil {
-		return false
-	}
-	defer f.Close()
-	head := make([]byte, len(elfMagic))
-	if _, err := io.ReadFull(f, head); err != nil {
-		return false
-	}
-	return bytes.Equal(head, elfMagic)
 }

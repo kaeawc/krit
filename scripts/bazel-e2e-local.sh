@@ -194,14 +194,17 @@ report() {
   cat "$($BAZEL info "${extra[@]}" bazel-bin 2> /dev/null)/typed/app/app.krit.txt"
 }
 sed -i.bak 's/upstream.name?.length/upstream.name.length/' "$consumer" && rm -f "$consumer.bak"
-if report | grep -q UnnecessarySafeCall; then
+# Capture first: a failed build must fail here, not pass as "no finding".
+edited="$(report)"
+if printf '%s\n' "$edited" | grep -q UnnecessarySafeCall; then
   echo "ERROR: the worker reported a finding the edited source no longer has" >&2
   exit 1
 fi
 # The edited source is new to every cache, so this Krit action executed.
 cp "$log" "$work/edited-exec.json"
 restore_consumer
-report | grep -q "typed/app/Consumer.kt:5:57: .*UnnecessarySafeCall" || {
+restored="$(report)"
+printf '%s\n' "$restored" | grep -q "typed/app/Consumer.kt:5:57: .*UnnecessarySafeCall" || {
   echo "ERROR: the worker lost //typed/app's finding after the source was restored" >&2
   exit 1
 }

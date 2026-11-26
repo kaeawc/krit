@@ -315,16 +315,23 @@ func (s *scratch) daemons() map[string]int {
 func (s *scratch) keepNewestDaemon(before map[string]int, logs io.Writer) {
 	after := s.daemons()
 	started := false
-	for file := range after {
-		if _, ok := before[file]; !ok {
+	for file, pid := range after {
+		// A new PID file, or a daemon restarted under the same key.
+		if before[file] != pid {
 			started = true
 		}
 	}
 	if !started {
 		return
 	}
+	newest := map[int]bool{}
+	for file, pid := range after {
+		if before[file] != pid {
+			newest[pid] = true
+		}
+	}
 	for file, pid := range before {
-		if after[file] == pid {
+		if after[file] == pid && !newest[pid] {
 			stopDaemon(pid, logs)
 		}
 	}

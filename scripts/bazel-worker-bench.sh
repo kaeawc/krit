@@ -157,7 +157,16 @@ home="$work/home"
 mkdir -p "$home"
 start="$(now)"
 HOME="$home" KRIT_FIR_JAR="$DIST/krit-fir.jar" KRIT_NO_JAR_DOWNLOAD=1 KRIT_NO_DAEMON_AUTOSTART=1 \
-  "$DIST/krit" --no-daemon --no-cache --no-fir-daemon -f plain --base-path . bench_generated > /dev/null 2>&1 || true
+  "$DIST/krit" --no-daemon --no-cache --no-fir-daemon --fail-on-degraded -f plain --base-path . bench_generated \
+  > "$work/whole.txt" 2>&1 || {
+  rc=$?
+  # Exit 1 is findings; anything else (2: FIR could not run) is no result.
+  if [ "$rc" != 1 ]; then
+    cat "$work/whole.txt" >&2
+    echo "ERROR: the whole-repository krit --fir scan failed (exit $rc)" >&2
+    exit 1
+  fi
+}
 end="$(now)"
 whole="$(elapsed "$start" "$end")"
 

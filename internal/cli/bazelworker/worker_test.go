@@ -283,4 +283,22 @@ func TestKeepNewestDaemonBoundsTheWorkerToOneJVM(t *testing.T) {
 	if err := newer.Process.Signal(syscall.Signal(0)); err != nil {
 		t.Fatalf("the newest daemon was stopped: %v", err)
 	}
+
+	// A daemon restarted under an existing key (same PID file, new PID)
+	// counts as new too: the other daemon is stopped, the restarted one kept.
+	other := sleeper(t)
+	registerDaemon(t, s, "check-other", other.Process.Pid)
+	before = s.daemons()
+	restarted := sleeper(t)
+	registerDaemon(t, s, "check-new", restarted.Process.Pid)
+	s.keepNewestDaemon(before, io.Discard)
+	if _, err := other.Process.Wait(); err != nil {
+		var exit *exec.ExitError
+		if !errors.As(err, &exit) {
+			t.Fatalf("wait other daemon: %v", err)
+		}
+	}
+	if err := restarted.Process.Signal(syscall.Signal(0)); err != nil {
+		t.Fatalf("the restarted daemon was stopped: %v", err)
+	}
 }

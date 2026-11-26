@@ -113,10 +113,17 @@ func cursorReceiver(file *scanner.File, call lintCall) bool {
 	if call.ReceiverNode == 0 {
 		return false
 	}
+	name := strings.TrimSpace(call.ReceiverText)
+	// A local whose type is inferred from its initializer, checked first so a same-named declaration elsewhere in
+	// the file does not decide its type (#1621).
+	if lintIdentOnly(name) {
+		if init := lintInitializerOf(file, call.Idx, name, false); init != 0 && cursorCallResult(file, init) {
+			return true
+		}
+	}
 	if typ := lintReceiverTypeText(file, call); typ != "" {
 		return lintTypeRefMatches(file, strings.TrimSuffix(strings.TrimSpace(typ), "?"), cursorFQN)
 	}
-	name := strings.TrimSpace(call.ReceiverText)
 	if !lintIdentOnly(name) {
 		return false
 	}
@@ -138,6 +145,63 @@ func cursorReceiver(file *scanner.File, call lintCall) bool {
 	}
 	return cursorReceiver(file, lintCall{File: file, Idx: scopeCall, ReceiverNode: scope.ReceiverNode,
 		ReceiverText: scope.ReceiverText})
+}
+
+// cursorCallResult reports whether the expression is a call returning an android.database.Cursor:
+// ContentResolver.query, SQLiteDatabase.query/rawQuery and their variants, or a call to a function declared in the
+// file with a Cursor return type. Calls into other files are not followed, so the verdict depends on this file only.
+func cursorCallResult(file *scanner.File, expr uint32) bool {
+	expr = lintSkipParensJS(file, expr)
+	if file.FlatType(expr) == "postfix_expression" && strings.HasSuffix(strings.TrimSpace(file.FlatNodeText(expr)), "!!") {
+		expr = lintSkipParensJS(file, file.FlatNamedChild(expr, 0))
+	}
+	call, ok := lintCallAt(file, expr)
+	if !ok {
+		return false
+	}
+	switch call.Name {
+	case "query":
+		if contentResolverReceiver(file, call) || sqliteDatabaseReceiver(file, call) {
+			return true
+		}
+	case "rawQuery", "rawQueryWithFactory", "queryWithFactory":
+		if sqliteDatabaseReceiver(file, call) {
+			return true
+		}
+	}
+	if call.ReceiverNode != 0 && strings.TrimSpace(call.ReceiverText) != "this" {
+		return false
+	}
+	fn := lintSameFileFunctionNamed(file, call.Name)
+	if fn == 0 {
+		return false
+	}
+	typ := strings.TrimSuffix(strings.TrimSpace(lintFunctionReturnTypeText(file, fn)), "?")
+	return typ != "" && lintTypeRefMatches(file, typ, cursorFQN)
+}
+
+// sqliteDatabaseReceiver reports whether a call is made on an android.database.sqlite.SQLiteDatabase.
+func sqliteDatabaseReceiver(file *scanner.File, call lintCall) bool {
+	typ := lintReceiverTypeText(file, call)
+	return typ != "" && lintTypeRefMatches(file, strings.TrimSuffix(strings.TrimSpace(typ), "?"), "android.database.sqlite.SQLiteDatabase")
+}
+
+// lintFunctionReturnTypeText returns the declared return type of a Kotlin function, or "".
+func lintFunctionReturnTypeText(file *scanner.File, fn uint32) string {
+	afterParams := false
+	for child := file.FlatFirstChild(fn); child != 0; child = file.FlatNextSib(child) {
+		switch file.FlatType(child) {
+		case "function_value_parameters":
+			afterParams = true
+		case "user_type", "nullable_type":
+			if afterParams {
+				return file.FlatNodeText(child)
+			}
+		case "function_body":
+			return ""
+		}
+	}
+	return ""
 }
 
 // contentResolverReceiver reports whether a query call is made on a ContentResolver.

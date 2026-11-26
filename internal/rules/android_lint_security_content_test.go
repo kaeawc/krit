@@ -1,8 +1,10 @@
 package rules_test
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
@@ -388,5 +390,108 @@ func TestUnsanitizedFilenameFromContentProviderLintParityFlows(t *testing.T) {
 	findings := runRuleByName(t, "UnsanitizedFilenameFromContentProvider", unsanitizedFilenameLambdaSource)
 	if got, want := findingPositions(findings), "19:23,25:23,34:33,39:39,44:19"; got != want {
 		t.Fatalf("positions = %s, want %s", got, want)
+	}
+}
+
+// #1621: a Cursor local whose type is inferred from a call is proven: ContentResolver.query, SQLiteDatabase.query or
+// rawQuery, or a same-file function declared to return Cursor. Lines marked `// report` are expected findings.
+const unsanitizedFilenameInferredSource = `package test.pkg
+
+import android.content.ContentResolver
+import android.database.Cursor
+import android.database.sqlite.SQLiteDatabase
+import android.net.Uri
+import android.provider.OpenableColumns
+import java.io.File
+
+class NotACursor { fun getString(i: Int): String = ""; fun getColumnIndex(c: String): Int = 0 }
+
+class F(private val resolver: ContentResolver, private val db: SQLiteDatabase) {
+    fun openCursor(uri: Uri): Cursor = resolver.query(uri, null, null, null, null)!!
+    fun openOther(): NotACursor = NotACursor()
+
+    fun viaQuery(uri: Uri, dir: File) {
+        val c = resolver.query(uri, null, null, null, null)!!
+        val name = c.getString(c.getColumnIndex(OpenableColumns.DISPLAY_NAME))
+        File(dir, name) // report
+    }
+    fun viaRawQuery(dir: File) {
+        val c = db.rawQuery("select 1", null)
+        val name = c.getString(c.getColumnIndex(OpenableColumns.DISPLAY_NAME))
+        File(dir, name) // report
+    }
+    fun viaHelper(uri: Uri, dir: File) {
+        val c = openCursor(uri)
+        val name = c.getString(c.getColumnIndex(OpenableColumns.DISPLAY_NAME))
+        File(dir, name) // report
+    }
+    fun lookalike(dir: File) {
+        val c = openOther()
+        val name = c.getString(c.getColumnIndex(OpenableColumns.DISPLAY_NAME))
+        File(dir, name)
+    }
+    fun unknownCall(dir: File) {
+        val c = somewhereElse()
+        val name = c.getString(c.getColumnIndex(OpenableColumns.DISPLAY_NAME))
+        File(dir, name)
+    }
+}
+`
+
+func TestUnsanitizedFilenameFromContentProviderInfersCursorLocals(t *testing.T) {
+	findings := runRuleByName(t, "UnsanitizedFilenameFromContentProvider", unsanitizedFilenameInferredSource)
+	var want []string
+	for i, line := range strings.Split(unsanitizedFilenameInferredSource, "\n") {
+		if strings.HasSuffix(line, "// report") {
+			want = append(want, fmt.Sprint(i+1))
+		}
+	}
+	var got []string
+	for _, f := range findings {
+		got = append(got, fmt.Sprint(f.Line))
+	}
+	sort.Strings(got)
+	sort.Strings(want)
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("finding lines %v, want %v", got, want)
+	}
+}
+
+const unsanitizedFilenameInferredJavaSource = `package test.pkg;
+
+import android.app.Activity;
+import android.database.sqlite.SQLiteDatabase;
+import android.net.Uri;
+import android.provider.OpenableColumns;
+import java.io.File;
+
+class J extends Activity {
+    void viaQuery(Uri uri, File dir) {
+        var c = getContentResolver().query(uri, null, null, null, null);
+        String name = c.getString(c.getColumnIndex(OpenableColumns.DISPLAY_NAME));
+        new File(dir, name); // report
+    }
+    void viaRaw(SQLiteDatabase db, File dir) {
+        var c = db.rawQuery("select 1", null);
+        String name = c.getString(c.getColumnIndex(OpenableColumns.DISPLAY_NAME));
+        new File(dir, name); // report
+    }
+}
+`
+
+func TestUnsanitizedFilenameFromContentProviderInfersCursorLocalsJava(t *testing.T) {
+	findings := runRuleByNameOnJava(t, "UnsanitizedFilenameFromContentProvider", unsanitizedFilenameInferredJavaSource)
+	var want, got []string
+	for i, line := range strings.Split(unsanitizedFilenameInferredJavaSource, "\n") {
+		if strings.HasSuffix(line, "// report") {
+			want = append(want, fmt.Sprint(i+1))
+		}
+	}
+	for _, f := range findings {
+		got = append(got, fmt.Sprint(f.Line))
+	}
+	sort.Strings(got)
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("finding lines %v, want %v", got, want)
 	}
 }

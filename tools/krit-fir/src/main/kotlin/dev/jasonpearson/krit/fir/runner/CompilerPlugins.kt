@@ -57,24 +57,33 @@ data class CompilerPlugins(
     }
 
     /**
-     * This set if the embedded compiler can load it. Otherwise the largest set it can load built up one jar at a time
-     * in classpath order, with a warning for each jar left out saying why; the empty set when it loads none. A probe
-     * is one frontend-only compile of a one-line file, run once per plugin set (by jar identity and options) per
-     * process, so a set that loads costs one probe and one that does not about one more per jar.
+     * This set if the embedded compiler can load it. Otherwise the largest set it can load built up one jar at a time:
+     * each jar is kept when it loads with the jars kept so far, and the jars that did not are tried again until a pass
+     * keeps none, so a plugin split across jars loads even when its registrar jar comes before the jars it links
+     * against. Each jar left out gets a warning saying why; the result is the empty set when none loads. A probe is one
+     * frontend-only compile of a one-line file, run once per plugin set (by jar identity and options) per process, so
+     * a set that loads costs one probe and one that does not about one more per jar and pass.
      */
     fun verified(classpath: List<String>): CompilerPlugins {
         if (isEmpty || probeCached(this, classpath).isEmpty()) return this
         val kept = ArrayList<String>()
-        val dropped = ArrayList<String>()
-        for (jar in this.classpath) {
-            // The jars kept so far with this one; the first jar is probed alone.
-            val failure = probeCached(copy(classpath = kept + jar), classpath)
-            if (failure.isEmpty()) {
-                kept += jar
-            } else {
-                dropped += "compiler plugin ${File(jar).name} not loaded, analyzing without it ($failure)"
+        val failures = LinkedHashMap<String, String>()
+        var pending = this.classpath
+        do {
+            val before = kept.size
+            val retry = ArrayList<String>()
+            for (jar in pending) {
+                val failure = probeCached(copy(classpath = kept + jar), classpath)
+                if (failure.isEmpty()) {
+                    kept += jar
+                } else {
+                    failures[jar] = failure
+                    retry += jar
+                }
             }
-        }
+            pending = retry
+        } while (pending.isNotEmpty() && kept.size > before)
+        val dropped = pending.map { "compiler plugin ${File(it).name} not loaded, analyzing without it (${failures.getValue(it)})" }
         // Logged once per plugin set, so a one-shot run (which has no response warning) says it too.
         if (logged.add(addTo(FingerprintBuilder()).build())) dropped.forEach { System.err.println("krit-fir: $it") }
         // An option of a plugin left out has no command-line processor to read it, and the compiler ignores it.

@@ -183,14 +183,16 @@ These are added to the model's plugins and filtered the same way.
 `krit-fir` loads the plugins once in a probe compile (a one-line file, per
 plugin set and process). When its compiler cannot load the whole set, it
 builds the set up again one jar at a time, in classpath order, and keeps every
-jar that still loads with the ones kept before it (#1598). Each jar it leaves
+jar that still loads with the ones kept before it; the jars that did not are
+tried again until a pass keeps none, so a plugin split across jars loads
+whatever their order (#1598). Each jar it leaves
 out (a plugin built against an incompatible Kotlin compiler, a broken jar) is
 logged once and returned as a response `warning`, for example
 `krit-fir: compiler plugin kotlin-compose-compiler-plugin-embeddable-2.4.21.jar
 not loaded, analyzing without it (java.lang.NoClassDefFoundError:
 org/jetbrains/kotlin/com/intellij/psi/PsiElement)`. The kept plugins keep
 their options; an option of a plugin left out is ignored. A set that loads
-costs one probe; one that does not, about one more per jar.
+costs one probe; one that does not, about one more per jar and pass.
 
 Gradle exports the embeddable plugin builds (KGP compiles with the embeddable
 compiler); `krit-fir` embeds the plain compiler. The embeddable

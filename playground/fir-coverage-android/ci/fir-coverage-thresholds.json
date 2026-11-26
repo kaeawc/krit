@@ -4,7 +4,7 @@
     "gradle-model-cli": {"minAuthoritative": 10, "minCoverage": 1.0},
     "gradle-kritCheckAll": {"minAuthoritative": 10, "minCoverage": 1.0},
     "gradle-kritCheck": {"minAuthoritative": 10, "minCoverage": 1.0},
-    "bazel-krit_aspect": {"minAuthoritative": 0, "minCoverage": 0.0}
+    "bazel-krit_aspect": {"minAuthoritative": 6, "minCoverage": 0.8571}
   },
   "checks": {
     "gradle-configuration-cache": {"required": false},

@@ -5,6 +5,9 @@ All notable changes to Krit will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Gradle model: Kotlin Multiplatform Android targets record the generated roots AGP's Variant API registers for their
+  component (view binding, BuildConfig, AIDL, `addGeneratedSourceDirectory`), and `kritCheck`/`exportGenerated` run
+  their producers, as plain Android modules already did (#1643).
 - Gradle model freshness key for CI: `krit gradle-model key` hashes the build files that can change
   `kritExportModel`'s output (settings and build scripts, version catalogs, lockfiles, dependency verification metadata,
   `gradle.properties`, the wrapper version, the sources of buildSrc and of builds nested under the root) by root-relative

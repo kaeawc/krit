@@ -175,6 +175,19 @@ for case in "settings_without_kotlinc_opts:'when' expression must be exhaustive"
       ;;
   esac
 done
+# A target whose srcs include a generated srcjar (#1688, #1632): its own
+# file, in a Gradle-style src/main/kotlin, compiles against the srcjar's
+# sources, so the action is not degraded and FIR reports the finding.
+echo "== krit_aspect on //srcjar (a generated srcjar in srcs)"
+build "${extra[@]}" //srcjar/... > /dev/null 2>&1 || build "${extra[@]}" //srcjar/...
+# shellcheck disable=SC2086
+grep -q "srcjar/src/main/kotlin/d/UsesGen.kt:5:.*UnnecessarySafeCall" \
+  "$($BAZEL info "${extra[@]}" bazel-bin 2> /dev/null)/srcjar/srcjar.krit.txt" || {
+  # shellcheck disable=SC2086
+  cat "$($BAZEL info "${extra[@]}" bazel-bin 2> /dev/null)/srcjar/srcjar.krit.txt" >&2
+  echo "ERROR: krit_aspect did not report //srcjar's FIR finding through the srcjar" >&2
+  exit 1
+}
 echo "OK: krit_aspect"
 
 # A remote cache shares a Krit action between machines only if its key

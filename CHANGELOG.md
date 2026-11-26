@@ -76,6 +76,11 @@ All notable changes to Krit will be documented in this file.
   (`internal/rules/testdata/slack_lint/dagger/`), except that a finding is anchored at the declaration rather than at a
   KDoc or comment before it. The detector's `BindsWrongParameterCount` and `RedundantBinds` are now Lint aliases of
   `BindsMismatchedArity` and `BindsReturnTypeMatchesParam` (#1359, #1360, #1361, #1362, #1363, #1364, #1365).
+- `TrimLambda`, `TextConcatSpace` and `WrongCommentType`, ports of Android Lint 32.4.1's `TrimDetector`,
+  `TextConcatDetector` and `WrongCommentTypeDetector` (Kotlin; Kotlin and Java; Kotlin and Java) under their Lint IDs,
+  with Lint's autofixes for `TrimLambda` and `WrongCommentType`. Findings match Lint on 11 recorded project fixtures,
+  including Kotlin comment binding, escapes and templates at concatenation joints, and suppression (#1280, #1272,
+  #1299).
 - `SquareAndRoundTilePreviews`, `TilePreviewImageFormat` and `StartActivityAndCollapseDeprecated`, ports of Android
   Lint 32.4.1's Wear tile preview checks and its `TileService.startActivityAndCollapse(Intent)` check (Kotlin and
   Java, error from target SDK 34, warning below). Findings match Lint on 22 recorded project fixtures, including

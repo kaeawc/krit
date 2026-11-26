@@ -1,0 +1,6 @@
+src/main/java/com/example/Concat.kt:10:6: TextConcatSpace: Missing space between "the" on the previous line and "list" here? Resulting string is "thelist".
+src/main/java/com/example/Concat.kt:4:6: TextConcatSpace: Missing space between "first" on the previous line and "line" here? Resulting string is "firstline".
+src/main/java/com/example/Concat.kt:6:6: TextConcatSpace: Missing space between "world" on the previous line and "again" here? Resulting string is "worldagain".
+src/main/java/com/example/Concat.kt:8:7: TextConcatSpace: Missing space between "three" on the previous line and "four" here? Resulting string is "threefour".
+src/main/java/com/example/JConcat.java:5:9: TextConcatSpace: Missing space between "first" on the previous line and "line" here? Resulting string is "firstline".
+src/main/java/com/example/JConcat.java:9:16: TextConcatSpace: Missing space between "word" on the previous line and "Starts" here? Resulting string is "wordStarts".

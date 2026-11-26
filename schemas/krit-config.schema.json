@@ -11970,6 +11970,39 @@
             }
           }
         },
+        "TextConcatSpace": {
+          "description": "Missing space in text concatenation? [precision: ast-backed] [noisiness: normal]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable TextConcatSpace (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "TextFieldsResource": {
           "description": "Missing `inputType` [precision: project-structure-aware] [noisiness: normal] [capabilities: resources]",
           "type": "object",
@@ -12177,6 +12210,39 @@
               "description": "Enable TooManyViewsResource (default: false).",
               "type": "boolean",
               "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "TrimLambda": {
+          "description": "Unnecessary lambda with `trim()` [fixable: semantic] [precision: ast-backed] [noisiness: normal]\nCaveat: Without type information the receiver must be a string literal or a variable or parameter declared as String or CharSequence; a file that declares its own trim or isWhitespace function is skipped.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable TrimLambda (default: true).",
+              "type": "boolean",
+              "default": true
             },
             "excludes": {
               "description": "Glob patterns for paths to exclude from this rule.",
@@ -15345,6 +15411,39 @@
               "description": "Enable WrongCaseResource (default: false).",
               "type": "boolean",
               "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "WrongCommentType": {
+          "description": "Wrong Comment Type [fixable: cosmetic] [precision: ast-backed] [noisiness: normal]\nCaveat: Doc tags are recognized textually (a lowercase `@tag` at the start of a comment line, a `[text](url)` link in a KDoc description, `{@link}`, `{@linkplain}` or `{@inheritDoc}` in a Javadoc description) rather than with the KDoc and Javadoc parsers Lint uses.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable WrongCommentType (default: true).",
+              "type": "boolean",
+              "default": true
             },
             "excludes": {
               "description": "Glob patterns for paths to exclude from this rule.",

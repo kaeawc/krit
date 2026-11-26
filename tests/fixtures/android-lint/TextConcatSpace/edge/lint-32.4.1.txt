@@ -1,0 +1,7 @@
+src/main/java/com/example/Edge.kt:13:8: TextConcatSpace: Missing space between "words" on the previous line and "raw" here? Resulting string is "wordsraw".
+src/main/java/com/example/Edge.kt:16:6: TextConcatSpace: Missing space between "here" on the previous line and "next" here? Resulting string is "herenext".
+src/main/java/com/example/Edge.kt:18:6: TextConcatSpace: Missing space between "words" on the previous line and "more" here? Resulting string is "wordsmore".
+src/main/java/com/example/Edge.kt:20:6: TextConcatSpace: Missing space between "déjà" on the previous line and "vu" here? Resulting string is "déjàvu".
+src/main/java/com/example/Edge.kt:7:6: TextConcatSpace: Missing space between "words" on the previous line and "next" here? Resulting string is "wordsnext".
+src/main/java/com/example/JEdge.java:11:9: TextConcatSpace: Missing space between "words" on the previous line and "next" here? Resulting string is "wordsnext".
+src/main/java/com/example/JEdge.java:9:9: TextConcatSpace: Missing space between "here" on the previous line and "next" here? Resulting string is "herenext".

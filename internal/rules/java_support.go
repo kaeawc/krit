@@ -231,6 +231,8 @@ var javaSupportReadiness = JavaSupportMatrix{
 		"SpecifyForegroundServiceType":            {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/androidx_work_parity_test.go"}},
 		"WearMaterialTheme":                       {Status: api.LanguageSupportSupported, Fixtures: []string{"tests/fixtures/android-lint/WearMaterialTheme/positive"}},
 		"StartActivityAndCollapseDeprecated":      {Status: api.LanguageSupportSupported, Fixtures: []string{"tests/fixtures/android-lint/StartActivityAndCollapseDeprecated/positive"}},
+		"TextConcatSpace":                         {Status: api.LanguageSupportSupported, Fixtures: []string{"tests/fixtures/android-lint/TextConcatSpace/positive"}},
+		"WrongCommentType":                        {Status: api.LanguageSupportSupported, Fixtures: []string{"tests/fixtures/android-lint/WrongCommentType/positive"}},
 	},
 }
 

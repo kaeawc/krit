@@ -19,7 +19,7 @@ func (r *FindViewByIDCastRule) Meta() api.RuleDescriptor {
 func (r *RemoteViewLayoutRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{ID: "RemoteViewLayout", RuleSet: "android-lint", DefaultActive: true,
 		KnownLimitations: []string{
-			"The layout is looked up in every res directory of the scan by file name; the minimum SDK comes from a literal minSdk in the build script next to the source set.",
+			"The layout is looked up in every res directory of the scan by file name, so same-named layouts of other modules are merged in; the minimum SDK is the file's module's, from its build script.",
 		}}
 }
 
@@ -34,5 +34,6 @@ func (r *WrongGradleMethodRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{ID: "WrongGradleMethod", RuleSet: "android-lint", DefaultActive: true,
 		KnownLimitations: []string{
 			"Only the patterns Lint checks without a resolved build classpath are ported: a dependencies block inside a build type or product flavor, and firebaseAppDistribution in a .kts script without its import. Lint in the IDE also compares receiver types.",
+			"Quotes, comments and braces are tracked one line at a time, so a multi-line raw string holding braces can misplace a block.",
 		}}
 }

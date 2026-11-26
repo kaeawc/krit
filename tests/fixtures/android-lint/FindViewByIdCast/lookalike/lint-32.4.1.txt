@@ -1,0 +1,1 @@
+src/main/java/com/example/Finder.java:10:53: FindViewByIdCast: Add explicit cast here; won't compile with Java language level 1.8 without it

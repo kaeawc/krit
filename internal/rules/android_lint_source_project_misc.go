@@ -202,7 +202,7 @@ func recyclerPositionEscapes(file *scanner.File, bindClass, body uint32, positio
 			}
 			delete(tracked, lhs)
 		case "simple_identifier", "identifier":
-			if !foundInner || !tracked[file.FlatNodeText(n)] {
+			if !foundInner || !tracked[file.FlatNodeText(n)] || !recyclerIsRead(file, n, body) {
 				return
 			}
 			if inner := recyclerEnclosingClass(file, n); inner != 0 && inner != bindClass {
@@ -211,6 +211,74 @@ func recyclerPositionEscapes(file *scanner.File, bindClass, body uint32, positio
 		}
 	})
 	return escapes
+}
+
+// recyclerIsRead reports an identifier that reads a variable: not a declaration's name, a member selector or an
+// argument label, and not a name a function, lambda or loop between it and body declares again.
+func recyclerIsRead(file *scanner.File, n, body uint32) bool {
+	name := file.FlatNodeText(n)
+	p, ok := file.FlatParent(n)
+	if !ok {
+		return false
+	}
+	switch file.FlatType(p) {
+	case "navigation_suffix", "parameter", "formal_parameter", "variable_declaration", "variable_declarator",
+		"class_parameter", "function_declaration", "method_declaration", "value_argument_label", "type_identifier":
+		return false
+	case "field_access":
+		// Java `holder.position`: only the receiver reads a variable.
+		if file.FlatFirstChild(p) != n {
+			return false
+		}
+	case "value_argument":
+		if next := file.FlatNextSib(n); next != 0 && file.FlatNodeText(next) == "=" {
+			return false
+		}
+	}
+	for cur, ok := file.FlatParent(n); ok && cur != body; cur, ok = file.FlatParent(cur) {
+		switch file.FlatType(cur) {
+		case "function_declaration", "method_declaration", "lambda_literal", "lambda_expression", "for_statement",
+			"enhanced_for_statement", "catch_clause", "anonymous_function":
+			if recyclerDeclaresName(file, cur, name) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// recyclerDeclaresName reports a parameter (of a function, lambda, loop or catch) declared directly by scope.
+func recyclerDeclaresName(file *scanner.File, scope uint32, name string) bool {
+	found := false
+	var visit func(c uint32, depth int)
+	visit = func(c uint32, depth int) {
+		for ch := file.FlatFirstChild(c); ch != 0 && !found; ch = file.FlatNextSib(ch) {
+			switch file.FlatType(ch) {
+			case "function_value_parameters", "formal_parameters", "lambda_parameters", "parameter", "formal_parameter",
+				"variable_declaration", "catch_formal_parameter", "inferred_parameters":
+				if depth < 3 {
+					visit(ch, depth+1)
+				}
+			case "simple_identifier", "identifier":
+				if depth > 0 && file.FlatNodeText(ch) == name {
+					found = true
+				}
+			}
+		}
+	}
+	visit(scope, 0)
+	if !found {
+		switch file.FlatType(scope) {
+		case "for_statement", "enhanced_for_statement":
+			// Kotlin `for (x in xs)` and Java `for (T x : xs)` declare the loop variable directly.
+			for ch := file.FlatFirstChild(scope); ch != 0; ch = file.FlatNextSib(ch) {
+				if (file.FlatType(ch) == "variable_declaration" || file.FlatType(ch) == "identifier") && file.FlatNodeText(ch) == name {
+					return true
+				}
+			}
+		}
+	}
+	return found
 }
 
 // recyclerAssignSides returns the simple names of an assignment's target (a name or `this.name`) and of its value
@@ -347,6 +415,7 @@ func (r *FindViewByIDCastRule) check(ctx *api.Context) {
 	if inv, ok := lintCallAt(file, call); !ok || inv.ReceiverNode != 0 || len(inv.Args) != 1 {
 		return
 	}
+	// Like Lint, a class's own findViewById does not change the verdict (recorded in FindViewByIdCast/lookalike).
 	args, ok := file.FlatParent(call)
 	if !ok || file.FlatType(args) != "argument_list" {
 		return
@@ -528,11 +597,13 @@ func (r *RemoteViewLayoutRule) check(ctx *api.Context) {
 }
 
 // lintProjectMinSdk returns the project's minimum SDK from the build facts, or 0 when unknown.
+// lintProjectMinSdk returns the minSdk of the module that owns the file (the build's SDK levels, then the library
+// facts), or 0 when unknown.
 func lintProjectMinSdk(ctx *api.Context) int {
 	if ctx.File == nil {
 		return 0
 	}
-	return lookupManifestGradleInfo(filepath.Join(filepath.Dir(ctx.File.Path), "AndroidManifest.xml")).minSdk
+	return obsoleteSdkMinSdk(ctx)
 }
 
 // remoteViewSupportedTag mirrors isSupportedTag: the RemoteViews-safe layouts and widgets, the API 31 additions, and

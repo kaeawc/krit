@@ -899,3 +899,84 @@ jobs:
           package: github.com/rhysd/actionlint/cmd/actionlint
       - name: Run actionlint
         run: bash scripts/lint-actions.sh
+
+  # perf-guard (#1657) times krit at the PR's base and head side by side on
+  # this runner: pinned public corpora (tests/corpus/repos.json), a synthetic
+  # Android-shaped project and the playground, in interleaved rounds. It
+  # fails when head's median total, a phase or a rule is slower than the
+  # gates in internal/devtools/perfguard allow, or when a phase scales
+  # super-linearly on a 6x larger synthetic project (unless
+  # known-superlinear.txt lists it with its issue). The comparison is posted
+  # as a sticky PR comment and the job summary. No stored baseline: a shared
+  # runner's speed varies from run to run, so only same-runner A/B timings
+  # are compared. Locally: make perf-guard.
+  perf-guard:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - uses: ./.github/actions/go-cache
+        with:
+          family: linux
+      - name: Cache pinned corpora
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ${{ runner.temp }}/perf-guard/corpus
+          key: perf-guard-corpus-${{ hashFiles('tests/corpus/repos.json') }}
+      - name: Base vs head
+        id: guard
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          KRIT_PERF_DIR: ${{ runner.temp }}/perf-guard
+        run: |
+          set +e
+          bash scripts/perf-guard.sh --base "$BASE_SHA"
+          echo "status=$?" >> "$GITHUB_OUTPUT"
+      - name: Report
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          SAME_REPO: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+          KRIT_PERF_DIR: ${{ runner.temp }}/perf-guard
+        run: |
+          body="$KRIT_PERF_DIR/comment.md"
+          {
+            echo '<!-- krit-perf-guard -->'
+            cat "$KRIT_PERF_DIR/compare.md" "$KRIT_PERF_DIR/scale.md" 2>/dev/null || echo "perf-guard produced no report; see the job log."
+            echo
+            echo "<sub>perf-guard (#1657): median of interleaved runs on one runner. Reproduce locally with \`make perf-guard\`.</sub>"
+          } > "$body"
+          cat "$body" >> "$GITHUB_STEP_SUMMARY"
+          # Fork PRs get a read-only token; the job summary still has the report.
+          if [ "$SAME_REPO" != "true" ]; then
+            exit 0
+          fi
+          id=$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments" --paginate \
+            --jq '.[] | select(.body | startswith("<!-- krit-perf-guard -->")) | .id' | head -n 1)
+          if [ -n "$id" ]; then
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$id" -F "body=@$body" >/dev/null
+          else
+            gh api --method POST "repos/$GITHUB_REPOSITORY/issues/$PR/comments" -F "body=@$body" >/dev/null
+          fi
+      - name: Fail on a regression
+        if: steps.guard.outputs.status != '0'
+        env:
+          STATUS: ${{ steps.guard.outputs.status }}
+        run: |
+          if [ "$STATUS" = 1 ]; then
+            echo "::error::perf-guard found a performance regression; see the PR comment or job summary"
+          else
+            echo "::error::perf-guard failed to run (status $STATUS); see the Base vs head step"
+          fi
+          exit 1

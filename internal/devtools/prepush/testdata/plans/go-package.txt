@@ -1,4 +1,5 @@
 # A Go change outside the rules: build, vet, lint and that package's tests.
+# The oracle also feeds the oracle fingerprint gate and the FIR warm matrix.
 internal/oracle/daemon_jvm.go
 ---
 merge
@@ -8,3 +9,4 @@ vet
 lint
 oraclefp
 test ./internal/oracle
+warmclean

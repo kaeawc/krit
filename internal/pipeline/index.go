@@ -158,6 +158,9 @@ type IndexInput struct {
 	// false, the oracle block is skipped entirely (matches --no-type-oracle
 	// or absence of a base resolver in the CLI).
 	OracleEnabled bool
+	// CustomRuleJars reports whether custom rule jars run; they read the
+	// module graph.
+	CustomRuleJars bool
 	// BaseResolver is the source-level typeinfer resolver the CLI pre-built
 	// before wrapping in oracle.CompositeResolver. When nil, no oracle wiring
 	// happens (there is nothing to wrap).
@@ -618,7 +621,7 @@ func resolverFingerprint(files []*scanner.File) string {
 
 // discoverModuleGraph performs a best-effort module discovery when
 // SkipModules is false and BuildModuleIndex is not set.
-func (p IndexPhase) discoverModuleGraph(ctx context.Context, in IndexInput) *module.Graph {
+func (p IndexPhase) discoverModuleGraph(ctx context.Context, in IndexInput, resolver typeinfer.TypeResolver) *module.Graph {
 	if p.SkipModules || in.BuildModuleIndex {
 		return nil
 	}
@@ -628,6 +631,15 @@ func (p IndexPhase) discoverModuleGraph(ctx context.Context, in IndexInput) *mod
 		if len(in.Paths) > 0 {
 			scanRoot = in.Paths[0]
 		}
+	}
+	// For a file scan path (krit_aspect, a file-scope pre-commit run) the
+	// whole build above it would be discovered; skip that unless something
+	// reads the graph: the oracle's cross-module smart-cast filter
+	// (attachOracleModules) or custom rule jars. Module-aware rules
+	// discover their own graph in runModuleIndexBuild.
+	_, oracleResolver := resolver.(*oracle.CompositeResolver)
+	if info, err := os.Stat(scanRoot); err == nil && !info.IsDir() && !oracleResolver && !in.CustomRuleJars {
+		return nil
 	}
 	graph, err := module.DiscoverModules(ctx, scanRoot)
 	if err != nil {
@@ -828,7 +840,7 @@ func (p IndexPhase) Run(ctx context.Context, in IndexInput) (IndexResult, error)
 	})
 
 	track("discoverModuleGraph", func() {
-		if graph := p.discoverModuleGraph(ctx, in); graph != nil {
+		if graph := p.discoverModuleGraph(ctx, in, result.Resolver); graph != nil {
 			result.Graph = graph
 		}
 	})

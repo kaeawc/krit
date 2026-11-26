@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<lint>
+    <issue id="ComposeNamingUppercase">
+        <option name="allowed-composable-function-names" value="allowed.*,Allowed.*" />
+    </issue>
+    <issue id="ComposeNamingLowercase">
+        <option name="allowed-composable-function-names" value="allowed.*,Allowed.*" />
+    </issue>
+</lint>

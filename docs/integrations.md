@@ -81,10 +81,11 @@ sources; run those as a whole-repository `bazel run @krit//:krit` step (see
 [Sharding rules by scope](hermetic-builds.md#sharding-rules-by-scope)).
 Reported paths are relative to the workspace root.
 
-krit skips files under test-data and test-resource directories
-(`testdata/`, `testData/`, `test-data/`, `src/test/resources/`, ...). A
-`krit_test` whose sources are all skipped fails instead of passing without
-checking anything. `krit_test` is a shell script, so it runs on Linux and
+`krit_test` names its sources explicitly, so krit analyzes them even under
+test-data and test-resource directories (`testdata/`, `src/test/resources/`,
+...); it still skips files in tool and cache directories such as `.gradle/`,
+`.idea/` and `.kotlin/`. A `krit_test` whose sources are all skipped fails
+instead of passing without checking anything. `krit_test` is a shell script, so it runs on Linux and
 macOS, not Windows.
 
 #### Type-aware krit_test
@@ -254,11 +255,12 @@ Together with `krit_aspect` it reports what one whole-repository krit run
 reports, since the two scopes partition the rules.
 
 Module-aware rules (module dependency rules) need krit's module graph. For
-file scan paths krit discovers it from `--base-path` when that directory holds
-the files, otherwise from the nearest directory above the first file with a
-Gradle settings file or a Bazel `MODULE.bazel` / `WORKSPACE`. This action's
-sandbox has no BUILD files, though, so the graph is empty here and those
-rules find nothing yet.
+file scan paths krit discovers it from the nearest directory above the
+**first** file that has a Gradle settings file or a Bazel `MODULE.bazel` /
+`WORKSPACE`, looking no higher than a repository root (`.git`) or a Bazel
+execution root. A file in no such build has no module graph. This action's
+files sit below the execution root, which holds no BUILD files in a sandbox,
+so the graph is empty here and those rules find nothing yet (#1694).
 
 ### Exporting a model for krit, the LSP and MCP
 

@@ -1,4 +1,4 @@
-.PHONY: build test vet lint lint-rules fix schema clean bench integration integration-ci playground ci regression daemon-verify corpus-snapshot corpus-precision corpus-bench fir-validate fir-jar test-fanotify all install install-completions watch prepush hooks
+.PHONY: build test vet lint lint-rules fix schema clean bench integration integration-ci playground ci regression daemon-verify corpus-snapshot corpus-precision corpus-bench fir-validate fir-jar test-fanotify all install install-completions watch prepush hooks perf-guard
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS = -s -w -X main.version=$(VERSION)
@@ -20,13 +20,14 @@ vet:
 	go vet ./...
 
 # prepush runs the fast local mirror of CI over the files this branch changes
-# (see scripts/pre-push.sh). `make hooks` installs it as the git pre-push hook.
+# (see scripts/pre-push.sh). `make hooks` installs .githooks/pre-push and
+# .githooks/pre-commit for this clone and its worktrees, keeping any hook
+# already installed (scripts/install-hooks.sh).
 prepush:
 	bash scripts/pre-push.sh
 
 hooks:
-	git config core.hooksPath .githooks
-	@echo "Installed .githooks (pre-commit, pre-push). Bypass once with git push --no-verify."
+	bash scripts/install-hooks.sh
 
 # lint-rules enforces static gates against the rules package (all run
 # inside TestRulesPackageHasNoCapabilityDrift via the shared Analyze pass):
@@ -94,6 +95,13 @@ corpus-precision: build
 # time, memory, syntax-error files, project-model detection and findings.
 corpus-bench: build
 	go run ./internal/devtools/corpusbench -fetch -out corpus-out $(CORPUS_ARGS)
+
+# perf-guard (#1657) times krit at the merge-base with origin/main and at the
+# working tree side by side, on pinned corpora and a synthetic Android
+# project, and fails on a regression or a super-linear phase. CI runs it on
+# every pull request. See docs/perf.md "Performance regression guard".
+perf-guard:
+	bash scripts/perf-guard.sh
 
 # Opt-in external corpora and prepared Gradle models are discovered by the harness.
 fir-validate:

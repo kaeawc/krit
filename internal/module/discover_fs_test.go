@@ -351,27 +351,55 @@ func TestBuildRoot(t *testing.T) {
 	if err := os.MkdirAll(nested, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if got := BuildRoot(nested); got != dir {
-		t.Errorf("BuildRoot(%s) = %q, want the settings directory %q", nested, got, dir)
+	if got := buildRoot(nested); got != dir {
+		t.Errorf("buildRoot(%s) = %q, want the settings directory %q", nested, got, dir)
 	}
 	// A nested build's own settings file is the nearer root.
 	writeSettings(t, filepath.Join(dir, "app"), `include(":inner")`)
-	if got, want := BuildRoot(nested), filepath.Join(dir, "app"); got != want {
-		t.Errorf("BuildRoot(%s) = %q, want the nearer settings directory %q", nested, got, want)
+	if got, want := buildRoot(nested), filepath.Join(dir, "app"); got != want {
+		t.Errorf("buildRoot(%s) = %q, want the nearer settings directory %q", nested, got, want)
 	}
-	// A directory named like a settings file is not one.
+	// A directory named like a settings file is not one, and .git ends the search.
 	other := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(other, "settings.gradle.kts"), 0o755); err != nil {
-		t.Fatal(err)
+	for _, d := range []string{"settings.gradle.kts", ".git", "src"} {
+		if err := os.MkdirAll(filepath.Join(other, d), 0o755); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if err := os.MkdirAll(filepath.Join(other, ".git"), 0o755); err != nil {
-		t.Fatal(err)
+	if got := buildRoot(filepath.Join(other, "src")); got != "" {
+		t.Errorf("buildRoot without a build = %q, want none", got)
 	}
-	src := filepath.Join(other, "src")
-	if err := os.MkdirAll(src, 0o755); err != nil {
-		t.Fatal(err)
+}
+
+// A Bazel execution root ends the search with no build: unsandboxed it
+// links MODULE.bazel next to the real bazel-out tree, and above it is the
+// output base, here inside a Gradle build that must not be found either.
+func TestDiscoverModulesStopsAtBazelExecRoot(t *testing.T) {
+	dir := t.TempDir()
+	writeSettings(t, dir, `include(":app")`)
+	makeModule(t, dir, "app")
+	main := filepath.Join(dir, "output_base", "execroot", "_main")
+	writeFile(t, filepath.Join(main, "MODULE.bazel"), `module(name = "x")`)
+	writeFile(t, filepath.Join(main, "bazel-out", "k8-fastbuild", "bin", "lib", "BUILD.bazel"), `kt_jvm_library(name = "lib")`)
+	file := filepath.Join(main, "lib", "Lib.kt")
+	writeFile(t, file, "package lib\n")
+	graph, err := DiscoverModules(t.Context(), file)
+	if err != nil || graph != nil {
+		t.Fatalf("DiscoverModules(%s) = %v, %v; want nil, nil", file, graph, err)
 	}
-	if got := BuildRoot(src); got != src {
-		t.Errorf("BuildRoot(%s) = %q, want itself", src, got)
+}
+
+// A file in no build discovers nothing and walks no tree: before, its own
+// directory was the root, so `krit /tmp/A.kt` walked all of /tmp (#1704).
+// The build scripts next to the file are what such a walk would have found.
+func TestDiscoverModulesFromMarkerlessFileWalksNothing(t *testing.T) {
+	dir := t.TempDir()
+	makeModule(t, dir, "elsewhere", "lib")
+	makeModule(t, dir, "other")
+	file := filepath.Join(dir, "A.kt")
+	writeFile(t, file, "package a\n")
+	graph, err := DiscoverModules(t.Context(), file)
+	if err != nil || graph != nil {
+		t.Fatalf("DiscoverModules(%s) = %v, %v; want nil, nil", file, graph, err)
 	}
 }

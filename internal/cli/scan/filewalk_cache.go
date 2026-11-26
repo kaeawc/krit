@@ -57,18 +57,17 @@ func (f FilewalkFilters) Match(name string) bool {
 	return false
 }
 
-// isExcluded reports whether path should be skipped. Mirrors the logic in
-// internal/scanner that prunes test-data directories and user-specified
-// exclusion patterns.
-func (f FilewalkFilters) isExcluded(path string) bool {
-	if strings.Contains(path, "/test/data/") ||
-		strings.Contains(path, "/testData/") ||
-		strings.Contains(path, "/testdata/") ||
-		strings.Contains(path, "/test-data/") ||
-		strings.Contains(path, "/compiler-tests/") ||
-		strings.Contains(path, "/compilerTests/") {
-		return true
-	}
+// isExcluded reports whether path, found while walking root, should be
+// skipped. Mirrors internal/scanner: the built-in test-data heuristic sees
+// only the part of path below root (#1549), and user exclusion patterns see
+// the whole path.
+func (f FilewalkFilters) isExcluded(root, path string) bool {
+	return fileignore.TestDataPathUnder(root, path) || f.excludedByPattern(path)
+}
+
+// excludedByPattern reports whether a user-specified exclude pattern
+// matches path.
+func (f FilewalkFilters) excludedByPattern(path string) bool {
 	for _, pattern := range f.Excludes {
 		if matched, _ := filepath.Match(pattern, filepath.Base(path)); matched {
 			return true
@@ -195,7 +194,10 @@ func CollectFilesCachedWithIndex(roots []string, filters FilewalkFilters, cacheD
 			return nil, err
 		}
 		if !info.IsDir() {
-			if filters.Match(filepath.Base(root)) && !fileignore.DefaultPrunedWithinRepo(root) && !filters.isExcluded(root) {
+			// A file named on the command line is a direct request, so the
+			// built-in test-data heuristic does not drop it; user excludes
+			// still apply.
+			if filters.Match(filepath.Base(root)) && !fileignore.DefaultPrunedWithinRepo(root) && !filters.excludedByPattern(root) {
 				out = append(out, root)
 			}
 			continue
@@ -214,7 +216,7 @@ func CollectFilesCachedWithIndex(roots []string, filters FilewalkFilters, cacheD
 						continue
 					}
 					full := filepath.Join(root, rel)
-					if filters.isExcluded(full) || fileignore.DocSamplePath(full) {
+					if filters.isExcluded(root, full) || fileignore.DocSamplePath(full) {
 						continue
 					}
 					out = append(out, full)
@@ -267,7 +269,7 @@ func walkRootsWithCache(roots []string, filters FilewalkFilters, cacheDir string
 			return nil, err
 		}
 		matcher := fileignore.MatcherForPath(root, info, ignoreMatchers)
-		filewalkDir(root, filters, cached, fresh, matcher, &out)
+		filewalkDir(root, root, filters, cached, fresh, matcher, &out)
 	}
 
 	if cacheDir != "" {
@@ -279,18 +281,18 @@ func walkRootsWithCache(roots []string, filters FilewalkFilters, cacheDir string
 // filewalkDir is the recursive per-directory step. On a cache hit it replays
 // the cached children list; on a miss it calls ReadDir and records a fresh
 // entry for the next run.
-func filewalkDir(dir string, filters FilewalkFilters, cached, fresh *filewalkPayload, matcher *fileignore.Matcher, out *[]string) {
+func filewalkDir(root, dir string, filters FilewalkFilters, cached, fresh *filewalkPayload, matcher *fileignore.Matcher, out *[]string) {
 	info, err := os.Stat(dir)
 	if err != nil {
 		return
 	}
 	if cached != nil {
 		if entry, ok := cached.Dirs[dir]; ok && filewalkEntryValid(info, entry) {
-			filewalkReplayEntry(dir, entry, filters, cached, fresh, matcher, out)
+			filewalkReplayEntry(root, dir, entry, filters, cached, fresh, matcher, out)
 			return
 		}
 	}
-	filewalkReadDir(dir, info, filters, cached, fresh, matcher, out)
+	filewalkReadDir(root, dir, info, filters, cached, fresh, matcher, out)
 }
 
 // filewalkEntryValid reports whether the cached entry matches the current stat.
@@ -299,15 +301,15 @@ func filewalkEntryValid(info os.FileInfo, entry filewalkDirEntry) bool {
 }
 
 // filewalkReplayEntry replays a cache-hit entry, recurring into subdirs.
-func filewalkReplayEntry(dir string, entry filewalkDirEntry, filters FilewalkFilters, cached, fresh *filewalkPayload, matcher *fileignore.Matcher, out *[]string) {
+func filewalkReplayEntry(root, dir string, entry filewalkDirEntry, filters FilewalkFilters, cached, fresh *filewalkPayload, matcher *fileignore.Matcher, out *[]string) {
 	fresh.Dirs[dir] = entry
 	for _, c := range entry.Children {
 		full := filepath.Join(dir, c.Name)
 		if c.IsDir {
 			if !fileignore.DefaultPrunedDir(c.Name) && !matcher.Ignored(full, true) {
-				filewalkDir(full, filters, cached, fresh, matcher, out)
+				filewalkDir(root, full, filters, cached, fresh, matcher, out)
 			}
-		} else if filters.Match(c.Name) && !matcher.Ignored(full, false) && !filters.isExcluded(full) && !fileignore.DocSamplePath(full) {
+		} else if filters.Match(c.Name) && !matcher.Ignored(full, false) && !filters.isExcluded(root, full) && !fileignore.DocSamplePath(full) {
 			*out = append(*out, full)
 		}
 	}
@@ -315,7 +317,7 @@ func filewalkReplayEntry(dir string, entry filewalkDirEntry, filters FilewalkFil
 
 // filewalkReadDir handles a cache miss: reads the directory, records a fresh
 // entry, and recurses into subdirs.
-func filewalkReadDir(dir string, info os.FileInfo, filters FilewalkFilters, cached, fresh *filewalkPayload, matcher *fileignore.Matcher, out *[]string) {
+func filewalkReadDir(root, dir string, info os.FileInfo, filters FilewalkFilters, cached, fresh *filewalkPayload, matcher *fileignore.Matcher, out *[]string) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return
@@ -337,9 +339,9 @@ func filewalkReadDir(dir string, info os.FileInfo, filters FilewalkFilters, cach
 		full := filepath.Join(dir, e.Name())
 		if e.IsDir() {
 			if !fileignore.DefaultPrunedDir(e.Name()) && !matcher.Ignored(full, true) {
-				filewalkDir(full, filters, cached, fresh, matcher, out)
+				filewalkDir(root, full, filters, cached, fresh, matcher, out)
 			}
-		} else if filters.Match(e.Name()) && !matcher.Ignored(full, false) && !filters.isExcluded(full) && !fileignore.DocSamplePath(full) {
+		} else if filters.Match(e.Name()) && !matcher.Ignored(full, false) && !filters.isExcluded(root, full) && !fileignore.DocSamplePath(full) {
 			*out = append(*out, full)
 		}
 	}

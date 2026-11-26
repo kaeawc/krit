@@ -149,6 +149,15 @@ type Dispatcher struct {
 	languageExcludedSlots sync.Map // languageExcludedKey -> []bool
 }
 
+// BeginRequest starts a new request on a long-lived dispatcher (LSP, daemon
+// buffer analysis, MCP tools): project facts memoized for one request, such as
+// version-catalog discovery, are dropped so this request rereads settings files
+// and catalogs that changed since the last one. A project run builds its own
+// dispatcher and does not need to call it.
+func (d *Dispatcher) BeginRequest() {
+	filefacts.ForgetStringFact(d.fileFacts, catalogDiscoveryKey, slotCatalogDiscovery)
+}
+
 // NewDispatcher constructs a Dispatcher from the supplied v2 rules.
 // resolver is wired through to any rule declaring NeedsResolver via
 // that rule's SetResolverHook. Callers that have no resolver pass nil.

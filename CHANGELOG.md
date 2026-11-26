@@ -440,6 +440,11 @@ All notable changes to Krit will be documented in this file.
   `MoshiUsageNonMoshiClassInternal`/`External` (#1384, #1395, #1396, #1404, #1407, #1408, #1409).
 
 ### Fixed
+- The LSP, daemon buffer analysis and MCP tools see version-catalog and settings changes made while they run. The
+  version-catalog discovery memo now lasts one request in those long-lived analyzers, not their whole session, and a
+  buffer request reads its own analyzer's memo instead of the last project run's. Before, adding
+  `gradle/libs.versions.toml` left `InvalidFragmentVersionForActivityResult` and the Gradle catalog lookups on the
+  catalog-less result until restart (#1784). CLI scans already built a fresh memo per run.
 - The Lint ports' shared call parser is memoized per node for each file's dispatch pass, instead of re-parsing a call
   for every port that looks at it, and their import scan finds `import` keywords before running its regex. On
   element-x-android that cut about 1.3s of CPU from a `--no-fir` scan, with the same findings.

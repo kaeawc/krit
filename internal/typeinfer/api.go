@@ -23,6 +23,8 @@ type ExtensionFuncInfo struct {
 // then used read-only during parallel rule execution. No locking needed
 // because indexing completes before any reads begin.
 type defaultResolver struct {
+	// fileInfos keeps each merged file's FileTypeInfo (FileTypeInfoOf).
+	fileInfos map[string]*FileTypeInfo
 	// Per-file import tables
 	imports map[string]*ImportTable // file path -> import table
 	// Per-file scope tables (top-level declarations)

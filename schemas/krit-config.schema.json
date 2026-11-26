@@ -1906,6 +1906,39 @@
             }
           }
         },
+        "CrossOriginIsolatedAllowlist": {
+          "description": "Detects Profile.setCrossOriginIsolatedAllowlist, which enables cross-origin isolated APIs for the listed origins. [precision: ast-backed] [noisiness: normal]\nCaveat: As in Lint, whose check ships in the androidx.webkit:webkit AAR, it runs only when the project declares that dependency.\nCaveat: The receiver must be proven to be an androidx.webkit.Profile by its declaration, a with(profile) block, or a ProfileStore getOrCreateProfile/getProfile call.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable CrossOriginIsolatedAllowlist (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "CustomPermissionTypo": {
           "description": "Permission appears to be a custom permission with a typo [precision: project-structure-aware] [noisiness: normal] [capabilities: manifest]",
           "type": "object",
@@ -2573,6 +2606,39 @@
           "properties": {
             "active": {
               "description": "Enable DiscouragedApi (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "DontUseAccessibilityNodeInfoGetText": {
+          "description": "Detects AccessibilityNodeInfo.text in UiAutomator element predicates, where the CharSequence never equals a String. [precision: ast-backed] [noisiness: normal]\nCaveat: As in Lint, whose check ships in the androidx.test.uiautomator:uiautomator AAR, it runs only when the project declares that dependency.\nCaveat: The detector matches onView, onViews and onViewOrNull, which the released uiautomator 2.4 API renamed to onElement, onElements and onElementOrNull; krit checks both sets of names, so it also reports what the shipped detector no longer can.\nCaveat: As in Lint (JAVA_FILE scope), test sources are not checked.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable DontUseAccessibilityNodeInfoGetText (default: true).",
               "type": "boolean",
               "default": true
             },
@@ -7505,6 +7571,39 @@
           "properties": {
             "active": {
               "description": "Enable MissingLeanbackSupportManifest (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "MissingOnRenderProcessGone": {
+          "description": "Detects WebViewClients that do not implement onRenderProcessGone, so a render-process crash takes the app down. [precision: ast-backed] [noisiness: normal]\nCaveat: As in Lint, whose check ships in the androidx.webkit:webkit AAR, it runs only when the project declares that dependency.\nCaveat: An onRenderProcessGone inherited from a project superclass is found through same-file classes only; a class whose superclass is declared in another file is not reported.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable MissingOnRenderProcessGone (default: true).",
               "type": "boolean",
               "default": true
             },

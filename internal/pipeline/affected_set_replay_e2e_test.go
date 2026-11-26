@@ -1,13 +1,16 @@
 package pipeline
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/kaeawc/krit/internal/cache"
 	"github.com/kaeawc/krit/internal/config"
+	"github.com/kaeawc/krit/internal/diag"
 	"github.com/kaeawc/krit/internal/perf"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
@@ -340,5 +343,95 @@ func TestRunProject_AffectedSetReplay_RelativeScanRootKeepsFindings(t *testing.T
 	clean := run(t, nil, t.TempDir())
 	if warm.FindingsCount != clean.FindingsCount {
 		t.Fatalf("warm replay findings = %d, clean scan = %d", warm.FindingsCount, clean.FindingsCount)
+	}
+}
+
+// The replay with every warm cache on, as a CLI scan runs it: a per-file rule
+// that panics after the edit makes the replay decline, and the decline names
+// the rule in the verbose log instead of only in the perf entry.
+func TestRunProject_AffectedSetReplay_PerFilePanicWithAnalysisCache(t *testing.T) {
+	t.Setenv("KRIT_AFFECTED_SET_REPLAY", "on")
+	dir := t.TempDir()
+	bundleRoot := t.TempDir()
+	cachePath := filepath.Join(t.TempDir(), "krit.cache")
+	write := func(name, content string) {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("A.kt", "package p\n\nclass Helper\n")
+	write("B.kt", "package p\n\nclass Client {\n  fun make(): Helper = Helper()\n}\n")
+	write("C.kt", "package p\n\nclass Unrelated1\n")
+	write("D.kt", "package p\n\nclass Unrelated2\n")
+	write("E.kt", "package p\n\nclass Unrelated3\n")
+
+	panicRule := api.FakeRule("PerFilePanicsAfterEdit",
+		api.WithNodeTypes("function_declaration"),
+		api.WithSeverity(api.SeverityWarning),
+		api.WithCheck(func(ctx *api.Context) {
+			if strings.Contains(string(ctx.File.Content), "added") {
+				panic("rule bug")
+			}
+		}),
+	)
+	run := func(t *testing.T, tracker perf.Tracker) string {
+		t.Helper()
+		var verbose bytes.Buffer
+		if _, err := RunProject(context.Background(), ProjectInput{
+			Args: ProjectArgs{
+				Config:      config.NewConfig(),
+				Paths:       []string{dir},
+				ActiveRules: []*api.Rule{crossFileHelperRule(), panicRule},
+				Format:      "json",
+				Version:     "test",
+			},
+			Host: ProjectHostState{
+				Reporter:                &diag.Reporter{Verbose: &verbose},
+				Tracker:                 tracker,
+				AnalysisCache:           cache.Load(cachePath),
+				AnalysisCacheFilePath:   cachePath,
+				AnalysisCacheLookup:     true,
+				CrossFileCacheDir:       scanner.CrossFileCacheDir(dir),
+				CrossFindingsCacheDir:   scanner.CrossFindingsCacheDir(dir),
+				FindingsBundleStore:     scanner.DiskFindingsBundleStore{},
+				FindingsBundleCacheRoot: bundleRoot,
+			},
+		}); err != nil {
+			t.Fatalf("RunProject: %v", err)
+		}
+		return verbose.String()
+	}
+
+	run(t, nil)
+	write("A.kt", "package p\n\nclass Helper\n\nfun added(): Int = 1\n")
+	tracker := perf.New(true)
+	log := run(t, tracker)
+	if entry, found := findTiming(tracker.GetTimings(), "dispatchAffectedSetPath"); !found || entry.Attributes["reason"] != replayBailRuleError {
+		t.Fatalf("affected-set replay reason = %+v, want %q", entry.Attributes, replayBailRuleError)
+	}
+	if !strings.Contains(log, "affected-set replay declined: rule panic in PerFilePanicsAfterEdit") {
+		t.Fatalf("verbose log does not name the panicking rule:\n%s", log)
+	}
+}
+
+// Project-scope rules must never run on a parse that misses a tracked file
+// unless warm cross findings stand in for them.
+func TestReplayProjectScope_DeclinesPartialParse(t *testing.T) {
+	scope := api.FakeRule("Scope", api.WithNeeds(api.NeedsParsedFiles), api.WithCheck(func(*api.Context) {}))
+	args := ProjectArgs{Config: config.NewConfig(), ActiveRules: []*api.Rule{scope}}
+	parsed := IndexResult{ParseResult: ParseResult{KotlinFiles: []*scanner.File{{Path: "A.kt", Language: scanner.LangKotlin}}}}
+	tracked := map[string]string{"A.kt": "1", "B.kt": "2"}
+	prior := scanner.FindingColumns{}
+	_, _, _, reason, err := replayProjectScope(context.Background(), args, ProjectHostState{}, "test", parsed, tracked, DispatchResult{}, &prior, []string{"A.kt"})
+	if err != nil || reason != replayBailPartialParse {
+		t.Fatalf("partial parse: reason %q err %v, want %q", reason, err, replayBailPartialParse)
+	}
+	if !parseCoversTracked(parsed.ParseResult, map[string]string{"A.kt": "1"}) {
+		t.Fatal("a parse holding every tracked file must cover it")
+	}
+	warm := parsed
+	warm.WarmCrossFindings = &scanner.FindingColumns{}
+	if _, _, _, reason, _ := replayProjectScope(context.Background(), args, ProjectHostState{}, "test", warm, tracked, DispatchResult{}, &prior, []string{"A.kt"}); reason == replayBailPartialParse {
+		t.Fatal("warm cross findings stand in for the project-scope rules; the replay must not decline for the partial parse")
 	}
 }

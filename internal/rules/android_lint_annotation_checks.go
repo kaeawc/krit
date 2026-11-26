@@ -142,6 +142,13 @@ func returnThisApplies(ctx *api.Context, fn uint32) bool {
 	isOverride := declHasModifier(file, fn, "override")
 	if file.Language == scanner.LangJava {
 		_, isOverride = annotationNamed(file, fn, "java.lang.Override")
+		// java.lang is imported implicitly: @Override is java.lang.Override unless an import says otherwise.
+		if !isOverride {
+			_, isOverride = annotationNamed(file, fn, "Override")
+			if imported, ok := lintImportsOf(file).bySimple["Override"]; ok && imported != "java.lang.Override" {
+				isOverride = false
+			}
+		}
 	}
 	if !isOverride {
 		return false
@@ -199,7 +206,8 @@ func returnThisVisit(file *scanner.File, body uint32, visit func(uint32)) {
 
 func returnThisReturnsThis(file *scanner.File, ret uint32) bool {
 	expr := file.FlatNamedChild(ret, 0)
-	return expr != 0 && file.FlatType(expr) == "this_expression"
+	// Kotlin parses `this` as this_expression, Java as this.
+	return expr != 0 && (file.FlatType(expr) == "this_expression" || file.FlatType(expr) == "this")
 }
 
 // ---------------------------------------------------------------------------
@@ -435,18 +443,18 @@ func versionCheckInLibrary(file *scanner.File) bool {
 const slotVersionCheckLibrary = "lintVersionCheckLibrary"
 
 func readModuleIsLibrary(root string) bool {
-	library := false
 	for _, name := range []string{"build.gradle.kts", "build.gradle"} {
 		data, err := os.ReadFile(filepath.Join(root, name))
 		if err != nil {
 			continue
 		}
-		content := string(data)
-		library = (strings.Contains(content, "com.android.library") || containsPluginSuffix(content, "library")) &&
-			!strings.Contains(content, "com.android.application")
-		break
+		// The cached Gradle facts resolve version-catalog plugin aliases; the application check reads the plugins
+		// alone, without comments.
+		content := gradleWithoutComments(string(data))
+		info, _ := tryReadGradleInfo(root)
+		return info.isLibrary && !moduleAppliesApplicationPlugin(root, content)
 	}
-	return library
+	return false
 }
 
 // versionCheckParent returns the expression's parent, skipping parentheses.
@@ -552,7 +560,7 @@ func versionCheckFieldIsPublic(file *scanner.File, decl uint32) bool {
 func versionCheckSingleStatementMethod(file *scanner.File, parent uint32) uint32 {
 	if file.FlatType(parent) == "function_body" {
 		if fn, ok := file.FlatParent(parent); ok && file.FlatType(fn) == "function_declaration" {
-			return fn
+			return versionCheckNonLocal(file, fn)
 		}
 		return 0
 	}
@@ -563,7 +571,7 @@ func versionCheckSingleStatementMethod(file *scanner.File, parent uint32) uint32
 	if ok && file.FlatType(block) == "statements" {
 		block, ok = file.FlatParent(block)
 	}
-	if !ok || file.FlatNamedChildCount(versionCheckStatements(file, block)) != 1 {
+	if !ok || versionCheckStatementCount(file, versionCheckStatements(file, block)) != 1 {
 		return 0
 	}
 	fn, ok := file.FlatParent(block)
@@ -573,7 +581,26 @@ func versionCheckSingleStatementMethod(file *scanner.File, parent uint32) uint32
 	if !ok || (file.FlatType(fn) != "function_declaration" && file.FlatType(fn) != "method_declaration") {
 		return 0
 	}
+	return versionCheckNonLocal(file, fn)
+}
+
+// versionCheckNonLocal returns fn unless it is a local function, which is not API Lint asks to annotate.
+func versionCheckNonLocal(file *scanner.File, fn uint32) uint32 {
+	if p, ok := file.FlatParent(fn); ok && file.FlatType(p) == "statements" {
+		return 0
+	}
 	return fn
+}
+
+// versionCheckStatementCount counts the statements of a block, leaving out comments.
+func versionCheckStatementCount(file *scanner.File, block uint32) int {
+	n := 0
+	for c := file.FlatFirstChild(block); c != 0; c = file.FlatNextSib(c) {
+		if t := file.FlatType(c); file.FlatIsNamed(c) && t != "line_comment" && t != "block_comment" && t != "multiline_comment" {
+			n++
+		}
+	}
+	return n
 }
 
 func versionCheckStatements(file *scanner.File, block uint32) uint32 {
@@ -596,6 +623,9 @@ func versionCheckLambdaParam(file *scanner.File, ifNode uint32) (int, uint32) {
 	case "call_expression", "method_invocation":
 		if call, ok := lintCallAt(file, first); ok && call.ReceiverNode != 0 {
 			recv = strings.TrimSpace(call.ReceiverText)
+		} else if ok && file.Language == scanner.LangKotlin {
+			// `block()` invokes a function-typed parameter directly.
+			recv = call.Name
 		}
 	}
 	if !lintIdentOnly(recv) {

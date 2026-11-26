@@ -90,3 +90,30 @@ func TestManifestModuleFingerprintCoversSourceSetResources(t *testing.T) {
 		t.Fatal("a test source set's res changed the module fingerprint")
 	}
 }
+
+// Switching a module between the application and library plugins must change the per-file cache key, since rules
+// such as AnnotateVersionCheck report only in libraries; a dependency edit must not.
+func TestProjectFactsCoverModulePlugins(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "app", "build.gradle.kts")
+	write := func(content string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(script), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(script, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	project := &android.Project{GradlePaths: []string{script}}
+	write("plugins { id(\"com.android.application\") }\ndependencies { implementation(\"a:b:1\") }\n")
+	app := withProjectFacts("rules", project, "")
+	write("plugins { id(\"com.android.application\") }\ndependencies { implementation(\"a:b:2\") }\n")
+	if withProjectFacts("rules", project, "") != app {
+		t.Fatal("a dependency edit changed the per-file cache key")
+	}
+	write("plugins { alias(libs.plugins.android.library) }\ndependencies { implementation(\"a:b:2\") }\n")
+	if withProjectFacts("rules", project, "") == app {
+		t.Fatal("switching to the library plugin did not change the per-file cache key")
+	}
+}

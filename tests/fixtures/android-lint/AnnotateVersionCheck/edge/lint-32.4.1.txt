@@ -1,0 +1,5 @@
+src/main/java/com/example/Edge.kt:14:12: AnnotateVersionCheck: This method should be annotated with `@ChecksSdkIntAtLeast(api=android.os.Build.VERSION_CODES.S, lambda=0)`
+src/main/java/com/example/Edge.kt:18:12: AnnotateVersionCheck: This method should be annotated with `@ChecksSdkIntAtLeast(api=android.os.Build.VERSION_CODES.S, lambda=0)`
+src/main/java/com/example/Edge.kt:22:5: AnnotateVersionCheck: This method should be annotated with `@ChecksSdkIntAtLeast(api=android.os.Build.VERSION_CODES.P)`
+src/main/java/com/example/Edge.kt:5:5: AnnotateVersionCheck: This method should be annotated with `@ChecksSdkIntAtLeast(api=android.os.Build.VERSION_CODES.O)`
+src/main/java/com/example/JEdge.java:6:27: AnnotateVersionCheck: This method should be annotated with `@ChecksSdkIntAtLeast(api=android.os.Build.VERSION_CODES.Q)`

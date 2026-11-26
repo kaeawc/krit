@@ -339,9 +339,10 @@ keys are unchanged) is part of:
   miss names `compilerSettings` among the changed components.
 
 Notes, rejected arguments and opt-in order do not affect the identity.
-Compiler plugins add each jar's path, size and modification time and every
-option, so a plugin added, removed, upgraded or rebuilt in place is a
-settings change; settings without plugins keep their identity. Inside
+Compiler plugins add each jar's content (not its path, so the same jar under
+another `GRADLE_USER_HOME` is the same plugin) and every option, so a plugin
+added, removed, upgraded or rebuilt in place is a settings change; settings
+without plugins keep their identity. Inside
 `krit-fir`, the incremental compile key (and with it the persisted bundle in
 `.krit/fir-incremental`) also takes each loaded plugin jar's file identity,
 including its entries' CRCs, and every option.

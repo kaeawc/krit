@@ -35,6 +35,9 @@ All notable changes to Krit will be documented in this file.
   `androidx.compose.material3` 1.5.0, under their Lint IDs. Their findings match the Lint CLI running those releases'
   `lint.jar` on the inputs under `internal/rules/testdata/androidx_compose_material/`. The material3 import check needs
   a material3 import in the file or a material3 dependency in the build (#1457, #1458, #1459, #1461).
+- Gradle plugin: `kritCheckAll` and the per-variant / per-source-set `kritCheck<Name>` tasks run the generated-source
+  producers (Variant API and KGP roots, R-class, kapt stubs) when FIR is on, as `kritCheck` already did, so FIR no
+  longer gates generated-code users on a clean checkout without `exportGenerated` (#1642, #1686).
 - Compose lint parity, first batch of [compose-lints](https://github.com/slackhq/compose-lints) 1.6.1 ports:
   `ComposeCompositionLocalUsage` (with the `allowedCompositionLocals` option) and `ComposeCompositionLocalGetter`,
   under their Lint IDs, messages and severities, experimental and off by default. `ComposeNamingUppercase` and

@@ -108,10 +108,14 @@ porting, or broadening a rule:
   every cache that stores that rule's output: the per-file analysis cache,
   the res-dir/resource caches, the project bundle, the FIR/oracle
   fingerprints, the Gradle model freshness key. Keys must be content-based
-  and identical across processes (no "is this file recent" tokens). Add a
+  and identical across processes (no "is this file recent" tokens). A
+  verdict that depends on declarations in *other* files (resolver lookups
+  such as class hierarchy or annotated parameters) depends on those files'
+  content too, and the per-file cache doesn't track that yet (#1778). Prove
+  same-file only, or key on a cross-file fingerprint. Add a
   cold-then-warm test that changes only the new input and compares the warm
-  result with `--no-cache`. Four PRs on 2026-11-26 shipped this bug in review
-  (#1698, #1713, #1719, #1748).
+  result with `--no-cache`. Six PRs on 2026-11-26 had this bug in review
+  (#1698, #1713, #1719, #1748, #1759, #1769).
 
 Bug fixes should include the regression test that would have failed before the
 fix: lexical negatives, nested-scope negatives, local-lookalike negatives, Java

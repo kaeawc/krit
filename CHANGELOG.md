@@ -460,6 +460,11 @@ All notable changes to Krit will be documented in this file.
   and object lookups use a per-file index, built once per run. `IgnoredReturnValue` skips type resolution for calls
   it cannot report without the oracle, and finds a detached `return` without a regex. On element-x-android
   (`--no-fir`), the three rules went from 3.2s, 2.6s and 1.1s to 0.2s, 0.1s and 0.5s, with the same findings (#1664).
+- Gradle rules no longer rediscover the version catalog for every Gradle file and catalog lookup. Discovery can walk
+  every build file of an included build that provides a settings plugin, and a nested build with `includeBuild("..")`
+  walks the whole repository, so a repository with several such builds paid that walk many times over. Each run now
+  looks at a directory, and walks an included build, once. On metro (`--no-fir --no-type-oracle`, cold) Gradle
+  analysis went from 3.5s to 0.25s and the whole scan from 4.7s to 1.4s, with the same findings.
 - The built-in test-data skip (`testdata/`, `testData/`, `test-data/`, `test/data/`, `compiler-tests/`,
   `compilerTests/`, `src/<test set>/resources/`) only counts directories below the scanned path, so a project checked
   out under an ancestor such as `/home/runner/work/testdata/` is analysed instead of reporting no files and exiting 0.

@@ -4,6 +4,7 @@ import (
 	"sync/atomic"
 
 	"github.com/kaeawc/krit/internal/filefacts"
+	"github.com/kaeawc/krit/internal/librarymodel"
 )
 
 // sharedFileFacts is the run-scoped cache used by helpers that have a
@@ -57,4 +58,21 @@ const (
 	slotFunctionNames               = "functionNames"
 	slotDeclaredFunctionNames       = "declaredFunctionNames"
 	slotCallExpressionsByName       = "callExpressionsByName"
+	slotCatalogDiscovery            = "catalogDiscovery"
 )
+
+// loadGradleVersionCatalog loads the version catalog for a Gradle file, sharing
+// one catalog-source discovery memo across the run's rules and files.
+func loadGradleVersionCatalog(gradlePath string) (librarymodel.VersionCatalog, bool) {
+	return runCatalogDiscovery().LoadVersionCatalogForGradlePath(gradlePath)
+}
+
+// runCatalogDiscovery returns the run's catalog discovery memo, or nil (no
+// memoization) outside a dispatcher run.
+func runCatalogDiscovery() *librarymodel.CatalogDiscovery {
+	c := fileFactsCache()
+	if c == nil {
+		return nil
+	}
+	return filefacts.StringFact(c, "run", slotCatalogDiscovery, librarymodel.NewCatalogDiscovery)
+}

@@ -291,7 +291,7 @@ func gradleProfileFor(ctx *api.Context) librarymodel.ProjectProfile {
 	if ctx.GradlePath == "" {
 		return librarymodel.ProjectProfile{}
 	}
-	catalog, _ := librarymodel.LoadVersionCatalogForGradlePath(ctx.GradlePath)
+	catalog, _ := loadGradleVersionCatalog(ctx.GradlePath)
 	return librarymodel.ProfileFromGradleContentWithCatalog(ctx.GradlePath, ctx.GradleContent, catalog)
 }
 
@@ -305,7 +305,7 @@ func knownProfileVersion(v librarymodel.VersionedPresence) gradleVersion {
 // gradleCatalogPluginID returns the plugin id behind `alias(libs.plugins.<accessor>)`,
 // or "" when the catalog does not define it.
 func gradleCatalogPluginID(ctx *api.Context, accessor string) string {
-	catalog, ok := librarymodel.LoadVersionCatalogForGradlePath(ctx.GradlePath)
+	catalog, ok := loadGradleVersionCatalog(ctx.GradlePath)
 	if !ok {
 		return ""
 	}
@@ -320,7 +320,7 @@ func gradleCatalogPluginID(ctx *api.Context, accessor string) string {
 
 // gradleCatalogLibrary returns the group and name behind `libs.<accessor>`.
 func gradleCatalogLibrary(ctx *api.Context, accessor string) (group, name string, ok bool) {
-	catalog, found := librarymodel.LoadVersionCatalogForGradlePath(ctx.GradlePath)
+	catalog, found := loadGradleVersionCatalog(ctx.GradlePath)
 	if !found {
 		return "", "", false
 	}

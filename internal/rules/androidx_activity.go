@@ -88,7 +88,7 @@ func activityModuleProfile(path string) (librarymodel.ProjectProfile, bool) {
 			if err != nil {
 				continue
 			}
-			catalog, _ := librarymodel.LoadVersionCatalogForGradlePath(build)
+			catalog, _ := loadGradleVersionCatalog(build)
 			return librarymodel.ProfileFromGradleContentWithCatalog(build, string(content), catalog), true
 		}
 		if parent := filepath.Dir(dir); parent == dir {

@@ -102,6 +102,16 @@ porting, or broadening a rule:
 - For Java-capable rules, add Java positives and Java local-lookalike negatives.
 - Keep config schema validation and runtime matching in sync, especially for
   regex options and implicit anchoring.
+- **Do not read a new input without adding it to the cache key.** When a rule
+  or phase starts depending on something new (a manifest, a flag, a config
+  value, a Gradle/Bazel fact, an included build), fold it into the key of
+  every cache that stores that rule's output: the per-file analysis cache,
+  the res-dir/resource caches, the project bundle, the FIR/oracle
+  fingerprints, the Gradle model freshness key. Keys must be content-based
+  and identical across processes (no "is this file recent" tokens). Add a
+  cold-then-warm test that changes only the new input and compares the warm
+  result with `--no-cache`. Four PRs on 2026-11-26 shipped this bug in review
+  (#1698, #1713, #1719, #1748).
 
 Bug fixes should include the regression test that would have failed before the
 fix: lexical negatives, nested-scope negatives, local-lookalike negatives, Java

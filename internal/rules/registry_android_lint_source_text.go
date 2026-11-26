@@ -22,7 +22,7 @@ func registerAndroidLintSourceTextChecks() {
 		ID: trim.RuleName, Category: trim.RuleSetName, Description: trim.Description(), Sev: api.Severity(trim.Sev),
 		NodeTypes: []string{"call_expression"}, Languages: []scanner.Language{scanner.LangKotlin},
 		Confidence: trim.Confidence(), Implementation: trim, Fix: api.FixSemantic, OptionalResolver: true,
-		Check: lintSkipTestSources(trim.check),
+		FileGate: lintFileMentionsGate(trim), Check: lintSkipTestSources(trim.check),
 	})
 
 	concat := &TextConcatSpaceRule{AndroidRule: lintAndroidRule("TextConcatSpace", "Missing space in text concatenation?",

@@ -1,11 +1,13 @@
 package rules
 
 import (
+	"bytes"
 	"fmt"
 	"strings"
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/kaeawc/krit/internal/filefacts"
 	"github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/rules/semantics"
 	"github.com/kaeawc/krit/internal/scanner"
@@ -34,6 +36,8 @@ type WrongCommentTypeRule struct {
 
 // Confidence reports a high base confidence: the receiver must be proven a string and the lambda matched exactly.
 func (r *TrimLambdaRule) Confidence() float64 { return api.ConfidenceHigh }
+
+func (r *TrimLambdaRule) fileMentions() []string { return []string{"trim"} }
 
 // Confidence reports a medium base confidence: like Lint, the check is a wording heuristic.
 func (r *TextConcatSpaceRule) Confidence() float64 { return api.ConfidenceMedium }
@@ -70,7 +74,7 @@ func (r *TrimLambdaRule) check(ctx *api.Context) {
 	}
 	text := file.FlatNodeText(lambda)
 	f := lintFindingAtNode(ctx, lambda, "", "The lambda argument (`"+text+"`) is unnecessary")
-	f.Fix = trimLambdaFix(file, nav, lambda)
+	f.Fix = trimLambdaFix(file, nav, call)
 	ctx.Emit(f)
 }
 
@@ -180,17 +184,27 @@ func trimSkipParens(file *scanner.File, idx uint32) uint32 {
 	return idx
 }
 
-// trimShadowed reports whether the file declares its own trim or isWhitespace function, which would take the call
-// away from the standard library.
+// slotTrimShadowed memoizes trimShadowed per file.
+const slotTrimShadowed = "lintTrimShadowed"
+
+// trimShadowed reports whether the file declares its own trim or isWhitespace function, or imports one from
+// elsewhere, which would take the call away from the standard library.
 func trimShadowed(file *scanner.File) bool {
-	shadowed := false
-	file.FlatWalkNodes(0, "function_declaration", func(fn uint32) {
-		switch file.FlatChildTextOrEmpty(fn, "simple_identifier") {
-		case "trim", "isWhitespace":
-			shadowed = true
+	return filefacts.FileFact(fileFactsCache(), file, slotTrimShadowed, func() bool {
+		for simple, fqn := range lintImportsOf(file).bySimple {
+			if (simple == "trim" || simple == "isWhitespace") && !strings.HasPrefix(fqn, "kotlin.") {
+				return true
+			}
 		}
+		shadowed := false
+		file.FlatWalkNodes(0, "function_declaration", func(fn uint32) {
+			switch file.FlatChildTextOrEmpty(fn, "simple_identifier") {
+			case "trim", "isWhitespace":
+				shadowed = true
+			}
+		})
+		return shadowed
 	})
-	return shadowed
 }
 
 // trimReceiverIsString reports whether the receiver is proven a String or CharSequence (nullable through `?.`).
@@ -221,24 +235,10 @@ func trimIsStringType(file *scanner.File, typ string) bool {
 	return false
 }
 
-// trimLambdaFix removes the lambda and the whitespace before it, adding `()` when the call has no parentheses, as
-// Lint's quick fix does.
-func trimLambdaFix(file *scanner.File, nav, lambda uint32) *scanner.Fix {
-	start := int(file.FlatStartByte(lambda))
-	for start > int(file.FlatEndByte(nav)) && (file.Content[start-1] == ' ' || file.Content[start-1] == '\t' || file.Content[start-1] == '\n') {
-		start--
-	}
-	end := int(file.FlatEndByte(lambda))
-	replacement := "()"
-	between := string(file.Content[file.FlatEndByte(nav):file.FlatStartByte(lambda)])
-	if strings.Contains(between, "(") {
-		replacement = ""
-		// `trim({ ... })`: keep the parentheses, drop only the lambda.
-		if strings.TrimSpace(between) == "(" {
-			start = int(file.FlatStartByte(lambda))
-		}
-	}
-	return &scanner.Fix{ByteMode: true, StartByte: start, EndByte: end, Replacement: replacement}
+// trimLambdaFix rewrites everything after `recv.trim` to `()`, the call Lint's quick fix leaves. The lambda is the
+// call's only argument, so this also drops a label or annotation on it and a trailing comma.
+func trimLambdaFix(file *scanner.File, nav, call uint32) *scanner.Fix {
+	return &scanner.Fix{ByteMode: true, StartByte: int(file.FlatEndByte(nav)), EndByte: int(file.FlatEndByte(call)), Replacement: "()"}
 }
 
 // ---------------------------------------------------------------------------
@@ -448,7 +448,12 @@ func (r *WrongCommentTypeRule) check(ctx *api.Context) {
 		return
 	}
 	text := file.FlatNodeText(comment)
-	if !strings.HasPrefix(text, "/*") || strings.HasPrefix(text, "/**") || strings.Contains(text, "(non-Javadoc)") {
+	// `/*/ ... */` would close right after the fix's `/**`.
+	if !strings.HasPrefix(text, "/*") || strings.HasPrefix(text, "/**") || strings.HasPrefix(text, "/*/") ||
+		strings.Contains(text, "(non-Javadoc)") {
+		return
+	}
+	if wctTrailsCode(file, comment) {
 		return
 	}
 	if !strings.ContainsAny(text, "@[") {
@@ -463,7 +468,7 @@ func (r *WrongCommentTypeRule) check(ctx *api.Context) {
 	if tag == "" {
 		return
 	}
-	if file.Language != scanner.LangJava && wctSuppressedAt(file, decl, r.RuleName, r.RuleSetName) {
+	if wctSuppressedAt(file, decl, r.RuleName, r.RuleSetName) {
 		return
 	}
 	kind := "KDoc"
@@ -488,6 +493,21 @@ func (r *WrongCommentTypeRule) check(ctx *api.Context) {
 	ctx.Emit(scanner.Finding{File: file.Path, Line: line, Col: col, StartByte: start, EndByte: start + length,
 		Message: "This block comment looks like it was intended to be a " + kind + " comment",
 		Fix:     &scanner.Fix{ByteMode: true, StartByte: cs, EndByte: cs + 2, Replacement: "/**"}})
+}
+
+// wctTrailsCode reports a comment that ends a line of code (`val a = 1 /* @see b */`): it binds to that code, not to
+// the declaration on the next line, as Lint's comment binding does.
+func wctTrailsCode(file *scanner.File, comment uint32) bool {
+	start, end := int(file.FlatStartByte(comment)), int(file.FlatEndByte(comment))
+	lineStart := bytes.LastIndexByte(file.Content[:start], '\n') + 1
+	if len(bytes.TrimSpace(file.Content[lineStart:start])) == 0 {
+		return false
+	}
+	rest := file.Content[end:]
+	if nl := bytes.IndexByte(rest, '\n'); nl >= 0 {
+		rest = rest[:nl]
+	}
+	return len(bytes.TrimSpace(rest)) == 0
 }
 
 // wctIsMember reports the declarations Lint visits as UClass, UMethod and UField: classes, objects, functions,
@@ -609,12 +629,14 @@ func wctPropertyIsField(file *scanner.File, prop uint32) bool {
 	return !hasAccessor || usesField
 }
 
-// wctSuppressedAt reports a @Suppress, @SuppressLint or @SuppressWarnings on the declaration or around it. Kotlin
-// binds the leading comment into the declaration, so its suppression covers a finding in the comment.
+// wctSuppressedAt reports a @Suppress, @SuppressLint or @SuppressWarnings on the declaration or around it. Kotlin and
+// Java PSI bind the leading comment into the declaration, so its suppression covers a finding in the comment.
 func wctSuppressedAt(file *scanner.File, decl uint32, ruleID, ruleSet string) bool {
 	filter := file.Suppression
 	if filter == nil {
-		filter = scanner.BuildSuppressionFilter(file, nil, allRuleExcludes(), "").WithRuleAliases(AllSuppressionAliases())
+		// Build it as the dispatcher does, since the filter is cached on the file for every rule.
+		filter = scanner.BuildSuppressionFilter(file, nil, allRuleExcludes(), "").WithRuleAliases(AllSuppressionAliases()).
+			WithExcludedRules(ScriptPolicyExcludes(file))
 		file.Suppression = filter
 		file.SuppressionIdx = filter.Annotations()
 	}

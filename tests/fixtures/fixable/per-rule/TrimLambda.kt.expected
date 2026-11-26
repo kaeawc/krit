@@ -7,4 +7,6 @@ fun clean(s: String, maybe: String?): List<String?> =
         s.trim(),
         maybe?.trim(),
         s.trim().lowercase(),
+        s.trim(),
+        s.trim(),
     )

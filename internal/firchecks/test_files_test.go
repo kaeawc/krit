@@ -173,7 +173,7 @@ func TestInvokeCached_TestFileClassificationChangeMisses(t *testing.T) {
 	cacheDir, _ := CacheDir(tmp)
 	if err := WriteCacheEntry(cacheDir, &FirCacheEntry{
 		V: FirCacheVersion, ContentHash: hash, FilePath: ktFile, Rules: rules,
-		ClosureFingerprint: CheckCacheFingerprint(nil, []string{ktFile}, nil, "", rules, nil, FileFacts{}),
+		ClosureFingerprint: CheckCacheFingerprint(tmp, nil, []string{ktFile}, nil, "", rules, nil, FileFacts{}),
 	}); err != nil {
 		t.Fatal(err)
 	}

@@ -455,6 +455,11 @@ class KritPlugin : Plugin<Project> {
         val producers: FileCollection? = null,
         /** True when [producers] covers the Kotlin roots, so KSP needs no task-name fallback. */
         val kotlinRootsKnown: Boolean = false,
+        /**
+         * The AGP component (`debug`, `debugUnitTest`, ...) an Android compilation belongs to, when
+         * it differs from [name]: a KMP Android target's `androidDebug` is AGP's `debug`.
+         */
+        val component: String = "",
     )
 
     private data class AndroidModelsResult(val specs: List<ModelSpec>, val skipped: Boolean = false)
@@ -691,7 +696,9 @@ class KritPlugin : Plugin<Project> {
                         boot, configuration, compileTask,
                         lateDirs = KotlinGeneratedSources.paths(project, kotlinSets),
                         producers = if (kind == "main") KotlinGeneratedSources.producers(project, kotlinSets) else null,
-                        kotlinRootsKnown = kotlinSets.isNotEmpty())
+                        kotlinRootsKnown = kotlinSets.isNotEmpty(),
+                        // androidTarget()'s compilations are named after their AGP component.
+                        component = if (platform == "android") requestedName else "")
                 }
                 specs += targetSpecs
             } catch (error: Exception) {
@@ -1074,12 +1081,34 @@ class KritPlugin : Plugin<Project> {
         }
     }
 
-    private fun lateDirs(spec: ModelSpec, variantSources: AndroidVariantSources): Provider<List<String>>? =
-        spec.lateDirs ?: if (spec.platform == "android" && variantSources.has(spec.name)) variantSources.paths(spec.name) else null
+    /** The AGP component whose Variant API roots an Android spec has, or null. */
+    private fun agpComponent(spec: ModelSpec, variantSources: AndroidVariantSources): String? =
+        spec.component.ifEmpty { spec.name }.takeIf { spec.platform == "android" && variantSources.has(it) }
 
-    private fun producers(spec: ModelSpec, variantSources: AndroidVariantSources): FileCollection? =
-        spec.producers ?: if (spec.platform == "android" && spec.kind == "main" && variantSources.has(spec.name))
-            variantSources.producers(spec.name) else null
+    /**
+     * The spec's late source roots: KGP's source sets, AGP's Variant API roots of its component, or
+     * both for a KMP Android compilation, whose generated roots (view binding, BuildConfig, AIDL,
+     * `addGeneratedSourceDirectory`) only AGP knows (#1643).
+     */
+    private fun lateDirs(spec: ModelSpec, variantSources: AndroidVariantSources): Provider<List<String>>? {
+        val agp = agpComponent(spec, variantSources)?.let(variantSources::paths)
+        val kgp = spec.lateDirs
+        return when {
+            kgp == null -> agp
+            agp == null -> kgp
+            else -> kgp.zip(agp) { a, b -> (a + b).distinct().sorted() }
+        }
+    }
+
+    private fun producers(project: Project, spec: ModelSpec, variantSources: AndroidVariantSources): FileCollection? {
+        val agp = if (spec.kind == "main") agpComponent(spec, variantSources)?.let(variantSources::producers) else null
+        val kgp = spec.producers
+        return when {
+            kgp == null -> agp
+            agp == null -> kgp
+            else -> project.files(kgp, agp)
+        }
+    }
 
     /**
      * What must run so the model's generated sources and R jars exist on disk, without compiling:
@@ -1103,14 +1132,14 @@ class KritPlugin : Plugin<Project> {
                 val suffix = variant.replaceFirstChar(Char::uppercase)
                 listOf("generate${suffix}RFile", "process${suffix}Resources")
             }
-        val providers = main.mapNotNull { producers(it, variantSources) }
+        val providers = main.mapNotNull { producers(project, it, variantSources) }
         fun relevant(of: List<ModelSpec>) = of.map { it.name.lowercase() } +
             of.filter { it.platform == "android" }.map { it.variant.lowercase() }.filter { it.isNotEmpty() } +
             // A KMP compilation's target prefix (`jvm` of `jvmMain`), as in `kspKotlinJvm`.
             of.mapNotNull { Regex("^[a-z0-9]+(?=[A-Z])").find(it.name)?.value?.lowercase() } +
             of.filter { it.name == "main" }.map { "kotlin" }
         val kspRelevant = relevant(main.filterNot {
-            it.kotlinRootsKnown || (it.platform == "android" && variantSources.has(it.name))
+            it.kotlinRootsKnown || agpComponent(it, variantSources) != null
         })
         val kaptRelevant = relevant(main)
         val hasKsp = project.plugins.hasPlugin("com.google.devtools.ksp")

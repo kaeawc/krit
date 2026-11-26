@@ -5,6 +5,9 @@ All notable changes to Krit will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Gradle model: Kotlin Multiplatform Android targets record the generated roots AGP's Variant API registers for their
+  component (view binding, BuildConfig, AIDL, `addGeneratedSourceDirectory`), and `kritCheck`/`exportGenerated` run
+  their producers, as plain Android modules already did (#1643).
 - Gradle model freshness key for CI: `krit gradle-model key` hashes the build files that can change
   `kritExportModel`'s output (settings and build scripts, version catalogs, lockfiles, dependency verification metadata,
   `gradle.properties`, the wrapper version, the sources of buildSrc and of builds nested under the root) by root-relative
@@ -385,6 +388,12 @@ All notable changes to Krit will be documented in this file.
 - The `--fir` duplicate-declaration recheck compiles only the source sets that hold a gated or crashed file and checks
   only those files, the rest of each set compiling as context, instead of every scanned set of each owning project.
   Its worker JVMs are balanced by the files each set compiles, unbuilt dependency sources included (#1661).
+- Module workers compile several modules at a time on threads of one JVM instead of one JVM per concurrent module
+  (#1656): they share the JIT-compiled compiler and heap. On a 4-core machine the `--fir` source-set recheck of 24
+  sets went from about 32s to 25s with the same results; module sharding, PR mode and settings-group sessions use the
+  same workers. `KRIT_WORKER_THREADS` caps the threads per JVM (default 4; `1` restores a JVM per module). Each
+  concurrent compile keeps the heap a JVM per module had, and an out-of-memory error in one stops that JVM's
+  remaining modules.
 - The Gradle plugins `dev.jasonpearson.krit` and `dev.jasonpearson.krit.settings` declare configuration-cache
   support on the Gradle Plugin Portal. `kritCheck`, `kritFormat` and `kritBaseline` now resolve (and download) the
   krit binary when they run instead of while Gradle builds the task graph, so `--dry-run` no longer downloads it and
@@ -484,6 +493,12 @@ All notable changes to Krit will be documented in this file.
   `MoshiUsageNonMoshiClassInternal`/`External` (#1384, #1395, #1396, #1404, #1407, #1408, #1409).
 
 ### Fixed
+- `MutableImplicitPendingIntent` follows more ways of building the intent, as Lint 32.4.1 does: `getActivities`
+  intent arrays held in locals (`arrayOf`, a Java array initializer, and `arrayOfNulls(n)` / `new Intent[n]` of
+  constant size whose elements are the last write to each index before the call), and `let`, `run` and `with`
+  blocks whose every statement is an Intent method call on `it` or the receiver. Any other use of the intent or the
+  array before the `PendingIntent` call, including a write in a nested lambda, still makes the rule abstain
+  (#1622).
 - The LSP, daemon buffer analysis and MCP tools see version-catalog and settings changes made while they run. The
   version-catalog discovery memo now lasts one request in those long-lived analyzers, not their whole session, and a
   buffer request reads its own analyzer's memo instead of the last project run's. Before, adding
@@ -493,6 +508,16 @@ All notable changes to Krit will be documented in this file.
   `ContextCompat.registerReceiver`, without `RECEIVER_NOT_EXPORTED` or a broadcast permission, as an unprotected
   component, and follows the incoming intent into helpers declared in other files: imported or same-package top-level
   functions and members of project classes or objects (`Launcher.launch(this, intent)`) (#1623).
+- `JavascriptInterface` reads Kotlin accessor use-site targets: a property annotated `@get:JavascriptInterface` or
+  `@set:JavascriptInterface`, or whose getter or setter carries the annotation, counts as an annotated bridge method,
+  and a private one is reported as `Must be public`, as Lint sees the accessor methods through UAST. `@field:` does
+  not count (part of #1620).
+- `JavascriptInterface` reads Kotlin accessor use-site targets: a property or primary-constructor property annotated
+  `@get:`/`@set:JavascriptInterface` (including the array form `@get:[... JavascriptInterface]`), or whose getter or
+  setter carries the annotation, counts as an annotated bridge method, and a protected one is reported as
+  `Must be public`, as Lint sees the generated accessors through UAST. `@field:`, `@JvmField` and `const`
+  properties, and a private property's accessor without a body, generate no annotated accessor and do not count
+  (part of #1620).
 - The Lint ports' shared call parser is memoized per node for each file's dispatch pass, instead of re-parsing a call
   for every port that looks at it, and their import scan finds `import` keywords before running its regex. On
   element-x-android that cut about 1.3s of CPU from a `--no-fir` scan, with the same findings.

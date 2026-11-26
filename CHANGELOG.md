@@ -12,11 +12,6 @@ All notable changes to Krit will be documented in this file.
   its inputs' hashes in the model, and krit warns, naming the file, when the build no longer matches. A model restored under another checkout path or Gradle user home is rebased when
   loaded (new `gradleUserHome` model field). New `krit { exportTests = false }` exports and resolves only production
   source sets (#1663).
-- `AvoidUsingNotNullOperator`, `ExceptionMessage`, `NullableConcurrentHashMap`, `GuavaPreconditionsUsedInKotlin` and
-  `ParcelizeFunctionProperty`, five slack-lints 0.11.1 checks, in the opt-in `slack-lint` rule set. Their findings match
-  the Lint CLI running slack-lint-checks 0.11.1 on `internal/rules/testdata/slack_lint/kotlin_checks/`, except that a
-  nullable type argument of a `val` constructor parameter is reported once, where Lint reports it twice
-  (#1374, #1430, #1431, #1434, #1437).
 - Gradle plugin: `kritCheck` with custom rule jars writes every enabled report from one krit run (one
   `--report FORMAT=PATH` each), like every other scan, instead of analyzing once per report (#1634).
 - `DoNotMockAnything`, `DoNotMockPlatformTypes`, `DoNotMockDataClass` and `DoNotMockObjectClass`, slack-lints 0.11.1's
@@ -457,6 +452,11 @@ All notable changes to Krit will be documented in this file.
   `MoshiUsageClassVisibility`, `MoshiUsageBlankGenerator`, `MoshiUsageGenerateAdapterShouldBeTrue`, `MoshiUsageObject`,
   `MoshiUsageUnsupportedType`, `MoshiUsageUseData` and `MoshiUsageMissingPrimary` (#1385, #1388, #1398, #1402, #1410,
   #1419, #1420, #1422).
+- `AvoidUsingNotNullOperator`, `ExceptionMessage`, `NullableConcurrentHashMap`, `GuavaPreconditionsUsedInKotlin` and
+  `ParcelizeFunctionProperty`, five slack-lints 0.11.1 checks, in the opt-in `slack-lint` rule set. Their findings match
+  the Lint CLI running slack-lint-checks 0.11.1 on `internal/rules/testdata/slack_lint/kotlin_checks/`, except that a
+  nullable type argument of a `val` constructor parameter is reported once, where Lint reports it twice
+  (#1374, #1430, #1431, #1434, #1437).
 - `slack-lint` gains `MoshiUsageDetector`'s moshi-sealed checks for Kotlin: `MoshiUsageBlankTypeLabel`,
   `MoshiUsageSealedMustBeSealed`, `MoshiUsageDoubleTypeLabel`, `MoshiUsageGenericSealedSubtype`,
   `MoshiUsageMissingTypeLabel` and `MoshiUsageInappropriateTypeLabel`. Subtypes are matched to a sealed parent in the

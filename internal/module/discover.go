@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/bazel"
@@ -21,10 +22,15 @@ var settingsFiles = []string{"settings.gradle.kts", "settings.gradle"}
 // filesystem. A root without a settings file that holds several
 // independent builds gets each build's modules under its directory path.
 // Returns nil when rootDir has no settings file and no build scripts.
+// A rootDir that names a file (a scan path such as src/A.kt) is
+// discovered from BuildRoot of the file's directory.
 func DiscoverModules(ctx context.Context, rootDir string) (*Graph, error) {
 	rootDir, err := filepath.Abs(rootDir)
 	if err != nil {
 		return nil, err
+	}
+	if info, err := os.Stat(rootDir); err == nil && !info.IsDir() {
+		rootDir = BuildRoot(filepath.Dir(rootDir))
 	}
 	graph := NewModuleGraph(rootDir)
 	found, err := discoverBuild(ctx, graph, rootDir, "")
@@ -179,6 +185,41 @@ func relocateDeclaredModules(declared []*Module, buildDirs []string, claimed map
 			claimed[m.Dir] = true
 		}
 	}
+}
+
+// BuildRoot returns the nearest directory at or above dir that holds a
+// Gradle settings file or a Bazel workspace file (MODULE.bazel, WORKSPACE,
+// ...), without going above a repository root (a directory with .git).
+// Without one it returns dir itself, so a file outside any build is
+// discovered from its own directory rather than from a large ancestor such
+// as $HOME, whose whole tree discovery would walk.
+func BuildRoot(dir string) string {
+	for d := dir; ; {
+		if isBuildRoot(d) {
+			return d
+		}
+		if _, err := os.Stat(filepath.Join(d, ".git")); err == nil {
+			return dir
+		}
+		parent := filepath.Dir(d)
+		if parent == d {
+			return dir
+		}
+		d = parent
+	}
+}
+
+func isBuildRoot(dir string) bool {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if !e.IsDir() && (bazel.IsWorkspaceFile(e.Name()) || slices.Contains(settingsFiles, e.Name())) {
+			return true
+		}
+	}
+	return false
 }
 
 // readSettingsFile finds and reads the settings file content. Returns the

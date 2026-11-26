@@ -17324,6 +17324,39 @@
             }
           }
         },
+        "ComposeItemKeyHashCode": {
+          "description": "Detects hashCode() used in the key argument of a call in a @Composable function. [precision: ast-backed] [noisiness: normal]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable ComposeItemKeyHashCode (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "ComposeLambdaCapturesUnstableState": {
           "description": "Detects inline onClick lambdas in lazy item builders that capture the current item without hoisting through remember. [precision: ast-backed] [noisiness: normal]",
           "type": "object",
@@ -17390,6 +17423,46 @@
             }
           }
         },
+        "ComposeM2Api": {
+          "description": "Detects calls and references to Compose Material 2 (androidx.compose.material) APIs. [precision: project-structure-aware] [noisiness: normal] [capabilities: cross-file]\nCaveat: Names are resolved through imports, not types: a member read on a local variable of an M2 type (colors.primary) is not reported, and a qualified chain counts only as an M2 class or object member (ButtonDefaults.buttonColors()), a MaterialTheme.colors/typography/shapes member, or an extension imported from androidx.compose.material.\nCaveat: allowedM2Apis matches the source name; Lint matches the JVM name, which is mangled for functions with inline-class parameters unless enable-mangling-workaround is set.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable ComposeM2Api (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "allowedM2Apis": {
+              "description": "androidx.compose.material API names that are not reported (compose-lints `allowed-m2-apis`).",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "ComposeModifierBackgroundAfterClip": {
           "description": "Detects Modifier chains where background() is applied before clip(), painting outside the clip shape. [precision: ast-backed] [noisiness: normal]",
           "type": "object",
@@ -17430,6 +17503,39 @@
           "properties": {
             "active": {
               "description": "Enable ComposeModifierClickableBeforePadding (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "ComposeModifierComposed": {
+          "description": "Detects Modifier.composed { }, which should be migrated to the Modifier.Node API. [precision: ast-backed] [noisiness: normal]\nCaveat: The receiver must be provably a Modifier: Modifier, this or the implicit receiver in a Modifier extension, a parameter or local declared as Modifier, or a call chain rooted in one of those.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable ComposeModifierComposed (default: false).",
               "type": "boolean",
               "default": false
             },
@@ -17562,6 +17668,72 @@
           "properties": {
             "active": {
               "description": "Enable ComposePreviewAnnotationMissing (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "ComposePreviewNaming": {
+          "description": "Detects multipreview annotation classes not named with the Preview or Previews suffix. [precision: project-structure-aware] [noisiness: normal] [capabilities: cross-file]\nCaveat: Only top-level annotation classes are checked, and nested multipreviews resolve as for ComposePreviewPublic.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable ComposePreviewNaming (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "ComposePreviewPublic": {
+          "description": "Detects public @Composable functions annotated with @Preview or a multipreview annotation. [precision: project-structure-aware] [noisiness: normal] [capabilities: cross-file]\nCaveat: Multipreview annotations resolve to top-level annotation classes in the analyzed sources or to the AndroidX and Wear tooling multipreviews; other library multipreviews are not recognized.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable ComposePreviewPublic (default: false).",
               "type": "boolean",
               "default": false
             },

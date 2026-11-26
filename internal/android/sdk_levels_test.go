@@ -92,3 +92,46 @@ func TestWarmSDKLevelsKeepsResolveResults(t *testing.T) {
 	}
 	WarmSDKLevels(nil)
 }
+
+// The default levels (krit --min-sdk / --target-sdk, for builds such as Bazel
+// that set them outside the sources) fill each level no directory declares,
+// for ResolveSDKLevels and SDKLevelResolver alike (#1682).
+func TestDefaultSDKLevelsFillUndeclaredLevels(t *testing.T) {
+	t.Cleanup(func() { SetDefaultSDKLevels(SDKLevels{}) })
+	root := t.TempDir()
+	declared := filepath.Join(root, "app")
+	if err := os.MkdirAll(declared, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(declared, "AndroidManifest.xml"), []byte(`<manifest xmlns:android="http://schemas.android.com/apk/res/android"><uses-sdk android:minSdkVersion="21"/></manifest>`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	inDeclared := filepath.Join(declared, "A.kt")
+	undeclared := filepath.Join(root, "lib", "B.kt")
+
+	if got := ResolveSDKLevels(undeclared); !got.IsZero() {
+		t.Fatalf("without a default: %+v, want unknown", got)
+	}
+	SetDefaultSDKLevels(SDKLevels{MinSdk: 24, TargetSdk: 34})
+	var resolver SDKLevelResolver
+	for _, tc := range []struct {
+		path string
+		want SDKLevels
+	}{
+		// The manifest's minSdk wins; its missing targetSdk comes from the default.
+		{inDeclared, SDKLevels{MinSdk: 21, TargetSdk: 34}},
+		{undeclared, SDKLevels{MinSdk: 24, TargetSdk: 34}},
+		{"A.kt", SDKLevels{MinSdk: 24, TargetSdk: 34}},
+	} {
+		if got := ResolveSDKLevels(tc.path); got != tc.want {
+			t.Errorf("ResolveSDKLevels(%s) = %+v, want %+v", tc.path, got, tc.want)
+		}
+		if got := resolver.Resolve(tc.path); got != tc.want {
+			t.Errorf("SDKLevelResolver.Resolve(%s) = %+v, want %+v", tc.path, got, tc.want)
+		}
+	}
+	SetDefaultSDKLevels(SDKLevels{})
+	if got := ResolveSDKLevels(undeclared); !got.IsZero() {
+		t.Fatalf("after clearing: %+v, want unknown", got)
+	}
+}

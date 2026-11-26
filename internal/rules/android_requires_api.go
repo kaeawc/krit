@@ -204,9 +204,8 @@ var versionCodeLevels = map[string]int{
 // projectMinSdk defaults to 1 so fixtures and editor/LSP single-file runs
 // without Gradle metadata still trigger on @RequiresApi-annotated calls.
 func projectMinSdk(ctx *api.Context) int {
-	facts := librarymodel.EnsureFacts(ctx.LibraryFacts)
-	if facts != nil && facts.Profile.MinSdkVersion > 0 {
-		return facts.Profile.MinSdkVersion
+	if minSdk := profileOrDefaultMinSdk(librarymodel.EnsureFacts(ctx.LibraryFacts)); minSdk > 0 {
+		return minSdk
 	}
 	return 1
 }

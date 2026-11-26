@@ -74,9 +74,11 @@ func Isolator(scanPaths []string, modelDir string, modelDisabled, noCache bool, 
 // CheckIsolated runs the FIR check of in.CheckRequest over the projects that own a gated file, with
 // each of their scanned source sets compiled on its own: a test or androidTest set sees its project's
 // main set but never a sibling, and no set sees another project's sets except as dependency context.
-// A project qualifies when each of its scanned sets has its full dependency context. Gated files in
-// variant directories no exported set lists are rechecked by variantUnits. It returns the merged check response for the rechecked files and
-// those files (as the request spells them); both are empty when no project qualified.
+// A project qualifies when each of its scanned sets has its full dependency context. Of a qualifying
+// project, only the sets that hold a requested file are compiled: the caller requests just the files
+// whose merged verdict it may replace (#1661). Gated files in variant directories no exported set
+// lists are rechecked by variantUnits. It returns the merged check response for the rechecked files
+// and those files (as the request spells them); both are empty when no project qualified.
 func CheckIsolated(ctx context.Context, in Input, gated []string) ([]byte, []string, error) {
 	logf := in.Logf
 	if logf == nil {
@@ -100,6 +102,7 @@ func CheckIsolated(ctx context.Context, in Input, gated []string) ([]byte, []str
 		return nil, nil, nil
 	}
 	units, skipped, unowned := isolationUnits(all, gated)
+	units = holdingRequested(units, check)
 	variants, beyond := variantUnits(model, all, skipped, unowned)
 	units = append(units, variants...)
 	addUserClasspath(units, model, check.classpath)
@@ -187,6 +190,18 @@ func isolationUnits(units []Unit, gated []string) (kept []Unit, skipped, unowned
 		kept = append(kept, byProject[p]...)
 	}
 	return kept, skipped, unowned
+}
+
+// holdingRequested returns the units that hold a requested file. A unit holding none would be
+// compiled for nothing: the caller requests only the files whose merged verdict it may replace.
+func holdingRequested(units []Unit, check *checkContext) []Unit {
+	var out []Unit
+	for _, u := range units {
+		if len(check.requestedAmong(u.Sources)) > 0 {
+			out = append(out, u)
+		}
+	}
+	return out
 }
 
 // finishedUnits returns the units whose check finished, their keys, and the files they checked. A

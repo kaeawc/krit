@@ -663,3 +663,286 @@ class Sender(private val context: Context) {
 		t.Errorf("reported a local Intent lookalike: %v", got)
 	}
 }
+
+// #1624: actions named by framework constants (Intent.ACTION_VIEW) and by project constants declared in other files
+// are evaluated, as Lint's ConstantEvaluator does.
+func TestUnsafeImplicitIntentLaunchEvaluatesFrameworkAndCrossFileConstants(t *testing.T) {
+	manifest := `<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.example">
+    <application>
+        <activity android:name=".Viewer" android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <action android:name="com.example.INTERNAL_VIEW" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
+`
+	sources := map[string]string{
+		"com/example/Actions.kt": `package com.example
+
+const val TOP_ACTION = "com.example.INTERNAL_VIEW"
+var MUTABLE_ACTION = "com.example.INTERNAL_VIEW"
+
+object Actions {
+    const val INTERNAL = "com.example.INTERNAL_VIEW"
+    const val OTHER = "com.other.VIEW"
+}
+
+class Holder {
+    companion object {
+        val COMPANION = "com.example.INTERNAL_VIEW"
+    }
+}
+
+object Links {
+    const val ACTION_VIEW = "com.other.VIEW"
+}
+`,
+		"com/example/JActions.java": `package com.example;
+
+public class JActions {
+    public static final String INTERNAL = "com.example.INTERNAL_VIEW";
+    public static String NOT_FINAL = "com.example.INTERNAL_VIEW";
+}
+`,
+		"com/example/Senders.kt": `package com.example
+
+import android.content.Context
+import android.content.Intent
+
+class Senders(private val context: Context) {
+    fun a() { context.startActivity(Intent(Intent.ACTION_VIEW)) }
+    fun b() { context.startActivity(Intent(android.content.Intent.ACTION_VIEW)) }
+    fun c() { context.startActivity(Intent(Actions.INTERNAL)) }
+    fun d() { context.startActivity(Intent(TOP_ACTION)) }
+    fun e() { context.startActivity(Intent(Holder.COMPANION)) }
+    fun f() { context.startActivity(Intent(JActions.INTERNAL)) }
+    fun g() {
+        val i = Intent()
+        i.action = Intent.ACTION_VIEW
+        context.startActivity(i)
+    }
+    fun h() { context.startActivity(Intent(Actions.OTHER)) }
+    fun i() { context.startActivity(Intent(Links.ACTION_VIEW)) }
+    fun j() { context.startActivity(Intent(MUTABLE_ACTION)) }
+    fun k() { context.startActivity(Intent(JActions.NOT_FINAL)) }
+}
+`,
+		"com/example/Shadow.kt": `package com.example
+
+import android.content.Context
+import android.content.Intent
+
+// A parameter named like a constant in another file shadows it.
+class Shadow(private val context: Context) {
+    fun z(TOP_ACTION: String) { context.startActivity(Intent(TOP_ACTION)) }
+}
+`,
+		"com/example/JSend.java": `package com.example;
+
+import android.content.Context;
+import android.content.Intent;
+
+class JSend {
+    void a(Context context) { context.startActivity(new Intent(Intent.ACTION_VIEW)); }
+    void b(Context context) { context.startActivity(new Intent(JActions.INTERNAL)); }
+}
+`,
+	}
+	got := manifestSourceFindings(t, "UnsafeImplicitIntentLaunch", manifest, sources)
+	var lines []string
+	for _, row := range got {
+		loc, msg, _ := strings.Cut(row, " ")
+		file, rest, _ := strings.Cut(loc, ":")
+		line, _, _ := strings.Cut(rest, ":")
+		action := msg[strings.Index(msg, "`")+1 : strings.Index(msg, " (used")]
+		lines = append(lines, file+":"+line+" "+action)
+	}
+	want := []string{
+		"com/example/JSend.java:7 android.intent.action.VIEW",
+		"com/example/JSend.java:8 com.example.INTERNAL_VIEW",
+		"com/example/Senders.kt:10 com.example.INTERNAL_VIEW",
+		"com/example/Senders.kt:11 com.example.INTERNAL_VIEW",
+		"com/example/Senders.kt:12 com.example.INTERNAL_VIEW",
+		"com/example/Senders.kt:15 android.intent.action.VIEW",
+		"com/example/Senders.kt:7 android.intent.action.VIEW",
+		"com/example/Senders.kt:8 android.intent.action.VIEW",
+		"com/example/Senders.kt:9 com.example.INTERNAL_VIEW",
+	}
+	if strings.Join(lines, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("findings:\n%s\nwant:\n%s", strings.Join(lines, "\n"), strings.Join(want, "\n"))
+	}
+}
+
+// #1774 review: owner proof for cross-file action constants. Function-local vals are not constants of their
+// owner, a same-file owner shadows others, an imported owner must match its package, and Java interface fields
+// are implicitly static final.
+func TestUnsafeImplicitIntentLaunchConstantOwnerProof(t *testing.T) {
+	manifest := `<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.example">
+    <application>
+        <activity android:name=".Viewer" android:exported="false">
+            <intent-filter>
+                <action android:name="com.example.INTERNAL_VIEW" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
+`
+	sources := map[string]string{
+		"com/example/Actions.kt": `package com.example
+
+object Actions {
+    val INTERNAL: String = System.getProperty("x")
+    fun f() { val INTERNAL = "com.example.INTERNAL_VIEW" }
+}
+
+fun helper() { val LOCAL_ACTION = "com.example.INTERNAL_VIEW" }
+`,
+		"com/other/Actions.kt": `package com.other
+
+object Actions {
+    const val INTERNAL = "com.example.INTERNAL_VIEW"
+    const val SHADOWED = "com.example.INTERNAL_VIEW"
+}
+`,
+		"com/debug/Tools.kt": `package com.debug
+
+object Tools {
+    const val INTERNAL = "com.example.INTERNAL_VIEW"
+}
+`,
+		"com/example/Keys.java": `package com.example;
+
+public interface Keys {
+    String INTERNAL = "com.example.INTERNAL_VIEW";
+}
+`,
+		"com/example/Use.kt": `package com.example
+
+import android.content.Context
+import android.content.Intent
+import com.lib.Tools
+
+private object Local {
+    val SHADOWED: String = System.getProperty("x")
+}
+
+class Use(private val context: Context) {
+    fun a() { context.startActivity(Intent(Actions.INTERNAL)) }
+    fun b() { context.startActivity(Intent(LOCAL_ACTION)) }
+    fun c() { context.startActivity(Intent(Tools.INTERNAL)) }
+    fun d() { context.startActivity(Intent(Keys.INTERNAL)) }
+    fun e() { context.startActivity(Intent(com.other.Actions.INTERNAL)) }
+}
+`,
+		"com/example/Shadow.kt": `package com.example
+
+import android.content.Context
+import android.content.Intent
+
+private object Actions2 { val SHADOWED: String = System.getProperty("x") }
+
+class Shadow(private val context: Context) {
+    fun f() { context.startActivity(Intent(Actions2.SHADOWED)) }
+}
+`,
+	}
+	got := manifestSourceFindings(t, "UnsafeImplicitIntentLaunch", manifest, sources)
+	var lines []string
+	for _, row := range got {
+		loc, _, _ := strings.Cut(row, " ")
+		file, rest, _ := strings.Cut(loc, ":")
+		line, _, _ := strings.Cut(rest, ":")
+		lines = append(lines, file+":"+line)
+	}
+	// Only the Java interface field and the fully qualified com.other.Actions constant are constants of the owner
+	// the call names.
+	if want := "com/example/Use.kt:15,com/example/Use.kt:16"; strings.Join(lines, ",") != want {
+		t.Fatalf("findings %v, want %s", lines, want)
+	}
+}
+
+// #1623: receivers registered at runtime without protection count as unprotected components, and the incoming
+// intent is followed into helpers declared in other files.
+func TestUnsafeIntentLaunchRuntimeReceiversAndCrossFileHelpers(t *testing.T) {
+	manifest := `<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.example">
+    <application>
+        <activity android:name=".MainActivity" android:exported="true" />
+    </application>
+</manifest>
+`
+	sources := map[string]string{
+		"com/example/Receivers.kt": `package com.example
+
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+
+class DynamicReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) { context.startActivity(intent) }
+}
+class NotExportedReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) { context.startActivity(intent) }
+}
+class PermissionReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) { context.startActivity(intent) }
+}
+
+class Registrar(private val context: Context) {
+    fun register() {
+        context.registerReceiver(DynamicReceiver(), IntentFilter("com.example.A"))
+        context.registerReceiver(NotExportedReceiver(), IntentFilter("com.example.B"), Context.RECEIVER_NOT_EXPORTED)
+        context.registerReceiver(PermissionReceiver(), IntentFilter("com.example.C"), "com.example.PERM", null)
+    }
+}
+`,
+		"com/example/MainActivity.kt": `package com.example
+
+import android.app.Activity
+import android.os.Bundle
+import com.other.relaunchElsewhere
+
+class MainActivity : Activity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        Launcher.launch(this, intent)
+    }
+    fun viaTopLevel() { relaunch(this, intent) }
+    fun viaNoLaunch() { Launcher.inspect(intent) }
+    fun viaOtherPackage() { relaunchElsewhere(intent) }
+}
+`,
+		"com/example/Launcher.kt": `package com.example
+
+import android.content.Context
+import android.content.Intent
+
+object Launcher {
+    fun launch(context: Context, i: Intent) { context.startActivity(i) }
+    fun inspect(i: Intent) = i.action
+}
+
+fun relaunch(context: Context, i: Intent) { context.startActivity(i) }
+`,
+		"com/other/Other.kt": `package com.other
+
+import android.content.Intent
+
+fun relaunchElsewhere(i: Intent) = i.action
+`,
+	}
+	got := manifestSourceFindings(t, "UnsafeIntentLaunch", manifest, sources)
+	var locs []string
+	for _, row := range got {
+		loc, _, _ := strings.Cut(row, " ")
+		file, rest, _ := strings.Cut(loc, ":")
+		line, _, _ := strings.Cut(rest, ":")
+		locs = append(locs, file+":"+line)
+	}
+	want := []string{"com/example/MainActivity.kt:10", "com/example/MainActivity.kt:12", "com/example/Receivers.kt:9"}
+	if strings.Join(locs, ",") != strings.Join(want, ",") {
+		t.Fatalf("findings %v, want %v\n%s", locs, want, strings.Join(got, "\n"))
+	}
+}

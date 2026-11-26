@@ -19,7 +19,7 @@ class ExecutableLambdas(private val rule: ComposeContentTestRule) {
     fun assertionInsideContent() { rule.setContent { assertEquals(1, 1) } }
 
     @Test
-    fun contentWithoutAssertion() { rule.setContent {} } // FIR abstains: external Compose setup is not allowlisted.
+    fun <!TestWithoutAssertion!>contentWithoutAssertion<!>() { rule.setContent {} } // FIR keeps Go's finding: Compose setup asserts nothing.
 
     @Test
     fun turbineExpectation() = runTest { flowOf(1).test { awaitItem() } }
@@ -28,7 +28,7 @@ class ExecutableLambdas(private val rule: ComposeContentTestRule) {
     fun turbineNoEvents() = runTest { flowOf(1).test { expectNoEvents() } }
 
     @Test
-    fun turbineWithoutExpectation() = runTest { flowOf(1).test { println("work") } } // FIR abstains: external Turbine and coroutine calls are not allowlisted.
+    fun turbineWithoutExpectation() = runTest { flowOf(1).test { println("work") } } // FIR abstains: test and runTest are in the mirrored Go framework-name table.
 
     @Test
     fun assertionInsideParentheses() = runTest(testBody = { assertEquals(1, 1) })

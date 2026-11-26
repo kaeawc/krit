@@ -732,6 +732,12 @@ func daemonCompatibleFlags(f *scanFlags) bool {
 	if *f.GradleProjectOutputs != "" {
 		return false
 	}
+	// The analyze-project wire carries no SDK levels, and the default they set
+	// is process-wide (android.SetDefaultSDKLevels), which a daemon serving
+	// other scans must not keep.
+	if (f.MinSdk != nil && *f.MinSdk != 0) || (f.TargetSdk != nil && *f.TargetSdk != 0) {
+		return false
+	}
 	// A pooled FIR check daemon (KRIT_FIR_DAEMON_POOL) is chosen from this process's
 	// environment, which a delegated scan would not see.
 	if strings.TrimSpace(os.Getenv(firchecks.FirDaemonPoolEnv)) != "" {
@@ -915,14 +921,14 @@ func absoluteProfilePath(p string) string {
 
 // resolveBasePath mirrors runner_state.go's basePath resolution so
 // daemon-computed baseline IDs match the in-process
-// WriteBaselineColumns output byte-for-byte. Empty BasePath falls
-// back to the absolute first scan path. The CLI's runner_state.go
-// uses `r.basePath, _ = filepath.Abs(...)` — discarding the error and
-// keeping whatever filepath.Abs returned (the empty string on
-// failure). We match that exactly so cross-process IDs collide on
-// every input runner_state would.
+// WriteBaselineColumns output byte-for-byte: an explicit --base-path is
+// made absolute against the caller's working directory, as runner_state
+// does, and an empty one falls back to the absolute first scan path.
 func resolveBasePath(explicit string, paths []string) string {
 	if explicit != "" {
+		if abs, err := filepath.Abs(explicit); err == nil {
+			return abs
+		}
 		return explicit
 	}
 	if len(paths) == 0 {

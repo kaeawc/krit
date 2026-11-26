@@ -29,6 +29,7 @@ const (
 func (r *UnsafeImplicitIntentLaunchRule) check(ctx *api.Context) {
 	classes := lintSourceClasses(ctx.ParsedFiles)
 	nonExported := implicitIntentNonExportedComponents(ctx.Manifests, classes)
+	actions := newImplicitIntentActionEval(ctx.ParsedFiles)
 	dynamic := map[string]bool{}
 	var sent []implicitIntentSend
 	for _, file := range ctx.ParsedFiles {
@@ -47,9 +48,9 @@ func (r *UnsafeImplicitIntentLaunchRule) check(ctx *api.Context) {
 			}
 			switch call.Name {
 			case "Intent":
-				sent = append(sent, implicitIntentSends(file, call)...)
+				sent = append(sent, implicitIntentSends(file, call, actions)...)
 			case "registerReceiver":
-				for _, action := range notExportedReceiverActions(file, call) {
+				for _, action := range notExportedReceiverActions(file, call, actions) {
 					dynamic[action+implicitIntentBroadcastSuffix] = true
 				}
 			}
@@ -140,7 +141,7 @@ type implicitIntentSend struct {
 
 // implicitIntentSends follows one Intent constructor through its function, as Lint's visitConstructor does: the
 // actions set on it, whether it becomes explicit, and whether it is passed to startActivity or sendBroadcast.
-func implicitIntentSends(file *scanner.File, ctor lintCall) []implicitIntentSend {
+func implicitIntentSends(file *scanner.File, ctor lintCall, actions *implicitIntentActionEval) []implicitIntentSend {
 	switch file.FlatType(ctor.Idx) {
 	case "object_creation_expression":
 		if _, anon := file.FlatFindChild(ctor.Idx, "class_body"); anon {
@@ -167,9 +168,9 @@ func implicitIntentSends(file *scanner.File, ctor lintCall) []implicitIntentSend
 		return nil
 	}
 	flow := &implicitIntentFlow{file: file, start: ctor.Idx, tracked: map[string]bool{}, implicit: true,
-		actions: map[string][]uint32{}}
+		actions: map[string][]uint32{}, eval: actions}
 	if len(ctor.Args) > 0 {
-		if action, ok := lintEvalString(file, ctor.Args[0]); ok {
+		if action, ok := actions.eval(file, ctor.Args[0]); ok {
 			flow.addAction(action, ctor.Idx)
 		} else if len(ctor.Args) == 1 {
 			return nil
@@ -203,6 +204,7 @@ type implicitIntentFlow struct {
 	activity, broadcast bool
 	actions             map[string][]uint32
 	order               []string
+	eval                *implicitIntentActionEval
 }
 
 func (f *implicitIntentFlow) addAction(action string, at uint32) {
@@ -274,7 +276,7 @@ func (f *implicitIntentFlow) assign(n uint32) {
 	}
 	switch prop {
 	case "action":
-		if action, ok := lintEvalString(file, rhs); ok {
+		if action, ok := f.eval.eval(file, rhs); ok {
 			f.addAction(action, lhs)
 		}
 	case "package", "component":
@@ -300,7 +302,7 @@ func (f *implicitIntentFlow) call(n uint32) {
 			return
 		case "setAction":
 			if len(call.Args) > 0 {
-				if action, ok := lintEvalString(file, call.Args[0]); ok {
+				if action, ok := f.eval.eval(file, call.Args[0]); ok {
 					f.addAction(action, n)
 				}
 			}
@@ -324,7 +326,7 @@ func (f *implicitIntentFlow) call(n uint32) {
 
 // notExportedReceiverActions returns the actions of a registerReceiver call made with RECEIVER_NOT_EXPORTED: the
 // actions of its IntentFilter argument, built in the same function.
-func notExportedReceiverActions(file *scanner.File, call lintCall) []string {
+func notExportedReceiverActions(file *scanner.File, call lintCall, actions *implicitIntentActionEval) []string {
 	notExported := false
 	var filter uint32
 	for _, arg := range call.Args {
@@ -341,7 +343,7 @@ func notExportedReceiverActions(file *scanner.File, call lintCall) []string {
 	if !notExported || filter == 0 {
 		return nil
 	}
-	return intentFilterActions(file, filter, call.Idx)
+	return intentFilterActions(file, filter, call.Idx, actions)
 }
 
 // intentFilterExpression reports whether the expression is an android.content.IntentFilter: a constructor call or
@@ -364,7 +366,7 @@ func intentFilterExpression(file *scanner.File, expr uint32) bool {
 
 // intentFilterActions collects the constant actions of an IntentFilter expression: its constructor argument, addAction
 // calls in an apply block, and, for a local variable, its initializer and the addAction calls made on it before use.
-func intentFilterActions(file *scanner.File, expr, use uint32) []string {
+func intentFilterActions(file *scanner.File, expr, use uint32, actions *implicitIntentActionEval) []string {
 	expr = lintSkipParensJS(file, expr)
 	var out []string
 	addFrom := func(n uint32) {
@@ -374,7 +376,7 @@ func intentFilterActions(file *scanner.File, expr, use uint32) []string {
 				return
 			}
 			if (call.Name == "IntentFilter" || call.Name == "addAction") && len(call.Args) > 0 {
-				if action, ok := lintEvalString(file, call.Args[0]); ok {
+				if action, ok := actions.eval(file, call.Args[0]); ok {
 					out = append(out, action)
 				}
 			}
@@ -396,7 +398,7 @@ func intentFilterActions(file *scanner.File, expr, use uint32) []string {
 			}
 			call, ok := lintCallAt(file, c)
 			if ok && call.Name == "addAction" && strings.TrimSpace(call.ReceiverText) == name && len(call.Args) > 0 {
-				if action, ok := lintEvalString(file, call.Args[0]); ok {
+				if action, ok := actions.eval(file, call.Args[0]); ok {
 					out = append(out, action)
 				}
 			}

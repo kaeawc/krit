@@ -1,0 +1,42 @@
+src/main/java/com/example/InterfaceCompanion.kt:11:5: ProvidesMustNotBeAbstract: @Provides functions cannot be abstract
+src/main/java/com/example/InterfaceCompanion.kt:17:3: MustBeInModule: @Binds/@Provides functions must be in modules
+src/main/java/com/example/JavaModules.java:10:3: ProvidesMustNotBeAbstract: @Provides functions cannot be abstract
+src/main/java/com/example/JavaModules.java:12:20: BindingReturnType: @Binds/@Provides must have a return type
+src/main/java/com/example/JavaModules.java:15:19: BindingReturnType: @Binds/@Provides must have a return type
+src/main/java/com/example/JavaModules.java:19:50: BindsMustBeAbstract: @Binds functions must be abstract
+src/main/java/com/example/JavaModules.java:20:5: ProvidesMustNotBeAbstract: @Provides functions cannot be abstract
+src/main/java/com/example/JavaModules.java:25:5: MustBeInModule: @Binds/@Provides functions must be in modules
+src/main/java/com/example/JavaModules.java:29:5: MustBeInModule: @Binds/@Provides functions must be in modules
+src/main/java/com/example/JavaModules.java:34:3: MustBeInModule: @Binds/@Provides functions must be in modules
+src/main/java/com/example/JavaModules.java:37:3: MustBeInModule: @Binds/@Provides functions must be in modules
+src/main/java/com/example/JavaModules.java:48:3: MustBeInModule: @Binds/@Provides functions must be in modules
+src/main/java/com/example/JavaModules.java:9:3: BindsMustBeAbstract: @Binds functions must be abstract
+src/main/java/com/example/Modules.kt:100:3: MustBeInModule: @Binds/@Provides functions must be in modules
+src/main/java/com/example/Modules.kt:103:3: MustBeInModule: @Binds/@Provides functions must be in modules
+src/main/java/com/example/Modules.kt:11:1: MustBeInModule: @Binds/@Provides functions must be in modules
+src/main/java/com/example/Modules.kt:14:3: MustBeInModule: @Binds/@Provides functions must be in modules
+src/main/java/com/example/Modules.kt:16:3: MustBeInModule: @Binds/@Provides functions must be in modules
+src/main/java/com/example/Modules.kt:24:5: MustBeInModule: @Binds/@Provides functions must be in modules
+src/main/java/com/example/Modules.kt:28:5: MustBeInModule: @Binds/@Provides functions must be in modules
+src/main/java/com/example/Modules.kt:34:52: BindsMustBeAbstract: @Binds functions must be abstract
+src/main/java/com/example/Modules.kt:35:3: BindsMustBeAbstract: @Binds functions must be abstract
+src/main/java/com/example/Modules.kt:36:3: ProvidesMustNotBeAbstract: @Provides functions cannot be abstract
+src/main/java/com/example/Modules.kt:38:3: BindingReturnType: @Binds/@Provides must have a return type
+src/main/java/com/example/Modules.kt:39:14: BindingReceiverParameter: @Binds/@Provides functions cannot be extensions
+src/main/java/com/example/Modules.kt:52:3: BindsMustBeAbstract: @Binds functions must be abstract
+src/main/java/com/example/Modules.kt:53:3: ProvidesMustNotBeAbstract: @Provides functions cannot be abstract
+src/main/java/com/example/Modules.kt:55:3: BindingReturnType: @Binds/@Provides must have a return type
+src/main/java/com/example/Modules.kt:59:5: BindingReturnType: @Binds/@Provides must have a return type
+src/main/java/com/example/Modules.kt:60:5: BindingReturnType: @Binds/@Provides must have a return type
+src/main/java/com/example/Modules.kt:61:5: BindingReturnType: @Binds/@Provides must have a return type
+src/main/java/com/example/Modules.kt:62:19: BindingReceiverParameter: @Binds/@Provides functions cannot be extensions
+src/main/java/com/example/Modules.kt:63:19: BindingReceiverParameter: @Binds/@Provides functions cannot be extensions
+src/main/java/com/example/Modules.kt:64:23: BindingReceiverParameter: @Binds/@Provides functions cannot be extensions
+src/main/java/com/example/Modules.kt:68:5: MustBeInModule: @Binds/@Provides functions must be in modules
+src/main/java/com/example/Modules.kt:82:3: BindingReturnType: @Binds/@Provides must have a return type
+src/main/java/com/example/Modules.kt:84:3: BindingReturnType: @Binds/@Provides must have a return type
+src/main/java/com/example/Modules.kt:89:3: BindsMustBeAbstract: @Binds functions must be abstract
+src/main/java/com/example/StaticProviders.java:10:3: ProvidesMustNotBeAbstract: @Provides functions cannot be abstract
+src/main/java/com/example/StaticProviders.java:13:3: ProvidesMustNotBeAbstract: @Provides functions cannot be abstract
+src/main/java/com/example/StaticProviders.java:19:3: MustBeInModule: @Binds/@Provides functions must be in modules
+src/main/java/com/example/StaticProviders.java:20:3: MustBeInModule: @Binds/@Provides functions must be in modules

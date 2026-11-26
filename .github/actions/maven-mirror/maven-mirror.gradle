@@ -1,0 +1,46 @@
+// Gradle init script for CI (installed into init.d by the maven-mirror
+// action). GitHub runners share IP addresses and Maven Central answers them
+// with 429 Too Many Requests, including the artifacts the Gradle plugin
+// portal redirects to Maven Central. This puts Google's mirror of Maven
+// Central in front of the first Maven Central or plugin portal repository of
+// every repository list. Repositories declared before that one (mavenLocal,
+// included builds) still win, and anything the mirror does not have yet
+// (it syncs a few times a day) falls through to the original repository on
+// the mirror's 404.
+
+def mirrorName = 'GoogleMavenCentralMirror'
+def mirrorUrl = 'https://maven-central.storage-download.googleapis.com/maven2/'
+def upstreamHosts = ['repo.maven.apache.org', 'repo1.maven.org', 'plugins.gradle.org']
+
+def preferMirror = { RepositoryHandler repos ->
+    if (repos.findByName(mirrorName) != null) {
+        return
+    }
+    int index = repos.findIndexOf {
+        it instanceof MavenArtifactRepository && it.url.host in upstreamHosts
+    }
+    if (index < 0) {
+        return
+    }
+    def mirror = repos.maven {
+        name = mirrorName
+        url = mirrorUrl
+    }
+    repos.remove(mirror)
+    repos.add(index, mirror)
+}
+
+settingsEvaluated { settings ->
+    def pluginRepos = settings.pluginManagement.repositories
+    if (pluginRepos.isEmpty()) {
+        // No pluginManagement repositories means the plugin portal alone;
+        // declaring one would drop that default, so declare it too.
+        pluginRepos.gradlePluginPortal()
+    }
+    preferMirror(pluginRepos)
+    preferMirror(settings.dependencyResolutionManagement.repositories)
+}
+
+afterProject { project ->
+    preferMirror(project.repositories)
+}

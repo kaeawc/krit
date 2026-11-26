@@ -58,10 +58,8 @@ func classifyIconColorCheck(ic *android.IconFile, facts *librarymodel.Facts) ico
 }
 
 func iconProjectMinSdk(facts *librarymodel.Facts) (int, bool) {
-	if facts == nil || facts.Profile.MinSdkVersion <= 0 {
-		return 0, false
-	}
-	return facts.Profile.MinSdkVersion, true
+	minSdk := profileOrDefaultMinSdk(facts)
+	return minSdk, minSdk > 0
 }
 
 func iconIsAndroid30(folderVersion, minSdk int, hasMinSdk bool) bool {

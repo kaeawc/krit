@@ -11,6 +11,14 @@ permissions:
   checks: write
   security-events: write
 
+# A new push to a pull request cancels that PR's older CI run: with ~30
+# parallel PRs, superseded runs held runners for an hour while main's runs
+# queued behind them. Pushes to main are keyed by commit, so every main
+# commit keeps its own run (and its regression signal).
+concurrency:
+  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   build-verify:
     runs-on: ubuntu-latest
@@ -224,6 +232,7 @@ jobs:
         with:
           cache-cleanup: on-success
           validate-wrappers: true
+      - uses: ./.github/actions/maven-mirror
       # Custom rule jars run inside the krit-fir JVM. Its shadow jar bundles
       # the Kotlin compiler, so cache the output instead of paying the build
       # on every PR. The cache key matches every other krit-fir jar cache in
@@ -268,6 +277,7 @@ jobs:
         with:
           cache-cleanup: on-success
           validate-wrappers: true
+      - uses: ./.github/actions/maven-mirror
       # Cache key matches the `external-rule-example` job above.
       - name: Cache krit-fir shadow jar
         id: cache-krit-fir
@@ -299,6 +309,7 @@ jobs:
         with:
           cache-cleanup: on-success
           validate-wrappers: true
+      - uses: ./.github/actions/maven-mirror
       # Publish krit-rule-api to mavenLocal so the functional test in the
       # custom-rule-plugin can resolve the SPI jar with a known version.
       - name: Stage krit-rule-api to mavenLocal
@@ -326,6 +337,7 @@ jobs:
         with:
           cache-cleanup: on-success
           validate-wrappers: true
+      - uses: ./.github/actions/maven-mirror
       # TestKit functional tests: configuration cache, Isolated Projects and
       # the root kritCheckAll, against a fake krit binary.
       - name: Validate krit-gradle-plugin
@@ -350,6 +362,7 @@ jobs:
         with:
           cache-cleanup: on-success
           validate-wrappers: true
+      - uses: ./.github/actions/maven-mirror
       # The settings plugin's functional test spins up a multi-project Gradle
       # build that auto-applies `dev.jasonpearson.krit` (the host plugin).
       # `settings.gradle.kts` composite-builds `../krit-gradle-plugin`, so a
@@ -484,6 +497,7 @@ jobs:
         with:
           cache-cleanup: on-success
           validate-wrappers: true
+      - uses: ./.github/actions/maven-mirror
       # --continue reports the failures of every task, not just the first.
       - name: Validate krit-fir (${{ matrix.shard }})
         working-directory: tools/krit-fir
@@ -514,11 +528,11 @@ jobs:
     # The parity tests run one at a time and keep the runner's four vCPUs busy
     # in krit-fir JVMs (two concurrent processes on one runner took as long
     # as one), so two runners split them.
-    name: oracle-backend-parity (${{ matrix.shard }}/2)
+    name: oracle-backend-parity (${{ matrix.shard }}/3)
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2]
+        shard: [1, 2, 3]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -537,6 +551,7 @@ jobs:
         with:
           cache-cleanup: on-success
           validate-wrappers: true
+      - uses: ./.github/actions/maven-mirror
       # TestFirCheckerExceptionIsIsolatedToRuleAndFileEndToEnd adds a
       # test-only throwing probe rule from krit-fir's compiled test classes to
       # a copy of the shadow jar. Build them on every run (the jar cache below
@@ -620,19 +635,26 @@ jobs:
       # projects never share a daemon and that the daemon's facts come back
       # (and are cached) under the caller's relative spelling.
       - name: Run oracle backend parity
-        # The shards split one -run list: shard 1 runs SPLIT, shard 2 runs the
-        # full list with -skip SPLIT, so together they run exactly the tests
-        # the full list selects.
+        # Shards 1 and 2 split one -run list: shard 1 runs SPLIT, shard 2 runs
+        # the full list with -skip SPLIT. Shard 3 runs every other parity test
+        # (except the warm-clean-matrix job's rows): FIR end-to-end tests
+        # missing from TESTS used to run only in the `test` job, which has no
+        # krit-fir jar, so they skipped everywhere and went stale unnoticed.
         env:
           TESTS: TestFirOracleDeclarationContract|TestOracleAcceptsClasspathFlag|TestKMPSourceSetParity|TestOracleKotlin24|TestFirKotlin24Parity|TestFirOracleFactContract|TestFirFixtureParity|TestFirProperty|FuzzFirCheckers|TestComposeRememberWithoutKey_|TestCollectInOnCreateWithoutLifecycle_|TestInjectDispatcher_|TestUnsafeCastWhenNullable_|TestFirCheckerExceptionIsIsolatedToRuleAndFileEndToEnd|TestFirCheckDaemonRelativeScansOfTwoProjectsStaySeparate|TestOracleDaemonRelative|TestFirResolvesGeneratedSrcjarEndToEnd|TestFirSplitsSessionsBySourceSetSettingsEndToEnd|TestFirCoverageIsReportedWithoutVerboseEndToEnd
           SPLIT: TestFirProperty|FuzzFirCheckers|TestComposeRememberWithoutKey_|TestCollectInOnCreateWithoutLifecycle_|TestUnsafeCastWhenNullable_|TestOracleKotlin24
+          # Needs KRIT_FIR_OLD_JAR (a krit-fir jar from before delegation),
+          # which CI doesn't build.
+          SHARD3_MAY_SKIP: TestDelegatedFirScanWithAnOlderJarFallsBack
           SHARD: ${{ matrix.shard }}
         run: |
           set -o pipefail
           if [ "$SHARD" = 1 ]; then
             select=(-run "$SPLIT")
-          else
+          elif [ "$SHARD" = 2 ]; then
             select=(-run "$TESTS" -skip "$SPLIT")
+          else
+            select=(-skip "$TESTS|TestWarmCleanMutation")
           fi
           go test ./tests/parity/ -count=1 -timeout 30m "${select[@]}" -v | tee parity.log
           if grep -q 'no tests to run' parity.log; then
@@ -641,6 +663,16 @@ jobs:
           fi
           # Top-level tests only: an exempt rule's subtest may skip. The
           # daemon relative-path tests' per-backend subtests must all run.
+          # Shard 3 runs every other parity test with the jar; any top-level
+          # skip there means a prerequisite went missing, except the tests
+          # listed in SHARD3_MAY_SKIP (they need inputs CI never provides).
+          if [ "$SHARD" = 3 ]; then
+            unexpected=$(grep -oE -- '--- SKIP: Test[A-Za-z0-9_]+ \(' parity.log | sed -E 's/--- SKIP: (Test[A-Za-z0-9_]+) \(/\1/' | grep -vxE "$SHARD3_MAY_SKIP" || true)
+            if [ -n "$unexpected" ]; then
+              echo "::error::shard 3 skipped parity tests that must run with the krit-fir jar: $(echo "$unexpected" | tr '\n' ' ')"
+              exit 1
+            fi
+          fi
           if grep -qE -- '--- SKIP: (TestFirOracleDeclarationContract|TestOracleAcceptsClasspathFlag|TestKMPSourceSetParity|TestFirOracleFactContract|TestOracleKotlin24[A-Za-z]+|TestFirKotlin24Parity|TestFirFixtureParity|TestFirProperty_[A-Za-z]+|FuzzFirCheckers|Test(ComposeRememberWithoutKey|CollectInOnCreateWithoutLifecycle|InjectDispatcher|UnsafeCastWhenNullable)_[A-Za-z]+|TestFirCheckerExceptionIsIsolatedToRuleAndFileEndToEnd|TestFirCheckDaemonRelativeScansOfTwoProjectsStaySeparate|TestOracleDaemonRelative[A-Za-z]+(/fir(-symlink)?)?|TestFirResolvesGeneratedSrcjarEndToEnd|TestFirSplitsSessionsBySourceSetSettingsEndToEnd|TestFirCoverageIsReportedWithoutVerboseEndToEnd) \(' parity.log; then
             echo "::error::a FIR parity/property/fuzz test skipped; the CI parity job must execute them"
             exit 1
@@ -685,6 +717,7 @@ jobs:
         with:
           cache-cleanup: on-success
           validate-wrappers: true
+      - uses: ./.github/actions/maven-mirror
       - name: Cache krit-fir shadow jar
         id: cache-krit-fir
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
@@ -855,6 +888,7 @@ jobs:
         with:
           distribution: zulu
           java-version: "21"
+      - uses: ./.github/actions/maven-mirror
       # Cache key matches the `external-rule-example` job above.
       - name: Cache krit-fir shadow jar
         id: cache-krit-fir

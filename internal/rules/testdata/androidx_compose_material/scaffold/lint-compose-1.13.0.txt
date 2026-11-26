@@ -1,3 +1,4 @@
+src/com/example/Alias.kt:9:16: UnusedMaterial3ScaffoldPaddingParameter: Content padding parameter it is not used
 src/com/example/M2.kt:15:14: UnusedMaterialScaffoldPaddingParameter: Content padding parameter it is not used
 src/com/example/M2.kt:16:37: UnusedMaterialScaffoldPaddingParameter: Content padding parameter it is not used
 src/com/example/M2.kt:17:24: UnusedMaterialScaffoldPaddingParameter: Content padding parameter it is not used

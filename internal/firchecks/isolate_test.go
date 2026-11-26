@@ -94,8 +94,8 @@ func TestPassRechecksFilesGatedByACrossSourceSetRedeclaration(t *testing.T) {
 	if want := []string{p.abs(isolateAndroidFile), p.abs(isolateTestFile)}; !reflect.DeepEqual(gotGated, want) {
 		t.Fatalf("isolator should receive the redeclaration-gated files, got %v want %v", gotGated, want)
 	}
-	if len(gotRequest.Files) != 3 || !slices.Equal(gotRequest.Rules, []string{verdictRule}) {
-		t.Fatalf("the recheck request should carry every checked file and the pass's rules: %+v", gotRequest)
+	if len(gotRequest.Files) != 2 || !slices.Equal(gotRequest.Rules, []string{verdictRule}) {
+		t.Fatalf("the recheck request should carry the gated files and the pass's rules: %+v", gotRequest)
 	}
 	want := describe([]scanner.Finding{p.at(isolateTestFile, "Dispatchers.IO", verdictRule, "go: test")})
 	if d := describe(got); !reflect.DeepEqual(d, want) {
@@ -104,6 +104,49 @@ func TestPassRechecksFilesGatedByACrossSourceSetRedeclaration(t *testing.T) {
 	if !strings.Contains(verbose.String(), "3 authoritative files, 0 gated") ||
 		!strings.Contains(verbose.String(), "2 files gated by duplicate declarations; rechecked 2 files") {
 		t.Fatalf("verbose output should report the recheck:\n%s", verbose.String())
+	}
+}
+
+// A duplicate declaration gates its callers too, on another error (an
+// ambiguous call, an unresolved reference). The recheck checks every gated
+// file, not just the duplicates, so the callers get their verdict back
+// (#1661); a file the merged check answered is not checked again.
+func TestPassRechecksTheCallersADuplicateDeclarationGated(t *testing.T) {
+	p := isolationProject(t)
+	checker := redeclarationChecker(p)
+	checker.ErrorFiles[p.abs(isolateMainFile)] = "Overload resolution ambiguity between candidates:\nfun f(): Unit"
+	var requested []string
+	isolator := func(_ context.Context, _ string, _ []string, request []byte) ([]byte, []string, error) {
+		var req struct {
+			ID    int64                   `json:"id"`
+			Files []struct{ Path string } `json:"files"`
+		}
+		if err := json.Unmarshal(request, &req); err != nil {
+			t.Fatal(err)
+		}
+		for _, f := range req.Files {
+			requested = append(requested, f.Path)
+		}
+		resp, _ := json.Marshal(map[string]any{"id": req.ID, "rules": []string{verdictRule}, "findings": []FirFinding{}})
+		return resp, requested, nil
+	}
+	var verbose strings.Builder
+	RunPass(isolationOptions(p, checker, isolator, &verbose), isolationGoFindings(p))
+	slices.Sort(requested)
+	want := []string{p.abs(isolateAndroidFile), p.abs(isolateMainFile), p.abs(isolateTestFile)}
+	slices.Sort(want)
+	if !slices.Equal(requested, want) {
+		t.Fatalf("the recheck should check every gated file, the ambiguous caller included: got %v want %v", requested, want)
+	}
+	if !strings.Contains(verbose.String(), "replaced 3 gated verdicts") {
+		t.Fatalf("the caller's verdict should be replaced too:\n%s", verbose.String())
+	}
+
+	// With the caller answered by the merged check, only the duplicates are checked again.
+	requested = nil
+	RunPass(isolationOptions(p, redeclarationChecker(p), isolator, nil), isolationGoFindings(p))
+	if len(requested) != 2 || slices.Contains(requested, p.abs(isolateMainFile)) {
+		t.Fatalf("an answered file should not be checked again: %v", requested)
 	}
 }
 

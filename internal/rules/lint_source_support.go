@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"bytes"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/filefacts"
@@ -197,11 +198,32 @@ type lintCall struct {
 	TypeText string
 }
 
-// lintCallAt describes the call at idx, or reports false when idx is not a call.
+// lintCallAt describes the call at idx, or reports false when idx is not a call. Many Lint ports describe
+// each call, so during a dispatch pass the result is memoized per node. Callers only read Args and Labels.
 func lintCallAt(file *scanner.File, idx uint32) (lintCall, bool) {
 	if file == nil {
 		return lintCall{}, false
 	}
+	memo := file.PassMemo()
+	if v, ok := memo.Load(passMemoLintCall, idx); ok {
+		m := v.(*lintCallMemo)
+		return m.call, m.ok
+	}
+	c, ok := computeLintCallAt(file, idx)
+	memo.Store(passMemoLintCall, idx, &lintCallMemo{call: c, ok: ok})
+	return c, ok
+}
+
+// passMemoLintCall is the PassMemo slot of lintCallAt.
+const passMemoLintCall scanner.PassMemoSlot = 1
+
+type lintCallMemo struct {
+	call lintCall
+	ok   bool
+}
+
+// computeLintCallAt is lintCallAt without the memo.
+func computeLintCallAt(file *scanner.File, idx uint32) (lintCall, bool) {
 	c := lintCall{File: file, Idx: idx}
 	switch file.FlatType(idx) {
 	case "call_expression":
@@ -293,6 +315,9 @@ func (c lintCall) Arg(index int, name string) uint32 {
 
 var lintImportRe = lazyre.New(`(?m)^\s*import\s+(static\s+)?([A-Za-z_][\w.]*?)(\.\*)?(?:\s+as\s+(\w+))?\s*;?\s*$`)
 
+// lintImportTailRe is lintImportRe after its `^\s*` prefix, anchored at an `import` keyword, for findImportMatches.
+var lintImportTailRe = lazyre.New(`(?m)\Aimport\s+(static\s+)?([A-Za-z_][\w.]*?)(\.\*)?(?:\s+as\s+(\w+))?\s*;?\s*$`)
+
 // lintImports is the import set of one source file.
 type lintImports struct {
 	// bySimple maps a simple or aliased name to the imported name (a class or a static member).
@@ -304,7 +329,7 @@ type lintImports struct {
 func lintImportsOf(file *scanner.File) *lintImports {
 	return filefacts.FileFact(fileFactsCache(), file, slotLintImports, func() *lintImports {
 		imp := &lintImports{bySimple: map[string]string{}}
-		for _, m := range lintImportRe.FindAllStringSubmatch(string(file.Content), -1) {
+		for _, m := range findImportMatches(string(file.Content[:lintImportHeaderEnd(file)]), lintImportTailRe) {
 			full := m[2]
 			if m[3] != "" {
 				imp.stars = append(imp.stars, full)
@@ -321,6 +346,26 @@ func lintImportsOf(file *scanner.File) *lintImports {
 }
 
 const slotLintImports = "lintImports"
+
+// lintImportHeaderEnd returns the offset of the start of the line holding the file's first top-level declaration,
+// or the file's length. Imports cannot follow a declaration, so scanning only the header is faster on large files
+// and does not read import-shaped lines inside raw strings or comments in the body. The cut is at a line start
+// because the import scan matches whole lines: an import sharing a line with the declaration never matched.
+func lintImportHeaderEnd(file *scanner.File) int {
+	if file.FlatTree == nil {
+		return len(file.Content)
+	}
+	for child := file.FlatFirstChild(0); child != 0; child = file.FlatNextSib(child) {
+		switch file.FlatType(child) {
+		case "package_header", "package_declaration", "import_list", "import_header", "import_declaration",
+			"file_annotation", "shebang_line", "line_comment", "multiline_comment", "block_comment", "ERROR", ";":
+			continue
+		}
+		start := min(int(file.FlatStartByte(child)), len(file.Content))
+		return bytes.LastIndexByte(file.Content[:start], '\n') + 1
+	}
+	return len(file.Content)
+}
 
 // lintTypeRefMatches reports whether the source text names the class fqn: spelled in full, imported, or reached
 // through an on-demand import. Nested classes also match through their outer class ("PowerManager.WakeLock").

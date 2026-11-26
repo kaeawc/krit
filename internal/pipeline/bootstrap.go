@@ -91,6 +91,7 @@ func (a *SingleFileAnalyzer) AnalyzeBufferColumns(ctx context.Context, path stri
 	if err != nil {
 		return scanner.FindingColumns{}, nil, err
 	}
+	a.Dispatcher.BeginRequest()
 	columns, _ := a.Dispatcher.RunColumnsWithStats(file)
 	return columns, file, nil
 }
@@ -99,5 +100,6 @@ func (a *SingleFileAnalyzer) AnalyzeBufferColumns(ctx context.Context, path stri
 // file and returns findings in columnar form. Used by LSP when the
 // cached *scanner.File is reused across requests.
 func (a *SingleFileAnalyzer) AnalyzeFileColumns(file *scanner.File) scanner.FindingColumns {
+	a.Dispatcher.BeginRequest()
 	return a.Dispatcher.Run(file)
 }

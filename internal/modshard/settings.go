@@ -57,6 +57,9 @@ func (g *settingsGroup) label() string {
 	if settings = strings.TrimSpace(settings); settings == "" {
 		settings = "(compiler defaults)"
 	}
+	if g.jvmTarget != "" {
+		settings += " jvm=" + g.jvmTarget
+	}
 	return fmt.Sprintf("%s [%s]", summarizeIDs(ids), settings)
 }
 
@@ -91,6 +94,27 @@ func appliedKey(args, plugins, options []string) string {
 		}
 	}
 	return strings.Join(sortedCopy(args), "\x00") + "\x01" + strings.Join(sortedCopy(jars), "\x00") + "\x01" + strings.Join(sortedCopy(options), "\x00")
+}
+
+// SplitJVMTargetEnv, set to 1, gives a settings group that differs from the
+// merged session only in JVM target a session of its own (#1648). It is off
+// by default: the merged session compiles at the highest target, few FIR
+// diagnostics depend on it, and mixed targets are common, so each such group
+// would compile its sources again for little change. -v reports those groups
+// either way, so the cost can be measured on a real build.
+const SplitJVMTargetEnv = "KRIT_FIR_SPLIT_JVM_TARGET"
+
+func splitJVMTargets() bool { return os.Getenv(SplitJVMTargetEnv) == "1" }
+
+// jvmTargetDiffers reports whether a group that declares JVM target group
+// compiles at another target than the merged session's (merged, "" for
+// krit-fir's default). A group without a declared target compiles at the
+// session's, so it never differs. "1.8" and "8" are the same target.
+func jvmTargetDiffers(group, merged string) bool {
+	if group == "" {
+		return false
+	}
+	return strings.TrimPrefix(group, "1.") != strings.TrimPrefix(merged, "1.")
 }
 
 func sortedCopy(in []string) []string {
@@ -343,16 +367,31 @@ func planSettingsSessions(in Input, model *gradlemodel.Model, repoRoot string, c
 	// exactly, so a file one of those also owns keeps its merged verdict.
 	merged := appliedKey(check.kotlinArgs, check.pluginClasspath, check.pluginOptions)
 	var own []*settingsGroup
+	var targetOnly []string
 	for _, g := range withoutSharedSources(groups, logf) {
-		if appliedKey(g.args, g.plugins, g.options) != merged {
+		switch {
+		case appliedKey(g.args, g.plugins, g.options) != merged:
 			own = append(own, g)
+		case !jvmTargetDiffers(g.jvmTarget, check.jvmTarget):
+		case splitJVMTargets():
+			own = append(own, g)
+		default:
+			targetOnly = append(targetOnly, g.label())
 		}
+	}
+	if len(targetOnly) > 0 {
+		mergedTarget := check.jvmTarget
+		if mergedTarget == "" {
+			mergedTarget = "krit-fir default"
+		}
+		logf("verbose: FIR settings: %d settings groups differ from the merged session only in JVM target (merged: %s) and keep its verdicts; %s=1 compiles each on its own: %s\n",
+			len(targetOnly), mergedTarget, SplitJVMTargetEnv, strings.Join(targetOnly, "; "))
 	}
 	if len(left) > 0 {
 		logf("verbose: FIR settings: %d multiplatform or context-limited source sets keep the merged session: %s\n", len(left), summarizeIDs(left))
 	}
 	if len(own) == 0 {
-		logf("verbose: FIR settings: 1 session (%d settings groups, but the merged session applies every group's settings)\n", len(groups))
+		logf("verbose: FIR settings: 1 session (%d settings groups, but the merged session applies every group's compiler arguments and plugins)\n", len(groups))
 		return nil, split
 	}
 	units := make([]Unit, len(own))

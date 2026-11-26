@@ -1,6 +1,15 @@
 package typeinfer
 
-import "testing"
+import (
+	"context"
+	"fmt"
+	"io/fs"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/kaeawc/krit/internal/scanner"
+)
 
 // --- buildImportTable ---
 
@@ -211,5 +220,66 @@ class Foo
 	got := extractPackageFlat(file)
 	if got != "org.example" {
 		t.Errorf("expected 'org.example', got %q", got)
+	}
+}
+
+func TestExtractPackageFlatReadsOnlyThePackageHeader(t *testing.T) {
+	for _, test := range []struct{ name, src, want string }{
+		{"package and imports", "@file:JvmName(\"X\")\npackage a.b.c\n\nimport x.Y\nimport z.*\n\nclass C\n", "a.b.c"},
+		{"no package", "import x.Y\n\nclass C\n", ""},
+		{"empty", "", ""},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			file := parseTestFile(t, test.src)
+			if got := extractPackageFlat(file); got != test.want {
+				t.Fatalf("extractPackageFlat = %q, want %q", got, test.want)
+			}
+			if got := scanFileHeadersFlat(file).pkg; got != test.want {
+				t.Fatalf("scanFileHeadersFlat().pkg = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
+// TestExtractPackageMatchesHeaderScanOnFixtures checks extractPackageFlat against the full header scan it replaced.
+func TestExtractPackageMatchesHeaderScanOnFixtures(t *testing.T) {
+	n := 0
+	err := filepath.WalkDir(filepath.Join("..", "..", "tests", "fixtures"), func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || filepath.Ext(path) != ".kt" {
+			return err
+		}
+		file, err := scanner.ParseFile(context.Background(), path)
+		if err != nil {
+			return err
+		}
+		n++
+		if got, want := extractPackageFlat(file), scanFileHeadersFlat(file).pkg; got != want {
+			t.Errorf("%s: extractPackageFlat = %q, header scan = %q", path, got, want)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n == 0 {
+		t.Fatal("no fixtures parsed")
+	}
+}
+
+// TestExtractPackageDoesNotParseImports guards the per-reference cost: the resolver asks for the package once per
+// type reference, so the lookup must not build an import table.
+func TestExtractPackageDoesNotParseImports(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("package com.example.app\n\n")
+	for i := range 200 {
+		fmt.Fprintf(&b, "import com.example.dep%d.Type%d\n", i, i)
+	}
+	b.WriteString("\nclass Foo\n")
+	file := parseTestFile(t, b.String())
+	if got := extractPackageFlat(file); got != "com.example.app" {
+		t.Fatalf("extractPackageFlat = %q", got)
+	}
+	if allocs := testing.AllocsPerRun(20, func() { extractPackageFlat(file) }); allocs > 4 {
+		t.Errorf("extractPackageFlat allocates %.0f times per call with 200 imports; it must not parse them", allocs)
 	}
 }

@@ -120,6 +120,50 @@ They report only what the source proves:
 Not ported: `MoshiUsageNonMoshiClassInternal` and `MoshiUsageNonMoshiClassExternal`, which split on whether a type
 lives in Slack's own `slack.*` packages.
 
+Three Android source checks prove their receiver before reporting:
+
+- `CastingViewContextToActivity` reports `view.getContext() as Activity` (also `as?` and a Java cast) when the
+  receiver's type is a `View` subtype, or the call is an implicit `getContext()` in a Kotlin or Java `View` subclass.
+  As in Lint, the Kotlin property form `view.context` and a parenthesized call are not reported. Unlike Lint, an
+  `is Activity` / `instanceof Activity` check is not reported: it is not a cast.
+- `ArgInFormattedQuantityStringRes` reports format arguments of `Resources.getQuantityString` that are not a
+  `getFormattedCount()` call (in Java, also a local initialized by one). The receiver must be typed `Resources` (or a
+  project subclass), or be Android's accessor (`context.resources`, `getResources()`, an unqualified `resources`)
+  on a Context, View or Fragment, so a project's own `getQuantityString` wrapper is not reported.
+- `SpanMarkPointMissingMask` reports `==`/`!=` against a `Spanned` mark-point flag (`SPAN_EXCLUSIVE_EXCLUSIVE`, ...)
+  whose other side does not mask with `SPAN_POINT_MARK_MASK` (a bitwise `and`/`&`; `or`/`|` does not mask). A
+  parameter or local named like the flag shadows its static import. Unlike Lint, krit looks inside parentheses, so
+  the correctly masked `(flags & Spanned.SPAN_POINT_MARK_MASK) == Spanned.SPAN_EXCLUSIVE_EXCLUSIVE` is not
+  reported. Lint's quick fix, which inserts the mask, is not ported.
+
+`SubscribeOnMain` reports `subscribeOn(AndroidSchedulers.mainThread())`, or `immediateMainThread()`, on RxJava 3's
+`Observable`, `Flowable`, `Single`, `Maybe` and `Completable`. Lint resolves the receiver's type; krit requires the file
+to import from RxJava 3 and not from RxJava 1/2 or Reactor, which also declare `subscribeOn`. As in Lint, a scheduler
+variable counts when its initializer ends in `mainThread()`; a parameter does not, nor (in Java) a statically imported
+`mainThread()`.
+
+`RxObservableDoesNotEmit` and `RxFlowableDoesNotEmit` report a kotlinx-coroutines-rx `rxObservable`/`rxFlowable`
+whose lambda never calls `send()` or `trySend()` on its `ProducerScope`. A nested factory is checked on its own. They
+follow slack-lints main (c0e92cb): the 0.11.1 release looks for `kotlin.coroutines.ProducerScope`, which does not exist,
+so it never reports on real code.
+
+Five single-node checks resolve the names they need through the file's imports and stay silent when a same-file
+declaration could shadow them:
+
+- `AvoidUsingNotNullOperator` reports every Kotlin `!!`, at the operator. It differs from detekt's
+  `UnsafeCallOnNullableType`, which needs type information and skips some receivers, so it is a separate rule.
+- `ExceptionMessage` reports kotlin's `check`, `checkNotNull`, `require` and `requireNotNull` without a `lazyMessage`
+  (trailing, positional or named), outside test sources. A call through an import alias (`import kotlin.require as req`)
+  is not checked.
+- `NullableConcurrentHashMap` reports a nullable key or value type argument of a `java.util.concurrent.ConcurrentHashMap`
+  variable type or constructor call; in Java, a type argument annotated `@…Nullable`.
+- `GuavaPreconditionsUsedInKotlin` reports Kotlin calls into `com.google.common.base.Preconditions`. Lint's quick fix,
+  which renames `checkState` to `check` and leaves the message argument in a position `check` does not accept, is not
+  ported.
+- `ParcelizeFunctionProperty` reports function-typed primary constructor parameters of a `@Parcelize` class, including
+  `kotlin.FunctionN` and same-file typealiases. As in Lint, `@IgnoredOnParcel` does not exempt them: it targets the
+  property, and the detector reads the parameter.
+
 The Dagger rules (`MustBeInModule`, `BindsMustBeAbstract`, `ProvidesMustNotBeAbstract`, `BindingReturnType`,
 `BindingReceiverParameter`) port `DaggerIssuesDetector` for Kotlin and Java `@Binds`/`@Provides` methods. As in
 Lint, a method gets at most one of the detector's issues, in the detector's order. Two of its IDs map onto existing
@@ -133,16 +177,25 @@ rules instead: `BindsWrongParameterCount` is a Lint alias of `BindsMismatchedAri
 
 The `DoNotMock*` rules port `MockDetector` and, as in Lint, look only at test sources (`src/test`, `src/androidTest`
 and the other test source sets). A mock site is a call to one of the detector's default factories
-(`org.mockito.Mockito.mock`/`spy`, `org.mockito.kotlin.mock`/`spy`, `slack.test.mockito.mock`) or a field annotated
-`@org.mockito.Mock` or `@org.mockito.Spy`; Lint's `mock-factories` and `mock-annotations` options are not read yet.
-The mocked type comes from a type argument, a class literal, the declared type of the field or of the variable a
-`mock()` initializes, or a local variable those initialize. The detector's checkers run in its order, so a
-platform data class such as `kotlin.Pair` is reported as a platform type, and a type annotated `@DoNotMock` is left to
-that check. Differences from Lint:
+(`org.mockito.Mockito.mock`/`spy`, `org.mockito.kotlin.mock`/`spy`, `slack.test.mockito.mock`), also under an import
+alias, or a field annotated `@org.mockito.Mock` or `@org.mockito.Spy`; Lint's `mock-factories` and `mock-annotations`
+options are not read yet. The mocked type comes from a type argument, a class literal, the declared type of the field
+or of the variable a `mock()` initializes, or a local variable those initialize. The detector's checkers run in its
+order (platform, data, `@DoNotMock`, sealed, AutoValue, object, record), so a platform data class such as `kotlin.Pair`
+is reported as a platform type, and a type annotated `@DoNotMock` is left to that check. A class reached only through an
+on-demand import is resolved to that package when it is a well-known platform class (`android.content.Context`,
+`java.util.Date`, ...); any other unindexed name might be a same-package class krit does not see, so it abstains.
+
+`DoNotMockAnything` reports every mock. Lint keeps it disabled unless it is named, and so does krit: it is not
+experimental, so `--experimental` does not turn it on, and it is marked noisy, so `--strict` leaves it off. Enable it
+with `--enable-rules DoNotMockAnything` or in `krit.yml`.
+
+Differences from Lint:
 
 - a `mock()` passed as an argument, whose type Lint infers from the parameter, is not reported;
 - `DoNotMockAnything` reports alongside the other `DoNotMock*` rules. Lint runs it first, so when it is enabled the
-  others stay silent.
+  others stay silent;
+- `DoNotMockRecordClass` also reports Java records, which Lint 0.11.1's own tests leave out pending Lint support.
 
 ## Compose lint checks (compose-lints)
 
@@ -164,6 +217,9 @@ CLI running compose-lint-checks 1.6.1 on the inputs under `internal/rules/testda
 | `ComposeM2Api` | same ID | Off by default in compose-lints too. Resolves through imports, not types: a call or reference to an `androidx.compose.material` top-level declaration (explicit import, or the wildcard import for a name Material 2 declares), `M2Class.member`, `MaterialTheme.colors/typography/shapes.member`, and imported M2 extensions. A member read on a local of an M2 type (`colors.primary`) is a known false negative. `allowedM2Apis` (compose-lints `allowed-m2-apis`) matches source names, as Lint does with `enable-mangling-workaround`. |
 | `ComposeItemKeyHashCode` | same ID | A zero-argument `hashCode()` inside a `key =` argument of a call in a `@Composable` function. |
 | `ComposeModifierComposed` | same ID | The receiver must be provably a `Modifier` (`Modifier`, `this` or the implicit receiver of a `Modifier` extension, a parameter or local declared as `Modifier`, or a call chain rooted in one). |
+| `ComposeModifierMissing` | same ID | Cross-file (previews are exempt, including multipreviews from other files). Options: `contentEmitters` (compose-lints `content-emitters`) and `visibilityThreshold` (`only_public`, `public_and_internal` or `all`; compose-lints `visibility-threshold`). An extension receiver that resolves to `Modifier` or `androidx.glance.GlanceModifier` counts as the modifier parameter, as in Lint's UAST. |
+| `ComposeModifierWithoutDefault` | same ID | Autofix (idiomatic): appends a default written as the parameter's type (` = Modifier`, ` = GlanceModifier`, the qualified name or the import alias). A `vararg` parameter, or a lookalike type named `Modifier` or `GlanceModifier` that resolves elsewhere, is reported without a fix. |
+| `ComposeParameterOrder` | same ID | Cross-file, so a trailing-function type alias declared in another file is expanded. As in Lint, a trailing function is a function type, a type alias of one, `kotlin.Function`/`FunctionN` or `kotlin.jvm.functions.*`, or a Java `@FunctionalInterface` type such as `Runnable` or `Comparator`; a Kotlin `fun interface` is not, and neither is a project class that shadows one of those names. The message prints each parameter's source text with whitespace runs collapsed, so a multi-line default reads as one line (Lint keeps the line breaks). compose-lints' reordering autofix is not ported, because moving parameters breaks positional callers. |
 
 ## Compose-aware defaults
 
@@ -239,6 +295,21 @@ Gradle module (recorded with `scripts/lint-parity-record.sh`, AGP 9.4.1); `TestA
 - `WearMaterialTheme` (error, Kotlin and Java) reports an import of `androidx.compose.material.MaterialTheme` in such a
   module; a file belongs to the nearest module root above it, so a phone module nested in a Wear project is not
   checked. Lint compares the import text, so an aliased import and `MaterialTheme.*` count; Material 3 imports do not.
+
+- `SquareAndRoundTilePreviews` (warning) reports a tile service (a `<service>` with the
+  `androidx.wear.tiles.action.BIND_TILE_PROVIDER` action) without an `androidx.wear.tiles.PREVIEW` metadata ("Tiles
+  need preview assets", in any project). In a Wear module it also reads the binary drawables named by each
+  `@drawable/` preview in every source set's `drawable*` folders and reports, at the metadata's resource value, a
+  preview found only in folders whose name contains `round` or only in the others. This is Lint 32.4.1's behavior;
+  later Lint renamed the check `TilePreviews` and dropped the round/square requirement.
+- `TilePreviewImageFormat` (error) reports, at the same value, a preview image that is not square or is smaller than
+  384px in either dimension. PNG, JPEG and GIF headers are decoded; a WebP preview is 0x0, as it is for Lint, whose
+  `ImageIO` has no WebP reader; other formats are skipped.
+- `StartActivityAndCollapseDeprecated` (Kotlin and Java) reports the argument of `startActivityAndCollapse(Intent)` on
+  a `TileService`: an error from target SDK 34, a warning below. The receiver must be proven a `TileService` (an
+  implicit or `this` receiver in a class whose same-file supertype chain reaches it, or a receiver declared as one)
+  and the argument an `Intent` (a constructor call, a variable declared or initialized as one, or an `Intent` builder
+  call on one); the `PendingIntent` overload and same-named methods of other classes are not reported.
 
 Lint checks the merged manifest; krit checks each manifest file, so components declared only in a variant or library
 manifest are not seen, and the watch face dependency is read from build scripts and version catalogs.

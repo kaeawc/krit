@@ -108,7 +108,7 @@ func axlCheckScaffoldPadding(ctx *api.Context, pkg string) {
 	if !ok || !axlCallTargets(file, call, pkg, "Scaffold") {
 		return
 	}
-	for _, p := range axlUnreferencedLambdaParams(file, lambda, 1) {
+	for _, p := range axlUnreferencedLambdaParams(file, lambda) {
 		ctx.EmitAtNode(p.Node, "Content padding parameter "+p.Name+" is not used")
 	}
 }

@@ -15,6 +15,9 @@ import (
 func runAxlRule(t *testing.T, ruleID, name, source string, profile librarymodel.ProjectProfile) []scanner.Finding {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), name)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(path, []byte(source), 0o600); err != nil {
 		t.Fatal(err)
 	}

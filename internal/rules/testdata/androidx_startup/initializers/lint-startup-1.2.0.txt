@@ -1,0 +1,22 @@
+src/com/example/Initializers.kt:16:1: EnsureInitializerMetadata: Every Initializer needs to be accompanied by a corresponding <meta-data> entry in the AndroidManifest.xml file.
+src/com/example/Initializers.kt:21:1: EnsureInitializerMetadata: Every Initializer needs to be accompanied by a corresponding <meta-data> entry in the AndroidManifest.xml file.
+src/com/example/Initializers.kt:26:1: EnsureInitializerMetadata: Every Initializer needs to be accompanied by a corresponding <meta-data> entry in the AndroidManifest.xml file.
+src/com/example/Initializers.kt:31:1: EnsureInitializerMetadata: Every Initializer needs to be accompanied by a corresponding <meta-data> entry in the AndroidManifest.xml file.
+src/com/example/Initializers.kt:31:1: EnsureInitializerNoArgConstr: Missing Initializer no-arg constructor
+src/com/example/Initializers.kt:36:1: EnsureInitializerMetadata: Every Initializer needs to be accompanied by a corresponding <meta-data> entry in the AndroidManifest.xml file.
+src/com/example/Initializers.kt:41:1: EnsureInitializerMetadata: Every Initializer needs to be accompanied by a corresponding <meta-data> entry in the AndroidManifest.xml file.
+src/com/example/Initializers.kt:47:1: EnsureInitializerMetadata: Every Initializer needs to be accompanied by a corresponding <meta-data> entry in the AndroidManifest.xml file.
+src/com/example/Initializers.kt:51:1: EnsureInitializerMetadata: Every Initializer needs to be accompanied by a corresponding <meta-data> entry in the AndroidManifest.xml file.
+src/com/example/JComment.java:8:1: EnsureInitializerMetadata: Every Initializer needs to be accompanied by a corresponding <meta-data> entry in the AndroidManifest.xml file.
+src/com/example/JavaInits.java:13:1: EnsureInitializerMetadata: Every Initializer needs to be accompanied by a corresponding <meta-data> entry in the AndroidManifest.xml file.
+src/com/example/JavaInits.java:13:1: EnsureInitializerNoArgConstr: Missing Initializer no-arg constructor
+src/com/example/JavaInits.java:19:1: EnsureInitializerMetadata: Every Initializer needs to be accompanied by a corresponding <meta-data> entry in the AndroidManifest.xml file.
+src/com/example/Review.kt:12:1: EnsureInitializerMetadata: Every Initializer needs to be accompanied by a corresponding <meta-data> entry in the AndroidManifest.xml file.
+src/com/example/Review.kt:6:1: EnsureInitializerMetadata: Every Initializer needs to be accompanied by a corresponding <meta-data> entry in the AndroidManifest.xml file.
+src/com/example/cr/JOverload.java:8:1: EnsureInitializerMetadata: Every Initializer needs to be accompanied by a corresponding <meta-data> entry in the AndroidManifest.xml file.
+src/com/example/cr/OverloadChild.java:8:1: EnsureInitializerMetadata: Every Initializer needs to be accompanied by a corresponding <meta-data> entry in the AndroidManifest.xml file.
+src/com/example/cr/Overloads.kt:12:1: EnsureInitializerMetadata: Every Initializer needs to be accompanied by a corresponding <meta-data> entry in the AndroidManifest.xml file.
+src/com/example/cr/Overloads.kt:6:1: EnsureInitializerMetadata: Every Initializer needs to be accompanied by a corresponding <meta-data> entry in the AndroidManifest.xml file.
+src/com/example/cr/Overloads.kt:6:1: EnsureInitializerNoArgConstr: Missing Initializer no-arg constructor
+src/com/example/p/PRoot.java:9:1: EnsureInitializerMetadata: Every Initializer needs to be accompanied by a corresponding <meta-data> entry in the AndroidManifest.xml file.
+src/com/example/q/Child.java:8:1: EnsureInitializerMetadata: Every Initializer needs to be accompanied by a corresponding <meta-data> entry in the AndroidManifest.xml file.

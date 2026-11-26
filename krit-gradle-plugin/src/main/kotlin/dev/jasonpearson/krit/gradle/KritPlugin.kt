@@ -858,13 +858,18 @@ class KritPlugin : Plugin<Project> {
         return out
     }
 
+    /**
+     * Where AGP writes the module's own R jar: `intermediates/<folder>/<component>/<task>/R.jar`,
+     * from AGP's major version and task names. Only the path is computed. Listing the build
+     * directory here would make it a configuration-cache input, so the first build that runs
+     * the R task would discard the entry (#1645). krit looks the jar up when it runs, also under
+     * the other folder names AGP uses for it (`gradlemodel.resolveRClassJars`).
+     */
     private fun androidRJar(project: Project, variant: String, kind: String, major: Int): Provider<List<String>> {
         val libraryMain = kind == "main" && project.plugins.hasPlugin(ANDROID_LIBRARY_PLUGIN_ID)
-        val runtimeFolders = listOf("compile_and_runtime_not_namespaced_r_class_jar",
-            "compile_and_runtime_r_class_jar")
-        val folders = if (libraryMain) listOf("compile_r_class_jar") else runtimeFolders
         val predictedFolder = if (libraryMain) "compile_r_class_jar"
-            else if (major == 8) runtimeFolders[0] else runtimeFolders[1]
+            else if (major == 8) "compile_and_runtime_not_namespaced_r_class_jar"
+            else "compile_and_runtime_r_class_jar"
         val directory = when (kind) {
             "test" -> "${variant}UnitTest"
             "androidTest" -> "${variant}AndroidTest"
@@ -876,20 +881,9 @@ class KritPlugin : Plugin<Project> {
             "androidTest" -> "process${capitalized}Resources"
             else -> if (libraryMain) "generate${capitalized}RFile" else "process${capitalized}Resources"
         }
-        val buildDirectory = project.layout.buildDirectory
-        return project.provider {
-            val intermediates = buildDirectory.get().asFile.resolve("intermediates")
-            val found = folders.flatMap { folder ->
-                intermediates.resolve(folder).resolve(directory).listFiles()
-                    ?.filter { it.isDirectory }
-                    ?.map { it.resolve("R.jar") }
-                    ?.filter { it.isFile }
-                    ?: emptyList()
-            }.map(::modelPath).distinct().sorted()
-            found.ifEmpty {
-                listOf(modelPath(intermediates.resolve(predictedFolder).resolve(directory)
-                    .resolve(task).resolve("R.jar")))
-            }
+        return project.layout.buildDirectory.map { build ->
+            listOf(modelPath(build.asFile.resolve("intermediates").resolve(predictedFolder)
+                .resolve(directory).resolve(task).resolve("R.jar")))
         }
     }
 

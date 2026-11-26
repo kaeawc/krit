@@ -1,0 +1,1 @@
+src/main/java/com/example/tiles/QuickTile.kt:19:38: StartActivityAndCollapseDeprecated: TileService#startActivityAndCollapse(Intent) is deprecated. Use TileService#startActivityAndCollapse(PendingIntent) instead.

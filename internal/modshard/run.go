@@ -57,6 +57,11 @@ type Input struct {
 	// merges (redeclarations between them), and only when every unit has its full dependency context.
 	// Otherwise the run does not apply and the caller keeps the whole-repository compile.
 	Isolate bool
+	// Only, when set, limits the run to the units that hold one of these files (PR mode, #1660): a
+	// --diff scan reports findings in the changed files alone, which need only their own modules
+	// compiled, with dependencies as built jars or source context. The run does not apply when such
+	// a unit left a dependency out (its sources exceed the context limit).
+	Only []string
 	// Logf receives verbose progress lines; may be nil.
 	Logf func(format string, args ...any)
 }
@@ -102,12 +107,20 @@ func Run(ctx context.Context, in Input) (Result, error) {
 		logf("verbose: module oracle: %s took %s\n", what, time.Since(stamp).Round(time.Millisecond))
 		stamp = time.Now()
 	}
-	units, missing := Plan(model, repoRoot, in.ScanPaths)
+	units, missing := planWith(model, repoRoot, in.ScanPaths, projectsHolding(model, in.Only))
 	lap("planning")
 	res.Units, res.MissingJars = len(units), missing
 	if len(units) == 0 {
 		res.Reason = "no modules under the scan paths"
 		return res, nil
+	}
+	if in.Only != nil {
+		var reason string
+		if units, reason = onlyUnits(units, in.Only); reason != "" {
+			res.Reason = reason
+			return res, nil
+		}
+		res.Units = len(units)
 	}
 	if reason := isolationDeclined(in, units); reason != "" {
 		res.Reason = reason
@@ -158,6 +171,62 @@ func Run(ctx context.Context, in Input) (Result, error) {
 		}
 	}
 	return res, nil
+}
+
+// projectsHolding returns the model projects with a source root that holds one of files: their
+// built jars predate those files.
+func projectsHolding(model *gradlemodel.Model, files []string) map[string]bool {
+	if len(files) == 0 {
+		return nil
+	}
+	clean := make([]string, len(files))
+	for i, f := range files {
+		clean[i] = filepath.Clean(oracle.AbsolutePath(f))
+	}
+	out := map[string]bool{}
+	for _, p := range model.Projects {
+		for _, set := range p.SourceSets {
+			for _, root := range append(append([]string{}, set.SourceDirs...), set.GeneratedSourceDirs...) {
+				root = filepath.Clean(oracle.AbsolutePath(root))
+				for _, f := range clean {
+					if strings.HasPrefix(f, root+string(filepath.Separator)) {
+						out[p.Path] = true
+					}
+				}
+			}
+		}
+	}
+	return out
+}
+
+// onlyUnits returns the units an Input.Only run analyzes, or why it does not apply.
+func onlyUnits(units []Unit, only []string) ([]Unit, string) {
+	units = unitsHolding(units, only)
+	if len(units) == 0 {
+		return nil, "no module holds the changed files"
+	}
+	if id := incompleteContext(units); id != "" {
+		return nil, "dependency sources of " + id + " exceed the context limit"
+	}
+	return units, ""
+}
+
+// unitsHolding returns the units that list one of files among their sources.
+func unitsHolding(units []Unit, files []string) []Unit {
+	want := make(map[string]bool, len(files))
+	for _, f := range files {
+		want[filepath.Clean(oracle.AbsolutePath(f))] = true
+	}
+	var out []Unit
+	for _, u := range units {
+		for _, f := range u.Sources {
+			if want[filepath.Clean(oracle.AbsolutePath(f))] {
+				out = append(out, u)
+				break
+			}
+		}
+	}
+	return out
 }
 
 // isolationDeclined says why an Isolate run does not apply, or "" when it does (or is not Isolate).

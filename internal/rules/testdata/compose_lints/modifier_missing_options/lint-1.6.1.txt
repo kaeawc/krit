@@ -1,0 +1,3 @@
+src/com/example/Options.kt:11:14: ComposeModifierMissing: This @Composable function emits content but doesn't have a modifier parameter. See https://slackhq.github.io/compose-lints/rules/#when-should-i-expose-modifier-parameters for more information.
+src/com/example/Options.kt:16:13: ComposeModifierMissing: This @Composable function emits content but doesn't have a modifier parameter. See https://slackhq.github.io/compose-lints/rules/#when-should-i-expose-modifier-parameters for more information.
+src/com/example/Options.kt:6:5: ComposeModifierMissing: This @Composable function emits content but doesn't have a modifier parameter. See https://slackhq.github.io/compose-lints/rules/#when-should-i-expose-modifier-parameters for more information.

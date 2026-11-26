@@ -30,6 +30,37 @@ type scaleResult struct {
 	Exponent float64 // growth as Factor^Exponent
 	Super    bool
 	Known    string // issue from the allowlist, when listed
+	// PreExisting marks a super-linear metric that the base binary scales
+	// just as badly: main's behavior, not this change's.
+	PreExisting  bool
+	BaseExponent float64
+}
+
+// exponentMargin is how much worse than base a metric's growth exponent may
+// be before a metric base already scales super-linearly counts against head.
+const exponentMargin = 0.15
+
+// applyBase marks head metrics that are super-linear on base as well, with no
+// more than exponentMargin worse growth, as pre-existing. Timing one binary
+// alone let a borderline phase on main (I/O-bound, near the gate) fail
+// unrelated PRs at random; with base measured on the same runner only a
+// change in scaling counts.
+func applyBase(head, base []scaleResult) []scaleResult {
+	byKey := make(map[string]scaleResult, len(base))
+	for _, b := range base {
+		byKey[b.Kind+":"+b.Key] = b
+	}
+	for i, r := range head {
+		b, ok := byKey[r.Kind+":"+r.Key]
+		if !ok {
+			continue
+		}
+		head[i].BaseExponent = b.Exponent
+		if r.Super && b.Super && r.Exponent <= b.Exponent+exponentMargin {
+			head[i].PreExisting = true
+		}
+	}
+	return head
 }
 
 // knownSuperlinear is the allowlist of metrics that are already known to
@@ -106,10 +137,13 @@ func writeScaleReport(w io.Writer, smallName, largeName string, results []scaleR
 	fmt.Fprintf(w, "## Scaling: %s → %s (%.1f× larger)\n\n", smallName, largeName, g.Factor)
 	fmt.Fprintf(w, "A metric fails when it costs >= %.0fms on the large corpus and grew more than %.1f× the corpus (exponent > %.2f).\n\n",
 		g.MinMs, g.Slack*g.Factor, math.Log(g.Slack*g.Factor)/math.Log(g.Factor))
-	var bad []scaleResult
+	var bad, pre []scaleResult
 	for _, r := range results {
-		if r.Super && r.Known == "" {
+		switch {
+		case r.Super && r.Known == "" && !r.PreExisting:
 			bad = append(bad, r)
+		case r.Super && r.Known == "" && r.PreExisting:
+			pre = append(pre, r)
 		}
 	}
 	if len(bad) > 0 {
@@ -117,6 +151,10 @@ func writeScaleReport(w io.Writer, smallName, largeName string, results []scaleR
 		fmt.Fprintf(w, "**%d metric(s) scale super-linearly:**\n\n", len(bad))
 		writeScaleTable(w, bad, g)
 		fmt.Fprintf(w, "Fix the hot path, or, when an issue already tracks it, list it in internal/devtools/perfguard/known-superlinear.txt with the issue number.\n\n")
+	}
+	if len(pre) > 0 {
+		fmt.Fprintf(w, "**Super-linear on the base too, not caused by this change** (head exponent within %.2f of base's; worth an issue):\n\n", exponentMargin)
+		writeScaleTable(w, pre, g)
 	}
 	if len(stale) > 0 {
 		failed = true
@@ -136,10 +174,14 @@ func writeScaleReport(w io.Writer, smallName, largeName string, results []scaleR
 }
 
 func writeScaleTable(w io.Writer, rs []scaleResult, g scaleGates) {
-	fmt.Fprintf(w, "| Kind | Metric | Small | Large | Growth | ~O(n^k) | Known |\n|---|---|---|---|---|---|---|\n")
+	fmt.Fprintf(w, "| Kind | Metric | Small | Large | Growth | ~O(n^k) | Base ~O(n^k) | Known |\n|---|---|---|---|---|---|---|---|\n")
 	for _, r := range rs {
 		base := math.Max(r.Small, g.MinMs/(g.Factor*g.Slack))
-		fmt.Fprintf(w, "| %s | `%s` | %.0fms | %.0fms | %.1f× | %.2f | %s |\n", r.Kind, r.Key, r.Small, r.Large, r.Large/base, r.Exponent, r.Known)
+		baseExp := "—"
+		if r.BaseExponent != 0 {
+			baseExp = fmt.Sprintf("%.2f", r.BaseExponent)
+		}
+		fmt.Fprintf(w, "| %s | `%s` | %.0fms | %.0fms | %.1f× | %.2f | %s | %s |\n", r.Kind, r.Key, r.Small, r.Large, r.Large/base, r.Exponent, baseExp, r.Known)
 	}
 	fmt.Fprintln(w)
 }

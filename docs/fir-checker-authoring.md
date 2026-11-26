@@ -22,6 +22,14 @@ FIR-only additions after suppression. Keep confirm-only golden markers a
 subset of their regenerated `go-lines` and pin Go-only abstentions even
 though the merge structurally prevents new false positives.
 
+In a confirm-only checker, staying silent **removes** Go's finding. So a
+checker abstains by reporting, and it suppresses a report only on proof.
+Whatever it cannot see into, such as a helper in another file, module or jar
+(a slice compile only reads the checked file's bodies), a constructor or a
+property read, is no proof; reporting there keeps Go's verdict, which Go
+reached with its own project-wide index. `TestWithoutAssertion` once treated
+those as assertion evidence and dropped real findings (#1671).
+
 ## 1. Prerequisites
 
 - The rule is registered in Go (`api.Registry`) and has an entry in

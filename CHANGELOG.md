@@ -24,6 +24,12 @@ All notable changes to Krit will be documented in this file.
   `ComposeNamingLowercase` map onto the existing `ComposableNaming`: suppressing either ID silences its casing direction,
   and `ComposableNaming` gains compose-lints' `allowedComposableFunctionNames` option. Findings are checked against the Lint CLI running compose-lint-checks
   1.6.1 on the same inputs (#1332, #1333, #1334, #1335).
+- `MustBeInModule`, `BindsMustBeAbstract`, `ProvidesMustNotBeAbstract`, `BindingReturnType` and
+  `BindingReceiverParameter`, slack-lints 0.11.1's `DaggerIssuesDetector` checks, in the opt-in `slack-lint` rule set
+  for Kotlin and Java. They follow the detector's one-issue-per-method order and match the Lint CLI on the same inputs
+  (`internal/rules/testdata/slack_lint/dagger/`), except that a finding is anchored at the declaration rather than at a
+  KDoc or comment before it. The detector's `BindsWrongParameterCount` and `RedundantBinds` are now Lint aliases of
+  `BindsMismatchedArity` and `BindsReturnTypeMatchesParam` (#1359, #1360, #1361, #1362, #1363, #1364, #1365).
 - FIR sessions resolve Java sources: every `.java` file under the source dirs, generated source dirs and unpacked
   srcjars (same-module Java, view binding, BuildConfig, Wire-Java, kapt/KSP Java output) is given to K2 as a Java
   source root, so Kotlin that uses them is no longer gated `Unresolved reference` on an unbuilt checkout. The Java is
@@ -341,6 +347,10 @@ All notable changes to Krit will be documented in this file.
   `FrequentlyChangedStateReadInComposition` still suppress the matching rule (#1472, #1476, #1478).
 
 ### Changed
+- `krit_aspect`'s persistent worker keeps one warm krit-fir JVM for every target with the same compiler settings
+  instead of one per classpath: its scans share a krit-fir daemon pool slot, and the daemon rebuilds its session for
+  each action's sources and classpath. On a 24-target benchmark the Krit actions of a full build went from 79.9 s to
+  7.0 s (mean action 6.56 s to 0.54 s), with the same reports as one-shot JVMs (#1666).
 - The Gradle plugins `dev.jasonpearson.krit` and `dev.jasonpearson.krit.settings` declare configuration-cache
   support on the Gradle Plugin Portal. `kritCheck`, `kritFormat` and `kritBaseline` now resolve (and download) the
   krit binary when they run instead of while Gradle builds the task graph, so `--dry-run` no longer downloads it and
@@ -443,6 +453,10 @@ All notable changes to Krit will be documented in this file.
 - The Lint ports' shared call parser is memoized per node for each file's dispatch pass, instead of re-parsing a call
   for every port that looks at it, and their import scan finds `import` keywords before running its regex. On
   element-x-android that cut about 1.3s of CPU from a `--no-fir` scan, with the same findings.
+- `UsingMaterialAndMaterial3Libraries` no longer reports material-only modules of a multi-module build because
+  another module depends on material3: as in Lint, material3 must be imported in the file or declared by the file's
+  own module. `UnusedMaterialScaffoldPaddingParameter` and `UnusedMaterial3ScaffoldPaddingParameter` now resolve
+  aliased `Scaffold` imports (#1728).
 - `CompileTimeConstant` only runs on files that mention `CompileTimeConstant`. Every finding needs an annotated
   declaration in the same file, so other files cannot be reported; the rule spent about 2s on element-x-android and
   0.7s on okhttp finding nothing. Lint ports can opt into the same gate by declaring `fileMentions()`.
@@ -452,6 +466,11 @@ All notable changes to Krit will be documented in this file.
   `MODULE.bazel`/`WORKSPACE`, looking no higher than a repository root (`.git`) or a Bazel execution root. A file in no
   build has no module graph and walks no directory tree, and `--only-scope file` scans of a file skip discovery unless
   the type oracle or custom rule jars read the graph (#1548, #1669, #1704).
+- Bazel targets with a generated srcjar in `srcs` (Wire, KSP) are no longer degraded under `krit_aspect`: krit-fir
+  excluded the target's own files in a Gradle-style `src/main/kotlin` as "not part of the JVM compilation" whenever the
+  session had any source root, and an unpacked srcjar was a Bazel target's only one. That check now applies only when
+  a root is itself a source-set root, so the files compile against the srcjar's sources and get FIR verdicts (#1688,
+  #1632).
 - Source-only scans of large Android projects are fast again: `ProviderReadPermissionOnly`,
   `UnsafeImplicitIntentLaunch` and `UnsafeIntentLaunch` index project classes once per run instead of rebuilding the
   index on every superclass query, and run concurrently. On a 300-module synthetic project the manifest-source phase

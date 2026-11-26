@@ -137,6 +137,7 @@ func init() {
 	registerTestingQualityRules()
 	registerThirdPartyMoshiRules()
 	registerThirdPartyMockingRules()
+	registerThirdPartyDaggerRules()
 
 	applySecurityTaxonomy()
 }

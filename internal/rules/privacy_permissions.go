@@ -599,9 +599,10 @@ func (r *privacyBackgroundLocationResolver) valueArguments(args uint32) bool {
 // identifier use refers to resolves to ACCESS_BACKGROUND_LOCATION. Enclosing
 // owners are searched nearest first, as Kotlin resolves an unqualified name:
 // a same-named parameter shadows outer properties (its value is unknown), a
-// function-local property must be declared before the use, and a companion
-// object's properties count as its class's. Properties of unrelated classes
-// are not visible (#1705). Each property is followed at most once per
+// function-local property must be declared before the use in a block that
+// encloses it, a companion object's properties count as its class's, and a
+// class sees the properties of its same-file supertypes. Properties of
+// unrelated classes are not visible (#1705). Each property is followed at most once per
 // resolution (#1611).
 func (r *privacyBackgroundLocationResolver) sameFileConstant(use uint32, name string) bool {
 	file := r.file
@@ -619,12 +620,13 @@ func (r *privacyBackgroundLocationResolver) sameFileConstant(use uint32, name st
 		if owner != 0 && privacyOwnerDeclaresParameterFlat(file, owner, name) {
 			return false
 		}
+		owners := privacyOwnerAndSameFileSupertypes(file, owner)
 		declared := false
 		for _, prop := range candidates {
-			if contactsDeclarationOwnerFlat(file, prop) != owner {
+			if !owners[contactsDeclarationOwnerFlat(file, prop)] {
 				continue
 			}
-			if file.FlatType(owner) == "function_declaration" && file.FlatStartByte(prop) > useStart {
+			if file.FlatType(owner) == "function_declaration" && !privacyLocalVisibleAt(file, prop, useStart) {
 				continue
 			}
 			declared = true
@@ -644,6 +646,42 @@ func (r *privacyBackgroundLocationResolver) sameFileConstant(use uint32, name st
 		}
 	}
 	return false
+}
+
+// privacyOwnerAndSameFileSupertypes returns owner and, for a class or
+// object, the same-file classes it extends transitively, whose properties it
+// inherits.
+func privacyOwnerAndSameFileSupertypes(file *scanner.File, owner uint32) map[uint32]bool {
+	owners := map[uint32]bool{owner: true}
+	if t := file.FlatType(owner); t != "class_declaration" && t != "object_declaration" {
+		return owners
+	}
+	queue := []uint32{owner}
+	for len(queue) > 0 && len(owners) < 16 {
+		cls := queue[0]
+		queue = queue[1:]
+		for _, super := range lintSupertypeNames(file, cls) {
+			decl := lintSameFileClassOrObjectJS(file, super[strings.LastIndex(super, ".")+1:])
+			if decl != 0 && !owners[decl] {
+				owners[decl] = true
+				queue = append(queue, decl)
+			}
+		}
+	}
+	return owners
+}
+
+// privacyLocalVisibleAt reports whether the function-local property prop is
+// in scope at use: declared before it, in a block that encloses it.
+func privacyLocalVisibleAt(file *scanner.File, prop, useStart uint32) bool {
+	if file.FlatStartByte(prop) > useStart {
+		return false
+	}
+	block, ok := file.FlatParent(prop)
+	if !ok {
+		return false
+	}
+	return file.FlatStartByte(block) <= useStart && useStart < file.FlatEndByte(block)
 }
 
 // privacyOwnerDeclaresParameterFlat reports whether a function's value

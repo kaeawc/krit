@@ -269,6 +269,59 @@ class LocationActivity {
 		}
 	})
 
+	// #1733 review: a property inherited from a same-file supertype resolves
+	// unqualified; a local declared in a nested block does not leak out.
+	t.Run("resolves properties inherited from same-file supertypes", func(t *testing.T) {
+		findings := runRuleByName(t, "LocationBackgroundWithoutRationale", `
+package test
+
+open class Activity
+open class BaseActivity : Activity() {
+    val bgPerms = arrayOf(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+    val bg = Manifest.permission.ACCESS_BACKGROUND_LOCATION
+}
+
+class Child : BaseActivity() {
+    fun ask() {
+        requestPermissions(bgPerms, 1)
+    }
+
+    fun askWithRationale() {
+        if (shouldShowRequestPermissionRationale(bg)) return
+        requestPermissions(arrayOf(Manifest.permission.ACCESS_BACKGROUND_LOCATION), 2)
+    }
+}
+
+class GrandChild : Child() {
+    fun ask() {
+        requestPermissions(bgPerms, 3)
+    }
+}
+`)
+		if len(findings) != 2 || findings[0].Line != 12 || findings[1].Line != 23 {
+			t.Fatalf("expected findings on lines 12 and 23, got %v", findings)
+		}
+	})
+
+	t.Run("block-scoped locals do not leak out of their block", func(t *testing.T) {
+		findings := runRuleByName(t, "LocationBackgroundWithoutRationale", `
+package test
+
+class LocationActivity {
+    val perms = arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
+
+    fun request() {
+        run { val perms = arrayOf(Manifest.permission.ACCESS_BACKGROUND_LOCATION) }
+        if (true) { val perms = arrayOf(Manifest.permission.ACCESS_BACKGROUND_LOCATION) }
+        requestPermissions(perms, 1)
+    }
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d: %v", len(findings), findings)
+		}
+	})
+
 	t.Run("ignores non-background location permissions", func(t *testing.T) {
 		findings := runRuleByName(t, "LocationBackgroundWithoutRationale", `
 package test

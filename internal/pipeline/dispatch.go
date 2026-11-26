@@ -213,8 +213,10 @@ func (d DispatchPhase) Run(ctx context.Context, in IndexResult) (DispatchResult,
 	findingsByFile := map[string]scanner.FindingColumns{}
 
 	var (
-		mu          sync.Mutex
-		allColumns  scanner.FindingColumns
+		mu sync.Mutex
+		// Each file's findings are appended once; rebuilding the merged columns per file made the merge
+		// O(files x findings) under mu.
+		collector   = scanner.NewFindingCollector(0)
 		fileTimings []FileTiming
 		acc         = rules.RunStats{
 			DispatchRuleNsByRule: make(map[string]int64),
@@ -237,7 +239,7 @@ func (d DispatchPhase) Run(ctx context.Context, in IndexResult) (DispatchResult,
 		dispatcher:     dispatcher,
 		useCache:       useCache,
 		mu:             &mu,
-		allColumns:     &allColumns,
+		collector:      collector,
 		fileTimings:    &fileTimings,
 		findingsByFile: findingsByFile,
 		acc:            &acc,
@@ -283,7 +285,7 @@ func (d DispatchPhase) Run(ctx context.Context, in IndexResult) (DispatchResult,
 		ruleTracker.End()
 	}
 
-	allColumns = d.mergeCachedFindings(in, allColumns)
+	allColumns := d.mergeCachedFindings(in, *collector.Columns())
 
 	if useCache && in.Version != "" {
 		d.writeCacheBack(in, findingsByFile)
@@ -306,7 +308,7 @@ type dispatchFileState struct {
 	dispatcher     *rules.Dispatcher
 	useCache       bool
 	mu             *sync.Mutex
-	allColumns     *scanner.FindingColumns
+	collector      *scanner.FindingCollector
 	fileTimings    *[]FileTiming
 	findingsByFile map[string]scanner.FindingColumns
 	acc            *rules.RunStats
@@ -335,12 +337,7 @@ func (s dispatchFileState) runFile(in IndexResult, file *scanner.File, dispatche
 	if in.ProfileDispatch {
 		lockedAt = time.Now()
 	}
-	if fileColumns.Len() > 0 {
-		collector := scanner.NewFindingCollector(s.allColumns.Len() + fileColumns.Len())
-		collector.AppendColumns(s.allColumns)
-		collector.AppendColumns(&fileColumns)
-		*s.allColumns = *collector.Columns()
-	}
+	s.collector.AppendColumns(&fileColumns)
 	if s.useCache {
 		s.findingsByFile[file.Path] = fileColumns
 	}

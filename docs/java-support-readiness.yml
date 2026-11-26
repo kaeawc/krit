@@ -749,6 +749,18 @@ rules:
     status: supported
     fixtures:
       - tests/fixtures/android-lint/DefaultUncaughtExceptionDelegation/positive
+  ReturnThis:
+    status: supported
+    fixtures:
+      - tests/fixtures/android-lint/ReturnThis/positive
+  UseSdkSuppress:
+    status: supported
+    fixtures:
+      - tests/fixtures/android-lint/UseSdkSuppress/positive
+  AnnotateVersionCheck:
+    status: supported
+    fixtures:
+      - tests/fixtures/android-lint/AnnotateVersionCheck/positive
   UsableSpace:
     status: supported
     fixtures:

@@ -98,6 +98,9 @@ All notable changes to Krit will be documented in this file.
   with `androidx.compose.animation` 1.13.0 (`animation-android`, `animation-core-android`), under their Lint IDs.
   Their findings match the Lint CLI running those releases' `lint.jar` on the inputs under
   `internal/rules/testdata/androidx_compose_animation/` (#1307, #1308, #1309, #1313).
+- `ReturnThis`, `UseSdkSuppress` and `AnnotateVersionCheck`, ports of Android Lint 32.4.1's `ReturnThisDetector`,
+  `SdkSuppressDetector` and `SdkIntDetector` (Kotlin and Java), and `VisibleForTests` as a Lint alias of
+  `VisibleForTestingCallerInNonTest`. Findings match Lint on 7 recorded project fixtures (#1256, #1261, #1260, #1255).
 - `RecyclerView`, `FindViewByIdCast`, `RemoteViewLayout`, `DefaultUncaughtExceptionDelegation` and
   `WrongGradleMethod`, ports of Android Lint 32.4.1's `RecyclerViewDetector`, `ViewTypeDetector` (FindViewByIdCast,
   with Lint's cast fix), `RemoteViewDetector`, `UncaughtExceptionHandlerDetector` and `WrongGradleMethodDetector`

@@ -1,0 +1,3 @@
+src/test/java/com/example/ApiTest.kt:6:1: UseSdkSuppress: Don't use @RequiresApi from tests; use @SdkSuppress on `ApiTest` instead
+src/test/java/com/example/ApiTest.kt:9:5: UseSdkSuppress: Don't use @RequiresApi from tests; use @SdkSuppress on `usesNewApi` instead
+src/test/java/com/example/JApiTest.java:7:5: UseSdkSuppress: Don't use @RequiresApi from tests; use @SdkSuppress on `testSomething` instead

@@ -1,0 +1,5 @@
+src/main/java/com/example/Builders.kt:12:5: ReturnThis: This method should `return this` (because it has been annotated with `@ReturnThis`)
+src/main/java/com/example/Builders.kt:18:9: ReturnThis: This method should `return this` (because it has been annotated with `@ReturnThis`)
+src/main/java/com/example/Builders.kt:8:29: ReturnThis: This method should `return this` (because it has been annotated with `@ReturnThis`)
+src/main/java/com/example/JBuilder.java:11:9: ReturnThis: This method should `return this` (because it has been annotated with `@ReturnThis`)
+src/main/java/com/example/JBuilder.java:9:13: ReturnThis: This method should `return this` (because it has been annotated with `@ReturnThis`)

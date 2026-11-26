@@ -1,0 +1,8 @@
+src/main/java/com/example/JVersions.java:6:33: AnnotateVersionCheck: This field should be annotated with `ChecksSdkIntAtLeast(api=Build.VERSION_CODES.N)`
+src/main/java/com/example/JVersions.java:8:27: AnnotateVersionCheck: This method should be annotated with `@ChecksSdkIntAtLeast(api=android.os.Build.VERSION_CODES.M)`
+src/main/java/com/example/Versions.kt:10:9: AnnotateVersionCheck: This method should be annotated with `@ChecksSdkIntAtLeast(api=android.os.Build.VERSION_CODES.P)`
+src/main/java/com/example/Versions.kt:12:9: AnnotateVersionCheck: This method should be annotated with `@ChecksSdkIntAtLeast(api=android.os.Build.VERSION_CODES.R)`
+src/main/java/com/example/Versions.kt:16:9: AnnotateVersionCheck: This method should be annotated with `@ChecksSdkIntAtLeast(parameter=0)`
+src/main/java/com/example/Versions.kt:20:9: AnnotateVersionCheck: This method should be annotated with `@ChecksSdkIntAtLeast(api=android.os.Build.VERSION_CODES.S, lambda=0)`
+src/main/java/com/example/Versions.kt:27:9: AnnotateVersionCheck: This field should be annotated with `ChecksSdkIntAtLeast(api=android.os.Build.VERSION_CODES.TIRAMISU)`
+src/main/java/com/example/Versions.kt:6:9: AnnotateVersionCheck: This method should be annotated with `@ChecksSdkIntAtLeast(api=Build.VERSION_CODES.O)`

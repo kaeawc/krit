@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"bytes"
 	"fmt"
 	"path/filepath"
 	"sort"
@@ -757,7 +758,7 @@ func (r *DefaultUncaughtExceptionDelegationRule) check(ctx *api.Context) {
 	var setRoots []string
 	for _, file := range ctx.ParsedFiles {
 		if file == nil || file.FlatTree == nil || isProjectTestFile(ctx, file.Path) ||
-			!strings.Contains(string(file.Content), "DefaultUncaughtExceptionHandler") {
+			!bytes.Contains(file.Content, uncaughtHandlerBytes) {
 			continue
 		}
 		root := workModuleRoot(file.Path, roots)
@@ -790,6 +791,8 @@ func (r *DefaultUncaughtExceptionDelegationRule) check(ctx *api.Context) {
 				"`existingHandler.uncaughtException(thread, throwable)` from your new handler"})
 	}
 }
+
+var uncaughtHandlerBytes = []byte("DefaultUncaughtExceptionHandler")
 
 // uncaughtArgCount counts a call's arguments, a Kotlin trailing lambda included.
 func uncaughtArgCount(file *scanner.File, n uint32, call lintCall) int {

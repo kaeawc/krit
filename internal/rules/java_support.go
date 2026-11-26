@@ -244,6 +244,9 @@ var javaSupportReadiness = JavaSupportMatrix{
 		"FindViewByIdCast":                        {Status: api.LanguageSupportSupported, Fixtures: []string{"tests/fixtures/android-lint/FindViewByIdCast/positive"}},
 		"RemoteViewLayout":                        {Status: api.LanguageSupportSupported, Fixtures: []string{"tests/fixtures/android-lint/RemoteViewLayout/positive"}},
 		"DefaultUncaughtExceptionDelegation":      {Status: api.LanguageSupportSupported, Fixtures: []string{"tests/fixtures/android-lint/DefaultUncaughtExceptionDelegation/positive"}},
+		"ReturnThis":                              {Status: api.LanguageSupportSupported, Fixtures: []string{"tests/fixtures/android-lint/ReturnThis/positive"}},
+		"UseSdkSuppress":                          {Status: api.LanguageSupportSupported, Fixtures: []string{"tests/fixtures/android-lint/UseSdkSuppress/positive"}},
+		"AnnotateVersionCheck":                    {Status: api.LanguageSupportSupported, Fixtures: []string{"tests/fixtures/android-lint/AnnotateVersionCheck/positive"}},
 	},
 }
 

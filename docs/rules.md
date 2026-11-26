@@ -569,6 +569,22 @@ Ports of Android Lint 32.4.1 checks with recorded Lint output under `tests/fixtu
   flavor, naming the `<name>Implementation` configuration to use, and `firebaseAppDistribution` in a `.kts` script
   without its import. These are the patterns Lint checks without a resolved build classpath.
 
+## Android Lint Annotation Checks
+
+Ports of Android Lint 32.4.1 checks with recorded Lint output under `tests/fixtures/android-lint/<RuleID>/`:
+
+- `VisibleForTests` is a Lint alias of `VisibleForTestingCallerInNonTest`: `@SuppressLint("VisibleForTests")`,
+  `tools:ignore`, `lint.xml` and baseline entries for the Lint ID apply to krit's rule.
+- `ReturnThis` (error, Kotlin and Java) reports each `return` of something other than `this` (and a non-`this`
+  expression body) in a method annotated `@ReturnThis`, or overriding a same-file method that is. Labeled returns,
+  nested functions, Java lambdas and inner classes are skipped.
+- `UseSdkSuppress` (error, test sources) reports `@RequiresApi` on a public test method (`@Test`, or `test*` in a
+  `TestCase`) or a test class (a `TestCase` or a class with `@Test` methods).
+- `AnnotateVersionCheck` (warning, Android library modules) reports a public method whose body is a single
+  `SDK_INT >= N` / `> N` check (or an `if` calling a lambda parameter), and a public field (Java, or Kotlin `@JvmField`
+  / `const`) initialized with one, that lacks `@ChecksSdkIntAtLeast`, with the arguments Lint suggests; an existing
+  annotation with another level is reported as a discrepancy.
+
 ## AndroidX Library Lint Checks
 
 Lint loads the checks bundled in an AndroidX AAR only when that AAR is on the module's classpath. Krit's ports of

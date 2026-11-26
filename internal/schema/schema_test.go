@@ -866,6 +866,37 @@ func TestValidateConfig_Oracle(t *testing.T) {
 	}
 }
 
+func TestValidateConfig_FIR(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		section interface{}
+		wantErr bool
+	}{
+		{"both rule lists", map[string]interface{}{
+			"goAuthoritativeRules":      []interface{}{"UnsafeCast"},
+			"requireAuthoritativeRules": []interface{}{"UselessElvisOnNonNull"},
+		}, false},
+		{"required rules declared empty", map[string]interface{}{"requireAuthoritativeRules": []interface{}{}}, false},
+		{"required rules not strings", map[string]interface{}{"requireAuthoritativeRules": 5}, true},
+		{"unknown key", map[string]interface{}{"requiredRules": []interface{}{"UnsafeCast"}}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := config.NewConfig()
+			cfg.Data()["fir"] = tc.section
+			gotErr := false
+			for _, e := range ValidateConfig(cfg) {
+				gotErr = gotErr || e.Level == "error"
+			}
+			if gotErr != tc.wantErr {
+				t.Errorf("error = %v, want %v: %v", gotErr, tc.wantErr, ValidateConfig(cfg))
+			}
+		})
+	}
+	if props := GenerateSchema(nil).Properties["fir"]; props == nil || props.Properties["requireAuthoritativeRules"] == nil {
+		t.Fatal("the schema must describe fir.requireAuthoritativeRules")
+	}
+}
+
 func TestValidateConfig_DetektBlockAndFileGlobs(t *testing.T) {
 	cfg := config.NewConfigFromData(map[string]interface{}{
 		"detekt": map[string]interface{}{"enabled": false, "configFile": "d.yml", "baseline": "b.xml"},

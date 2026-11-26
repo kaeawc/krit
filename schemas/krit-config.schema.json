@@ -22870,6 +22870,14 @@
             "description": "Rule ID whose Go findings remain authoritative after FIR checks.",
             "type": "string"
           }
+        },
+        "requireAuthoritativeRules": {
+          "description": "FIR-required rules: with --fir, their Go findings in files FIR could not compile are withheld (crashes, checker errors and a lost pass keep them). Defaults to the nullability and cast rules (CastNullableToNonNullableType, UnnecessaryNotNullOperator, UnnecessarySafeCall, UnsafeCast, UselessCallOnNotNull, UselessElvisOnNonNull); an empty list turns the policy off.",
+          "type": "array",
+          "items": {
+            "description": "Rule ID reported only where FIR's verdict is authoritative.",
+            "type": "string"
+          }
         }
       }
     },
@@ -31081,6 +31089,105 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "BindingReceiverParameter": {
+          "description": "@Binds/@Provides functions cannot be extensions [precision: ast-backed] [noisiness: normal]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable BindingReceiverParameter (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "BindingReturnType": {
+          "description": "@Binds/@Provides must have a return type [precision: ast-backed] [noisiness: normal]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable BindingReturnType (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "BindsMustBeAbstract": {
+          "description": "@Binds functions must be abstract [precision: ast-backed] [noisiness: normal]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable BindsMustBeAbstract (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "DoNotMockAnything": {
           "description": "Do not add new mocks. [precision: project-structure-aware] [noisiness: normal] [capabilities: cross-file]",
           "type": "object",
@@ -32540,6 +32647,72 @@
           "properties": {
             "active": {
               "description": "Enable MoshiUsageVarProperty (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "MustBeInModule": {
+          "description": "@Binds/@Provides functions must be in modules [precision: ast-backed] [noisiness: normal]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable MustBeInModule (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "ProvidesMustNotBeAbstract": {
+          "description": "@Provides functions cannot be abstract [precision: ast-backed] [noisiness: normal]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable ProvidesMustNotBeAbstract (default: false).",
               "type": "boolean",
               "default": false
             },

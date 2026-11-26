@@ -131,6 +131,7 @@ func (s *Server) analyzeProject(args analyzeArgs) ToolResult {
 	collector := scanner.NewFindingCollector(len(files) * 8)
 	var perFile []fileResult
 
+	s.analyzer.Dispatcher.BeginRequest()
 	for _, f := range files {
 		fileColumns, _ := s.analyzer.Dispatcher.RunColumnsWithStats(f)
 		collector.AppendColumns(&fileColumns)
@@ -401,6 +402,7 @@ func (s *Server) analyzeImpact(args analyzeArgs) ToolResult {
 			return errorResult("scanning files: " + joinErrors(parseErrs))
 		}
 		collector := scanner.NewFindingCollector(len(files) * 8)
+		s.analyzer.Dispatcher.BeginRequest()
 		for _, f := range files {
 			cols, _ := s.analyzer.Dispatcher.RunColumnsWithStats(f)
 			collector.AppendColumns(&cols)

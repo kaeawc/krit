@@ -5,6 +5,13 @@ All notable changes to Krit will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Gradle model freshness key for CI: `krit gradle-model key` hashes the build files that can change
+  `kritExportModel`'s output (settings and build scripts, version catalogs, lockfiles, dependency verification metadata,
+  `gradle.properties`, the wrapper version, the sources of buildSrc and of builds nested under the root) by root-relative
+  path and content. A CI job caches `.krit/gradle-model` under it and skips Gradle on a hit. `--write` stamps the key and
+  its inputs' hashes in the model, and krit warns, naming the file, when the build no longer matches. A model restored under another checkout path or Gradle user home is rebased when
+  loaded (new `gradleUserHome` model field). New `krit { exportTests = false }` exports and resolves only production
+  source sets (#1663).
 - Gradle plugin: `kritCheck` with custom rule jars writes every enabled report from one krit run (one
   `--report FORMAT=PATH` each), like every other scan, instead of analyzing once per report (#1634).
 - `DoNotMockAnything`, `DoNotMockPlatformTypes`, `DoNotMockDataClass` and `DoNotMockObjectClass`, slack-lints 0.11.1's
@@ -13,6 +20,11 @@ All notable changes to Krit will be documented in this file.
   mocked class through imports and the cross-file index, and runs the detector's checkers in its order. Findings match
   slack-lints' own detector tests (`internal/rules/testdata/slack_lint_upstream/`); a `mock()` whose type Lint infers
   from an enclosing call's parameter is not reported (#1375, #1376, #1377, #1380).
+- `--min-sdk N` / `--target-sdk N` set the Android SDK levels of files whose own `build.gradle(.kts)`, manifest or Gradle
+  version catalog declares none, for the Go rules (per-file and project-wide minSdk alike) and the FIR pass. They are
+  part of the analysis cache key. The Bazel rules pass them from `--@krit//:min_sdk_version` /
+  `--@krit//:target_sdk_version`, and an `android_binary`'s own `krit_aspect` action from its `manifest_values`, since
+  Bazel builds often declare the levels only there (#1682).
 - `UnusedMaterialScaffoldPaddingParameter`, `UnusedMaterial3ScaffoldPaddingParameter`, `ConflictingOnColor` and
   `UsingMaterialAndMaterial3Libraries`, ports of the Lint checks bundled with `androidx.compose.material` 1.13.0 and
   `androidx.compose.material3` 1.5.0, under their Lint IDs. Their findings match the Lint CLI running those releases'
@@ -24,6 +36,12 @@ All notable changes to Krit will be documented in this file.
   `ComposeNamingLowercase` map onto the existing `ComposableNaming`: suppressing either ID silences its casing direction,
   and `ComposableNaming` gains compose-lints' `allowedComposableFunctionNames` option. Findings are checked against the Lint CLI running compose-lint-checks
   1.6.1 on the same inputs (#1332, #1333, #1334, #1335).
+- `MustBeInModule`, `BindsMustBeAbstract`, `ProvidesMustNotBeAbstract`, `BindingReturnType` and
+  `BindingReceiverParameter`, slack-lints 0.11.1's `DaggerIssuesDetector` checks, in the opt-in `slack-lint` rule set
+  for Kotlin and Java. They follow the detector's one-issue-per-method order and match the Lint CLI on the same inputs
+  (`internal/rules/testdata/slack_lint/dagger/`), except that a finding is anchored at the declaration rather than at a
+  KDoc or comment before it. The detector's `BindsWrongParameterCount` and `RedundantBinds` are now Lint aliases of
+  `BindsMismatchedArity` and `BindsReturnTypeMatchesParam` (#1359, #1360, #1361, #1362, #1363, #1364, #1365).
 - FIR sessions resolve Java sources: every `.java` file under the source dirs, generated source dirs and unpacked
   srcjars (same-module Java, view binding, BuildConfig, Wire-Java, kapt/KSP Java output) is given to K2 as a Java
   source root, so Kotlin that uses them is no longer gated `Unresolved reference` on an unbuilt checkout. The Java is
@@ -444,6 +462,11 @@ All notable changes to Krit will be documented in this file.
   `MoshiUsageNonMoshiClassInternal`/`External` (#1384, #1395, #1396, #1404, #1407, #1408, #1409).
 
 ### Fixed
+- The LSP, daemon buffer analysis and MCP tools see version-catalog and settings changes made while they run. The
+  version-catalog discovery memo now lasts one request in those long-lived analyzers, not their whole session, and a
+  buffer request reads its own analyzer's memo instead of the last project run's. Before, adding
+  `gradle/libs.versions.toml` left `InvalidFragmentVersionForActivityResult` and the Gradle catalog lookups on the
+  catalog-less result until restart (#1784). CLI scans already built a fresh memo per run.
 - The Lint ports' shared call parser is memoized per node for each file's dispatch pass, instead of re-parsing a call
   for every port that looks at it, and their import scan finds `import` keywords before running its regex. On
   element-x-android that cut about 1.3s of CPU from a `--no-fir` scan, with the same findings.
@@ -459,6 +482,12 @@ All notable changes to Krit will be documented in this file.
   rule moves to the cross-file phase, whose findings cache is keyed by every file's content, so an edit to the
   declaring file changes warm results; editor (LSP) and MCP single-file analysis no longer run it. Files that mention
   neither the annotation nor such a function are skipped (part of #1151, #1610).
+- `UnsafeImplicitIntentLaunch` evaluates intent actions named by framework constants (`Intent.ACTION_VIEW` and the
+  other `android.*` action constants, when the qualifier resolves to the framework class) and by project constants
+  declared in other files (`const val`, a Kotlin `val` with a constant initializer, a Java `static final` field,
+  top-level or in a class, object or companion object), so an implicit intent with such an action that matches a
+  non-exported component is reported as Lint reports it. A same-named parameter or local shadows a constant from
+  another file (#1624).
 - `CompileTimeConstant` only runs on files that mention `CompileTimeConstant`. Every finding needs an annotated
   declaration in the same file, so other files cannot be reported; the rule spent about 2s on element-x-android and
   0.7s on okhttp finding nothing. Lint ports can opt into the same gate by declaring `fileMentions()`.

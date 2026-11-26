@@ -22,6 +22,14 @@ FIR-only additions after suppression. Keep confirm-only golden markers a
 subset of their regenerated `go-lines` and pin Go-only abstentions even
 though the merge structurally prevents new false positives.
 
+In a confirm-only checker, staying silent **removes** Go's finding. So a
+checker abstains by reporting, and it suppresses a report only on proof.
+Whatever it cannot see into, such as a helper in another file, module or jar
+(a slice compile only reads the checked file's bodies), a constructor or a
+property read, is no proof; reporting there keeps Go's verdict, which Go
+reached with its own project-wide index. `TestWithoutAssertion` once treated
+those as assertion evidence and dropped real findings (#1671).
+
 ## 1. Prerequisites
 
 - The rule is registered in Go (`api.Registry`) and has an entry in
@@ -177,7 +185,9 @@ Never read `build.gradle(.kts)` or `AndroidManifest.xml` in the checker. The Go
 FIR pass resolves each requested file's levels with
 `android.ResolveSDKLevels`, the lookup the Go rules run on `file.Path`: the
 nearest directory above the file whose `build.gradle.kts`, `build.gradle`,
-`src/main/AndroidManifest.xml` or `AndroidManifest.xml` declares a level. It
+`src/main/AndroidManifest.xml` or `AndroidManifest.xml` declares a level, and
+for a level none declares, `--min-sdk` / `--target-sdk` (set by the Bazel rules
+from `--@krit//:min_sdk_version` and an `android_binary`'s `manifest_values`). It
 sends them in the check request as `sdkLevels` (requested file ->
 `{"minSdk": n, "targetSdk": n}`), only for files with a known level.
 krit-fir stores them in `FirRuleContext`, and the accessors map the compiler's

@@ -313,6 +313,25 @@ none of which change the layout's own hash. The Android phase hashes the
 module SDK levels and the RTL main-project facts into its rule hash, and the
 per-file analysis cache adds the SDK levels and the Gradle library facts.
 
+Classpath jars, class directories' files and the `krit-fir` jar are keyed by
+path and content, never by size and modification time, so a key is the same
+in every process for the same bytes. The hash memos make that cheap: the
+in-process memo and `hash-memo.gob` (and `buildid-hashes.json` for the
+`krit-fir` jar) serve an unchanged file's hash for one stat.
+
+Those memos, the per-file analysis cache's mtime fast path and directory
+listings still trust a stat. Filesystems stamp mtimes from a coarse clock
+(4 ms on ext4, a second on HFS+, 2 s on FAT), so a same-size rewrite in the
+same tick keeps the stat. Krit applies git's racy-clean rule with a 2 s
+window (`hashutil.RacyWindow`): a stat whose mtime is not at least 2 s older
+than the moment it was taken is never memoized, and an analysis-cache entry
+for such a file is recorded with an mtime no file has, so the next run checks
+the content. "Now" is the clock of the filesystem holding `.krit/`, measured
+each run by writing and stat-ing a file there, so a network or VM mount with
+a skewed clock is judged by its own clock; on that filesystem an mtime more
+than 2 s in the future is trusted too, since no write made now can reproduce
+it. Files on other filesystems are judged by the local clock.
+
 If a scan with the default cache disagrees with `--no-cache`, that is a bug in
 a key: run `krit --clear-cache` to recover, then report which cache held the
 stale data (move cache directories aside one at a time to find it).
@@ -420,7 +439,7 @@ The job fails when head is slower than both thresholds of a gate:
 
 The **scaling check** times head on the synthetic project at two sizes, 6×
 apart. It fails when a leaf phase or a rule that costs >= 500ms grows more
-than 12× (2× worse than linear). That catches O(n²) work, such as #1658's
+than 12× (2× worse than linear). It times the base binary at both sizes too, and a metric the base already scales as badly (exponent within 0.15) is reported but doesn't fail. A PR fails only for scaling it made worse, not for a borderline phase already on main. That catches O(n²) work, such as #1658's
 per-call class map, independently of runner speed.
 `internal/devtools/perfguard/known-superlinear.txt` lists the phases already
 known to be super-linear, each with its issue. The list only shrinks: when

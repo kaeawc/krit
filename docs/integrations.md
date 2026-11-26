@@ -203,6 +203,7 @@ common --tool_java_runtime_version=remotejdk_21
 | `--@krit//:fir=false` | Go-only analysis, without the JDK or krit-fir. |
 | `--@krit//:worker=false` | No persistent worker: each Krit action starts its own krit-fir JVM. |
 | `--@krit//:large_target_sources=400` | Actions that scan at least this many files run in the `krit_large` exec group (see below). |
+| `--@krit//:min_sdk_version=N`, `--@krit//:target_sdk_version=N` | The Android `minSdk` / `targetSdk` of sources whose own manifest declares none (`krit --min-sdk` / `--target-sdk`). Bazel builds often set them only on the `android_binary`; an `android_binary`'s own action uses its `manifest_values` when they are numbers. `krit_project_report` reads them too, and `krit_test` takes the krit flags in `args`. |
 
 The Krit actions run `krit bazel-worker` as Bazel
 [persistent workers](https://bazel.build/remote/persistent) (JSON protocol,
@@ -459,6 +460,17 @@ a daemon serves the scan:
 - `--absolute-paths` reports every file as absolute instead.
 
 Baselines and `--fix` are unaffected: they match and edit files on disk.
+
+### Baseline IDs
+
+A baseline entry names a finding as `Rule:file:$Rule$message`, where `file` is
+the finding's path relative to the base path above. Both sides are made
+absolute (and, if needed, symlink-resolved) first, so the ID is the same
+whether the scan runs in-process or through the daemon, with or without FIR,
+from a cold or a warm `.krit/`, and whether `--base-path` is `.` or absolute.
+A baseline created in CI therefore matches a local daemon run. Matching also
+accepts the file's base name, so baselines written by Krit versions that fell
+back to base names keep working.
 
 ### JSON finding fields
 

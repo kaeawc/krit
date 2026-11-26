@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"hash"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -24,6 +25,12 @@ import (
 )
 
 const CacheFileName = "incremental.cache"
+
+// racyModTime is the ModTime recorded for a file modified within
+// hashutil.RacyWindow of being cached. No file has it, so the mtime fast path
+// in NeedsReanalysis misses and the content hash decides, the way git smudges
+// a racily clean index entry.
+const racyModTime = math.MinInt64
 
 // cachePayloadVersion is mixed into ComputeConfigHash so that a change to
 // the on-disk payload schema (FileEntry / FindingColumns JSON shape, the
@@ -115,7 +122,10 @@ func DefaultDir(repoDir string) string {
 
 // FileEntry holds cached analysis results for a single file.
 type FileEntry struct {
-	Hash    string                 `json:"hash"`
+	Hash string `json:"hash"`
+	// ModTime is the file's mtime in Unix milliseconds when the entry was
+	// recorded, or racyModTime when that mtime was too recent to vouch for
+	// the content (see hashutil.StatTrusted).
 	ModTime int64                  `json:"modTime"`
 	Size    int64                  `json:"size"`
 	Columns scanner.FindingColumns `json:"-"`
@@ -925,9 +935,13 @@ func (c *Cache) updateEntry(path string, columns scanner.FindingColumns, blobHas
 	}
 	// Compute hash outside the lock — SHA-256 + file I/O can be tens of
 	// milliseconds on large files and would otherwise stall every reader.
+	modTime := info.ModTime().UnixMilli()
+	if !hashutil.StatTrustedNow(info) {
+		modTime = racyModTime
+	}
 	entry := FileEntry{
 		Hash:           ComputeFileHash(path),
-		ModTime:        info.ModTime().UnixMilli(),
+		ModTime:        modTime,
 		Size:           info.Size(),
 		Columns:        columns,
 		OracleBlobHash: oracleBlobHash,

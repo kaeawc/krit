@@ -151,6 +151,7 @@ func cmdCompare(args []string) (bool, error) {
 func cmdScale(args []string) (bool, error) {
 	fs := flag.NewFlagSet("scale", flag.ExitOnError)
 	bin := fs.String("bin", "", "krit binary (required)")
+	baseBin := fs.String("base", "", "base krit binary: metrics it scales as badly don't fail")
 	small := fs.String("small", "", "small corpus directory (required)")
 	large := fs.String("large", "", "large corpus directory (required)")
 	g := defaultScaleGates
@@ -180,6 +181,19 @@ func cmdScale(args []string) (bool, error) {
 		return false, err
 	}
 	results, stale := checkScaling(summarize(ss), summarize(ls), g, known)
+	if *baseBin != "" {
+		logf("perfguard: scaling the base binary too")
+		bss, err := measure(ctx, *baseBin, scanArgs(*extra), *small, *rounds)
+		if err != nil {
+			return false, err
+		}
+		bls, err := measure(ctx, *baseBin, scanArgs(*extra), *large, *rounds)
+		if err != nil {
+			return false, err
+		}
+		baseResults, _ := checkScaling(summarize(bss), summarize(bls), g, knownSuperlinear{})
+		results = applyBase(results, baseResults)
+	}
 	w, closeFn, err := openReport(*report)
 	if err != nil {
 		return false, err

@@ -88,7 +88,7 @@ status=0
 	-title "Performance: base ${base_sha:0:10} vs head" >/dev/null || status=$?
 [ "$status" -le 1 ] || exit 2
 scale_status=0
-"$work/bin/perfguard" scale -bin "$work/bin/krit-head" \
+"$work/bin/perfguard" scale -bin "$work/bin/krit-head" -base "$work/bin/krit-base" \
 	-small "$work/synthetic-small" -large "$work/synthetic-large" -factor 6 \
 	-known internal/devtools/perfguard/known-superlinear.txt \
 	-report "$work/scale.md" >/dev/null || scale_status=$?

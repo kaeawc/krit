@@ -188,6 +188,24 @@ grep -q "srcjar/src/main/kotlin/d/UsesGen.kt:5:.*UnnecessarySafeCall" \
   echo "ERROR: krit_aspect did not report //srcjar's FIR finding through the srcjar" >&2
   exit 1
 }
+# A minSdk set only by the build (#1682): with --@krit//:min_sdk_version=24
+# the SDK_INT >= 21 check of //sdk is obsolete; without it the level is
+# unknown and krit reports nothing.
+echo "== --@krit//:min_sdk_version reaches krit_aspect's actions"
+sdk_report() {
+  build "${extra[@]}" "$@" //sdk > /dev/null 2>&1 || build "${extra[@]}" "$@" //sdk
+  # shellcheck disable=SC2086
+  cat "$($BAZEL info "${extra[@]}" bazel-bin 2> /dev/null)/sdk/sdk.krit.txt"
+}
+if sdk_report | grep -q ObsoleteSdkInt; then
+  echo "ERROR: //sdk reported ObsoleteSdkInt without a minSdk" >&2
+  exit 1
+fi
+sdk_report --@krit//:min_sdk_version=24 | grep -q "sdk/Levels.kt:5:.*ObsoleteSdkInt.*always >= 24" || {
+  sdk_report --@krit//:min_sdk_version=24 >&2
+  echo "ERROR: --@krit//:min_sdk_version=24 did not reach //sdk's Krit action" >&2
+  exit 1
+}
 echo "OK: krit_aspect"
 
 # A remote cache shares a Krit action between machines only if its key
@@ -407,11 +425,18 @@ if grep -l '@@WORKSPACE@@\|@@EXECROOT@@' "${models[@]}"; then
 fi
 scan_home="$work/scan-home"
 mkdir -p "$scan_home"
+# Outside Bazel, Settings.kt is gated: :settings shares kotlin_settings/ with
+# :annotation, so no settings-group session applies its kotlinc_opts (#1775).
+# Its line-32 finding is then Go's, which fir.requireAuthoritativeRules
+# withholds by default (#1675); keep it until #1775 makes the file compile.
+scan_config="$work/export-model-krit.yml"
+cat krit.yml > "$scan_config"
+printf 'fir:\n  requireAuthoritativeRules: []\n' >> "$scan_config"
 rc=0
 scan="$(env -u KRIT_BAZEL_LOCAL_DIST HOME="$scan_home" KRIT_FIR_JAR="$DIST/krit-fir.jar" \
   KRIT_NO_JAR_DOWNLOAD=1 KRIT_NO_DAEMON_AUTOSTART=1 \
   "$DIST/krit" --no-daemon --no-cache --no-fir-daemon --fail-on-degraded -f plain --base-path . \
-  typed/app/Consumer.kt kotlin_settings/Settings.kt 2>&1)" || rc=$?
+  --config "$scan_config" typed/app/Consumer.kt kotlin_settings/Settings.kt 2>&1)" || rc=$?
 printf '%s\n' "$scan"
 if [ "$rc" != 1 ]; then
   echo "ERROR: krit exited $rc; want 1 (findings)" >&2

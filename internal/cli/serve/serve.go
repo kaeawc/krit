@@ -1316,13 +1316,16 @@ func handleAnalyzeBuffers(ctx context.Context, state *daemonState, raw json.RawM
 		return nil, err
 	}
 	results := make([]daemon.AnalyzeBufferEntry, len(args.Buffers))
+	// One batch is one request: its buffers share project facts such as
+	// version-catalog discovery, which the next batch rereads.
+	analyzer.Dispatcher.BeginRequest()
 	for i, buf := range args.Buffers {
 		file, hit, err := state.workspace.ParseFileWithHit(ctx, buf.Path, []byte(buf.Content))
 		if err != nil {
 			results[i] = daemon.AnalyzeBufferEntry{Error: err.Error()}
 			continue
 		}
-		columns := analyzer.AnalyzeFileColumns(file)
+		columns := analyzer.Dispatcher.Run(file)
 		body, err := json.Marshal(columns)
 		if err != nil {
 			results[i] = daemon.AnalyzeBufferEntry{Error: "marshal findings: " + err.Error()}

@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
-	"os"
 	"slices"
 	"strings"
 
@@ -87,14 +86,12 @@ func jsonSafe(v any) any {
 // (checkers read them through FirRule.minSdkFor / targetSdkFor, and they come
 // from build.gradle(.kts) / AndroidManifest.xml files that are not part of the
 // compilation, so editing a targetSdk changes verdicts without changing any
-// hashed source). Stat avoids
-// hashing the large fat jar. encoding/json sorts map keys, so the options
-// encoding is deterministic regardless of map iteration order.
+// hashed source). The jar is identified by its content (buildid.JarToken,
+// memoized across processes), never by its stat, so the key is the same in
+// every process for the same bytes. encoding/json sorts map keys, so the
+// options encoding is deterministic regardless of map iteration order.
 func FirInvocationFingerprint(classpath []string, jarPath string, rules []string, ruleConfigs RuleConfigs, facts FileFacts, target ...CompileTarget) string {
 	jarIdentity := jarPath + ":" + buildid.JarToken(jarPath)
-	if info, err := os.Stat(jarPath); err == nil {
-		jarIdentity = fmt.Sprintf("%s:%d:%d:%s", jarPath, info.Size(), info.ModTime().UnixNano(), buildid.JarToken(jarPath))
-	}
 	ids := slices.Clone(rules)
 	slices.Sort(ids)
 	ids = slices.Compact(ids)

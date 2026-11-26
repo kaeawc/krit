@@ -48,9 +48,11 @@ class TestWithoutAssertionIncrementalTest {
         assertTrue(got.errorFiles.isEmpty(), got.errorFiles.toString())
         assertTrue(got.ruleErrors.isEmpty(), got.ruleErrors.toString())
         for (path in kotlinFilesIn(src)) assertEquals(want.verdictOf(path).key(), got.verdictOf(path).key(), path)
+        // A cross-file helper's body is never read (slices stay sound), so it proves nothing either way: both
+        // external tests are reported and Go's verdict decides them (#1671). Only the local assertion is proven.
         val findings = got.findings.filter { it.rule == "TestWithoutAssertion" }
-        assertEquals(listOf(7), findings.map { it.line })
-        assertEquals("Test function has no assertion; add a verification.", findings.single().message)
+        assertEquals(listOf(4, 5, 7), findings.map { it.line })
+        assertTrue(findings.all { it.message == "Test function has no assertion; add a verification." }, findings.toString())
     }
 
     @Test fun allRulesStillBuildASnapshotAndCheckAgainstBinaryHelpers() {

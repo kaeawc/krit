@@ -70,6 +70,9 @@ func checkCastingViewContextToActivity(ctx *api.Context) {
 func slackReceiverIsView(ctx *api.Context, call lintCall) bool {
 	file := ctx.File
 	if call.ReceiverNode == 0 || call.ReceiverText == "this" {
+		if file.Language == scanner.LangJava {
+			return slackJavaEnclosingClassExtendsView(ctx, call.Idx)
+		}
 		return androidEnclosingClassExtendsView(file, call.Idx, ctx.Resolver)
 	}
 	if androidReceiverIsKnownNonView(file, call.ReceiverNode) {
@@ -77,6 +80,37 @@ func slackReceiverIsView(ctx *api.Context, call lintCall) bool {
 	}
 	if typ := slackReceiverType(ctx, call.ReceiverNode); typ != nil {
 		return androidTypeIsViewSubtype(ctx.Resolver, typ)
+	}
+	return false
+}
+
+// slackJavaEnclosingClassExtendsView reports whether the Java class whose method idx is in extends View, directly or
+// through source superclasses. An anonymous class around idx comes first; its supertype is not read, so it abstains.
+func slackJavaEnclosingClassExtendsView(ctx *api.Context, idx uint32) bool {
+	file := ctx.File
+	for p, ok := file.FlatParent(idx); ok; p, ok = file.FlatParent(p) {
+		switch file.FlatType(p) {
+		case "class_body":
+			if parent, ok := file.FlatParent(p); ok && file.FlatType(parent) == "object_creation_expression" {
+				return false
+			}
+		case "class_declaration":
+			sc, ok := file.FlatFindChild(p, "superclass")
+			if !ok {
+				return false
+			}
+			for c := file.FlatFirstChild(sc); c != 0; c = file.FlatNextSib(c) {
+				if !file.FlatIsNamed(c) {
+					continue
+				}
+				name := slackJavaTypeName(file, c)
+				ref := androidSupertypeRef{name: name, simple: androidSimpleName(name), qualified: strings.Contains(name, ".")}
+				return androidSupertypeIsView(ref, file, ctx.Resolver)
+			}
+			return false
+		case "interface_declaration", "enum_declaration", "record_declaration":
+			return false
+		}
 	}
 	return false
 }
@@ -125,11 +159,27 @@ func slackJavaDeclaredTypeText(file *scanner.File, use uint32) string {
 					}
 				}
 			}
-		case "method_declaration", "constructor_declaration":
-			if params, ok := file.FlatFindChild(parent, "formal_parameters"); ok {
-				for p := file.FlatFirstChild(params); p != 0; p = file.FlatNextSib(p) {
-					if id, ok := file.FlatFindChild(p, "identifier"); ok && file.FlatType(p) == "formal_parameter" && file.FlatNodeText(id) == name {
-						return slackJavaTypeChildText(file, p)
+		case "method_declaration", "constructor_declaration", "lambda_expression":
+			if t, bound := slackJavaParameterType(file, parent, name); bound {
+				return t
+			}
+		case "enhanced_for_statement":
+			// `for (Fake value : values)` binds value in the body, not in the iterable.
+			if id, ok := file.FlatFindChild(parent, "identifier"); ok && file.FlatNodeText(id) == name && child != slackJavaForIterable(file, parent) {
+				return slackJavaTypeChildText(file, parent)
+			}
+		case "catch_clause":
+			if param, ok := file.FlatFindChild(parent, "catch_formal_parameter"); ok {
+				if id, ok := file.FlatFindChild(param, "identifier"); ok && file.FlatNodeText(id) == name {
+					// A catch parameter is a Throwable, never a View or Resources.
+					return "Throwable"
+				}
+			}
+		case "try_with_resources_statement":
+			if spec, ok := file.FlatFindChild(parent, "resource_specification"); ok && child != spec {
+				for res := file.FlatFirstChild(spec); res != 0; res = file.FlatNextSib(res) {
+					if id, ok := file.FlatFindChild(res, "identifier"); ok && file.FlatType(res) == "resource" && file.FlatNodeText(id) == name {
+						return slackJavaTypeChildText(file, res)
 					}
 				}
 			}
@@ -137,6 +187,58 @@ func slackJavaDeclaredTypeText(file *scanner.File, use uint32) string {
 		child = parent
 	}
 	return ""
+}
+
+// slackJavaParameterType returns the declared type of a parameter called name of a Java method, constructor or
+// lambda, and whether the scope declares one. An inferred lambda parameter's type is unknown ("").
+func slackJavaParameterType(file *scanner.File, scope uint32, name string) (string, bool) {
+	for c := file.FlatFirstChild(scope); c != 0; c = file.FlatNextSib(c) {
+		switch file.FlatType(c) {
+		case "identifier":
+			if file.FlatType(scope) == "lambda_expression" && file.FlatNodeText(c) == name {
+				return "", true
+			}
+		case "inferred_parameters", "formal_parameters":
+			for p := file.FlatFirstChild(c); p != 0; p = file.FlatNextSib(p) {
+				switch file.FlatType(p) {
+				case "identifier":
+					if file.FlatNodeText(p) == name {
+						return "", true
+					}
+				case "formal_parameter", "spread_parameter":
+					if id, ok := file.FlatFindChild(p, "identifier"); ok && file.FlatNodeText(id) == name {
+						return slackJavaTypeChildText(file, p), true
+					}
+				}
+			}
+		}
+	}
+	return "", false
+}
+
+// slackJavaForIterable returns the iterable expression of an enhanced for statement (the named child after the
+// loop variable), or 0.
+func slackJavaForIterable(file *scanner.File, loop uint32) uint32 {
+	seenVar := false
+	for c := file.FlatFirstChild(loop); c != 0; c = file.FlatNextSib(c) {
+		if file.FlatType(c) == "identifier" && !seenVar {
+			seenVar = true
+			continue
+		}
+		if seenVar && file.FlatIsNamed(c) {
+			return c
+		}
+	}
+	return 0
+}
+
+// slackJavaTypeName returns a Java type node's name without type arguments.
+func slackJavaTypeName(file *scanner.File, typ uint32) string {
+	text := strings.Join(strings.Fields(file.FlatNodeText(typ)), "")
+	if i := strings.IndexByte(text, '<'); i >= 0 {
+		text = text[:i]
+	}
+	return text
 }
 
 func slackJavaDeclarationType(file *scanner.File, decl uint32, name string) string {
@@ -202,14 +304,135 @@ func slackReceiverIsResources(ctx *api.Context, call lintCall) bool {
 	if call.ReceiverNode == 0 {
 		return false
 	}
-	text := strings.Join(strings.Fields(call.ReceiverText), "")
-	last := text[strings.LastIndexAny(text, ".")+1:]
-	if last == "resources" || last == "getResources()" {
+	// Android's accessor, `context.resources` or `getResources()`, counts when its owner is shown to be a Context,
+	// View or Fragment. The resolver is not asked for the accessor's own type: for a member it does not know, it
+	// answers with the owner's type.
+	file := ctx.File
+	recv := call.ReceiverNode
+	switch file.FlatType(recv) {
+	case "navigation_expression":
+		if slackNavigationSelector(file, recv) == "resources" {
+			return slackIsResourcesOwner(ctx, file.FlatFirstChild(recv))
+		}
+	case "call_expression", "method_invocation":
+		if c, ok := lintCallAt(file, recv); ok && c.Name == "getResources" && len(c.Args) == 0 {
+			if c.ReceiverNode == 0 {
+				return slackEnclosingClassIsResourcesOwner(ctx, recv)
+			}
+			return slackIsResourcesOwner(ctx, c.ReceiverNode)
+		}
+	}
+	if typ := slackReceiverType(ctx, recv); typ != nil {
+		return slackTypeIsResources(ctx, typ)
+	}
+	// An unqualified `resources` with no declaration in scope is the enclosing Activity's, View's or Fragment's.
+	return file.FlatType(recv) == "simple_identifier" && file.FlatNodeText(recv) == "resources" &&
+		slackEnclosingClassIsResourcesOwner(ctx, recv)
+}
+
+func slackIsResourcesOwner(ctx *api.Context, owner uint32) bool {
+	typ := slackReceiverType(ctx, owner)
+	return typ != nil && slackTypeIsAny(ctx.Resolver, typ, slackResourcesOwners)
+}
+
+// slackResourcesOwners are the Android types whose getResources() returns android.content.res.Resources.
+var slackResourcesOwners = []string{"android.content.Context", "android.view.View", "androidx.fragment.app.Fragment",
+	"android.app.Fragment", "android.content.ContextWrapper", "android.app.Activity", "android.app.Application",
+	"android.app.Service", "androidx.appcompat.app.AppCompatActivity", "androidx.activity.ComponentActivity",
+	"androidx.fragment.app.FragmentActivity"}
+
+func slackTypeIsResources(ctx *api.Context, typ *typeinfer.ResolvedType) bool {
+	if typ.Name == "Resources" && !strings.Contains(typ.FQN, ".") && lintTypeRefMatches(ctx.File, "Resources", fqcnAndroidResources) {
 		return true
 	}
-	typ := slackReceiverType(ctx, call.ReceiverNode)
-	return typ != nil && (typ.FQN == fqcnAndroidResources ||
-		(typ.Name == "Resources" && lintTypeRefMatches(ctx.File, "Resources", fqcnAndroidResources)))
+	return slackTypeIsAny(ctx.Resolver, typ, []string{fqcnAndroidResources})
+}
+
+// slackTypeIsAny reports whether a resolved type is one of roots (FQNs) or a source class extending one.
+func slackTypeIsAny(resolver typeinfer.TypeResolver, typ *typeinfer.ResolvedType, roots []string) bool {
+	seen := map[string]bool{}
+	var visit func(string) bool
+	visit = func(name string) bool {
+		if name == "" || seen[name] {
+			return false
+		}
+		seen[name] = true
+		for _, r := range roots {
+			if name == r {
+				return true
+			}
+		}
+		if resolver == nil {
+			return false
+		}
+		info := resolver.ClassHierarchy(name)
+		if info == nil {
+			return false
+		}
+		for _, r := range roots {
+			if info.FQN == r {
+				return true
+			}
+		}
+		for _, super := range info.Supertypes {
+			if visit(super) {
+				return true
+			}
+		}
+		return false
+	}
+	return visit(typ.FQN)
+}
+
+// slackEnclosingClassIsResourcesOwner reports whether the class around an unqualified `resources`/`getResources()`
+// extends a Context, View or Fragment type, so the accessor is Android's.
+func slackEnclosingClassIsResourcesOwner(ctx *api.Context, idx uint32) bool {
+	file := ctx.File
+	cls, ok := flatEnclosingAncestor(file, idx, "class_declaration", "object_declaration")
+	if !ok {
+		return false
+	}
+	var supers []string
+	if file.Language == scanner.LangJava {
+		if sc, ok := file.FlatFindChild(cls, "superclass"); ok {
+			for c := file.FlatFirstChild(sc); c != 0; c = file.FlatNextSib(c) {
+				if file.FlatIsNamed(c) {
+					supers = append(supers, slackJavaTypeName(file, c))
+				}
+			}
+		}
+	} else {
+		for _, ref := range androidDirectSupertypesFlat(file, cls) {
+			supers = append(supers, ref.name)
+		}
+	}
+	imp := lintImportsOf(file)
+	for _, name := range supers {
+		fqn := name
+		if full, ok := imp.bySimple[name]; ok {
+			fqn = full
+		}
+		if slackTypeIsAny(ctx.Resolver, &typeinfer.ResolvedType{Name: androidSimpleName(name), FQN: fqn}, slackResourcesOwners) {
+			return true
+		}
+	}
+	return false
+}
+
+// slackNavigationSelector returns the member name of a Kotlin navigation_expression.
+func slackNavigationSelector(file *scanner.File, nav uint32) string {
+	var last uint32
+	for c := file.FlatFirstChild(nav); c != 0; c = file.FlatNextSib(c) {
+		if file.FlatType(c) == "navigation_suffix" {
+			if id, ok := file.FlatFindChild(c, "simple_identifier"); ok {
+				last = id
+			}
+		}
+	}
+	if last == 0 {
+		return ""
+	}
+	return file.FlatNodeText(last)
 }
 
 func slackIsFormattedCount(file *scanner.File, arg uint32) bool {
@@ -318,6 +541,10 @@ func slackSpannedConstant(file *scanner.File, node uint32) (string, bool) {
 			}
 		}
 	case "simple_identifier", "identifier":
+		// A parameter or local of that name shadows the static import.
+		if lintNameIsParameterAt(file, node, text) || (file.Language == scanner.LangJava && slackJavaDeclaredTypeText(file, node) != "") {
+			return "", false
+		}
 		imp := lintImportsOf(file)
 		if full, ok := imp.bySimple[text]; ok {
 			for _, cls := range spannedClasses {
@@ -353,8 +580,19 @@ func slackMasksWithPointMark(file *scanner.File, node uint32) bool {
 		node = next
 	}
 	switch file.FlatType(node) {
-	case "infix_expression", "binary_expression", "additive_expression", "multiplicative_expression":
+	case "infix_expression", "binary_expression":
 	default:
+		return false
+	}
+	// Only a bitwise AND masks (Kotlin `and`, Java `&`); `flags or MASK` / `flags | MASK` does not.
+	masked := false
+	for child := file.FlatFirstChild(node); child != 0; child = file.FlatNextSib(child) {
+		t := file.FlatType(child)
+		if t == "&" || (t == "simple_identifier" && file.FlatNodeText(child) == "and" && file.FlatType(node) == "infix_expression") {
+			masked = true
+		}
+	}
+	if !masked {
 		return false
 	}
 	for child := file.FlatFirstChild(node); child != 0; child = file.FlatNextSib(child) {

@@ -123,14 +123,18 @@ lives in Slack's own `slack.*` packages.
 Three Android source checks prove their receiver before reporting:
 
 - `CastingViewContextToActivity` reports `view.getContext() as Activity` (also `as?` and a Java cast) when the
-  receiver's type is a `View` subtype, or the call is an implicit `getContext()` in a `View` subclass. As in Lint, the
-  Kotlin property form `view.context` and a parenthesized call are not reported.
+  receiver's type is a `View` subtype, or the call is an implicit `getContext()` in a Kotlin or Java `View` subclass.
+  As in Lint, the Kotlin property form `view.context` and a parenthesized call are not reported. Unlike Lint, an
+  `is Activity` / `instanceof Activity` check is not reported: it is not a cast.
 - `ArgInFormattedQuantityStringRes` reports format arguments of `Resources.getQuantityString` that are not a
-  `getFormattedCount()` call (in Java, also a local initialized by one). The receiver must be typed `Resources` or be
-  spelled `resources`/`getResources()`, so a project's own `getQuantityString` wrapper is not reported.
+  `getFormattedCount()` call (in Java, also a local initialized by one). The receiver must be typed `Resources` (or a
+  project subclass), or be Android's accessor (`context.resources`, `getResources()`, an unqualified `resources`)
+  on a Context, View or Fragment, so a project's own `getQuantityString` wrapper is not reported.
 - `SpanMarkPointMissingMask` reports `==`/`!=` against a `Spanned` mark-point flag (`SPAN_EXCLUSIVE_EXCLUSIVE`, ...)
-  whose other side does not mask with `SPAN_POINT_MARK_MASK`. Unlike Lint, krit looks inside parentheses, so the
-  correctly masked `(flags & Spanned.SPAN_POINT_MARK_MASK) == Spanned.SPAN_EXCLUSIVE_EXCLUSIVE` is not reported.
+  whose other side does not mask with `SPAN_POINT_MARK_MASK` (a bitwise `and`/`&`; `or`/`|` does not mask). A
+  parameter or local named like the flag shadows its static import. Unlike Lint, krit looks inside parentheses, so
+  the correctly masked `(flags & Spanned.SPAN_POINT_MARK_MASK) == Spanned.SPAN_EXCLUSIVE_EXCLUSIVE` is not
+  reported. Lint's quick fix, which inserts the mask, is not ported.
 
 `SubscribeOnMain` reports `subscribeOn(AndroidSchedulers.mainThread())`, or `immediateMainThread()`, on RxJava 3's
 `Observable`, `Flowable`, `Single`, `Maybe` and `Completable`. Lint resolves the receiver's type; krit requires the file

@@ -532,6 +532,11 @@ All notable changes to Krit will be documented in this file.
   `MoshiUsageSerializedName`, `MoshiUsageRedundantSiteTarget` and `MoshiUsageSnakeCase`. Unlike Lint 9.4, krit
   reports `@SerializedName` on a constructor property and does not report `@Json(ignore = true)` members as
   duplicates of Moshi's unset name (#1386, #1390, #1401, #1414, #1416, #1417).
+- `CastingViewContextToActivity`, `ArgInFormattedQuantityStringRes` and `SpanMarkPointMissingMask`, slack-lints 0.11.1's
+  Android source checks, in the opt-in `slack-lint` rule set for Kotlin and Java. Findings match the Lint CLI with
+  `android.jar` on the classpath (`internal/rules/testdata/slack_lint/android_ui/`), except that a mask inside
+  parentheses, `(flags & Spanned.SPAN_POINT_MARK_MASK) == ...` (the only form Java allows), is not reported
+  (#1356, #1357, #1424).
 - `slack-lint` gains `MoshiUsageAdaptedByRequiresAdapter` and `MoshiUsageAdaptedByRequiresKeep` for moshix
   `@AdaptedBy` adapters declared in the project (Kotlin or Java, followed through project base classes), and
   `MoshiUsageQualifierRetention` and `MoshiUsageQualifierTarget` for Kotlin and Java `@JsonQualifier` annotation

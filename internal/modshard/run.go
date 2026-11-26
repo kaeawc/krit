@@ -37,7 +37,8 @@ type Input struct {
 	ModelDir string
 	// JarPath is the krit-fir jar. JavaPath is the JVM to run it with.
 	JarPath, JavaPath string
-	// Workers is the number of worker JVMs; 0 means half the CPUs, between 2 and 8.
+	// Workers is how many modules are compiled at a time, on threads of as few worker JVMs as
+	// KRIT_WORKER_THREADS allows; 0 means half the CPUs, between 2 and 8.
 	Workers int
 	// CacheDir holds one facts file per unit, keyed by everything the facts depend on.
 	CacheDir string
@@ -338,7 +339,7 @@ func analyze(ctx context.Context, in Input, stale []Unit, keyOf map[string]strin
 		workers = defaultWorkers()
 	}
 	workers = max(1, min(workers, len(stale)))
-	jvms, threads := workerLayout(workers)
+	threads := workerLayout(workers)
 	tmp, err := os.MkdirTemp("", "krit-modshard-")
 	if err != nil {
 		return 0, 0, err
@@ -359,7 +360,7 @@ func analyze(ctx context.Context, in Input, stale []Unit, keyOf map[string]strin
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	var firstErr error
-	for i, group := range Shards(stale, jvms) {
+	for i, group := range weightedShards(stale, threads) {
 		if len(group) == 0 {
 			continue
 		}
@@ -372,7 +373,7 @@ func analyze(ctx context.Context, in Input, stale []Unit, keyOf map[string]strin
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if err := runWorker(ctx, in, jvm, i, jvms, threads, len(group), request, factsDir, checkPath); err != nil {
+			if err := runWorker(ctx, in, jvm, i, workers, threads[i], len(group), request, factsDir, checkPath); err != nil {
 				mu.Lock()
 				if firstErr == nil {
 					firstErr = err
@@ -420,11 +421,11 @@ func writeRequest(dir string, shard int, group []Unit) (string, error) {
 	return path, os.WriteFile(path, data, 0o644)
 }
 
-// runWorker runs one of jvms krit-fir JVMs over a request, compiling threads modules at a time. A JVM
+// runWorker runs a krit-fir JVM over a request, compiling threads of the parallel concurrent modules. A JVM
 // that exits abnormally is an error; modules it did not finish simply have no facts file.
-func runWorker(ctx context.Context, in Input, jvm workerJVM, shard, jvms, threads, modules int, request, factsDir, checkPath string) error {
+func runWorker(ctx context.Context, in Input, jvm workerJVM, shard, parallel, threads, modules int, request, factsDir, checkPath string) error {
 	args := []string{
-		"-Xms256m", "-Xmx" + strconv.Itoa(workerHeapMB(jvms, threads)) + "m", "-XX:+UseG1GC", "-XX:ParallelGCThreads=2", "-XX:ConcGCThreads=1",
+		"-Xms256m", "-Xmx" + strconv.Itoa(workerHeapMB(parallel, threads)) + "m", "-XX:+UseG1GC", "-XX:ParallelGCThreads=2", "-XX:ConcGCThreads=1",
 		"-XX:CICompilerCount=2", "-Djava.awt.headless=true",
 	}
 	// The recording worker (the first) also trains the AOT cache for later runs; the others use a ready cache.

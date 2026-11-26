@@ -194,7 +194,8 @@ private fun printOneShotUsage() {
  * each other here (their dependencies are built jars or source context), each gets its own compiler session, and the
  * per-compile registries (rule context, oracle collector, rule errors, recording) are thread-local, so a module
  * compiles as it would alone, while the JVM's JIT-compiled compiler and heap are shared. One module's failure is
- * reported as `FACTS id failed` and leaves the others.
+ * reported as `FACTS id failed` and leaves the others. Each file is written whole or not at all, so a JVM that ends
+ * mid-request (see [runConcurrently]) leaves no torn facts for krit to cache.
  */
 internal fun runModuleFacts(
     modules: List<ModuleSpec>, dir: JavaFile, jvmTarget: String, check: AnalysisSession.ModuleCheckIndex?, threads: Int,
@@ -212,21 +213,56 @@ internal fun runModuleFacts(
             System.err.println("FACTS\t${module.id}\tfailed\t$reason")
             return
         }
-        if (checked != null) JavaFile(dir, "$name.check.json").writeText(buildCheckResponse(checked))
-        JavaFile(dir, "$name.json")
-            .writeText(dev.jasonpearson.krit.fir.oracle.OracleResponse.buildOneShot(outcome.result))
+        if (checked != null) writeWhole(JavaFile(dir, "$name.check.json"), buildCheckResponse(checked))
+        val facts = dev.jasonpearson.krit.fir.oracle.OracleResponse.buildOneShot(outcome.result)
+        writeWhole(JavaFile(dir, "$name.json"), facts)
         System.err.println("FACTS\t${module.id}\tok\t${(System.nanoTime() - started) / 1_000_000}")
     }
-    val workers = threads.coerceIn(1, modules.size.coerceAtLeast(1))
+    runConcurrently(modules, threads, ::analyze)
+}
+
+/** Writes [text] to a temporary file beside [file] and renames it into place. */
+private fun writeWhole(file: JavaFile, text: String) {
+    val tmp = JavaFile(file.parentFile, "${file.name}.tmp")
+    tmp.writeText(text)
+    java.nio.file.Files.move(tmp.toPath(), file.toPath(), java.nio.file.StandardCopyOption.ATOMIC_MOVE)
+}
+
+/**
+ * Runs [action] on each of [items], [threads] at a time. An error thrown by one (an OutOfMemoryError, say) ends the
+ * run as it would on one thread: the items not yet started never start, and it is rethrown at once. The threads are
+ * daemons, so items still running do not keep the JVM alive once the caller gives up.
+ */
+internal fun <T> runConcurrently(items: List<T>, threads: Int, action: (T) -> Unit) {
+    val workers = threads.coerceIn(1, items.size.coerceAtLeast(1))
     if (workers == 1) {
-        modules.forEach(::analyze)
+        items.forEach(action)
         return
     }
-    val pool = java.util.concurrent.Executors.newFixedThreadPool(workers)
+    val pool = java.util.concurrent.Executors.newFixedThreadPool(workers) { task ->
+        Thread(task, "krit-module").apply { isDaemon = true }
+    }
+    // Set by the first item that throws, before the caller hears of it, so no thread starts another.
+    val stopped = java.util.concurrent.atomic.AtomicBoolean()
     try {
-        // Errors (an OutOfMemoryError, say) end the process as they would on one thread.
-        modules.map { module -> pool.submit { analyze(module) } }.forEach {
-            try { it.get() } catch (e: java.util.concurrent.ExecutionException) { throw e.cause ?: e }
+        val done = java.util.concurrent.ExecutorCompletionService<Unit>(pool)
+        items.forEach { item ->
+            done.submit {
+                if (stopped.get()) return@submit
+                var finished = false
+                try {
+                    action(item)
+                    finished = true
+                } finally {
+                    if (!finished) stopped.set(true)
+                }
+            }
+        }
+        repeat(items.size) {
+            try { done.take().get() } catch (e: java.util.concurrent.ExecutionException) {
+                pool.shutdownNow()
+                throw e.cause ?: e
+            }
         }
     } finally {
         pool.shutdown()

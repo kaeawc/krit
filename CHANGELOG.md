@@ -375,7 +375,9 @@ All notable changes to Krit will be documented in this file.
 - Module workers compile several modules at a time on threads of one JVM instead of one JVM per concurrent module
   (#1656): they share the JIT-compiled compiler and heap. On a 4-core machine the `--fir` source-set recheck of 24
   sets went from about 32s to 25s with the same results; module sharding, PR mode and settings-group sessions use the
-  same workers. `KRIT_WORKER_THREADS` caps the threads per JVM (default 4; `1` restores a JVM per module).
+  same workers. `KRIT_WORKER_THREADS` caps the threads per JVM (default 4; `1` restores a JVM per module). Each
+  concurrent compile keeps the heap a JVM per module had, and an out-of-memory error in one stops that JVM's
+  remaining modules.
 - The Gradle plugins `dev.jasonpearson.krit` and `dev.jasonpearson.krit.settings` declare configuration-cache
   support on the Gradle Plugin Portal. `kritCheck`, `kritFormat` and `kritBaseline` now resolve (and download) the
   krit binary when they run instead of while Gradle builds the task graph, so `--dry-run` no longer downloads it and

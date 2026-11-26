@@ -39,7 +39,8 @@ Sharding applies only when all of these hold. Otherwise krit logs the reason
 
 The modules compiling at a time run on as few worker JVMs as
 `KRIT_WORKER_THREADS` allows: two concurrent modules run on two threads of one
-JVM, eight on two JVMs of four threads. Threads of one JVM share its
+JVM, eight on two JVMs of four threads, and five on JVMs of three and two
+threads, with modules shared out in proportion to the threads. Threads of one JVM share its
 JIT-compiled compiler and its heap, which a JVM per module would each build up
 again. On a 4-core machine the source-set recheck of 24 sets took about 25s
 on one JVM with two threads against about 32s on two JVMs, with the same
@@ -47,9 +48,10 @@ facts and verdicts (#1656). This applies wherever modules are compiled on
 their own: module sharding, PR mode, the source-set recheck and settings-group
 sessions.
 
-Each worker JVM gets a heap of at most 5 GB per thread, reduced so that all
-workers together stay under 40% of the available memory, and never below
-1.5 GB. On Linux the
+Each concurrent module compile gets a heap of at most 5 GB, reduced so that
+all of them together stay under 40% of the available memory, and never below
+1.5 GB; a worker JVM's heap is that times its threads, the same per compile as
+a JVM per module. On Linux the
 available memory is the cgroup memory limit when one is set, and the CPU count
 follows the cgroup CPU quota; see
 [Hermetic and build-system runs](hermetic-builds.md#cpu-and-memory).

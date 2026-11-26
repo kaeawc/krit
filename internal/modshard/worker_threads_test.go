@@ -16,6 +16,7 @@ func TestCheckIsolatedRunsConcurrentModulesOnThreadsOfOneJVM(t *testing.T) {
 		t.Skip("the fake worker is a shell script")
 	}
 	t.Setenv("KRIT_WORKER_AOT", "0")
+	t.Setenv("KRIT_WORKER_THREADS", "")
 	model, root := fixtureModel(t)
 	writeModel(t, root, model)
 	main := filepath.Join(root, "lib", "src", "main", "kotlin", "L.kt")

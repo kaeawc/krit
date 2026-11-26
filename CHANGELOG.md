@@ -12,6 +12,11 @@ All notable changes to Krit will be documented in this file.
   its inputs' hashes in the model, and krit warns, naming the file, when the build no longer matches. A model restored under another checkout path or Gradle user home is rebased when
   loaded (new `gradleUserHome` model field). New `krit { exportTests = false }` exports and resolves only production
   source sets (#1663).
+- PR mode for `--diff` (#1660): with a Gradle model, the type oracle and the FIR check compile only the modules that
+  hold the changed Kotlin files, with their dependencies as built jars or source context, instead of the whole
+  repository; every other file keeps Go's verdict. It falls back to the whole-repository compile when a module would
+  lose dependency context or the model is missing, and `--no-pr-mode` turns it off. The FIR summary line and
+  `summary.fir.outsidePr` say how many files stayed with Go.
 - Gradle plugin: `kritCheck` with custom rule jars writes every enabled report from one krit run (one
   `--report FORMAT=PATH` each), like every other scan, instead of analyzing once per report (#1634).
 - `DoNotMockAnything`, `DoNotMockPlatformTypes`, `DoNotMockDataClass` and `DoNotMockObjectClass`, slack-lints 0.11.1's
@@ -480,6 +485,8 @@ All notable changes to Krit will be documented in this file.
   top-level or in a class, object or companion object), so an implicit intent with such an action that matches a
   non-exported component is reported as Lint reports it. A same-named parameter or local shadows a constant from
   another file (#1624).
+- `--diff` run from a subdirectory of the repository reported no findings: git's repository-relative paths were
+  resolved against the working directory.
 - `CompileTimeConstant` only runs on files that mention `CompileTimeConstant`. Every finding needs an annotated
   declaration in the same file, so other files cannot be reported; the rule spent about 2s on element-x-android and
   0.7s on okhttp finding nothing. Lint ports can opt into the same gate by declaring `fileMentions()`.

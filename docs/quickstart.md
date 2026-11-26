@@ -46,7 +46,7 @@ krit --diff HEAD~1 .              # findings on lines changed in the last commit
 krit --diff origin/main --fix .   # auto-fix findings on changed lines
 ```
 
-`--diff <ref>` is a line-level filter. It first narrows findings to changed files, then parses zero-context git hunks and reports only findings whose source line falls inside a changed hunk.
+`--diff <ref>` is a line-level filter. It first narrows findings to changed files, then parses zero-context git hunks and reports only findings whose source line falls inside a changed hunk. With a Gradle model it also compiles only the changed files' modules for the type oracle and FIR (PR mode; `--no-pr-mode` compiles the whole repository, see [performance](perf.md)).
 
 ## Baselines
 

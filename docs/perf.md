@@ -180,9 +180,38 @@ krit --diff origin/main .          # findings on lines changed since main
 krit --delta origin/main .         # findings *newly introduced* since main
 ```
 
-The best perf knob for PR/CI runs. Krit still analyses changed files but
-skips reporting on untouched ones. Combine with `--daemon` for compounding
-wins.
+The best perf knob for PR/CI runs. Both report only findings in changed
+files (`--diff` only on changed lines).
+
+With `--diff`, the JVM work is scoped to the change as well (PR mode,
+#1660). With a Gradle model, the type oracle and the FIR check compile only
+the modules that hold changed Kotlin files: each module with its
+dependencies as built jars, or as source context when they are not built,
+the way module sharding does (see [module sharding](module-sharding.md)).
+Every other file keeps Go's verdict, and `--diff` drops its findings
+anyway. A change with no Kotlin file starts no JVM at all. `-v` reports
+`PR mode: the type oracle and FIR analyzed 3 changed files in 2 modules`,
+and the FIR summary line says how many files stayed with Go.
+
+PR mode falls back to the whole-repository compile, and says why under
+`-v`, when:
+- there is no Gradle model or no krit-fir jar or JDK;
+- `KRIT_MODULE_SHARDS=merged` is set;
+- a changed file's module would compile without some of its dependencies
+  (their unbuilt sources exceed 3000 files);
+- too few changed files get facts.
+
+`--no-pr-mode` keeps the whole-repository compile. It also takes precedence
+over `--daemon`'s resident oracle, and PR-mode scans run in-process rather
+than through the krit daemon. Module compiles are cached by content under
+`.krit/module-facts`, so rescanning an unchanged module costs no JVM.
+
+A module compile sees its own module and its dependencies, not the rest of
+the repository, so a verdict can differ from the whole-repository compile
+where module boundaries matter: smart casts across modules, `internal`
+visibility, and classes the merged compile reported as redeclared between
+variant source sets (which PR mode no longer sees). `--delta` does not use
+PR mode yet: it compares against a full scan of the base ref.
 
 ### `--max-cost TIER`
 
@@ -396,7 +425,8 @@ for the schema. The most useful for CI tuning:
 
 **Pre-commit hook:** `krit --diff HEAD --max-cost ast --no-fir .`
 
-**PR CI:** `krit --diff origin/main --daemon .`
+**PR CI:** `krit --diff origin/main .` (PR mode compiles only the changed
+modules; restore `.krit/` from the base branch to reuse its module cache)
 
 **Full repo daily lint:** `krit --daemon .` (or no daemon if the runner is
 ephemeral)

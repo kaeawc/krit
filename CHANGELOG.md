@@ -35,6 +35,9 @@ All notable changes to Krit will be documented in this file.
   `androidx.compose.material3` 1.5.0, under their Lint IDs. Their findings match the Lint CLI running those releases'
   `lint.jar` on the inputs under `internal/rules/testdata/androidx_compose_material/`. The material3 import check needs
   a material3 import in the file or a material3 dependency in the build (#1457, #1458, #1459, #1461).
+- Gradle plugin: `kritCheckAll` and the per-variant / per-source-set `kritCheck<Name>` tasks run the generated-source
+  producers (Variant API and KGP roots, R-class, kapt stubs) when FIR is on, as `kritCheck` already did, so FIR no
+  longer gates generated-code users on a clean checkout without `exportGenerated` (#1642, #1686).
 - Compose lint parity, first batch of [compose-lints](https://github.com/slackhq/compose-lints) 1.6.1 ports:
   `ComposeCompositionLocalUsage` (with the `allowedCompositionLocals` option) and `ComposeCompositionLocalGetter`,
   under their Lint IDs, messages and severities, experimental and off by default. `ComposeNamingUppercase` and
@@ -498,6 +501,16 @@ All notable changes to Krit will be documented in this file.
 - Warm runs re-run manifest-source rules and replay no findings bundle after a Groovy `build.gradle` edit. The
   manifest-source cache key and the findings-bundle fingerprint now hash every build script, which manifest rules read
   from disk; before, only Kotlin DSL scripts were covered, as source files.
+- `JavascriptInterface` reads Kotlin accessor use-site targets: a property annotated `@get:JavascriptInterface` or
+  `@set:JavascriptInterface`, or whose getter or setter carries the annotation, counts as an annotated bridge method,
+  and a private one is reported as `Must be public`, as Lint sees the accessor methods through UAST. `@field:` does
+  not count (part of #1620).
+- `JavascriptInterface` reads Kotlin accessor use-site targets: a property or primary-constructor property annotated
+  `@get:`/`@set:JavascriptInterface` (including the array form `@get:[... JavascriptInterface]`), or whose getter or
+  setter carries the annotation, counts as an annotated bridge method, and a protected one is reported as
+  `Must be public`, as Lint sees the generated accessors through UAST. `@field:`, `@JvmField` and `const`
+  properties, and a private property's accessor without a body, generate no annotated accessor and do not count
+  (part of #1620).
 - The Lint ports' shared call parser is memoized per node for each file's dispatch pass, instead of re-parsing a call
   for every port that looks at it, and their import scan finds `import` keywords before running its regex. On
   element-x-android that cut about 1.3s of CPU from a `--no-fir` scan, with the same findings.
@@ -505,12 +518,23 @@ All notable changes to Krit will be documented in this file.
   another module depends on material3: as in Lint, material3 must be imported in the file or declared by the file's
   own module. `UnusedMaterialScaffoldPaddingParameter` and `UnusedMaterial3ScaffoldPaddingParameter` now resolve
   aliased `Scaffold` imports (#1728).
+- `CompileTimeConstant` resolves Kotlin calls into other source files through the type index: top-level functions
+  (explicit import, same package, wildcard import), members of the receiver's type and its supertypes (including
+  interface methods), operator calls (`a[i]`, `a[i] = v`, `a += v`, `invoke`), and overrides that add the annotation
+  to a supertype method declared elsewhere. Inherited members are tried before imports, and calls under an
+  extension receiver or a `with`/`apply`/`run` block abstain. The type index now records parameter annotations. The
+  rule moves to the cross-file phase, whose findings cache is keyed by every file's content, so an edit to the
+  declaring file changes warm results; editor (LSP) and MCP single-file analysis no longer run it. Files that mention
+  neither the annotation nor such a function are skipped (part of #1151, #1610).
 - `UnsafeImplicitIntentLaunch` evaluates intent actions named by framework constants (`Intent.ACTION_VIEW` and the
   other `android.*` action constants, when the qualifier resolves to the framework class) and by project constants
   declared in other files (`const val`, a Kotlin `val` with a constant initializer, a Java `static final` field,
   top-level or in a class, object or companion object), so an implicit intent with such an action that matches a
   non-exported component is reported as Lint reports it. A same-named parameter or local shadows a constant from
   another file (#1624).
+- The dispatch phase appends each file's findings to the run's findings once, instead of rebuilding all findings so far
+  for every file that has any, under a lock all workers share. Rule execution on a 12,000-file synthetic project went
+  from 16-17s to 5s (total 21s to 10s), and on element-x-android from 9.1-9.5s to 7.3-7.9s, with the same findings.
 - `CompileTimeConstant` only runs on files that mention `CompileTimeConstant`. Every finding needs an annotated
   declaration in the same file, so other files cannot be reported; the rule spent about 2s on element-x-android and
   0.7s on okhttp finding nothing. Lint ports can opt into the same gate by declaring `fileMentions()`.

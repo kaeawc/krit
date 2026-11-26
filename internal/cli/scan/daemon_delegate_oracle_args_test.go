@@ -27,6 +27,9 @@ func TestDaemonCompatibleFlags_OracleArgsAllowed(t *testing.T) {
 		{"--sample-rule", func(f *scanFlags) { *f.SampleRule = "MyRule" }, true},
 		{"--output-types", func(f *scanFlags) { *f.OutputTypes = "/tmp/out.json" }, true},
 		{"--delta", func(f *scanFlags) { *f.Delta = "main" }, true},
+		// PR mode (#1660) compiles the changed files' modules in-process.
+		{"--diff", func(f *scanFlags) { *f.Diff = "main" }, false},
+		{"--diff --no-pr-mode", func(f *scanFlags) { *f.Diff = "main"; *f.NoPRMode = true }, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

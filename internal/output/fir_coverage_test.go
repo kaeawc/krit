@@ -38,6 +38,20 @@ func TestFirCoverageLineAndRatio(t *testing.T) {
 	}
 }
 
+// PR mode (#1660) says how much it left to Go, gated files or not.
+func TestFirCoverageLineInPRMode(t *testing.T) {
+	if line, want := FirCoverageLine(FirCoverage{Authoritative: 3, OutsidePR: 27210}),
+		"FIR analyzed 3 of 3 changed files (PR mode: 27,210 unchanged files keep Go's verdict)."; line != want {
+		t.Fatalf("line = %q, want %q", line, want)
+	}
+	line := FirCoverageLine(FirCoverage{Authoritative: 2, Gated: 1, OutsidePR: 10})
+	for _, want := range []string{"FIR analyzed 2 of 3 files (67%); 1 gated by compile errors", "(PR mode: 10 unchanged files keep Go's verdict)"} {
+		if !strings.Contains(line, want) {
+			t.Errorf("line %q lacks %q", line, want)
+		}
+	}
+}
+
 func TestFirCoverageInJSONAndSARIF(t *testing.T) {
 	cov := &FirCoverage{Authoritative: 2, Gated: 1, Excluded: 4, TopCauses: []FirGatingCause{{Cause: "Unresolved reference 'x'", Count: 1}}}
 	var cols scanner.FindingColumns
@@ -93,5 +107,16 @@ func TestFirCoverageLineReportsWithheldFindings(t *testing.T) {
 	}
 	if got := FirCoverageLine(FirCoverage{Authoritative: 3}); got != "" {
 		t.Fatalf("nothing gated or withheld: got %q", got)
+	}
+}
+
+// In PR mode with nothing gated, withheld findings still get their clause
+// beside the PR-mode note instead of the short changed-files line.
+func TestFirCoverageLineReportsWithheldFindingsInPRMode(t *testing.T) {
+	line := FirCoverageLine(FirCoverage{Authoritative: 3, Withheld: 2, OutsidePR: 40})
+	for _, want := range []string{"except 2 withheld for FIR-required rules", "PR mode: 40 unchanged files keep Go's verdict"} {
+		if !strings.Contains(line, want) {
+			t.Fatalf("line %q lacks %q", line, want)
+		}
 	}
 }

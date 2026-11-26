@@ -376,6 +376,7 @@ func (r *runner) run(ctx context.Context) (int, error) {
 	}
 	r.bootstrapResolver()
 	r.startPreparse(ctx)
+	r.prFiles = r.prModeFiles()
 	if code, err := r.runOracleIndex(); err != nil {
 		return code, err
 	}
@@ -706,12 +707,12 @@ func getChangedFiles(ref string, scanPaths []string) (map[string]bool, error) {
 	}
 
 	result := make(map[string]bool)
+	resolve := gitRootResolver()
 	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
 		if line == "" {
 			continue
 		}
-		absPath, _ := filepath.Abs(line)
-		if absPath != "" {
+		if absPath := resolve(line); absPath != "" {
 			result[absPath] = true
 		}
 	}

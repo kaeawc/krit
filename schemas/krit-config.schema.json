@@ -18614,6 +18614,105 @@
             }
           }
         },
+        "IncorrectChainMarginsUsage": {
+          "description": "Detects chain elements whose margins come from linkTo constraints, which chains ignore; use withChainParams. [precision: ast-backed] [noisiness: normal]\nCaveat: Chain elements must be references created by createRefs/createRefFor/createRefsFor in the same block. Lint's quick fix (adding withChainParams and removing the linkTo calls) is not ported.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable IncorrectChainMarginsUsage (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "IncorrectMatchParentUsage": {
+          "description": "Detects Dimension.matchParent next to custom constraints it overrides; prefer Dimension.percent(1f). [precision: ast-backed] [noisiness: normal]\nCaveat: The assignment must sit directly in a constrain(ref) { } lambda. Lint's quick fix is not ported.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable IncorrectMatchParentUsage (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "IncorrectReferencesDeclaration": {
+          "description": "Detects val (a, b) = createRefsFor(...) whose argument count differs from the destructured variables. [precision: ast-backed] [noisiness: normal]\nCaveat: createRefsFor must be called without an explicit receiver, with a ConstraintSetScope or MotionSceneScope implicit receiver proven by the nearest receiver lambda (ConstraintSet { } or MotionScene { }) or by an extension function on the scope, and every argument must be a string literal or template, as Lint requires String arguments.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable IncorrectReferencesDeclaration (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "InvalidColorHexValue": {
           "description": "Detects Compose Color(0x...) hex values that are neither 6 nor 8 hex digits long. [precision: ast-backed] [noisiness: normal]\nCaveat: Only Color(...) calls whose Color name the file binds to androidx.compose.ui.graphics are checked.",
           "type": "object",

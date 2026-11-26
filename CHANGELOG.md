@@ -7,6 +7,11 @@ All notable changes to Krit will be documented in this file.
 ### Added
 - Gradle plugin: `kritCheck` with custom rule jars writes every enabled report from one krit run (one
   `--report FORMAT=PATH` each), like every other scan, instead of analyzing once per report (#1634).
+- `UnusedMaterialScaffoldPaddingParameter`, `UnusedMaterial3ScaffoldPaddingParameter`, `ConflictingOnColor` and
+  `UsingMaterialAndMaterial3Libraries`, ports of the Lint checks bundled with `androidx.compose.material` 1.13.0 and
+  `androidx.compose.material3` 1.5.0, under their Lint IDs. Their findings match the Lint CLI running those releases'
+  `lint.jar` on the inputs under `internal/rules/testdata/androidx_compose_material/`. The material3 import check needs
+  a material3 import in the file or a material3 dependency in the build (#1457, #1458, #1459, #1461).
 - FIR sessions resolve Java sources: every `.java` file under the source dirs, generated source dirs and unpacked
   srcjars (same-module Java, view binding, BuildConfig, Wire-Java, kapt/KSP Java output) is given to K2 as a Java
   source root, so Kotlin that uses them is no longer gated `Unresolved reference` on an unbuilt checkout. The Java is
@@ -423,6 +428,9 @@ All notable changes to Krit will be documented in this file.
   `MoshiUsageNonMoshiClassInternal`/`External` (#1384, #1395, #1396, #1404, #1407, #1408, #1409).
 
 ### Fixed
+- `CompileTimeConstant` only runs on files that mention `CompileTimeConstant`. Every finding needs an annotated
+  declaration in the same file, so other files cannot be reported; the rule spent about 2s on element-x-android and
+  0.7s on okhttp finding nothing. Lint ports can opt into the same gate by declaring `fileMentions()`.
 - Source-only scans of large Android projects are fast again: `ProviderReadPermissionOnly`,
   `UnsafeImplicitIntentLaunch` and `UnsafeIntentLaunch` index project classes once per run instead of rebuilding the
   index on every superclass query, and run concurrently. On a 300-module synthetic project the manifest-source phase

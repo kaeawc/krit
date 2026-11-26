@@ -3,6 +3,8 @@ package rules_test
 import (
 	"strings"
 	"testing"
+
+	"github.com/kaeawc/krit/internal/rules/api"
 )
 
 // Expected positions come from running Android Lint 32.4.1 on the same sources, with errorprone's
@@ -192,5 +194,27 @@ object Database {
 	}
 	if !strings.Contains(compileTimeConstantKotlinSource, "Constants.javaNonFinal") {
 		t.Fatal("probe source changed")
+	}
+}
+
+// TestCompileTimeConstantSkipsFilesWithoutTheAnnotation pins the file gate: every finding needs a same-file
+// declaration annotated @CompileTimeConstant, so a file that never mentions it is not checked at all.
+func TestCompileTimeConstantSkipsFilesWithoutTheAnnotation(t *testing.T) {
+	var rule *api.Rule
+	for _, r := range api.Registry {
+		if r.ID == "CompileTimeConstant" {
+			rule = r
+		}
+	}
+	if rule == nil || rule.FileGate == nil {
+		t.Fatal("CompileTimeConstant is not registered with a file gate")
+	}
+	without := parseInline(t, "package com.example\n\nobject Sql {\n    fun query(sql: String) {}\n}\n")
+	if rule.FileGate(without) {
+		t.Error("the gate admits a file that does not mention CompileTimeConstant")
+	}
+	with := parseInline(t, "package com.example\n\nobject Sql {\n    fun query(@CompileTimeConstant sql: String) {}\n}\n")
+	if !rule.FileGate(with) {
+		t.Error("the gate rejects a file that uses @CompileTimeConstant")
 	}
 }

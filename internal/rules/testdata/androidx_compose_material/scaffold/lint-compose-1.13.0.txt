@@ -1,0 +1,14 @@
+src/com/example/M2.kt:15:14: UnusedMaterialScaffoldPaddingParameter: Content padding parameter it is not used
+src/com/example/M2.kt:16:37: UnusedMaterialScaffoldPaddingParameter: Content padding parameter it is not used
+src/com/example/M2.kt:17:24: UnusedMaterialScaffoldPaddingParameter: Content padding parameter it is not used
+src/com/example/M2.kt:22:16: UnusedMaterialScaffoldPaddingParameter: Content padding parameter padding is not used
+src/com/example/M2.kt:23:16: UnusedMaterialScaffoldPaddingParameter: Content padding parameter _ is not used
+src/com/example/M2.kt:24:16: UnusedMaterialScaffoldPaddingParameter: Content padding parameter inner is not used
+src/com/example/M2.kt:25:42: UnusedMaterialScaffoldPaddingParameter: Content padding parameter innerPadding is not used
+src/com/example/M2.kt:43:16: UnusedMaterialScaffoldPaddingParameter: Content padding parameter padding is not used
+src/com/example/M2.kt:44:14: UnusedMaterialScaffoldPaddingParameter: Content padding parameter it is not used
+src/com/example/M2.kt:45:14: UnusedMaterialScaffoldPaddingParameter: Content padding parameter it is not used
+src/com/example/M3.kt:11:14: UnusedMaterial3ScaffoldPaddingParameter: Content padding parameter it is not used
+src/com/example/M3.kt:12:16: UnusedMaterial3ScaffoldPaddingParameter: Content padding parameter p is not used
+src/com/example/M3.kt:14:41: UnusedMaterial3ScaffoldPaddingParameter: Content padding parameter it is not used
+src/com/example/Star.kt:8:14: UnusedMaterialScaffoldPaddingParameter: Content padding parameter it is not used

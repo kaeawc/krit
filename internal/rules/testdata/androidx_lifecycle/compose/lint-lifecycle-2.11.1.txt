@@ -1,0 +1,8 @@
+src/com/example/Compose.kt:23:23: LifecycleCurrentStateInComposition: Lifecycle.currentState should not be called within composition
+src/com/example/Compose.kt:24:29: LifecycleCurrentStateInComposition: Lifecycle.currentState should not be called within composition
+src/com/example/Compose.kt:25:51: LifecycleCurrentStateInComposition: Lifecycle.currentState should not be called within composition
+src/com/example/Compose.kt:28:19: LifecycleCurrentStateInComposition: Lifecycle.currentState should not be called within composition
+src/com/example/Compose.kt:36:13: ViewModelConstructorInComposable: Constructing a view model in a composable
+src/com/example/Compose.kt:37:13: ViewModelConstructorInComposable: Constructing a view model in a composable
+src/com/example/Compose.kt:38:13: ViewModelConstructorInComposable: Constructing a view model in a composable
+src/com/example/OtherFile.kt:7:14: ViewModelConstructorInComposable: Constructing a view model in a composable

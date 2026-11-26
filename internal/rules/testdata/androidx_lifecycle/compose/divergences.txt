@@ -1,0 +1,1 @@
+- src/com/example/OtherFile.kt:7:14: ViewModelConstructorInComposable: Constructing a view model in a composable # ChildViewModel is declared in Compose.kt; the parity harness checks each file without the type resolver, which proves the hierarchy across files in a scan (TestViewModelConstructorInComposableAcrossFiles)

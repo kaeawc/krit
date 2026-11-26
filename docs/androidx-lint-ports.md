@@ -43,3 +43,25 @@ import, as it does in Kotlin.
   dependency added by a convention plugin or arriving through another project module is not seen; one read from a
   Bazel `MODULE.bazel`/`WORKSPACE` counts for the whole build.
   Fully qualified references such as `androidx.compose.material.Button()` are not reported, as in Lint.
+
+## Lifecycle
+
+`androidx.lifecycle` 2.11.1 (`lifecycle-runtime`, `lifecycle-runtime-compose`, `lifecycle-runtime-testing`,
+`lifecycle-viewmodel-compose`), Kotlin:
+
+- `LifecycleCurrentStateInComposition` reports `….currentState` read in composition on a `Lifecycle`: an
+  `owner.lifecycle` read, or a value declared or initialized as a `Lifecycle` or `LifecycleRegistry`. Lint's quick fix
+  (`currentStateAsState().value` plus an import) is not ported.
+- `ViewModelConstructorInComposable` reports a constructor call of an `androidx.lifecycle.ViewModel` subclass in
+  composition, at the class name. The hierarchy is followed through same-file classes and, in a scan, the type
+  resolver's class index, so a ViewModel declared in another file is found without walking the project per call.
+- `TestLifecycleOwnerInCoroutine` reports a `kotlinx.coroutines.test.runTest { }` whose body's last assignment of a
+  constant is `….currentState = Lifecycle.State.X` (the blocking setter hangs inside a coroutine; use
+  `setCurrentState`), at `runTest`. It follows the detector source and its tests: the Lint CLI 9.4 reported nothing
+  for this ID against the released `lifecycle-runtime-testing` and `kotlinx-coroutines-test` classes. As in the
+  detector, the owner's type is not checked, and a later assignment of another constant clears the report.
+- `RepeatOnLifecycleWrongUsage` reports `repeatOnLifecycle` reached from `onStart` or `onResume` of a Kotlin class
+  extending `Fragment` or `androidx.core.app.ComponentActivity` (so also `ComponentActivity`, `FragmentActivity` and
+  `AppCompatActivity`), in production sources, with Lint's message naming the class and method. Unqualified and
+  `this.` calls are followed into functions declared in the same file, each once per class, as Lint follows each
+  method once; Lint also follows calls into other files. `super` calls are not followed.

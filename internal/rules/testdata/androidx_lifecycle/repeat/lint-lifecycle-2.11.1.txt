@@ -1,0 +1,6 @@
+src/com/example/Repeat.kt:14:13: RepeatOnLifecycleWrongUsage: Wrong usage of repeatOnLifecycle from MyFragment.onStart.
+src/com/example/Repeat.kt:20:33: RepeatOnLifecycleWrongUsage: Wrong usage of repeatOnLifecycle from MyFragment.onResume.
+src/com/example/Repeat.kt:30:33: RepeatOnLifecycleWrongUsage: Wrong usage of repeatOnLifecycle from MyFragment.onResume.
+src/com/example/Repeat.kt:35:33: RepeatOnLifecycleWrongUsage: Wrong usage of repeatOnLifecycle from MyFragment.onResume.
+src/com/example/Repeat.kt:42:33: RepeatOnLifecycleWrongUsage: Wrong usage of repeatOnLifecycle from MyActivity.onStart.
+src/com/example/Repeat.kt:53:38: RepeatOnLifecycleWrongUsage: Wrong usage of repeatOnLifecycle from MyActivity.onStart.

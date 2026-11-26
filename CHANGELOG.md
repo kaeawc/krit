@@ -12,6 +12,15 @@ All notable changes to Krit will be documented in this file.
 - Gradle model: Kotlin Multiplatform Android targets record the generated roots AGP's Variant API registers for their
   component (view binding, BuildConfig, AIDL, `addGeneratedSourceDirectory`), and `kritCheck`/`exportGenerated` run
   their producers, as plain Android modules already did (#1643).
+- `InclusiveNaming`, slack-lints 0.11.1's inclusive-naming check, in the opt-in `slack-lint` rule set for Kotlin and
+  Java: names (file, package, classes, functions, properties, parameters, locals, labels) containing a word of the
+  new `blockList` option. Findings match the Lint CLI on `internal/rules/testdata/slack_lint/inclusive/`, apart from
+  the module suffix of `internal` members' JVM names. `Deprecation` gains slack-lints' `DeprecatedCall` as a Lint
+  alias (#1367, #1368).
+- `FullyQualifiedResource`, `MissingResourceImportAlias` and `WrongResourceImportAlias`, slack-lints 0.11.1's R class
+  import-alias checks for Kotlin, in the opt-in `slack-lint` rule set. Their `importAliases` option takes the
+  `package.R as Alias` entries of Lint's `import-aliases`. Findings match the Lint CLI with that option set in
+  `lint.xml` (`internal/rules/testdata/slack_lint/resource_aliases/`) (#1425, #1426, #1427).
 - Gradle model freshness key for CI: `krit gradle-model key` hashes the build files that can change
   `kritExportModel`'s output (settings and build scripts, version catalogs, lockfiles, dependency verification metadata,
   `gradle.properties`, the wrapper version, the sources of buildSrc and of builds nested under the root) by root-relative

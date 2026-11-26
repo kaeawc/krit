@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<lint>
+    <issue id="InclusiveNaming">
+        <option name="block-list" value="slave,master,whitelist,Blacklist" />
+    </issue>
+</lint>

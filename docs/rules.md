@@ -220,6 +220,30 @@ Differences from Lint:
   others stay silent;
 - `DoNotMockRecordClass` also reports Java records, which Lint 0.11.1's own tests leave out pending Lint support.
 
+`InclusiveNaming` ports `InclusiveNamingSourceCodeScanner` for Kotlin and Java. It reports nothing until its
+`blockList` option (Lint's `block-list`) lists words, for example:
+
+```yaml
+slack-lint:
+  InclusiveNaming:
+    active: true
+    blockList: [master, slave, whitelist, blacklist]
+```
+
+As in Lint, a name matches when its lower-cased text contains an entry as written, and the names checked are those of
+the file, its package and the declarations Lint's light classes have: classes, functions and methods, fields and
+Kotlin properties (as the backing field and the `getX` getter, so a `val` constructor parameter is reported twice),
+parameters, local variables and labels. A local function, a `for` loop variable and a destructured lambda parameter
+are not checked, matching Lint. Differences from Lint:
+
+- an `internal` Kotlin member is reported under its source name. Lint reports the JVM name, which carries a
+  module-dependent suffix;
+- the resource half of the detector (XML attribute names) is not ported.
+
+`Deprecation` also answers to slack-lints' `DeprecatedCall` ID, so `@SuppressLint("DeprecatedCall")` and `lint.xml`
+entries for it apply. `DeprecatedCall` reports calls to deprecated methods and constructors; `Deprecation` covers
+those and deprecated property and type references too, and uses the compiler's verdict when the type oracle runs.
+
 ## Compose lint checks (compose-lints)
 
 Rules named `Compose…` with a Lint issue ID port [compose-lints](https://github.com/slackhq/compose-lints)

@@ -158,6 +158,8 @@ jobs:
           python3 ci/fir_coverage.py measure gradle-kritCheckAll "$RUNNER_TEMP/fir/gradle-kritCheckAll.result.json" \
             "$RUNNER_TEMP/fir/gradle-kritCheckAll.log"
           cp -R .krit/gradle-model "$RUNNER_TEMP/fir/gradle-model"
+          # The whole-build findings, compared with krit_aspect's in the report job (#1677).
+          cp build/reports/krit/all/krit.sarif "$RUNNER_TEMP/fir/gradle-kritCheckAll.sarif"
       # Nothing changed, so the second run must reuse the configuration cache
       # and find kritCheckAll up to date (no krit process).
       - name: kritCheckAll again (configuration cache reuse, up to date)
@@ -278,6 +280,12 @@ jobs:
           pattern: fir-coverage-*
           path: results
           merge-multiple: true
+      # Gradle and Bazel must report the same findings on the same sources (#1677).
+      - name: Findings parity (kritCheckAll vs krit_aspect)
+        run: |
+          mapfile -t bazel < <(find results/bazel-sarif -name '*.krit.sarif' | sort)
+          python3 "$SAMPLE/ci/fir_coverage.py" parity results/findings-parity.check.json \
+            --gradle results/gradle-kritCheckAll.sarif --bazel "${bazel[@]}"
       - name: Coverage table and thresholds
         run: |
           mapfile -t files < <(find results \( -name '*.result.json' -o -name '*.check.json' \) | sort)

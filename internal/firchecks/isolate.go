@@ -18,9 +18,11 @@ import (
 
 // SourceSetIsolator rechecks, with each scanned source set compiled on its
 // own, the projects that own any of the gated files. request is a check
-// request in the daemon's shape for every file the pass checks. It returns
-// the check response for the files it rechecked and those files; both are
-// empty when no project qualified, and the caller keeps the merged verdicts.
+// request in the daemon's shape for the files whose merged verdict the
+// recheck may replace: every file the merged check gated, for any reason, or
+// crashed on. It returns the check response for the files it rechecked and
+// those files; both are empty when no project qualified, and the caller keeps
+// the merged verdicts.
 type SourceSetIsolator func(ctx context.Context, jarPath string, gated []string, request []byte) (response []byte, rechecked []string, err error)
 
 // isolateRequestID is the request ID of a source-set isolation recheck.
@@ -73,9 +75,16 @@ func isolateSourceSets(ctx context.Context, opts PassOptions, requested, sourceD
 	if checker, ok := opts.Checker.(*ProductionFirChecker); ok {
 		jarPath, target = checker.JarPath, checker.CompileTarget()
 	}
-	refs := make([]fileRef, len(requested))
-	for i, path := range requested {
-		refs[i] = fileRef{Path: path}
+	// Only gated and crashed verdicts are replaced, so only those files are
+	// checked again: the duplicate declarations, and what they gated in turn
+	// (an ambiguous call, an unresolved reference) or crashed (#1661).
+	var refs []fileRef
+	for _, path := range requested {
+		_, gatedFile := result.ErrorFiles[path]
+		_, crashed := result.Crashed[path]
+		if gatedFile || crashed {
+			refs = append(refs, fileRef{Path: path})
+		}
 	}
 	request, spelling, err := encodeCheckRequest(isolateRequestID, refs, sourceDirs, classpath, rules, configs, facts, target)
 	if err != nil {

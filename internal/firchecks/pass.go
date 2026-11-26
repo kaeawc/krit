@@ -76,6 +76,10 @@ type PassOptions struct {
 	// OnCoverage, when set, receives the pass's coverage once its verdict is
 	// applied (not called when the checker failed).
 	OnCoverage func(output.FirCoverage)
+	// Only, when non-nil, is PR mode (#1660): the pass checks only these
+	// files, the changed ones of a --diff scan, and every other file keeps
+	// Go's verdict. Empty checks nothing.
+	Only []string
 }
 
 // PendingPass owns an in-flight check. Check is not interruptible through the
@@ -86,6 +90,7 @@ type PendingPass struct {
 	targets             passTargetSet
 	requested, excluded []string
 	buildLogicExcluded  int
+	outsidePR           int
 	rules               []string
 	done                chan checkOutcome
 	ctx                 context.Context
@@ -114,9 +119,11 @@ type passPlan struct {
 	targets             passTargetSet
 	requested, excluded []string
 	buildLogicExcluded  int
-	rules               []string
-	configs             RuleConfigs
-	facts               FileFacts
+	// outsidePR counts the JVM files PR mode left to Go (PassOptions.Only).
+	outsidePR int
+	rules     []string
+	configs   RuleConfigs
+	facts     FileFacts
 }
 
 // planPass computes the request a pass over opts sends, with every input
@@ -136,6 +143,11 @@ func planPass(opts PassOptions) (passPlan, bool) {
 	}
 	plan.targets.excludeRoots(opts.GeneratedSourceDirs)
 	plan.requested, plan.excluded = partitionJVMFiles(plan.targets.paths)
+	if opts.Only != nil {
+		var outside int
+		plan.requested, outside = onlyRequested(plan.requested, opts.Only)
+		plan.outsidePR = outside
+	}
 	for _, path := range plan.excluded {
 		if oracle.IsBuildLogicPath(path) {
 			plan.buildLogicExcluded++
@@ -160,6 +172,7 @@ func StartPass(ctx context.Context, opts PassOptions) *PendingPass {
 		return p
 	}
 	p.targets, p.requested, p.excluded, p.buildLogicExcluded = plan.targets, plan.requested, plan.excluded, plan.buildLogicExcluded
+	p.outsidePR = plan.outsidePR
 	p.rules = plan.rules
 	requested := slices.Clone(p.requested)
 	sourceDirs, classpath, ruleNames := slices.Clone(opts.SourceDirs), slices.Clone(opts.Classpath), plan.rules
@@ -332,7 +345,9 @@ func (p *PendingPass) Finish(base []scanner.Finding) ([]scanner.Finding, error) 
 		RequireAuthoritative: required,
 	})
 	if opts.OnCoverage != nil {
-		opts.OnCoverage(Coverage(stats, p.targets.files))
+		cov := Coverage(stats, p.targets.files)
+		cov.OutsidePR = p.outsidePR
+		opts.OnCoverage(cov)
 	}
 	if verbose {
 		if outcome.incrementalDiagnostic != "" {
@@ -642,6 +657,23 @@ func passTargets(parsed []*scanner.File, kotlinPaths []string, includeGenerated 
 // module compilation does not have; the oracle never compiles them either,
 // and a script error with no location would gate every file) and files in a
 // non-JVM Kotlin Multiplatform source set (jsMain, iosMain, ...).
+// onlyRequested keeps the requested files among only (PR mode) and counts the
+// others, which keep Go's verdict.
+func onlyRequested(requested, only []string) (kept []string, outside int) {
+	want := make(map[string]bool, len(only))
+	for _, path := range only {
+		want[filepath.Clean(oracle.AbsolutePath(path))] = true
+	}
+	for _, path := range requested {
+		if want[filepath.Clean(oracle.AbsolutePath(path))] {
+			kept = append(kept, path)
+		} else {
+			outside++
+		}
+	}
+	return kept, outside
+}
+
 func partitionJVMFiles(files []string) (jvm, excluded []string) {
 	for _, path := range files {
 		if strings.HasSuffix(path, ".kt") && oracle.InJVMCompilableSourceSet(path) && !oracle.IsBuildLogicPath(path) {

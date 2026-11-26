@@ -94,13 +94,25 @@ func buildWorkProject(files []*scanner.File) *workProject {
 	return p
 }
 
-func workClassOf(file *scanner.File, pkg string, idx uint32) *workClass {
-	name := lintClassNameNode(file, idx)
-	if name == 0 && file.FlatType(idx) == "object_declaration" {
-		if n, ok := file.FlatFindChild(idx, "type_identifier"); ok {
-			name = n
+// workDeclarationNameNode returns the name node of a Kotlin class, object or interface, or a Java class or
+// interface (whose interface_declaration names itself with an identifier), or 0.
+func workDeclarationNameNode(file *scanner.File, idx uint32) uint32 {
+	if n := lintClassNameNode(file, idx); n != 0 {
+		return n
+	}
+	switch file.FlatType(idx) {
+	case "object_declaration", "interface_declaration":
+		for _, kind := range []string{"type_identifier", "identifier"} {
+			if n, ok := file.FlatFindChild(idx, kind); ok {
+				return n
+			}
 		}
 	}
+	return 0
+}
+
+func workClassOf(file *scanner.File, pkg string, idx uint32) *workClass {
+	name := workDeclarationNameNode(file, idx)
 	if name == 0 {
 		return nil
 	}
@@ -108,9 +120,7 @@ func workClassOf(file *scanner.File, pkg string, idx uint32) *workClass {
 	for cur, ok := file.FlatParent(idx); ok; cur, ok = file.FlatParent(cur) {
 		switch file.FlatType(cur) {
 		case "class_declaration", "object_declaration", "interface_declaration":
-			if n := lintClassNameNode(file, cur); n != 0 {
-				parts = append([]string{file.FlatNodeText(n)}, parts...)
-			} else if n, ok := file.FlatFindChild(cur, "type_identifier"); ok {
+			if n := workDeclarationNameNode(file, cur); n != 0 {
 				parts = append([]string{file.FlatNodeText(n)}, parts...)
 			}
 		case "function_declaration", "method_declaration", "lambda_literal", "object_literal":

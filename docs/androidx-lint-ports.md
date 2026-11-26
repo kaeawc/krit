@@ -15,6 +15,26 @@ Lint resolves every call; krit proves the callee from imports, fully qualified n
 function of the same name declared in the calling class, the enclosing function or the file itself wins over the
 import, as it does in Kotlin.
 
+## Activity Compose
+
+`androidx.activity:activity-compose` 1.13.0 (Kotlin). Callees resolve through import aliases as in Lint:
+
+- `LaunchDuringComposition` reports `launcher.launch(input, options)` within composition (see the Compose runtime
+  ports in [Rules](rules.md#androidx-library-lint-checks) for what counts), where `launcher` is proven to be a
+  `ManagedActivityResultLauncher`: declared as one or initialized by `rememberLauncherForActivityResult`. As in Lint,
+  only the two-argument `launch` is `ManagedActivityResultLauncher`'s own method; `launch(input)` resolves to
+  `ActivityResultLauncher` in `androidx.activity.result` and is not reported.
+- `NoCollectCallFound` reports a `PredictiveBackHandler` `onBack` lambda (trailing, named or the second positional
+  argument) whose progress parameter is unused (at the
+  parameter, or at the lambda for an unused `it`), or in which no name is `collect`, `collectLatest` or
+  `collectIndexed`. Like Lint, the second case is reported at the lambda's first name reference with the message
+  "You must call collect() on Flow null".
+- `ContextCastToActivity` reports `LocalContext.current as Activity` (or `as?`), with `LocalContext` from
+  `androidx.compose.ui.platform`, at the cast. The type counts as an Activity when it is `android.app.Activity`,
+  `ComponentActivity`, `FragmentActivity`, `AppCompatActivity`, a same-file subclass of one, or any other class whose
+  name ends in `Activity`. As in Lint, `(LocalContext.current) as Activity` and a variable holding
+  `LocalContext.current` are not reported.
+
 ## Compose material and material3
 
 `androidx.compose.material:material-android` 1.13.0 and `androidx.compose.material3:material3-android` 1.5.0
@@ -44,6 +64,22 @@ import, as it does in Kotlin.
   Bazel `MODULE.bazel`/`WORKSPACE` counts for the whole build.
   Fully qualified references such as `androidx.compose.material.Button()` are not reported, as in Lint.
 
+## Startup
+
+`androidx.startup:startup-runtime` 1.2.0 (Kotlin and Java). Both checks see every main-source class at once, so an
+`Initializer` that extends a base class declared in another file is found; they run in the project scopes, whose
+results are cached on the whole source set.
+
+- `EnsureInitializerNoArgConstr` reports an `Initializer` that cannot be created without arguments, at the class: a
+  Kotlin class whose primary and secondary constructors all take parameters (a primary constructor whose parameters
+  all have defaults counts as a no-argument one, as it compiles to one, and so does an `@JvmOverloads` secondary
+  constructor whose parameters all have defaults), or a Java class whose constructors all take parameters. Comments
+  in a parameter list are not parameters. Interfaces are skipped.
+- `EnsureInitializerMetadata` reports an `Initializer` (abstract ones too, as in Lint; interfaces are skipped) that no
+  manifest `<meta-data android:name="…" android:value="androidx.startup">` (or `@string/androidx_startup`) names and no
+  class literal in an `Initializer`'s `dependencies()` reaches, at the class. As in Lint, the `<meta-data>` name must
+  be the fully qualified class name, and test-artifact (`androidTest`, `test`) and generated `build/` manifests are not
+  read.
 ## Compose animation
 
 `androidx.compose.animation:animation-android` and `animation-core-android` 1.13.0 (Kotlin). The unused-parameter

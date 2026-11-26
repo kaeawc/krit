@@ -1,0 +1,5 @@
+src/main/AndroidManifest.xml:11:85: TilePreviewImageFormat: Tile previews should be at least 384px by 384px
+src/main/AndroidManifest.xml:11:85: TilePreviewImageFormat: Tile previews should have 1:1 aspect ratio
+src/main/AndroidManifest.xml:20:85: TilePreviewImageFormat: Tile previews should be at least 384px by 384px
+src/main/AndroidManifest.xml:29:85: TilePreviewImageFormat: Tile previews should be at least 384px by 384px
+src/main/AndroidManifest.xml:29:85: TilePreviewImageFormat: Tile previews should have 1:1 aspect ratio

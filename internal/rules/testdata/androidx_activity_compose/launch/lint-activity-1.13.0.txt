@@ -1,0 +1,6 @@
+src/com/example/Launch.kt:31:14: LaunchDuringComposition: Calls to `launch` should happen inside of a SideEffect and not during composition
+src/com/example/Launch.kt:53:14: LaunchDuringComposition: Calls to `launch` should happen inside of a SideEffect and not during composition
+src/com/example/Launch.kt:54:14: LaunchDuringComposition: Calls to `launch` should happen inside of a SideEffect and not during composition
+src/com/example/Launch.kt:59:18: LaunchDuringComposition: Calls to `launch` should happen inside of a SideEffect and not during composition
+src/com/example/Launch.kt:61:31: LaunchDuringComposition: Calls to `launch` should happen inside of a SideEffect and not during composition
+src/com/example/Launch.kt:62:54: LaunchDuringComposition: Calls to `launch` should happen inside of a SideEffect and not during composition

@@ -1,0 +1,1 @@
+src/main/AndroidManifest.xml:3:9: SquareAndRoundTilePreviews: Tiles need preview assets

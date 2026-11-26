@@ -514,6 +514,15 @@ All notable changes to Krit will be documented in this file.
   `ContextCompat.registerReceiver`, without `RECEIVER_NOT_EXPORTED` or a broadcast permission, as an unprotected
   component, and follows the incoming intent into helpers declared in other files: imported or same-package top-level
   functions and members of project classes or objects (`Launcher.launch(this, intent)`) (#1623).
+- `UnsanitizedFilenameFromContentProvider` proves a Cursor local whose type is inferred from its initializer:
+  `ContentResolver.query`, `SQLiteDatabase.query`/`rawQuery` and their variants (also through `!!` or an Elvis that
+  returns or throws), or a call to a function or method in the same file declared to return `Cursor`, in Kotlin and
+  Java (`var`). The receiver is resolved to the declaration visible at the call (an earlier local in the same or an
+  enclosing block, a nearer parameter, a member of an enclosing class), so a same-named declaration in a sibling
+  block, a nested function, lambda or another class no longer decides its type, and a `contentResolver` declared with
+  another type is not taken for `Context.contentResolver`. A helper call resolves to the innermost local function,
+  enclosing-class member or top-level function with that name and a matching argument count; overloads that disagree
+  on the return type abstain (#1621).
 - `JavascriptInterface` reads Kotlin accessor use-site targets: a property annotated `@get:JavascriptInterface` or
   `@set:JavascriptInterface`, or whose getter or setter carries the annotation, counts as an annotated bridge method,
   and a private one is reported as `Must be public`, as Lint sees the accessor methods through UAST. `@field:` does

@@ -21,6 +21,13 @@
         (default 0), or a required check failed. Anything above its threshold is listed as a
         ratchet: raise the threshold in the same pull request.
 
+    fir_coverage.py parity OUT.check.json --gradle SARIF --bazel SARIF...
+        Compare the findings of the Gradle whole-build report (kritCheckAll)
+        with those of krit_aspect's per-target reports, keyed by rule ID,
+        sample-relative path and line (#1677), and write the findings-parity
+        check: it passes when both report the same findings and there is at
+        least one. The keys only one side reports are listed with it.
+
 Coverage is authoritative / (authoritative + gated), where gated counts both
 compile-error and generated-source gating; excluded files (scripts, files
 outside a JVM source set) are not in the denominator. This matches
@@ -204,6 +211,13 @@ def report(thresholds_path, paths):
             ratchets.append(f"{c['name']}: passes; set required to true")
         lines.append(f"| {c['name']} | {'pass' if c['passed'] else 'fail'} | {'yes' if req else 'no'} |")
     print("\n".join(lines))
+    for c in checks:
+        for side in ("onlyGradle", "onlyBazel"):
+            if c.get(side):
+                print(f"\n<details><summary>{c['name']}: {len(c[side])} findings {side}</summary>\n")
+                for key in c[side]:
+                    print(f"- `{key}`")
+                print("\n</details>")
     for r in results:
         for error in r.get("checkerErrors", []):
             print(f"\n**{r['name']}: FIR checker error:** {error}")
@@ -224,6 +238,47 @@ def report(thresholds_path, paths):
     return 0
 
 
+def sarif_findings(paths):
+    """The (rule, sample-relative path, line) keys of the results in SARIF reports.
+
+    SARIF rule IDs are <ruleSet>/<rule>; only the rule is kept, so the two
+    reports agree on the key whatever rule-set spelling each uses. Results in
+    generated or build-output files are left out: the two build systems put
+    those in different places.
+    """
+    keys = set()
+    for path in paths:
+        with open(path, encoding="utf-8") as f:
+            sarif = json.load(f)
+        for run in sarif.get("runs", []):
+            for result in run.get("results", []):
+                locations = result.get("locations") or [{}]
+                physical = locations[0].get("physicalLocation", {})
+                uri = physical.get("artifactLocation", {}).get("uri", "")
+                line = physical.get("region", {}).get("startLine", 0)
+                rel = SAMPLE_PREFIX.sub("", uri.removeprefix("file://")).removeprefix("./")
+                if rel.startswith(("bazel-", "external/")) or "/build/" in f"/{rel}":
+                    continue
+                keys.add((result.get("ruleId", "").rsplit("/", 1)[-1], rel, line))
+    return keys
+
+
+def parity(out_path, gradle_paths, bazel_paths):
+    gradle = sarif_findings(gradle_paths)
+    bazel = sarif_findings(bazel_paths)
+    fmt = lambda keys: [f"{rule} {path}:{line}" for rule, path, line in sorted(keys)]
+    result = {
+        "name": "findings-parity",
+        "passed": bool(gradle) and gradle == bazel,
+        "matched": len(gradle & bazel),
+        "onlyGradle": fmt(gradle - bazel),
+        "onlyBazel": fmt(bazel - gradle),
+    }
+    with open(out_path, "w", encoding="utf-8") as f:
+        json.dump(result, f, indent=2)
+    return result
+
+
 def main(argv):
     if len(argv) >= 4 and argv[1] == "measure":
         measure(argv[2], argv[3], argv[4:])
@@ -237,6 +292,10 @@ def main(argv):
         return 0
     if len(argv) >= 3 and argv[1] == "report":
         return report(argv[2], argv[3:])
+    if len(argv) >= 6 and argv[1] == "parity" and argv[3] == "--gradle" and "--bazel" in argv[4:]:
+        split = argv.index("--bazel", 4)
+        parity(argv[2], argv[4:split], argv[split + 1:])
+        return 0
     print(__doc__, file=sys.stderr)
     return 2
 

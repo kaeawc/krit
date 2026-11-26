@@ -1,5 +1,8 @@
 load("@rules_android//android:rules.bzl", "android_binary", "android_library")
 load("@rules_kotlin//kotlin:android.bzl", "kt_android_library")
+load("@rules_kotlin//kotlin:jvm.bzl", "kt_jvm_library")
+
+_PARITY_PROBE = "src/main/kotlin/dev/krit/firsample/app/ParityProbe.kt"
 
 # Resources and the R class.
 android_library(
@@ -28,10 +31,13 @@ android_library(
 
 kt_android_library(
     name = "app_lib",
-    srcs = glob([
-        "src/main/java/**/*.java",
-        "src/main/kotlin/**/*.kt",
-    ]),
+    srcs = glob(
+        [
+            "src/main/java/**/*.java",
+            "src/main/kotlin/**/*.kt",
+        ],
+        exclude = [_PARITY_PROBE],
+    ),
     custom_package = "dev.krit.firsample.app",
     manifest = "src/main/AndroidManifest.xml",
     visibility = ["//visibility:public"],
@@ -53,4 +59,14 @@ android_binary(
     },
     visibility = ["//visibility:public"],
     deps = [":app_lib"],
+)
+
+# Known findings that the Gradle and the Bazel runs must both report (#1677).
+# Gradle compiles the file as part of :app; here it is a target of its own, so
+# krit_aspect (over //...) analyzes it while the Go-only //:krit_test, which
+# fails on any finding, does not list it.
+kt_jvm_library(
+    name = "parity_probe",
+    srcs = [_PARITY_PROBE],
+    deps = ["//model"],
 )

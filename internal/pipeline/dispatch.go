@@ -204,6 +204,9 @@ func (d DispatchPhase) Run(ctx context.Context, in IndexResult) (DispatchResult,
 	}
 
 	dispatcher := rules.NewDispatcher(in.ActiveRules, in.Resolver)
+	// The same root the per-file cache relocates against, so a relocated
+	// entry's verdicts match a fresh scan at the new root.
+	dispatcher.SetProjectRoot(oracle.FindRepoDir(in.Paths))
 	dispatcher.SetLibraryFacts(in.LibraryFacts)
 	dispatcher.SetJavaSemanticFacts(in.JavaSemanticFacts)
 	dispatcher.SetRuleTiming(!in.SkipRuleTiming)

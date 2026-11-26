@@ -4,7 +4,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/kaeawc/krit/internal/fsutil"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -70,12 +69,17 @@ func repoOfCacheDir(dir string) string {
 }
 
 // relocatePath spells path for storage under root: repository-relative with
-// forward slashes when it lies under root, otherwise unchanged.
+// forward slashes when it lies under root, otherwise unchanged (not
+// slash-converted, which would make a Windows path outside the root miss).
 func relocatePath(root, path string) string {
 	if root == "" || !filepath.IsAbs(path) {
 		return path
 	}
-	return fsutil.RelSlash(root, path)
+	rel, err := filepath.Rel(root, path)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return path
+	}
+	return filepath.ToSlash(rel)
 }
 
 // rerootPath inverts relocatePath for a cache loaded at root.

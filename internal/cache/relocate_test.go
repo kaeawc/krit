@@ -184,3 +184,30 @@ func TestCommonCIRootsAreRelocatable(t *testing.T) {
 		}
 	}
 }
+
+// A path under the root is stored repository-relative with forward slashes
+// and re-rooted on load; any other path is stored exactly as given, so an
+// outside-root Windows path keeps its separators and still hits (#1806).
+func TestRelocatePathRoundTrip(t *testing.T) {
+	root := filepath.Join(string(filepath.Separator), "ci1", "app")
+	inside := filepath.Join(root, "sub", "Foo.kt")
+	if got := relocatePath(root, inside); got != "sub/Foo.kt" {
+		t.Fatalf("relocatePath(inside) = %q, want sub/Foo.kt", got)
+	}
+	moved := filepath.Join(string(filepath.Separator), "ci2", "app@2")
+	if got := rerootPath(moved, relocatePath(root, inside)); got != filepath.Join(moved, "sub", "Foo.kt") {
+		t.Fatalf("re-rooted inside path = %q", got)
+	}
+	for _, outside := range []string{
+		filepath.Join(string(filepath.Separator), "elsewhere", "lib", "Bar.kt"),
+		root + "-sibling" + string(filepath.Separator) + "Baz.kt",
+		filepath.Join("relative", "Qux.kt"),
+	} {
+		if got := relocatePath(root, outside); got != outside {
+			t.Errorf("relocatePath(%q) = %q, want it unchanged", outside, got)
+		}
+		if got := rerootPath(moved, relocatePath(root, outside)); filepath.IsAbs(outside) && got != outside {
+			t.Errorf("round trip of %q = %q, want it unchanged", outside, got)
+		}
+	}
+}

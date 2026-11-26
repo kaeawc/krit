@@ -529,7 +529,7 @@ func (r *TestOnlyImportInProductionRule) check(ctx *api.Context) {
 		return
 	}
 	if scanner.IsTestFile(file.Path) || isAndroidTestSupportArtifactSource(file.Path) ||
-		isTestFixtureModulePath(file.Path) || isTestFrameworkModulePath(file.Path) {
+		isTestFixtureModulePath(file.Path) || isTestFrameworkModulePath(projectPath(ctx, file.Path)) {
 		return
 	}
 	ctx.Emit(r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,

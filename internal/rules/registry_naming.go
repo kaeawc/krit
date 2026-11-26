@@ -371,7 +371,7 @@ func registerNamingInvalidPackageDeclaration() {
 		NodeTypes: []string{"package_header"}, Confidence: api.ConfidenceVeryHigh, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
-			if invalidPackageDeclarationIgnoredPath(file.Path) {
+			if invalidPackageDeclarationIgnoredPath(projectPath(ctx, file.Path)) {
 				return
 			}
 			var pkg string
@@ -412,8 +412,10 @@ func registerNamingInvalidPackageDeclaration() {
 				return
 			}
 			expectedSuffix := strings.ReplaceAll(pkgForPath, ".", string(filepath.Separator))
-			dir := filepath.Dir(file.Path)
-			dirNorm := filepath.ToSlash(dir)
+			// Only the directories inside the project count: a package
+			// matched by folders above the checkout would pass at one
+			// checkout path and fail at another.
+			dirNorm := projectPath(ctx, filepath.Dir(file.Path))
 			expectedNorm := filepath.ToSlash(expectedSuffix)
 			if strings.HasSuffix(dirNorm, expectedNorm) {
 				return

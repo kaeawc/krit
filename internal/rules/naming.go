@@ -250,7 +250,8 @@ func invalidPackageDeclarationIgnoredPath(path string) bool {
 // `common/src/flow/` and ktor keeps `package io.ktor.client.plugin.tracing`
 // directly in `common/src/`. A file whose directories match no trailing part
 // of its package, or match one below something other than a source root, is
-// still misplaced.
+// still misplaced. dir is project-relative (projectPath), so a source root
+// has to be a folder inside the project.
 func packageOmitsCommonRoot(dir, pkg string) bool {
 	segments := strings.Split(pkg, ".")
 	for drop := 1; drop <= len(segments); drop++ {

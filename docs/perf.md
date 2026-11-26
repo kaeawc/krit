@@ -277,7 +277,7 @@ Findings and rule-dependent derived data. A different build never reads these:
 
 | Cache | Holds | Key inputs | Invalidated by |
 |---|---|---|---|
-| `cache/` (per-file analysis) | Per-file rule findings | File content hash and git blob ID, rule hash, oracle fact hash | Rule hash: rules, config, build, oracle jar, and project facts (module SDK levels, Gradle library facts) |
+| `cache/` (per-file analysis) | Per-file rule findings | File content hash and git blob ID, rule hash, oracle fact hash; paths are stored relative to the repository, so it survives a move to another checkout path | Rule hash: rules, config, build, oracle jar, and project facts (module SDK levels, Gradle library facts) |
 | `findings-bundle-cache/` | Whole-run findings and delta manifests | Run fingerprint: rule hash, source set, cross-file structure, oracle facts, Gradle paths and library facts, compiler settings, XML inputs (manifests, resources, module SDK levels) | Any fingerprint field |
 | `cross-findings-cache/` | Cross-file rule findings | Cross-file index fingerprint, rule hash | Index fingerprint (sources, XML inputs, build), rule hash |
 | `cross-file-cache/` | Cross-file symbol and reference index | Source and XML content hashes, build, bloom library version | `CrossFileCacheVersion`, the shard version, the build |
@@ -340,6 +340,16 @@ to restore (a CI cache restored by prefix, or a checkout or pull between two
 runs): a file that changed between the commits has another blob ID and is
 re-analyzed. Dirty, unmerged, `--assume-unchanged`, skip-worktree, symlinked
 and submodule paths fall back to the stat and content-hash check.
+
+`cache/` in a repository's default location (`.krit/cache`) stores paths under
+the repository relative to it and re-roots them on load, and its file name
+and rule hash are computed from repository-relative paths, so a `.krit/`
+restored into a checkout at another absolute path (another CI agent's
+workspace) still hits for unchanged files. Rules apply path heuristics
+(`/src/test/`, `/samples/`, `-test-utils/`, ...) to absolute paths, so a cache
+moved from or to a root containing such a segment is discarded instead
+(`cache.rulePathMarkers`, kept in sync with the rules by a test). A cache under
+`--cache-dir` keeps absolute paths.
 
 If a scan with the default cache disagrees with `--no-cache`, that is a bug in
 a key: run `krit --clear-cache` to recover, then report which cache held the

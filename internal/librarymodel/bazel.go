@@ -5,6 +5,7 @@ import (
 
 	"github.com/kaeawc/krit/internal/android"
 	"github.com/kaeawc/krit/internal/bazel"
+	"github.com/kaeawc/krit/internal/fsutil"
 )
 
 // ProfileFromPaths builds a profile from a project's library inputs
@@ -27,6 +28,7 @@ func ProfileFromPaths(paths []string) ProjectProfile {
 	}
 	profile := ProfileFromGradlePaths(gradle)
 	profile.Merge(profileFromBazelFiles(bazelFiles))
+	profile.InputBase = fsutil.CommonDir(paths)
 	return profile
 }
 

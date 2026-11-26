@@ -300,7 +300,8 @@ func acrStateTypeOf(file *scanner.File, call uint32) acrStateTypeEvidence {
 			}
 			return acrStateTypeEvidence{inferred: true}
 		case "statements":
-			// The last statement of a remember { } lambda is the remembered value.
+			// The last statement of a remember { } lambda is the remembered value; so is the last
+			// statement of a lambda passed to a same-file `fun <T> f(block: () -> T): T` helper.
 			lambda, ok := file.FlatParent(parent)
 			if !ok || file.FlatType(lambda) != "lambda_literal" || flatLastNamedChild(file, parent) != node {
 				return acrStateTypeEvidence{}
@@ -310,16 +311,217 @@ func acrStateTypeOf(file *scanner.File, call uint32) acrStateTypeEvidence {
 				return acrStateTypeEvidence{}
 			}
 			name, _, hasReceiver := acrCallCallee(file, arg.Call)
-			if hasReceiver || name != "remember" || !acrCalleeResolvesTo(file, arg.Call, acrRuntimePackage, name) ||
-				acrCallTypeArguments(file, arg.Call) != 0 {
+			if hasReceiver || acrCallTypeArguments(file, arg.Call) != 0 {
+				return acrStateTypeEvidence{}
+			}
+			isRemember := name == "remember" && acrCalleeResolvesTo(file, arg.Call, acrRuntimePackage, name)
+			if !isRemember && !acrGenericLambdaHelper(file, arg, name) {
 				return acrStateTypeEvidence{}
 			}
 			node = arg.Call
 			continue
+		case "value_argument":
+			return acrArgumentStateType(file, node)
 		}
 		return acrStateTypeEvidence{}
 	}
 	return acrStateTypeEvidence{}
+}
+
+// acrGenericLambdaHelper reports whether arg passes a lambda to a same-file `fun <T> name(block: () -> T): T`
+// (or `R.() -> T`), so the lambda's last expression is the call's value, as with remember { } (#1612).
+func acrGenericLambdaHelper(file *scanner.File, arg acrLambdaArgument, name string) bool {
+	fn := acrSameFileCallee(file, arg.Call, name)
+	if fn == 0 {
+		return false
+	}
+	typeParam := acrReturnTypeParameter(file, fn)
+	if typeParam == "" {
+		return false
+	}
+	param := acrParameterForArgument(file, fn, arg)
+	if param == 0 {
+		return false
+	}
+	fnType := acrDeclaredType(file, param)
+	if fnType == 0 || file.FlatType(fnType) != "function_type" {
+		return false
+	}
+	ret := flatLastNamedChild(file, fnType)
+	return ret != 0 && file.FlatType(ret) == "user_type" && strings.TrimSpace(file.FlatNodeText(ret)) == typeParam
+}
+
+// acrArgumentStateType finds a mutableStateOf call's type argument when the call is a value argument of a
+// same-file function: the parameter's MutableState/State type argument, or inferred from the value when the
+// parameter is Any/Any? or an unbounded type parameter, which leave T unconstrained (#1612).
+func acrArgumentStateType(file *scanner.File, call uint32) acrStateTypeEvidence {
+	arg, ok := acrLambdaArgumentOf(file, call)
+	if !ok || arg.Trailing {
+		return acrStateTypeEvidence{}
+	}
+	name, _, hasReceiver := acrCallCallee(file, arg.Call)
+	if hasReceiver || acrCallTypeArguments(file, arg.Call) != 0 {
+		return acrStateTypeEvidence{}
+	}
+	fn := acrSameFileCallee(file, arg.Call, name)
+	if fn == 0 {
+		return acrStateTypeEvidence{}
+	}
+	param := acrParameterForArgument(file, fn, arg)
+	if param == 0 || acrParameterHasModifier(file, param, "vararg") {
+		return acrStateTypeEvidence{}
+	}
+	typ := acrDeclaredType(file, param)
+	if typ == 0 {
+		return acrStateTypeEvidence{}
+	}
+	if file.FlatType(typ) == "nullable_type" {
+		typ = flatFirstNamedChild(file, typ)
+	}
+	if acrTypeIs(file, typ, acrRuntimePackage, "MutableState", "State") {
+		return acrStateTypeEvidence{typeNode: acrFirstTypeArgument(file, typ)}
+	}
+	text := strings.TrimSpace(file.FlatNodeText(typ))
+	if text == "Any" && flatFindSameFileClassLikeDeclaration(file, "Any") == 0 || acrUnboundedTypeParameter(file, fn, text) {
+		return acrStateTypeEvidence{inferred: true}
+	}
+	return acrStateTypeEvidence{}
+}
+
+// acrSameFileCallee returns the same-file function a receiverless call to name at call resolves to: among
+// declarations whose container (block, class body or file) encloses the call, the innermost, as Kotlin
+// prefers locals over members over top-level functions. It returns 0 when there is none, when the innermost
+// level overloads the name, or when the file imports the name explicitly.
+func acrSameFileCallee(file *scanner.File, call uint32, name string) uint32 {
+	if name == "" {
+		return 0
+	}
+	if facts := fileFactsCache().Imports(file); facts != nil {
+		if _, imported := facts.Aliases[name]; imported {
+			return 0
+		}
+	}
+	var best uint32
+	bestDepth, count := -1, 0
+	for _, decl := range acrFunctionDecls(file, name) {
+		container, ok := file.FlatParent(decl)
+		if !ok {
+			continue
+		}
+		depth := acrAncestorDepth(file, container, call)
+		if depth < 0 {
+			continue
+		}
+		switch {
+		case depth > bestDepth:
+			best, bestDepth, count = decl, depth, 1
+		case depth == bestDepth:
+			count++
+		}
+	}
+	if count != 1 {
+		return 0
+	}
+	return best
+}
+
+// acrAncestorDepth returns the depth of container below the file root when it is node's ancestor (or the
+// source file), else -1.
+func acrAncestorDepth(file *scanner.File, container, node uint32) int {
+	if file.FlatType(container) == "source_file" {
+		return 0
+	}
+	found := false
+	for p, ok := file.FlatParent(node); ok; p, ok = file.FlatParent(p) {
+		if p == container {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return -1
+	}
+	depth := 0
+	for p, ok := file.FlatParent(container); ok; p, ok = file.FlatParent(p) {
+		depth++
+	}
+	return depth
+}
+
+// acrReturnTypeParameter returns T when fn declares `<T>` and returns exactly T, else "".
+func acrReturnTypeParameter(file *scanner.File, fn uint32) string {
+	params := acrTypeParameterNames(file, fn)
+	if len(params) == 0 {
+		return ""
+	}
+	seenParams := false
+	for child := file.FlatFirstChild(fn); child != 0; child = file.FlatNextSib(child) {
+		switch file.FlatType(child) {
+		case "function_value_parameters":
+			seenParams = true
+		case "user_type":
+			if !seenParams {
+				continue
+			}
+			name := strings.TrimSpace(file.FlatNodeText(child))
+			if params[name] {
+				return name
+			}
+			return ""
+		case "function_body":
+			return ""
+		}
+	}
+	return ""
+}
+
+// acrUnboundedTypeParameter reports whether name is a type parameter of fn without an upper bound.
+func acrUnboundedTypeParameter(file *scanner.File, fn uint32, name string) bool {
+	tps, ok := file.FlatFindChild(fn, "type_parameters")
+	if !ok {
+		return false
+	}
+	for tp := file.FlatFirstChild(tps); tp != 0; tp = file.FlatNextSib(tp) {
+		if file.FlatType(tp) != "type_parameter" || file.FlatChildTextOrEmpty(tp, "type_identifier") != name {
+			continue
+		}
+		_, bounded := file.FlatFindChild(tp, "user_type")
+		_, nullableBound := file.FlatFindChild(tp, "nullable_type")
+		return !bounded && !nullableBound && !acrHasTypeConstraint(file, fn, name)
+	}
+	return false
+}
+
+// acrTypeParameterNames returns the names of fn's type parameters.
+func acrTypeParameterNames(file *scanner.File, fn uint32) map[string]bool {
+	tps, ok := file.FlatFindChild(fn, "type_parameters")
+	if !ok {
+		return nil
+	}
+	names := map[string]bool{}
+	for tp := file.FlatFirstChild(tps); tp != 0; tp = file.FlatNextSib(tp) {
+		if file.FlatType(tp) == "type_parameter" {
+			if name := file.FlatChildTextOrEmpty(tp, "type_identifier"); name != "" {
+				names[name] = true
+			}
+		}
+	}
+	return names
+}
+
+// acrHasTypeConstraint reports a `where name : Bound` clause on fn.
+func acrHasTypeConstraint(file *scanner.File, fn uint32, name string) bool {
+	constraints, ok := file.FlatFindChild(fn, "type_constraints")
+	if !ok {
+		return false
+	}
+	found := false
+	file.FlatWalkNodes(constraints, "type_constraint", func(c uint32) {
+		if !found && file.FlatChildTextOrEmpty(c, "type_identifier") == name {
+			found = true
+		}
+	})
+	return found
 }
 
 // acrCallTypeArguments returns the explicit type_arguments of a call (`f<T>(...)`), or 0.

@@ -188,6 +188,7 @@ func (r *defaultResolver) buildLambdaScopeFlat(idx uint32, file *scanner.File, s
 
 func (r *defaultResolver) buildClassBodyScopeFlat(idx uint32, file *scanner.File, scope *ScopeTable, it *ImportTable) {
 	childScope := scope.NewScopeForNode(flatScopeSpan{start: file.FlatStartByte(idx), end: file.FlatEndByte(idx)})
+	var ctorParams map[string]*plainCtorParam
 	if parent, ok := file.FlatParent(idx); ok {
 		if pt := file.FlatType(parent); pt == "class_declaration" || pt == "object_declaration" {
 			className := flatFirstTypeOrSimpleName(file, parent)
@@ -195,11 +196,118 @@ func (r *defaultResolver) buildClassBodyScopeFlat(idx uint32, file *scanner.File
 				childScope.Declare("this", r.makeResolvedType(className, it, false))
 			}
 			r.indexPrimaryConstructorPropsFlat(parent, file, childScope, it)
+			ctorParams = plainPrimaryConstructorParamsFlat(file, parent)
 		}
 	}
+	if len(ctorParams) == 0 {
+		flatForEachRelevantScopeChild(file, idx, func(child uint32) {
+			r.buildScopesFlat(child, file, childScope, it)
+		})
+		return
+	}
+	// Plain primary-constructor parameters are in scope in property
+	// initializers, property delegates and init blocks, where they shadow
+	// same-named members (#1673); accessors and member functions see only the
+	// members. val/var parameters are already class-scope members with the
+	// same type. Each initializer gets a scope only for the parameters it
+	// mentions, so classes whose initializers read none pay nothing.
+	initScope := func(span uint32) *ScopeTable {
+		var s *ScopeTable
+		file.FlatWalkNodes(span, "simple_identifier", func(id uint32) {
+			param, ok := ctorParams[string(file.FlatNodeBytes(id))]
+			if !ok {
+				return
+			}
+			if s == nil {
+				s = childScope.NewScopeForNode(flatScopeSpan{start: file.FlatStartByte(span), end: file.FlatEndByte(span)})
+			} else if _, declared := s.Entries[param.name]; declared {
+				return
+			}
+			if param.typ == nil {
+				param.typ = r.resolveParamTypeFlat(param.node, file, it)
+			}
+			typ := *param.typ
+			s.Declare(param.name, &typ)
+		})
+		if s == nil {
+			return childScope
+		}
+		return s
+	}
 	flatForEachRelevantScopeChild(file, idx, func(child uint32) {
-		r.buildScopesFlat(child, file, childScope, it)
+		switch file.FlatType(child) {
+		case "anonymous_initializer":
+			r.buildExecutableScopeFlat(child, file, initScope(child), it)
+		case "property_declaration":
+			r.declarePropertyFlat(child, file, childScope, it)
+			init := flatPropertyInitializerOrDelegate(file, child)
+			flatForEachRelevantScopeChild(file, child, func(part uint32) {
+				if part != init {
+					r.buildScopesFlat(part, file, childScope, it)
+				}
+			})
+			if init != 0 {
+				r.buildScopesFlat(init, file, initScope(init), it)
+			}
+		default:
+			r.buildScopesFlat(child, file, childScope, it)
+		}
 	})
+}
+
+// plainCtorParam is a primary-constructor parameter without a val/var
+// binding; typ is resolved on first use.
+type plainCtorParam struct {
+	name string
+	node uint32
+	typ  *ResolvedType
+}
+
+// plainPrimaryConstructorParamsFlat returns a class's primary-constructor
+// parameters that have no val/var binding, by name.
+func plainPrimaryConstructorParamsFlat(file *scanner.File, classDecl uint32) map[string]*plainCtorParam {
+	pc, ok := file.FlatFindChild(classDecl, "primary_constructor")
+	if !ok {
+		return nil
+	}
+	var params map[string]*plainCtorParam
+	for i := 0; i < file.FlatNamedChildCount(pc); i++ {
+		param := file.FlatNamedChild(pc, i)
+		if param == 0 || file.FlatType(param) != "class_parameter" {
+			continue
+		}
+		if _, binding := file.FlatFindChild(param, "binding_pattern_kind"); binding {
+			continue
+		}
+		name := flatFirstIdentifierText(file, param)
+		if name == "" {
+			continue
+		}
+		if params == nil {
+			params = make(map[string]*plainCtorParam)
+		}
+		params[name] = &plainCtorParam{name: name, node: param}
+	}
+	return params
+}
+
+// flatPropertyInitializerOrDelegate returns the initializer expression after
+// `=`, or the property_delegate node, of a property declaration; 0 if it has
+// neither.
+func flatPropertyInitializerOrDelegate(file *scanner.File, prop uint32) uint32 {
+	seenEquals := false
+	for child := file.FlatFirstChild(prop); child != 0; child = file.FlatNextSib(child) {
+		if !file.FlatIsNamed(child) {
+			if file.FlatNodeTextEquals(child, "=") {
+				seenEquals = true
+			}
+			continue
+		}
+		if file.FlatType(child) == "property_delegate" || seenEquals {
+			return child
+		}
+	}
+	return 0
 }
 
 // indexPrimaryConstructorPropsFlat declares each `val`/`var` class_parameter

@@ -24,6 +24,9 @@ type checkContext struct {
 	// kotlinArgs, pluginClasspath and pluginOptions are the Kotlin settings the
 	// requesting (merged) session compiles with.
 	kotlinArgs, pluginClasspath, pluginOptions []string
+	// jvmTarget is the JVM target the merged session compiles at; "" is
+	// krit-fir's default, the highest target its JDK runs.
+	jvmTarget string
 }
 
 // parseCheckContext returns nil when there is no usable request.
@@ -43,13 +46,14 @@ func parseCheckContext(data []byte) *checkContext {
 		KotlinArgs  []string                   `json:"kotlinArgs"`
 		PluginCP    []string                   `json:"compilerPluginClasspath"`
 		PluginOpts  []string                   `json:"compilerPluginOptions"`
+		JvmTarget   string                     `json:"jvmTarget"`
 	}
 	if err := json.Unmarshal(data, &raw); err != nil || len(raw.Rules) == 0 || len(raw.Files) == 0 {
 		return nil
 	}
 	c := &checkContext{ID: raw.ID, rules: append([]string(nil), raw.Rules...), ruleConfigs: raw.RuleConfigs,
 		files: map[string]bool{}, testFiles: map[string]bool{}, scanPaths: raw.ScanPaths, sdkLevels: raw.SDKLevels,
-		classpath: raw.Classpath, kotlinArgs: raw.KotlinArgs, pluginClasspath: raw.PluginCP, pluginOptions: raw.PluginOpts}
+		classpath: raw.Classpath, kotlinArgs: raw.KotlinArgs, pluginClasspath: raw.PluginCP, pluginOptions: raw.PluginOpts, jvmTarget: raw.JvmTarget}
 	sort.Strings(c.rules)
 	for _, f := range raw.Files {
 		c.files[f.Path] = true

@@ -185,6 +185,7 @@ func StartPass(ctx context.Context, opts PassOptions) *PendingPass {
 					"replaced":           int64(split.replaced),
 					"newlyAuthoritative": int64(split.newlyAuthoritative),
 					"newlyGated":         int64(split.newlyGated),
+					"targetGated":        int64(split.targetGated),
 					"kept":               int64(split.kept),
 				}, nil)
 			}

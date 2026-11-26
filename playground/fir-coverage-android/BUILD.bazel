@@ -1,13 +1,16 @@
 load("@krit//:defs.bzl", "krit_test")
 load("@rules_kotlin//kotlin:core.bzl", "define_kt_toolchain")
 
+# For krit_aspect: --@krit//:config=//:krit.yml
+exports_files(["krit.yml"])
+
 define_kt_toolchain(
     name = "kotlin_toolchain",
     jvm_target = "17",
 )
 
-# Go-only krit over every target's own sources (krit_test has no FIR pass
-# yet; the FIR aspect is #1587).
+# Go-only krit over every target's own sources. FIR coverage on Bazel comes
+# from krit_aspect (see ci/ and the FIR coverage workflow).
 krit_test(
     name = "krit_test",
     config = "krit.yml",

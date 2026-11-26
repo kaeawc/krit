@@ -4,11 +4,12 @@
     "gradle-model-cli": {"minAuthoritative": 10, "minCoverage": 1.0},
     "gradle-kritCheckAll": {"minAuthoritative": 10, "minCoverage": 1.0},
     "gradle-kritCheck": {"minAuthoritative": 10, "minCoverage": 1.0},
-    "bazel": {"minAuthoritative": 0, "minCoverage": 0.0}
+    "bazel-krit_aspect": {"minAuthoritative": 0, "minCoverage": 0.0}
   },
   "checks": {
     "gradle-configuration-cache": {"required": false},
     "gradle-up-to-date": {"required": true},
-    "bazel-action-cache": {"required": true}
+    "bazel-action-cache": {"required": true},
+    "bazel-krit_aspect-cache": {"required": false}
   }
 }

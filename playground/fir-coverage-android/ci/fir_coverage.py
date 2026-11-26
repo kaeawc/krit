@@ -5,6 +5,12 @@
         Sum every "verbose: FIR verdict:" line in the LOG files (one per krit
         run; per-project kritCheck runs give one each) into OUT.json.
 
+    fir_coverage.py measure-sarif NAME OUT.json SARIF...
+        Sum runs[].properties.fir (authoritative, gated, excluded, topCauses)
+        of krit SARIF reports, such as krit_aspect's per-target
+        <target>.krit.sarif files, into OUT.json. A report without it counts
+        as a run where FIR did not run.
+
     fir_coverage.py report THRESHOLDS.json FILE...
         Print a Markdown table of the *.result.json files (from measure) and
         the *.check.json files ({"name": ..., "passed": bool}, written by the
@@ -73,6 +79,46 @@ def measure(name, out_path, log_paths):
     print(json.dumps({k: v for k, v in result.items() if k not in ("gatedFiles", "checkerErrors")}))
     for error in errors:
         print(f"FIR checker error: {error}", file=sys.stderr)
+
+
+def measure_sarif(name, out_path, sarif_paths):
+    totals = {"authoritative": 0, "gated": 0, "generatedGated": 0, "excluded": 0, "ruleErrors": 0}
+    runs = 0
+    causes = []
+    errors = []
+    for path in sarif_paths:
+        with open(path, encoding="utf-8") as f:
+            log = json.load(f)
+        found = False
+        for run in log.get("runs", []):
+            fir = (run.get("properties") or {}).get("fir")
+            if fir is None:
+                continue
+            found = True
+            runs += 1
+            totals["authoritative"] += fir.get("authoritative", 0)
+            totals["gated"] += fir.get("gated", 0)
+            totals["excluded"] += fir.get("excluded", 0)
+            for cause in fir.get("topCauses") or []:
+                causes.append({"file": SAMPLE_PREFIX.sub("", path), "cause": f"{cause['cause']} x{cause['count']}"})
+        if not found:
+            errors.append(f"{SAMPLE_PREFIX.sub('', path)}: no FIR coverage in the report")
+    checked = totals["authoritative"] + totals["gated"]
+    result = {
+        "name": name,
+        "firRuns": runs,
+        **totals,
+        "checked": checked,
+        "coverage": round(totals["authoritative"] / checked, 4) if checked else None,
+        "gatedFiles": causes,
+        "checkerErrors": errors,
+    }
+    with open(out_path, "w", encoding="utf-8") as out:
+        json.dump(result, out, indent=2)
+        out.write("\n")
+    print(json.dumps({k: v for k, v in result.items() if k not in ("gatedFiles", "checkerErrors")}))
+    for error in errors:
+        print(error, file=sys.stderr)
 
 
 def percent(value):
@@ -160,6 +206,9 @@ def report(thresholds_path, paths):
 def main(argv):
     if len(argv) >= 4 and argv[1] == "measure":
         measure(argv[2], argv[3], argv[4:])
+        return 0
+    if len(argv) >= 4 and argv[1] == "measure-sarif":
+        measure_sarif(argv[2], argv[3], argv[4:])
         return 0
     if len(argv) >= 3 and argv[1] == "report":
         return report(argv[2], argv[3:])

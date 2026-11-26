@@ -214,9 +214,11 @@ jobs:
           retention-days: 14
 
   # Bazel path: build every target (KSP, Wire and view binding codegen,
-  # compiler plugin and opt-in options, android_binary), run krit_test, and
-  # build again, which must be a full action-cache hit. krit_test is Go-only
-  # until the FIR aspect lands (#1587), so this path reports no FIR runs.
+  # compiler plugin and opt-in options, android_binary), run the Go-only
+  # krit_test, run krit_aspect (one FIR action per target, #1587) and
+  # measure its coverage, then check caching: a second `bazel build //...`
+  # runs no actions, and krit_aspect after `bazel clean` hits the disk cache
+  # for every Krit action.
   bazel:
     needs: krit
     runs-on: ubuntu-latest
@@ -243,10 +245,16 @@ jobs:
       - name: bazel test (krit_test)
         working-directory: ${{ env.SAMPLE }}
         run: |
-          rc=0
-          bazel test //:krit_test --test_output=all 2>&1 | tee "$RUNNER_TEMP/fir/bazel-krit-test.log" || rc=$?
-          python3 ci/fir_coverage.py measure bazel "$RUNNER_TEMP/fir/bazel.result.json" "$RUNNER_TEMP/fir/bazel-krit-test.log"
-          exit "$rc"
+          bazel test //:krit_test --test_output=all 2>&1 | tee "$RUNNER_TEMP/fir/bazel-krit-test.log"
+      - name: krit_aspect (FIR per target)
+        working-directory: ${{ env.SAMPLE }}
+        run: |
+          bazel build //... --aspects=@krit//:defs.bzl%krit_aspect --output_groups=krit \
+            --@krit//:config=//:krit.yml 2>&1 | tee "$RUNNER_TEMP/fir/bazel-krit-aspect.log"
+          mkdir -p "$RUNNER_TEMP/fir/bazel-sarif"
+          (cd bazel-bin && find -L . -name '*.krit.sarif' -not -path '*.runfiles/*' -exec cp --parents {} "$RUNNER_TEMP/fir/bazel-sarif/" \;)
+          mapfile -t sarifs < <(find "$RUNNER_TEMP/fir/bazel-sarif" -name '*.krit.sarif' | sort)
+          python3 ci/fir_coverage.py measure-sarif bazel-krit_aspect "$RUNNER_TEMP/fir/bazel-krit_aspect.result.json" "${sarifs[@]}"
       - name: bazel build //... again (action cache hit)
         working-directory: ${{ env.SAMPLE }}
         run: |
@@ -254,6 +262,14 @@ jobs:
           # "INFO: N processes: N internal." means no action ran again.
           if grep -Eq 'INFO: [0-9]+ process(es)?: [0-9]+ internal\.$' "$RUNNER_TEMP/fir/bazel-rebuild.log"; then hit=true; else hit=false; fi
           echo "{\"name\": \"bazel-action-cache\", \"passed\": $hit}" > "$RUNNER_TEMP/fir/bazel-action-cache.check.json"
+      - name: krit_aspect after bazel clean (every Krit action a cache hit)
+        working-directory: ${{ env.SAMPLE }}
+        run: |
+          bazel clean
+          bazel build //... --aspects=@krit//:defs.bzl%krit_aspect --output_groups=krit \
+            --@krit//:config=//:krit.yml --execution_log_json_file="$RUNNER_TEMP/fir/bazel-aspect-exec.json"
+          if python3 ci/krit_actions_cached.py "$RUNNER_TEMP/fir/bazel-aspect-exec.json"; then hit=true; else hit=false; fi
+          echo "{\"name\": \"bazel-krit_aspect-cache\", \"passed\": $hit}" > "$RUNNER_TEMP/fir/bazel-krit_aspect-cache.check.json"
       - uses: actions/upload-artifact@de65e23aa2b7e23d713bb51fbfcb6d502f8667d8 # v4.6.2
         if: always()
         with:

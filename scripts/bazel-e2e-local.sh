@@ -181,7 +181,7 @@ echo "OK: krit_aspect"
 # own inputs only: fix //typed/app's finding, and the warm worker's report
 # must lose it; restore it, and the report must have it again.
 echo "== persistent worker: Krit actions run on the worker and see each edit"
-consumer="typed/app/Consumer.kt"
+consumer="$repo_root/bazel/e2e/typed/app/Consumer.kt"
 cp "$consumer" "$work/Consumer.kt.orig"
 restore_consumer() { cp "$work/Consumer.kt.orig" "$consumer"; }
 trap 'restore_consumer; rm -rf "$work"' EXIT
@@ -205,6 +205,7 @@ report | grep -q "typed/app/Consumer.kt:5:57: .*UnnecessarySafeCall" || {
   echo "ERROR: the worker lost //typed/app's finding after the source was restored" >&2
   exit 1
 }
+trap 'rm -rf "$work"' EXIT
 python3 - "$work/edited-exec.json" << 'PY'
 import json, sys
 text = open(sys.argv[1]).read()

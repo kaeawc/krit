@@ -354,12 +354,9 @@ func javascriptInterfaceHasAnnotatedMember(file *scanner.File, body uint32) bool
 				return true
 			}
 		case "property_declaration":
-			// A Kotlin property's generated getter and setter are methods (#1620).
-			if _, accessor := javascriptInterfaceAnnotationTargets(file, child); accessor && javascriptInterfaceHasAccessor(file, child) {
-				return true
-			}
-		case "getter", "setter":
-			if javascriptInterfaceAnnotated(file, child) {
+			// A Kotlin property's generated getter and setter are methods (#1620). Its getter and setter nodes,
+			// children or following siblings, are read through the property, which decides whether they exist.
+			if javascriptInterfaceAccessorAnnotated(file, child) {
 				return true
 			}
 		}
@@ -380,14 +377,22 @@ func javascriptInterfaceMemberName(file *scanner.File, member uint32) string {
 // android.webkit.JavascriptInterface: written in full, or imported (explicitly or through android.webkit.*) and not
 // shadowed by a declaration of the same name in the file.
 func javascriptInterfaceAnnotated(file *scanner.File, decl uint32) bool {
-	direct, _ := javascriptInterfaceAnnotationTargets(file, decl)
+	direct, _, _ := javascriptInterfaceAnnotationTargets(file, decl)
 	return direct
 }
 
+// javascriptInterfaceAccessorAnnotated reports whether a Kotlin property (or primary-constructor property) has a
+// generated getter or setter method carrying @JavascriptInterface, which UAST sees as an annotated method.
+func javascriptInterfaceAccessorAnnotated(file *scanner.File, decl uint32) bool {
+	_, getter, setter := javascriptInterfaceAnnotationTargets(file, decl)
+	return getter && javascriptInterfaceHasAccessor(file, decl, "getter") ||
+		setter && javascriptInterfaceHasAccessor(file, decl, "setter")
+}
+
 // javascriptInterfaceAnnotationTargets reports @JavascriptInterface on a declaration: direct without a use-site
-// target, and accessor for a Kotlin property annotated @get:/@set: or whose getter or setter carries it, which UAST
-// sees as an annotated method. @field: and other targets count as neither.
-func javascriptInterfaceAnnotationTargets(file *scanner.File, decl uint32) (direct, accessor bool) {
+// target, and getter / setter for a Kotlin property annotated @get: / @set: or whose getter / setter carries it.
+// @field: and other targets count as none of them.
+func javascriptInterfaceAnnotationTargets(file *scanner.File, decl uint32) (direct, getter, setter bool) {
 	if mods, ok := file.FlatFindChild(decl, "modifiers"); ok {
 		for child := file.FlatFirstChild(mods); child != 0; child = file.FlatNextSib(child) {
 			var written, target string
@@ -412,19 +417,25 @@ func javascriptInterfaceAnnotationTargets(file *scanner.File, decl uint32) (dire
 			switch target {
 			case "":
 				direct = true
-			case "get", "set":
-				accessor = true
+			case "get":
+				getter = true
+			case "set":
+				setter = true
 			}
 		}
 	}
-	if file.FlatType(decl) == "property_declaration" && !accessor {
+	if file.FlatType(decl) == "property_declaration" {
 		for _, acc := range javascriptInterfacePropertyAccessors(file, decl) {
 			if javascriptInterfaceAnnotated(file, acc) {
-				accessor = true
+				if file.FlatType(acc) == "getter" {
+					getter = true
+				} else {
+					setter = true
+				}
 			}
 		}
 	}
-	return direct, accessor
+	return direct, getter, setter
 }
 
 // javascriptInterfaceKotlinAnnotationName returns the name of a Kotlin annotation that may be JavascriptInterface:
@@ -453,12 +464,18 @@ func javascriptInterfaceKotlinAnnotationName(file *scanner.File, ann uint32) str
 	return annotationQualifiedName(file, ann)
 }
 
-// javascriptInterfaceHasAccessor reports whether Kotlin generates a getter or setter method for the property (or
-// primary-constructor property): not for `const` or `@JvmField` properties, and not for a private property unless
-// it declares an accessor with a body. Annotating a missing accessor has no effect.
-func javascriptInterfaceHasAccessor(file *scanner.File, decl uint32) bool {
+// javascriptInterfaceHasAccessor reports whether Kotlin generates the kind ("getter" or "setter") of accessor method
+// for the property (or primary-constructor property): never for `const` or `@JvmField` properties, no setter for a
+// `val`, and, for a private property, only when that accessor is declared with a body. Annotating a missing accessor
+// has no effect.
+func javascriptInterfaceHasAccessor(file *scanner.File, decl uint32, kind string) bool {
 	if file.FlatHasModifier(decl, "const") {
 		return false
+	}
+	if kind == "setter" {
+		if b, ok := file.FlatFindChild(decl, "binding_pattern_kind"); !ok || strings.TrimSpace(file.FlatNodeText(b)) != "var" {
+			return false
+		}
 	}
 	if mods, ok := file.FlatFindChild(decl, "modifiers"); ok {
 		for child := file.FlatFirstChild(mods); child != 0; child = file.FlatNextSib(child) {
@@ -474,6 +491,9 @@ func javascriptInterfaceHasAccessor(file *scanner.File, decl uint32) bool {
 		return false
 	}
 	for _, acc := range javascriptInterfacePropertyAccessors(file, decl) {
+		if file.FlatType(acc) != kind {
+			continue
+		}
 		if _, ok := file.FlatFindChild(acc, "function_body"); ok {
 			return true
 		}
@@ -496,7 +516,7 @@ func javascriptInterfaceCtorPropertyAnnotated(file *scanner.File, decl uint32) b
 		if _, binding := file.FlatFindChild(param, "binding_pattern_kind"); !binding {
 			return
 		}
-		if _, accessor := javascriptInterfaceAnnotationTargets(file, param); accessor && javascriptInterfaceHasAccessor(file, param) {
+		if javascriptInterfaceAccessorAnnotated(file, param) {
 			found = true
 		}
 	})
@@ -504,7 +524,7 @@ func javascriptInterfaceCtorPropertyAnnotated(file *scanner.File, decl uint32) b
 }
 
 // javascriptInterfacePropertyAccessors returns a property's getter and setter: children of the declaration, or, on
-// their own lines, the siblings that follow it.
+// their own lines, the siblings that follow it (past any comments).
 func javascriptInterfacePropertyAccessors(file *scanner.File, prop uint32) []uint32 {
 	var out []uint32
 	for child := file.FlatFirstChild(prop); child != 0; child = file.FlatNextSib(child) {
@@ -515,7 +535,7 @@ func javascriptInterfacePropertyAccessors(file *scanner.File, prop uint32) []uin
 	for next := file.FlatNextSib(prop); next != 0; next = file.FlatNextSib(next) {
 		t := file.FlatType(next)
 		if t != "getter" && t != "setter" {
-			if file.FlatIsNamed(next) {
+			if file.FlatIsNamed(next) && !isCommentNodeType(t) {
 				break
 			}
 			continue
@@ -548,7 +568,7 @@ func javascriptInterfaceNameResolves(file *scanner.File, written string) bool {
 
 func (r *JavascriptInterfaceRule) checkDeclaration(ctx *api.Context) {
 	file, decl := ctx.File, ctx.Idx
-	direct, accessor := javascriptInterfaceAnnotationTargets(file, decl)
+	direct, _, _ := javascriptInterfaceAnnotationTargets(file, decl)
 	isProperty := file.FlatType(decl) == "property_declaration" || file.FlatType(decl) == "class_parameter"
 	if file.FlatType(decl) == "class_parameter" {
 		// A constructor parameter is a method only through the accessor of a val/var property.
@@ -557,7 +577,7 @@ func (r *JavascriptInterfaceRule) checkDeclaration(ctx *api.Context) {
 		}
 		direct = false
 	}
-	annotated := direct || accessor && isProperty && javascriptInterfaceHasAccessor(file, decl)
+	annotated := direct || isProperty && javascriptInterfaceAccessorAnnotated(file, decl)
 	if !annotated || javascriptInterfaceDeclIsPublic(file, decl) {
 		return
 	}

@@ -395,7 +395,8 @@ func TestUnsanitizedFilenameFromContentProviderLintParityFlows(t *testing.T) {
 
 // #1620: a Kotlin property (or primary-constructor property) annotated @get:/@set:JavascriptInterface, or with an
 // annotated accessor, has an annotated getter or setter method, as UAST sees it. @field: does not, and neither does a
-// private, @JvmField or const property, which has no accessor to annotate. Lines marked `// report` are expected.
+// @JvmField or const property, or a private property whose annotated accessor has no body: none of them has that
+// accessor to annotate. Lines marked `// report` are expected.
 const javascriptInterfaceAccessorSource = `package com.example
 
 import android.webkit.JavascriptInterface
@@ -419,6 +420,22 @@ class ProtectedGetter {
 open class ProtectedCtor(@get:JavascriptInterface protected val secret: String) { // report
     @JavascriptInterface fun ok() = Unit
 }
+class PrivateBodylessGetter {
+    private val secret = "x"
+        @JavascriptInterface get
+}
+class PrivateSetterBodyOnly {
+    @get:JavascriptInterface private var secret = "x"
+        set(v) { field = v }
+}
+class PrivateCustomGetter {
+    @get:JavascriptInterface private val secret: String // report
+        get() = "x"
+}
+class PrivateCustomSetter {
+    @set:JavascriptInterface private var secret = "x" // report
+        set(v) { field = v }
+}
 
 fun add(web: WebView) {
     web.addJavascriptInterface(GetterBridge(), "a")
@@ -429,6 +446,10 @@ fun add(web: WebView) {
     web.addJavascriptInterface(FieldBridge(), "f") // report
     web.addJavascriptInterface(PrivateBridge(), "g") // report
     web.addJavascriptInterface(JvmFieldBridge(), "h") // report
+    web.addJavascriptInterface(PrivateBodylessGetter(), "i") // report
+    web.addJavascriptInterface(PrivateSetterBodyOnly(), "j") // report
+    web.addJavascriptInterface(PrivateCustomGetter(), "k")
+    web.addJavascriptInterface(PrivateCustomSetter(), "l")
 }
 `
 

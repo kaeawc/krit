@@ -492,8 +492,9 @@ All notable changes to Krit will be documented in this file.
 - `JavascriptInterface` reads Kotlin accessor use-site targets: a property or primary-constructor property annotated
   `@get:`/`@set:JavascriptInterface` (including the array form `@get:[... JavascriptInterface]`), or whose getter or
   setter carries the annotation, counts as an annotated bridge method, and a protected one is reported as
-  `Must be public`, as Lint sees the generated accessors through UAST. `@field:`, and private, `@JvmField` or `const`
-  properties, which generate no accessor, do not count (part of #1620).
+  `Must be public`, as Lint sees the generated accessors through UAST. `@field:`, `@JvmField` and `const`
+  properties, and a private property's accessor without a body, generate no annotated accessor and do not count
+  (part of #1620).
 - The Lint ports' shared call parser is memoized per node for each file's dispatch pass, instead of re-parsing a call
   for every port that looks at it, and their import scan finds `import` keywords before running its regex. On
   element-x-android that cut about 1.3s of CPU from a `--no-fir` scan, with the same findings.

@@ -217,6 +217,10 @@ var javaSupportReadiness = JavaSupportMatrix{
 		"LaunchActivityFromNotification":          {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/android_lint_performance_notification_test.go"}},
 		"DuplicateDivider":                        {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/android_lint_performance_classes_test.go"}},
 		"SyntheticAccessor":                       {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/android_lint_performance_classes_test.go"}},
+		"IdleBatteryChargingConstraints":          {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/androidx_work_parity_test.go"}},
+		"InvalidPeriodicWorkRequestInterval":      {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/androidx_work_parity_test.go"}},
+		"BadPeriodicWorkRequestEnqueue":           {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/androidx_work_parity_test.go"}},
+		"UseRxSetProgress2":                       {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/androidx_work_parity_test.go"}},
 	},
 }
 

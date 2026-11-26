@@ -1,0 +1,18 @@
+w/Constraints.kt:13:5: IdleBatteryChargingConstraints: Constraints may not be met for some devices
+w/Constraints.kt:45:5: IdleBatteryChargingConstraints: Constraints may not be met for some devices
+w/Constraints.kt:62:5: IdleBatteryChargingConstraints: Constraints may not be met for some devices
+w/Constraints.kt:8:5: IdleBatteryChargingConstraints: Constraints may not be met for some devices
+w/JConstraints.java:13:16: IdleBatteryChargingConstraints: Constraints may not be met for some devices
+w/JConstraints.java:31:9: IdleBatteryChargingConstraints: Constraints may not be met for some devices
+w/JConstraints.java:9:9: IdleBatteryChargingConstraints: Constraints may not be met for some devices
+w/JRx.java:18:9: UseRxSetProgress2: `setProgress` is deprecated. Use `setCompletableProgress` instead.
+w/Rx.kt:12:9: UseRxSetProgress2: `setProgress` is deprecated. Use `setCompletableProgress` instead.
+w/Rx.kt:13:9: UseRxSetProgress2: `setProgress` is deprecated. Use `setCompletableProgress` instead.
+w/Rx.kt:23:9: UseRxSetProgress2: `setProgress` is deprecated. Use `setCompletableProgress` instead.
+w/Rx.kt:29:5: UseRxSetProgress2: `setProgress` is deprecated. Use `setCompletableProgress` instead.
+work-runtime-2.12.0/classes.jar!/androidx/work/WorkManager.class:0:0: BadPeriodicWorkRequestEnqueue: Use `enqueueUniquePeriodicWork()` instead of `enqueue()`
+work-runtime-2.12.0/classes.jar!/androidx/work/WorkManager.class:0:0: BadPeriodicWorkRequestEnqueue: Use `enqueueUniquePeriodicWork()` instead of `enqueue()`
+work-runtime-2.12.0/classes.jar!/androidx/work/WorkManager.class:0:0: BadPeriodicWorkRequestEnqueue: Use `enqueueUniquePeriodicWork()` instead of `enqueue()`
+work-runtime-2.12.0/classes.jar!/androidx/work/WorkManager.class:0:0: BadPeriodicWorkRequestEnqueue: Use `enqueueUniquePeriodicWork()` instead of `enqueue()`
+work-runtime-2.12.0/classes.jar!/androidx/work/WorkManager.class:0:0: BadPeriodicWorkRequestEnqueue: Use `enqueueUniquePeriodicWork()` instead of `enqueue()`
+work-runtime-2.12.0/classes.jar!/androidx/work/WorkManager.class:0:0: BadPeriodicWorkRequestEnqueue: Use `enqueueUniquePeriodicWork()` instead of `enqueue()`

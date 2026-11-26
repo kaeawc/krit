@@ -1147,6 +1147,39 @@
             }
           }
         },
+        "BadPeriodicWorkRequestEnqueue": {
+          "description": "Use `enqueueUniquePeriodicWork()` instead of `enqueue()` [precision: ast-backed] [noisiness: normal]\nCaveat: Reported at the enqueue() call; Lint 2.12.0 reports the location of WorkManager.enqueue in the library jar.\nCaveat: A Kotlin List\u003cWorkRequest\u003e argument is not reported, though Lint's List\u003c? extends WorkRequest\u003e match reports it even for one-time requests.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable BadPeriodicWorkRequestEnqueue (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "BidiSpoofing": {
           "description": "Bidirectional text spoofing [precision: ast-backed] [noisiness: normal]",
           "type": "object",
@@ -4953,6 +4986,39 @@
             }
           }
         },
+        "IdleBatteryChargingConstraints": {
+          "description": "Constraints may not be met for some devices [precision: ast-backed] [noisiness: normal]\nCaveat: Both calls need an explicit receiver proven to be a Constraints.Builder by a constructor, a builder-setter chain, or a declaration in the same file.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable IdleBatteryChargingConstraints (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "IllegalResourceRefManifest": {
           "description": "Name and version must be integer or string, not resource [precision: project-structure-aware] [noisiness: normal] [capabilities: manifest]",
           "type": "object",
@@ -5653,6 +5719,39 @@
           "properties": {
             "active": {
               "description": "Enable InvalidManifestAttribute (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "InvalidPeriodicWorkRequestInterval": {
+          "description": "Invalid interval duration [precision: ast-backed] [noisiness: normal]\nCaveat: Follows the detector source: the Android Lint CLI (9.4) running the 2.12.0 lint.jar against compiled WorkManager reported none of these intervals, so Lint-side parity could not be observed.\nCaveat: Like the detector, a Java int argument (`10` instead of `10L`) is not evaluated, and PeriodicWorkRequestBuilder\u003cW\u003e(...) is left to PeriodicWorkRequestLessThan15Min.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable InvalidPeriodicWorkRequestInterval (default: true).",
               "type": "boolean",
               "default": true
             },
@@ -13198,6 +13297,39 @@
           "properties": {
             "active": {
               "description": "Enable UseRequireInsteadOfGet (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "UseRxSetProgress2": {
+          "description": "`setProgress` is deprecated. Use `setCompletableProgress` instead. [fixable: idiomatic] [precision: ast-backed] [noisiness: normal]\nCaveat: An explicit receiver must be declared in the same file as androidx.work.RxWorker or a same-file subclass of it.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable UseRxSetProgress2 (default: true).",
               "type": "boolean",
               "default": true
             },

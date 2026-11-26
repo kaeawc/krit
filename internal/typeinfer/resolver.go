@@ -96,6 +96,52 @@ type ParamInfo struct {
 	Name       string
 	Type       *ResolvedType
 	HasDefault bool
+	// Vararg marks a `vararg` parameter.
+	Vararg bool
+	// Annotations lists the simple names of the parameter's annotations
+	// (`@CompileTimeConstant x: String` gives ["CompileTimeConstant"]).
+	Annotations []string
+}
+
+// HasAnnotation reports whether the parameter carries an annotation with the simple name.
+func (p ParamInfo) HasAnnotation(name string) bool {
+	for _, a := range p.Annotations {
+		if a == name {
+			return true
+		}
+	}
+	return false
+}
+
+// ParamAnnotationIndex answers which source functions have annotated
+// parameters, so a per-file rule can resolve calls into other files only
+// when the callee's name can matter.
+type ParamAnnotationIndex interface {
+	// HasFunctionWithAnnotatedParam reports whether any indexed function or
+	// member named name has a parameter annotated with the simple name annotation.
+	HasFunctionWithAnnotatedParam(annotation, name string) bool
+	// FunctionNamesWithAnnotatedParam returns those names, sorted.
+	FunctionNamesWithAnnotatedParam(annotation string) []string
+	// TopLevelFunctionParams returns the parameter lists of the top-level
+	// functions indexed under fqn that a call at offset in path can reach.
+	// Only functions with at least one annotated parameter record parameters.
+	TopLevelFunctionParams(fqn, path string, offset uint32) [][]ParamInfo
+}
+
+// ParamAnnotationsOf returns r, or the source resolver it wraps, as a
+// ParamAnnotationIndex; nil when there is none.
+func ParamAnnotationsOf(r TypeResolver) ParamAnnotationIndex {
+	for r != nil {
+		if p, ok := r.(ParamAnnotationIndex); ok {
+			return p
+		}
+		w, ok := r.(interface{ Fallback() TypeResolver })
+		if !ok {
+			return nil
+		}
+		r = w.Fallback()
+	}
+	return nil
 }
 
 // ImportTable maps simple names to FQNs for a single file.

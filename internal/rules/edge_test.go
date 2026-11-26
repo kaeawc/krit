@@ -138,7 +138,7 @@ func runRuleByNameOnFile(t *testing.T, ruleName string, file *scanner.File) []sc
 	t.Helper()
 	for _, r := range api.Registry {
 		if r.ID == ruleName {
-			if ruleName == "TestWithoutAssertion" {
+			if ruleName == "TestWithoutAssertion" || ruleName == "CompileTimeConstant" {
 				return runCrossFileRuleOnFiles(r, file)
 			}
 			d := rules.NewDispatcher([]*api.Rule{r}, nil)

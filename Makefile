@@ -1,4 +1,4 @@
-.PHONY: build test vet lint lint-rules fix schema clean bench integration integration-ci playground ci regression daemon-verify corpus-snapshot corpus-precision corpus-bench fir-validate fir-jar test-fanotify all install install-completions watch
+.PHONY: build test vet lint lint-rules fix schema clean bench integration integration-ci playground ci regression daemon-verify corpus-snapshot corpus-precision corpus-bench fir-validate fir-jar test-fanotify all install install-completions watch perf-guard
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS = -s -w -X main.version=$(VERSION)
@@ -85,6 +85,13 @@ corpus-precision: build
 # time, memory, syntax-error files, project-model detection and findings.
 corpus-bench: build
 	go run ./internal/devtools/corpusbench -fetch -out corpus-out $(CORPUS_ARGS)
+
+# perf-guard (#1657) times krit at the merge-base with origin/main and at the
+# working tree side by side, on pinned corpora and a synthetic Android
+# project, and fails on a regression or a super-linear phase. CI runs it on
+# every pull request. See docs/perf.md "Performance regression guard".
+perf-guard:
+	bash scripts/perf-guard.sh
 
 # Opt-in external corpora and prepared Gradle models are discovered by the harness.
 fir-validate:

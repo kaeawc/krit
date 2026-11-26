@@ -13,6 +13,7 @@ var axlParityRoots = []string{
 	"androidx_compose_animation",
 	"androidx_compose_material",
 	"androidx_constraintlayout",
+	"androidx_startup",
 	"androidx_uiautomator",
 	"androidx_webkit",
 }
@@ -72,7 +73,7 @@ func TestAndroidxLintParity(t *testing.T) {
 				}
 				wantText := strings.Join(parityLines(strings.Join(wantLines, "\n")), "\n")
 				var gotLines []string
-				for _, line := range runParityChecks(t, caseDir, checks) {
+				for _, line := range runWorkParityChecks(t, caseDir, checks) {
 					// The recorded findings escape a message's newlines, one finding per line.
 					gotLines = append(gotLines, strings.ReplaceAll(line, "\n", `\n`))
 				}

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<lint>
+    <issue id="ComposeModifierMissing">
+        <option name="content-emitters" value="MyCard" />
+        <option name="visibility-threshold" value="all" />
+    </issue>
+</lint>

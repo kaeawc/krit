@@ -159,6 +159,14 @@ rules:
     status: supported
     fixtures:
       - internal/rules/androidx_compose_ui_parity_test.go
+  EnsureInitializerNoArgConstr:
+    status: supported
+    fixtures:
+      - internal/rules/androidx_lint_parity_test.go
+  EnsureInitializerMetadata:
+    status: supported
+    fixtures:
+      - internal/rules/androidx_lint_parity_test.go
   MissingOnRenderProcessGone:
     status: supported
     fixtures:
@@ -694,6 +702,10 @@ rules:
     status: supported
     fixtures:
       - tests/fixtures/android-lint/WearMaterialTheme/positive
+  StartActivityAndCollapseDeprecated:
+    status: supported
+    fixtures:
+      - tests/fixtures/android-lint/StartActivityAndCollapseDeprecated/positive
   UsableSpace:
     status: supported
     fixtures:

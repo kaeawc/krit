@@ -9265,7 +9265,7 @@
           }
         },
         "ProviderReadPermissionOnly": {
-          "description": "Provider with readPermission only and implemented write APIs [precision: project-structure-aware] [noisiness: normal] [capabilities: manifest, parsed-files]",
+          "description": "Provider with readPermission only and implemented write APIs [precision: project-structure-aware] [noisiness: normal] [capabilities: concurrent, manifest, parsed-files]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -12565,7 +12565,7 @@
           }
         },
         "UnsafeImplicitIntentLaunch": {
-          "description": "Implicit intent matches an internal non-exported component [precision: project-structure-aware] [noisiness: normal] [capabilities: manifest, parsed-files]",
+          "description": "Implicit intent matches an internal non-exported component [precision: project-structure-aware] [noisiness: normal] [capabilities: concurrent, manifest, parsed-files]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -12598,7 +12598,7 @@
           }
         },
         "UnsafeIntentLaunch": {
-          "description": "Launched Unsafe Intent [precision: project-structure-aware] [noisiness: normal] [capabilities: manifest, parsed-files]",
+          "description": "Launched Unsafe Intent [precision: project-structure-aware] [noisiness: normal] [capabilities: concurrent, manifest, parsed-files]",
           "type": "object",
           "additionalProperties": false,
           "properties": {

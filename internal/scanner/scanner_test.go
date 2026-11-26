@@ -696,7 +696,7 @@ func TestIsExcludedTestResourcePaths(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := isExcluded(tt.path, nil); got != tt.want {
+			if got := isExcluded("", tt.path, nil); got != tt.want {
 				t.Errorf("isExcluded(%q) = %t, want %t", tt.path, got, tt.want)
 			}
 		})
@@ -754,6 +754,84 @@ func TestCollectionBuiltinSkipsOnlyDirectoryScans(t *testing.T) {
 				t.Fatalf("expected user exclude to skip explicit file, got %#v", files)
 			}
 		})
+	}
+}
+
+// Regression for #1549: a project checked out under an ancestor directory
+// named testdata used to scan nothing, because the built-in test-data check
+// matched the absolute path.
+func TestCollectionBuiltinIgnoresAncestorTestDataDirs(t *testing.T) {
+	for _, ancestor := range []string{"testdata", "testData", "test-data", "compiler-tests"} {
+		t.Run(ancestor, func(t *testing.T) {
+			root := filepath.Join(t.TempDir(), ancestor, "proj")
+			app := filepath.Join(root, "src", "main", "kotlin", "App.kt")
+			java := filepath.Join(root, "src", "main", "java", "Util.java")
+			inner := filepath.Join(root, "src", "test", ancestor, "Stub.kt")
+			for _, path := range []string{app, java, inner} {
+				if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, []byte("package test"), 0644); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			kotlin, err := CollectKotlinFiles([]string{root}, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(kotlin) != 1 || kotlin[0] != app {
+				t.Fatalf("CollectKotlinFiles = %#v, want only %q", kotlin, app)
+			}
+			javaFiles, err := CollectJavaFiles([]string{root}, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(javaFiles) != 1 || javaFiles[0] != java {
+				t.Fatalf("CollectJavaFiles = %#v, want only %q", javaFiles, java)
+			}
+			kotlin, javaFiles, err = CollectKotlinAndJavaFiles(context.Background(), []string{root}, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(kotlin) != 1 || kotlin[0] != app || len(javaFiles) != 1 || javaFiles[0] != java {
+				t.Fatalf("CollectKotlinAndJavaFiles = %#v, %#v; want %q, %q", kotlin, javaFiles, app, java)
+			}
+		})
+	}
+}
+
+func TestCollectionBuiltinMatchesMarkersSpanningTheRoot(t *testing.T) {
+	module := filepath.Join(t.TempDir(), "app")
+	app := filepath.Join(module, "src", "main", "kotlin", "App.kt")
+	for _, path := range []string{
+		app,
+		filepath.Join(module, "src", "test", "resources", "Fixture.kt"),
+		filepath.Join(module, "src", "commonTest", "resources", "F2.kt"),
+		filepath.Join(module, "src", "test", "data", "D.kt"),
+	} {
+		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("package test"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, root := range []string{module, filepath.Join(module, "src")} {
+		files, err := CollectKotlinFiles([]string{root}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(files) != 1 || files[0] != app {
+			t.Fatalf("CollectKotlinFiles(%s) = %#v, want only %q", root, files, app)
+		}
+	}
+	files, err := CollectKotlinFiles([]string{filepath.Join(module, "src", "test")}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 0 {
+		t.Fatalf("rooted at src/test, expected nothing collected, got %#v", files)
 	}
 }
 

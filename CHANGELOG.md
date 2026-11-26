@@ -15,6 +15,10 @@ All notable changes to Krit will be documented in this file.
   its inputs' hashes in the model, and krit warns, naming the file, when the build no longer matches. A model restored under another checkout path or Gradle user home is rebased when
   loaded (new `gradleUserHome` model field). New `krit { exportTests = false }` exports and resolves only production
   source sets (#1663).
+- `EnsureInitializerNoArgConstr` and `EnsureInitializerMetadata`, ports of the Lint checks bundled with
+  `androidx.startup:startup-runtime` 1.2.0, for Kotlin and Java under their Lint IDs. Their findings match the Lint CLI
+  running that release's `lint.jar` on the project under `internal/rules/testdata/androidx_startup/`, manifest
+  `<meta-data>` entries included (#1484, #1485).
 - PR mode for `--diff` (#1660): with a Gradle model, the type oracle and the FIR check compile only the modules that
   hold the changed Kotlin files, with their dependencies as built jars or source context, instead of the whole
   repository; every other file keeps Go's verdict. It falls back to the whole-repository compile when a module would

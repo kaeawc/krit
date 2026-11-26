@@ -3094,6 +3094,72 @@
             }
           }
         },
+        "EnsureInitializerMetadata": {
+          "description": "Detects androidx.startup Initializers that no manifest \u003cmeta-data\u003e entry or dependencies() list reaches. [precision: project-structure-aware] [noisiness: normal] [capabilities: manifest, parsed-files]\nCaveat: As in Lint, a \u003cmeta-data\u003e name must be the fully qualified class name (a relative `.Name` does not count), and the value must be androidx.startup or @string/androidx_startup.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable EnsureInitializerMetadata (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "EnsureInitializerNoArgConstr": {
+          "description": "Detects androidx.startup Initializers without a no-argument constructor, which the startup runtime cannot create. [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]\nCaveat: Initializer hierarchies are followed through the project's own classes; one extending a library base class other than Initializer is not seen.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable EnsureInitializerNoArgConstr (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "ExactAlarm": {
           "description": "Invalid Usage of Exact Alarms [precision: project-structure-aware] [noisiness: normal] [capabilities: manifest]",
           "type": "object",

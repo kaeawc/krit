@@ -149,6 +149,8 @@ func AllMetaProviders() []api.MetaProvider {
 		(*ProduceStateDoesNotAssignValueRule)(nil),
 		(*RememberSaveableSaverParameterRule)(nil),
 		(*RetainUnitTypeRule)(nil),
+		(*EnsureInitializerNoArgConstrRule)(nil),
+		(*EnsureInitializerMetadataRule)(nil),
 		(*MissingOnRenderProcessGoneRule)(nil),
 		(*CrossOriginIsolatedAllowlistRule)(nil),
 		(*DontUseAccessibilityNodeInfoGetTextRule)(nil),

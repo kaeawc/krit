@@ -447,6 +447,10 @@ All notable changes to Krit will be documented in this file.
 - The Lint ports' shared call parser is memoized per node for each file's dispatch pass, instead of re-parsing a call
   for every port that looks at it, and their import scan finds `import` keywords before running its regex. On
   element-x-android that cut about 1.3s of CPU from a `--no-fir` scan, with the same findings.
+- `UsingMaterialAndMaterial3Libraries` no longer reports material-only modules of a multi-module build because
+  another module depends on material3: as in Lint, material3 must be imported in the file or declared by the file's
+  own module. `UnusedMaterialScaffoldPaddingParameter` and `UnusedMaterial3ScaffoldPaddingParameter` now resolve
+  aliased `Scaffold` imports (#1728).
 - `CompileTimeConstant` only runs on files that mention `CompileTimeConstant`. Every finding needs an annotated
   declaration in the same file, so other files cannot be reported; the rule spent about 2s on element-x-android and
   0.7s on okhttp finding nothing. Lint ports can opt into the same gate by declaring `fileMentions()`.

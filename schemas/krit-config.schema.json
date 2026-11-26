@@ -18855,7 +18855,7 @@
           }
         },
         "UnusedMaterial3ScaffoldPaddingParameter": {
-          "description": "Detects material3 Scaffold content lambdas that ignore the padding parameter, so app bars can cover the content. [precision: ast-backed] [noisiness: normal]\nCaveat: The content lambda must be passed as the trailing lambda or as `content = { }`; a lambda at the content position without a label is not mapped.\nCaveat: An inner lambda without parameters hides an outer `it` only when it is passed to a known one-parameter lambda function (forEach, let, map, LazyListScope.items, ...) or a same-file function whose parameter type takes one value; Lint resolves every inner lambda.\nCaveat: Scaffold resolves through imports and the file's own package; a Scaffold declared in another file of the same package is not seen as shadowing a star import.",
+          "description": "Detects material3 Scaffold content lambdas that ignore the padding parameter, so app bars can cover the content. [precision: ast-backed] [noisiness: normal]\nCaveat: The content lambda must be passed as the trailing lambda or as `content = { }`; a lambda at the content position without a label is not mapped.\nCaveat: An inner lambda without parameters hides an outer `it` only when it is passed to a known one-parameter lambda function (forEach, let, map, LazyListScope.items, ...) or a same-file function whose parameter type takes one value; Lint resolves every inner lambda.\nCaveat: Scaffold resolves through imports (including `import ... as Alias`) and the file's own package; a Scaffold declared in another file of the same package is not seen as shadowing a star import.",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -18888,7 +18888,7 @@
           }
         },
         "UnusedMaterialScaffoldPaddingParameter": {
-          "description": "Detects material Scaffold content lambdas that ignore the padding parameter, so app bars can cover the content. [precision: ast-backed] [noisiness: normal]\nCaveat: The content lambda must be passed as the trailing lambda or as `content = { }`; a lambda at the content position without a label is not mapped.\nCaveat: An inner lambda without parameters hides an outer `it` only when it is passed to a known one-parameter lambda function (forEach, let, map, LazyListScope.items, ...) or a same-file function whose parameter type takes one value; Lint resolves every inner lambda.\nCaveat: Scaffold resolves through imports and the file's own package; a Scaffold declared in another file of the same package is not seen as shadowing a star import.",
+          "description": "Detects material Scaffold content lambdas that ignore the padding parameter, so app bars can cover the content. [precision: ast-backed] [noisiness: normal]\nCaveat: The content lambda must be passed as the trailing lambda or as `content = { }`; a lambda at the content position without a label is not mapped.\nCaveat: An inner lambda without parameters hides an outer `it` only when it is passed to a known one-parameter lambda function (forEach, let, map, LazyListScope.items, ...) or a same-file function whose parameter type takes one value; Lint resolves every inner lambda.\nCaveat: Scaffold resolves through imports (including `import ... as Alias`) and the file's own package; a Scaffold declared in another file of the same package is not seen as shadowing a star import.",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -18921,7 +18921,7 @@
           }
         },
         "UsingMaterialAndMaterial3Libraries": {
-          "description": "Detects androidx.compose.material imports in code that also uses the incompatible material3 library. [precision: ast-backed] [noisiness: normal]\nCaveat: material3 use is proven by a material3 import in the same file or a material3 dependency anywhere in the Gradle build; Lint runs the check only in modules that depend on material3.",
+          "description": "Detects androidx.compose.material imports in code that also uses the incompatible material3 library. [precision: ast-backed] [noisiness: normal]\nCaveat: material3 use is proven by a material3 import in the same file, or a material3 dependency declared by the build file of the file's own Gradle module (the nearest directory with a build.gradle(.kts)); one added by a convention plugin or arriving through another project module is not seen.",
           "type": "object",
           "additionalProperties": false,
           "properties": {

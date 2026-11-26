@@ -188,6 +188,24 @@ grep -q "srcjar/src/main/kotlin/d/UsesGen.kt:5:.*UnnecessarySafeCall" \
   echo "ERROR: krit_aspect did not report //srcjar's FIR finding through the srcjar" >&2
   exit 1
 }
+# A minSdk set only by the build (#1682): with --@krit//:min_sdk_version=24
+# the SDK_INT >= 21 check of //sdk is obsolete; without it the level is
+# unknown and krit reports nothing.
+echo "== --@krit//:min_sdk_version reaches krit_aspect's actions"
+sdk_report() {
+  build "${extra[@]}" "$@" //sdk > /dev/null 2>&1 || build "${extra[@]}" "$@" //sdk
+  # shellcheck disable=SC2086
+  cat "$($BAZEL info "${extra[@]}" bazel-bin 2> /dev/null)/sdk/sdk.krit.txt"
+}
+if sdk_report | grep -q ObsoleteSdkInt; then
+  echo "ERROR: //sdk reported ObsoleteSdkInt without a minSdk" >&2
+  exit 1
+fi
+sdk_report --@krit//:min_sdk_version=24 | grep -q "sdk/Levels.kt:5:.*ObsoleteSdkInt.*always >= 24" || {
+  sdk_report --@krit//:min_sdk_version=24 >&2
+  echo "ERROR: --@krit//:min_sdk_version=24 did not reach //sdk's Krit action" >&2
+  exit 1
+}
 echo "OK: krit_aspect"
 
 # A remote cache shares a Krit action between machines only if its key

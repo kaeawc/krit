@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kaeawc/krit/internal/android"
 	"github.com/kaeawc/krit/internal/cacheutil"
 	"github.com/kaeawc/krit/internal/cli/clishared"
 	"github.com/kaeawc/krit/internal/config"
@@ -362,6 +363,9 @@ func (r *runner) run(ctx context.Context) (int, error) {
 			r.pendingFIR.Cancel()
 		}
 	}()
+	if code, err := r.applySDKLevelFlags(); err != nil {
+		return code, err
+	}
 	if code, err := r.collectFiles(); err != nil {
 		return code, err
 	}
@@ -710,4 +714,21 @@ func getChangedFiles(ref string, scanPaths []string) (map[string]bool, error) {
 		}
 	}
 	return result, nil
+}
+
+// applySDKLevelFlags makes --min-sdk / --target-sdk the SDK levels of files
+// whose directories declare none, for every rule and the FIR pass.
+func (r *runner) applySDKLevelFlags() (int, error) {
+	levels := android.SDKLevels{}
+	if r.f.MinSdk != nil {
+		levels.MinSdk = *r.f.MinSdk
+	}
+	if r.f.TargetSdk != nil {
+		levels.TargetSdk = *r.f.TargetSdk
+	}
+	if levels.MinSdk < 0 || levels.TargetSdk < 0 {
+		return 2, fmt.Errorf("--min-sdk and --target-sdk must not be negative")
+	}
+	android.SetDefaultSDKLevels(levels)
+	return 0, nil
 }

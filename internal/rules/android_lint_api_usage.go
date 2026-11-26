@@ -2,8 +2,6 @@ package rules
 
 import (
 	"bytes"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/rules/api"
@@ -62,6 +60,17 @@ func sdkGuardLevel(file *scanner.File, idx uint32) int {
 					best = lvl
 				}
 			}
+		case "when_entry":
+			// A subject-less `when { SDK_INT >= N -> ... }` entry runs its body when its condition holds.
+			if file.FlatType(child) == "control_structure_body" {
+				for c := file.FlatFirstChild(p); c != 0; c = file.FlatNextSib(c) {
+					if file.FlatType(c) == "when_condition" {
+						if lvl := sdkConditionLevel(file, file.FlatNamedChild(c, 0), true); lvl > best {
+							best = lvl
+						}
+					}
+				}
+			}
 		case "function_declaration", "method_declaration", "lambda_literal", "lambda_expression", "class_body", "source_file":
 			return best
 		}
@@ -96,6 +105,23 @@ func sdkIfParts(file *scanner.File, n uint32) (cond, then, els uint32) {
 func sdkConditionLevel(file *scanner.File, cond uint32, positive bool) int {
 	cond = trimSkipParens(file, cond)
 	switch file.FlatType(cond) {
+	case "prefix_expression", "unary_expression":
+		if op := file.FlatFirstChild(cond); op != 0 && file.FlatNodeText(op) == "!" {
+			return sdkConditionLevel(file, file.FlatNamedChild(cond, 0), !positive)
+		}
+		return 0
+	case "disjunction_expression":
+		// The else branch of `a || b` runs when neither holds, so a failing comparison in either proves a level.
+		if positive {
+			return 0
+		}
+		best := 0
+		for c := file.FlatFirstChild(cond); c != 0; c = file.FlatNextSib(c) {
+			if file.FlatIsNamed(c) {
+				best = max(best, sdkConditionLevel(file, c, false))
+			}
+		}
+		return best
 	case "conjunction_expression":
 		if !positive {
 			return 0
@@ -116,6 +142,9 @@ func sdkConditionLevel(file *scanner.File, cond uint32, positive bool) int {
 	}
 	if op == "&&" && positive {
 		return max(sdkConditionLevel(file, left, true), sdkConditionLevel(file, right, true))
+	}
+	if op == "||" && !positive {
+		return max(sdkConditionLevel(file, left, false), sdkConditionLevel(file, right, false))
 	}
 	if !versionCheckIsSdkInt(file, left) {
 		return 0
@@ -179,6 +208,33 @@ func lintCalleeName(file *scanner.File, idx uint32) string {
 	return flatCallExpressionName(file, idx)
 }
 
+// webViewTrailingLambdas counts the lambdas written after a Kotlin call's parentheses, which are arguments too:
+// WebView.startSafeBrowsing(context) { ok -> }.
+func webViewTrailingLambdas(file *scanner.File, call uint32) int {
+	n := 0
+	count := func(call uint32) {
+		suffix, ok := file.FlatFindChild(call, "call_suffix")
+		if !ok {
+			return
+		}
+		for c := file.FlatFirstChild(suffix); c != 0; c = file.FlatNextSib(c) {
+			if file.FlatType(c) == "annotated_lambda" {
+				n++
+			}
+		}
+	}
+	count(call)
+	// `f(x) { }` parses as a call whose callee is the call `f(x)`, holding the lambda.
+	if p, ok := file.FlatParent(call); ok && file.FlatType(p) == "call_expression" && file.FlatFirstChild(p) == call {
+		count(p)
+	}
+	return n
+}
+
+func (r *WebViewAPIAvailabilityRule) fileMentions() []string { return []string{"WebView"} }
+
+func (r *EnqueueWorkRule) fileMentions() []string { return []string{"Work"} }
+
 func (r *WebViewAPIAvailabilityRule) check(ctx *api.Context) {
 	file := ctx.File
 	if _, known := webViewCompatMethods[lintCalleeName(file, ctx.Idx)]; !known {
@@ -189,7 +245,7 @@ func (r *WebViewAPIAvailabilityRule) check(ctx *api.Context) {
 		return
 	}
 	m, known := webViewCompatMethods[call.Name]
-	if !known || len(call.Args) != m.arity || !webViewReceiver(ctx, call, m.static) {
+	if !known || len(call.Args)+webViewTrailingLambdas(file, ctx.Idx) != m.arity || !webViewReceiver(ctx, call, m.static) {
 		return
 	}
 	if sdkGuardLevel(file, ctx.Idx) < m.level {
@@ -386,6 +442,13 @@ func workAssignedLocal(file *scanner.File, call uint32) string {
 		if id, found := file.FlatFindChild(p, "identifier"); found {
 			return file.FlatNodeText(id)
 		}
+	case "assignment", "assignment_expression":
+		// `c = wm.beginWith(a)` for a local declared earlier.
+		if target := file.FlatNamedChild(p, 0); target != 0 && target != call {
+			if name := strings.TrimSpace(file.FlatNodeText(target)); lintIdentOnly(name) {
+				return name
+			}
+		}
 	}
 	return ""
 }
@@ -495,12 +558,68 @@ func workValueEnqueued(file *scanner.File, expr uint32) bool {
 		if workEnqueueingCalls[inner.Name] {
 			return true
 		}
+		if workScopeFunctions[inner.Name] {
+			return workScopeEnqueues(file, outer, inner.Name)
+		}
 		if inner.Name != "synchronous" {
 			return false
 		}
 		expr = outer
 	}
 	return false
+}
+
+// workScopeFunctions are the standard functions that hand their receiver to a lambda, as `it` or as `this`.
+var workScopeFunctions = map[string]bool{"also": true, "let": true, "apply": true, "run": true}
+
+// workScopeEnqueues reports a scope-function lambda that enqueues the continuation it receives: `.also { it.enqueue() }`
+// or `.apply { enqueue() }`.
+func workScopeEnqueues(file *scanner.File, call uint32, scope string) bool {
+	lambda := workTrailingLambda(file, call)
+	if lambda == 0 {
+		return false
+	}
+	param := "it"
+	if params, ok := file.FlatFindChild(lambda, "lambda_parameters"); ok {
+		if vd, ok := file.FlatFindChild(params, "variable_declaration"); ok {
+			param = lintDeclaredName(file, vd)
+		}
+	}
+	found := false
+	file.FlatWalkNodes(lambda, "call_expression", func(n uint32) {
+		if found {
+			return
+		}
+		c, ok := lintCallAt(file, n)
+		if !ok || !workEnqueueingCalls[c.Name] {
+			return
+		}
+		recv := strings.TrimSpace(c.ReceiverText)
+		switch scope {
+		case "also", "let":
+			found = recv == param || strings.HasPrefix(recv, param+".")
+		default:
+			found = recv == "" || recv == "this" || strings.HasPrefix(recv, "this.")
+		}
+	})
+	return found
+}
+
+// workTrailingLambda returns the lambda passed to a call after its parentheses, or 0.
+func workTrailingLambda(file *scanner.File, call uint32) uint32 {
+	for _, n := range []uint32{call, parentOrZero(file, call)} {
+		if n == 0 || file.FlatType(n) != "call_expression" {
+			continue
+		}
+		if suffix, ok := file.FlatFindChild(n, "call_suffix"); ok {
+			if annotated, ok := file.FlatFindChild(suffix, "annotated_lambda"); ok {
+				if l, ok := file.FlatFindChild(annotated, "lambda_literal"); ok {
+					return l
+				}
+			}
+		}
+	}
+	return 0
 }
 
 // ---------------------------------------------------------------------------
@@ -521,16 +640,19 @@ func (r *ReportShortcutUsageRule) check(ctx *api.Context) {
 	}
 	var sets []site
 	reported := false
-	appModule := false
+	libraryOnly := true
 	roots := map[string]string{}
 	seenRoots := map[string]bool{}
 	for _, file := range ctx.ParsedFiles {
 		if file == nil || file.FlatTree == nil || scanner.IsTestFile(file.Path) || !bytes.Contains(file.Content, shortcutBytes) {
 			continue
 		}
-		if root := workModuleRoot(file.Path, roots); root != "" && !seenRoots[root] {
+		root := workModuleRoot(file.Path, roots)
+		if root == "" {
+			libraryOnly = false
+		} else if !seenRoots[root] {
 			seenRoots[root] = true
-			appModule = appModule || shortcutIsAppModule(root)
+			libraryOnly = libraryOnly && readModuleIsLibrary(root)
 		}
 		for _, t := range []string{"call_expression", "method_invocation"} {
 			file.FlatWalkNodes(0, t, func(n uint32) {
@@ -539,23 +661,20 @@ func (r *ReportShortcutUsageRule) check(ctx *api.Context) {
 					return
 				}
 				switch call.Name {
-				case "setDynamicShortcuts", "addDynamicShortcuts", "pushDynamicShortcut", "reportShortcutUsed":
-				default:
-					return
-				}
-				if !shortcutReceiver(file, call) {
-					return
-				}
-				if call.Name == "pushDynamicShortcut" || call.Name == "reportShortcutUsed" {
+				case "pushDynamicShortcut", "reportShortcutUsed":
+					// These names are distinctive: count a usage report whatever its receiver, so an unproven one
+					// (getSystemService(...).reportShortcutUsed(id)) never turns into a false finding.
 					reported = true
-					return
+				case "setDynamicShortcuts", "addDynamicShortcuts":
+					if shortcutReceiver(file, call) {
+						sets = append(sets, site{file, n})
+					}
 				}
-				sets = append(sets, site{file, n})
 			})
 		}
 	}
-	// Lint skips a library main project; a scan with an application module (or no build script) is an app.
-	if reported || (!appModule && len(seenRoots) > 0 && !shortcutAnyRootUnknown(seenRoots)) {
+	// Lint skips a library main project: skip only when every module with shortcut calls is a library.
+	if reported || (libraryOnly && len(seenRoots) > 0) {
 		return
 	}
 	for _, s := range sets {
@@ -567,28 +686,6 @@ func (r *ReportShortcutUsageRule) check(ctx *api.Context) {
 				"as they track shortcut usage and allow launchers to adjust which shortcuts appear based on activation history. " +
 				"Please see https://developer.android.com/develop/ui/views/launch/shortcuts/managing-shortcuts#track-usage"})
 	}
-}
-
-func shortcutIsAppModule(root string) bool {
-	for _, name := range []string{"build.gradle.kts", "build.gradle"} {
-		if data, err := os.ReadFile(filepath.Join(root, name)); err == nil {
-			content := string(data)
-			return strings.Contains(content, "com.android.application") || containsPluginSuffix(content, "application")
-		}
-	}
-	return false
-}
-
-// shortcutAnyRootUnknown reports a module without a build script, whose kind krit cannot tell.
-func shortcutAnyRootUnknown(roots map[string]bool) bool {
-	for root := range roots {
-		_, errKts := os.Stat(filepath.Join(root, "build.gradle.kts"))
-		_, errGroovy := os.Stat(filepath.Join(root, "build.gradle"))
-		if errKts != nil && errGroovy != nil {
-			return true
-		}
-	}
-	return false
 }
 
 // shortcutReceiver reports ShortcutManagerCompat's static calls and calls on a ShortcutManager: a variable declared as

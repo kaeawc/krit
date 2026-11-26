@@ -19,6 +19,6 @@ func (r *EnqueueWorkRule) Meta() api.RuleDescriptor {
 func (r *ReportShortcutUsageRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{ID: "ReportShortcutUsage", RuleSet: "android-lint", DefaultActive: true,
 		KnownLimitations: []string{
-			"A ShortcutManager receiver must be a variable declared as one or initialized from getSystemService; the scan counts as an app unless every module with shortcut calls applies only the library plugin.",
+			"A ShortcutManager receiver for setDynamicShortcuts/addDynamicShortcuts must be a variable declared as one or initialized from getSystemService (any pushDynamicShortcut or reportShortcutUsed call counts as tracking usage); the scan counts as an app unless every module with shortcut calls is a library.",
 		}}
 }

@@ -177,9 +177,12 @@ The roots carry the tasks that produce them. With `fir = true` (the default), ev
 task (`kritCheck`, `kritCheck<Variant>`, `kritCheck<SourceSet>`, each by its own `fir`)
 depends on the producers of each production source set's roots, plus the Android R-class
 tasks and kapt stub tasks, so FIR compiles against generated code on an unbuilt checkout.
-`kritCheckAll` runs them too: each project's published model is built by its producers when
-that project's FIR is on, and the root project's own producers run before the root scan.
-These are generators only, never a compile. Test source sets' generated roots are
+`kritCheckAll` runs them too when its own FIR is on: it then selects each project's model as
+built by that project's producers, and the root project's own producers run before the root
+scan. A `kritCheckAll` with FIR off runs none. `kritBaseline` runs them like `kritCheck`. The
+tasks are generators, not the compile of the analyzed source set. KSP and kapt take their
+compilation's classpath as an input, though, so in a multi-module build they can still bring in
+the compiles of upstream projects. Test source sets' generated roots are
 recorded but not produced, because their KSP/kapt runs against the compiled production
 classes. Generated Android resources need no wiring of their own: AGP's R-class tasks
 already depend on every `variant.sources.res` producer. Set `exportGenerated = true` to

@@ -310,11 +310,14 @@ class KritExportModelTest {
         assertEquals(null, check.task(":app:compileDebugKotlin"), "generators only, never a compile")
         // #1642: so does the per-variant kritCheckDebug, and not with its own fir off.
         File(root, "app/build").deleteRecursively()
-        val variant = runWithFakeAndroid(root, ":app:kritCheckDebug", "-PfakeGeneratedSources", "-PdeferAndroidVariants", "--configuration-cache")
+        val variant = runWithFakeAndroid(root, ":app:kritCheckDebug",
+            "-PfakeGeneratedSources", "-PdeferAndroidVariants", "--configuration-cache")
         assertEquals(TaskOutcome.SUCCESS, variant.task(":app:generateDebugFakeSources")?.outcome, variant.output)
-        build.appendText("tasks.withType<dev.jasonpearson.krit.gradle.KritCheckTask>().matching { it.name == \"kritCheckDebug\" }.configureEach { fir = false }\n")
+        build.appendText("tasks.withType<dev.jasonpearson.krit.gradle.KritCheckTask>()" +
+            ".matching { it.name == \"kritCheckDebug\" }.configureEach { fir = false }\n")
         File(root, "app/build").deleteRecursively()
-        val variantNoFir = runWithFakeAndroid(root, ":app:kritCheckDebug", "-PfakeGeneratedSources", "-PdeferAndroidVariants", "--configuration-cache")
+        val variantNoFir = runWithFakeAndroid(root, ":app:kritCheckDebug",
+            "-PfakeGeneratedSources", "-PdeferAndroidVariants", "--configuration-cache")
         assertEquals(null, variantNoFir.task(":app:generateDebugFakeSources"), variantNoFir.output)
     }
 
@@ -358,6 +361,11 @@ class KritExportModelTest {
         val check = run(root, "kritCheck", "--configuration-cache")
         assertEquals(TaskOutcome.SUCCESS, check.task(":generateFakeSources")?.outcome, check.output)
         assertTrue(File(generatedRoot, "com/example/Gen.java").isFile)
+        // kritBaseline records what kritCheck reports, so it runs them too.
+        File(root, "build").deleteRecursively()
+        val baseline = run(root, "kritBaseline", "--configuration-cache")
+        assertEquals(TaskOutcome.SUCCESS, baseline.task(":generateFakeSources")?.outcome, baseline.output)
+        assertTrue(baseline.task(":kritExportModel") != null, baseline.output)
 
         build.appendText("krit { fir = false }\n")
         File(root, "build").deleteRecursively()

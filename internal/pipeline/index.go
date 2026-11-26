@@ -174,6 +174,11 @@ type IndexInput struct {
 	// ParseResult.KotlinFiles because the filter runs before the parse
 	// and so fully-parsed *scanner.File values are not available.
 	KotlinFilePaths []string
+	// PRFiles, when non-nil, is PR mode (#1660): the changed Kotlin files of
+	// a --diff scan. The oracle and the FIR check then compile only the
+	// modules that hold them (runPRModules), or the whole repository as
+	// before when that does not apply. Empty analyzes nothing.
+	PRFiles []string
 	// InputTypesPath mirrors --input-types: explicit oracle JSON path
 	// that short-circuits auto-detect.
 	InputTypesPath string
@@ -830,6 +835,7 @@ func (p IndexPhase) Run(ctx context.Context, in IndexInput) (IndexResult, error)
 	if !in.SkipOracle && in.OracleEnabled && resolverForOracle != nil && len(rules.KotlinOracleRulesV2(in.ActiveRules)) > 0 {
 		resolverForOracle = p.runOracle(in, resolverForOracle, &result)
 	} else {
+		p.runPRModulesForFIR(in)
 		in.FIRCheckBroker.Done("oracle skipped")
 	}
 	// Whatever the oracle did, it is not going to carry the check any more.
@@ -1694,6 +1700,12 @@ func (p IndexPhase) runOracle(in IndexInput, base typeinfer.TypeResolver, result
 		return oracleFilterFiles
 	}
 
+	if path, handled := p.runPRModules(in, scanPaths, oracleTracker, prModeAnalyzers(in)); handled {
+		in.FIRCheckBroker.Done("pr mode")
+		resolver := p.loadOracleFromPath(in, path, oracleTracker, base, result)
+		oracleTracker.End()
+		return resolver
+	}
 	var resolver typeinfer.TypeResolver
 	switch {
 	case useResidentOracleDaemon(in):
@@ -2048,6 +2060,107 @@ func (p IndexPhase) runModuleShards(in IndexInput, scanPaths, sourceDirs []strin
 	in.logf("verbose: module oracle: %d modules, %d analyzed on %d workers, %d cached, %d failed, %d files covered (%d without facts)\n",
 		result.Units, result.AnalyzedUnits, result.Workers, result.CachedUnits, result.FailedUnits, result.Covered, result.Uncovered)
 	return outputPath
+}
+
+// runPRModules is PR mode's oracle (#1660): with in.PRFiles set, it compiles only the modules that
+// hold the changed files, each with its dependencies as built jars or source context, and the FIR
+// check rides on those compiles for the changed files. handled is false when PR mode is off or does
+// not apply (no Gradle model, KRIT_MODULE_SHARDS=merged, a module that lost dependency context,
+// files without facts), and the caller compiles the whole repository as before. A handled run with
+// no changed file in a source set returns no oracle. The oracle is written under the project state
+// directory next to, never over, the whole-repository types.json.
+func (p IndexPhase) runPRModules(in IndexInput, scanPaths []string, tracker perf.Tracker, what string) (path string, handled bool) {
+	if in.PRFiles == nil || in.InputTypesPath != "" || modshard.MergedOnly() {
+		return "", false
+	}
+	sourceDirs := oracle.FilterFIRSourceDirs(oracle.UnionSourceDirs(oracle.FindSourceDirs(scanPaths), in.OracleSourceDirs))
+	changed := underSourceDirs(in.PRFiles, sourceDirs)
+	if len(changed) == 0 {
+		in.logf("verbose: PR mode: no changed Kotlin file in a source set; %s analyze nothing\n", what)
+		return "", true
+	}
+	backend := in.OracleBackend
+	if backend == "" {
+		backend = oracle.DefaultBackend
+	}
+	jarPath, _, _, _ := oracle.ResolveOracleJar(context.Background(), backend, scanPaths, false)
+	javaPath, javaErr := oracle.JavaPath()
+	repoDir := oracle.FindRepoDir(scanPaths)
+	if jarPath == "" || javaErr != nil || repoDir == "" {
+		return "", false
+	}
+	var checkRequest []byte
+	var deliverCheck func([]byte)
+	if in.FIRCheckRider != nil {
+		if rider := in.FIRCheckRider(jarPath, sourceDirs, in.OracleClasspath, in.compileTarget()); rider != nil && rider.Prepare != nil {
+			checkRequest, deliverCheck = rider.Prepare()
+		}
+	}
+	state := fsutil.ProjectStateDir(repoDir)
+	outputPath := filepath.Join(state, "pr-mode", "types.json")
+	if err := os.MkdirAll(filepath.Dir(outputPath), 0o755); err != nil {
+		return "", false
+	}
+	var result modshard.Result
+	var runErr error
+	tracker.TrackVoid("prModeModules", func() {
+		result, runErr = modshard.Run(context.Background(), modshard.Input{
+			ScanPaths:    scanPaths,
+			JarPath:      jarPath,
+			JavaPath:     javaPath,
+			CacheDir:     filepath.Join(state, "module-facts"),
+			OutputPath:   outputPath,
+			Required:     changed,
+			Only:         changed,
+			CheckRequest: checkRequest,
+			Logf:         in.logf,
+		})
+	})
+	switch {
+	case runErr != nil:
+		in.logf("verbose: PR mode failed (%v); compiling the whole repository\n", runErr)
+		return "", false
+	case !result.Applied:
+		in.logf("verbose: PR mode does not apply (%s); compiling the whole repository\n", result.Reason)
+		return "", false
+	}
+	if deliverCheck != nil && len(result.Check) > 0 {
+		deliverCheck(result.Check)
+	}
+	in.logf("verbose: PR mode: %s analyzed %s in %s (%d compiled on %d workers, %d cached); every other file keeps Go's verdict (--no-pr-mode compiles the whole repository)\n",
+		what, countOf(len(changed), "changed file"), countOf(result.Units, "module"), result.AnalyzedUnits, result.Workers, result.CachedUnits)
+	return outputPath, true
+}
+
+// runPRModulesForFIR is PR mode without the type oracle: it still compiles only the changed files'
+// modules, for the FIR check that rides on them, and the facts go unused.
+func (p IndexPhase) runPRModulesForFIR(in IndexInput) {
+	if in.SkipOracle || in.PRFiles == nil || in.FIRCheckRider == nil {
+		return
+	}
+	scanPaths := in.OracleScanPaths
+	if scanPaths == nil {
+		scanPaths = in.Paths
+	}
+	tracker := p.oracleTracker(in)
+	p.runPRModules(in, scanPaths, tracker, "FIR")
+	tracker.End()
+}
+
+// prModeAnalyzers names what a PR-mode run analyzes for the verbose log.
+func prModeAnalyzers(in IndexInput) string {
+	if in.FIRCheckRider != nil {
+		return "the type oracle and FIR"
+	}
+	return "the type oracle"
+}
+
+// countOf is "1 module", "3 modules".
+func countOf(n int, noun string) string {
+	if n == 1 {
+		return "1 " + noun
+	}
+	return strconv.Itoa(n) + " " + noun + "s"
 }
 
 // underSourceDirs keeps the files that lie under one of dirs and are not in a directory the oracle

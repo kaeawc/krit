@@ -93,6 +93,7 @@ func Load(dir string) (*Model, []string, error) {
 				continue
 			}
 			project.SchemaVersion = file.Schema
+			resolveRClassJars(&project)
 			warnings = append(warnings, expandGeneratedSourceJars(&project, path)...)
 			model.Projects = append(model.Projects, project)
 		}

@@ -555,8 +555,11 @@ All notable changes to Krit will be documented in this file.
   from disk; before, only Kotlin DSL scripts were covered, as source files. For a build whose module graph
   `ProviderReadPermissionOnly` reads (one holding a manifest with `android:readPermission`), they also hash the
   settings file and every module build script the scan didn't, so editing an intermediate module or the settings file
-  outside the scan re-runs them: `krit app lib`, an explicit file list, or a gitignored or dot-directory module. The
-  graph is discovered once per run and only when an active rule reads it.
+  outside the scan re-runs them: `krit app lib`, an explicit file list, or a gitignored or dot-directory module. They
+  also hash, present or missing, each manifest's own build-script candidates (`build.gradle.kts` and `build.gradle`
+  in the four directories above it, where the rule reads whether a module is an app and its namespace), so a build
+  with no settings file scanned as `krit app/src lib/src` re-runs them when an app module's plugin changes. The graph
+  is discovered once per run and only when an active rule reads it.
 - `UnsanitizedFilenameFromContentProvider` proves a Cursor local whose type is inferred from its initializer:
   `ContentResolver.query`, `SQLiteDatabase.query`/`rawQuery` and their variants (also through `!!` or an Elvis that
   returns or throws), or a call to a function or method in the same file declared to return `Cursor`, in Kotlin and

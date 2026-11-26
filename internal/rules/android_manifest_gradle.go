@@ -42,19 +42,47 @@ type manifestGradleInfo struct {
 	permissionTargetSdkProven bool
 }
 
+// manifestBuildScriptNames are the build script names a manifest's module directory is searched for, in order.
+var manifestBuildScriptNames = [...]string{"build.gradle.kts", "build.gradle"}
+
+// manifestModuleSearchDirs returns, nearest first, the ancestor directories of a manifest searched for its module's
+// build script: up to four, stopping at the filesystem root.
+func manifestModuleSearchDirs(manifestPath string) []string {
+	const depth = 4
+	dirs := make([]string, 0, depth)
+	dir := filepath.Dir(manifestPath)
+	for range depth {
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+		dirs = append(dirs, dir)
+	}
+	return dirs
+}
+
+// ManifestBuildScriptCandidates returns every path lookupManifestGradleInfo can read a manifest's build script from,
+// whether or not it exists. The first one that exists is read, so a cache key over the rules that read it hashes all
+// of them, a missing one included: creating it changes what is read.
+func ManifestBuildScriptCandidates(manifestPath string) []string {
+	dirs := manifestModuleSearchDirs(manifestPath)
+	paths := make([]string, 0, len(dirs)*len(manifestBuildScriptNames))
+	for _, dir := range dirs {
+		for _, name := range manifestBuildScriptNames {
+			paths = append(paths, filepath.Join(dir, name))
+		}
+	}
+	return paths
+}
+
 // lookupManifestGradleInfo walks up from the manifest path looking for a
 // build.gradle(.kts) file in the module directory (typically
 // `<module>/src/main/AndroidManifest.xml` → `<module>/build.gradle(.kts)`)
 // and returns cached module facts via the shared filefacts cache.
 // Returns a zero-value struct if no gradle file is found.
 func lookupManifestGradleInfo(manifestPath string) manifestGradleInfo {
-	dir := filepath.Dir(manifestPath)
-	for i := 0; i < 4; i++ {
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			break
-		}
-		dir = parent
+	for _, dir := range manifestModuleSearchDirs(manifestPath) {
 		if info, ok := tryReadGradleInfo(dir); ok {
 			return info
 		}
@@ -71,7 +99,7 @@ func tryReadGradleInfo(dir string) (manifestGradleInfo, bool) {
 
 func readManifestGradleInfo(dir string) manifestGradleInfo {
 	var path string
-	for _, name := range []string{"build.gradle.kts", "build.gradle"} {
+	for _, name := range manifestBuildScriptNames {
 		p := filepath.Join(dir, name)
 		if _, err := os.Stat(p); err == nil {
 			path = p

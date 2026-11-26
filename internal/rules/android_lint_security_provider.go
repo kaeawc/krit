@@ -477,16 +477,11 @@ func providerIgnores(n *manifest.Node, ruleID string) bool {
 	return false
 }
 
-// providerModuleDir returns the directory of the build script that owns a manifest, searching up to four levels, or "".
+// providerModuleDir returns the directory of the build script that owns a manifest, searched for as
+// lookupManifestGradleInfo does, or "".
 func providerModuleDir(manifestPath string) string {
-	dir := filepath.Dir(manifestPath)
-	for i := 0; i < 4; i++ {
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			return ""
-		}
-		dir = parent
-		for _, file := range []string{"build.gradle.kts", "build.gradle"} {
+	for _, dir := range manifestModuleSearchDirs(manifestPath) {
+		for _, file := range manifestBuildScriptNames {
 			if _, err := os.Stat(filepath.Join(dir, file)); err == nil {
 				return dir
 			}

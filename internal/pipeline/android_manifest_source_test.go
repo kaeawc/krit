@@ -253,6 +253,8 @@ class NotesProvider : ContentProvider() {
 // TestManifestSourcePass_InvalidatesOnBuildFilesOutsideTheScan pins the #1800 second review: a scan of only app and
 // lib has neither the settings file nor the intermediate module's build script in Project.GradlePaths, yet
 // ProviderReadPermissionOnly's module graph reads both. Editing only one of them must not replay the cached result.
+// Without a settings file there is no graph, but the rule still reads each manifest's own build script (whether the
+// module is an app, its namespace), which a scan of only the source directories doesn't hold (#1800 fourth review).
 func TestManifestSourcePass_InvalidatesOnBuildFilesOutsideTheScan(t *testing.T) {
 	const (
 		settingsRel = "settings.gradle"
@@ -264,14 +266,25 @@ func TestManifestSourcePass_InvalidatesOnBuildFilesOutsideTheScan(t *testing.T) 
 		unmapped    = "include ':app', ':lib', ':feat'\n"
 		apiDep      = "plugins { id(\"com.android.library\") }\n\ndependencies {\n    api(project(\":lib\"))\n}\n"
 		testOnly    = "plugins { id(\"com.android.library\") }\n\ndependencies {\n    testImplementation(project(\":lib\"))\n}\n"
+		library     = "plugins { id(\"com.android.library\") }\n"
+		application = "plugins {\n    id(\"com.android.application\")\n}\n"
 	)
+	// edit writes body to rel; want is the finding count after it, and unkeyed marks a file no rule reads, whose edit
+	// must leave the findings-bundle key alone.
+	type edit struct {
+		rel, body string
+		want      int
+		unkeyed   bool
+	}
 	// :feat lives in featureDir only through the projectDir mapping.
 	mapped := func(featureDir string) string {
 		return "include ':app', ':lib', ':feat'\nproject(':feat').projectDir = file('" + featureDir + "')\n"
 	}
-	setup := func(t *testing.T, featureDir string) *manifestSourceProject {
+	setup := func(t *testing.T, featureDir string, noSettings bool) *manifestSourceProject {
 		p := &manifestSourceProject{t: t, dir: t.TempDir()}
-		p.write(settingsRel, mapped(featureDir))
+		if !noSettings {
+			p.write(settingsRel, mapped(featureDir))
+		}
 		p.write(appBuildRel, "plugins { id(\"com.android.application\") }\n\ndependencies {\n    implementation(project(\":feat\"))\n}\n")
 		p.write(libBuildRel, "plugins { id(\"com.android.library\") }\n")
 		p.write(featureDir+"/build.gradle.kts", apiDep)
@@ -293,23 +306,38 @@ func TestManifestSourcePass_InvalidatesOnBuildFilesOutsideTheScan(t *testing.T) 
 		name, featureDir string
 		// scanSettings adds the settings file to the scanned Gradle files.
 		scanSettings bool
-		rel, edit    string
+		// noSettings leaves out the settings file, and the scan holds no Gradle file: `krit app/src lib/src`.
+		noSettings bool
+		edits      []edit
 	}{
 		// A scan of only app/ and lib/.
-		{"intermediate module script", "feature", false, "feature/build.gradle.kts", testOnly},
-		{"settings file", "feature", false, settingsRel, unmapped},
+		{"intermediate module script", "feature", false, false, []edit{{"feature/build.gradle.kts", testOnly, 0, false}}},
+		{"settings file", "feature", false, false, []edit{{settingsRel, unmapped, 0, false}}},
 		// An explicit file list (or a git file list with feature/ ignored) that holds the settings file but not the
 		// intermediate module's script (#1800 third review).
-		{"settings scanned, intermediate module script not", "feature", true, "feature/build.gradle.kts", testOnly},
+		{"settings scanned, intermediate module script not", "feature", true, false,
+			[]edit{{"feature/build.gradle.kts", testOnly, 0, false}}},
 		// `krit .`: detection skips dot-directories, but the settings file maps a module into one.
-		{"module mapped into a dot-directory", ".modules/feature", true, ".modules/feature/build.gradle.kts", testOnly},
+		{"module mapped into a dot-directory", ".modules/feature", true, false,
+			[]edit{{".modules/feature/build.gradle.kts", testOnly, 0, false}}},
+		// No settings file: the app's own build script decides whether it is an app (#1800 fourth review).
+		{"no settings file, app module turns library and back", "feature", false, true,
+			[]edit{{appBuildRel, library, 0, false}, {appBuildRel, application, 1, false}}},
+		// A build script created nearer the manifest takes over, so a missing candidate is keyed too.
+		{"no settings file, nearer build script created", "feature", false, true,
+			[]edit{{"app/src/build.gradle.kts", library, 0, false}}},
+		// A build script that is no manifest's candidate and in no graph doesn't move the key.
+		{"no settings file, unrelated build script", "feature", false, true,
+			[]edit{{"tools/build.gradle.kts", library, 1, true}}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			p := setup(t, test.featureDir)
+			p := setup(t, test.featureDir, test.noSettings)
 			cacheDir := filepath.Join(p.dir, ".krit", "android-findings-cache")
 			project := &android.Project{
 				ManifestPaths: []string{p.path(appManRel), p.path(libManRel)},
-				GradlePaths:   []string{p.path(appBuildRel), p.path(libBuildRel)},
+			}
+			if !test.noSettings {
+				project.GradlePaths = []string{p.path(appBuildRel), p.path(libBuildRel)}
 			}
 			if test.scanSettings {
 				project.GradlePaths = append(project.GradlePaths, p.path(settingsRel))
@@ -343,17 +371,20 @@ func TestManifestSourcePass_InvalidatesOnBuildFilesOutsideTheScan(t *testing.T) 
 			if got := run(cacheDir); got != 1 {
 				t.Fatalf("cold findings = %d, want 1", got)
 			}
-			xmlBefore := xmlInputsFingerprint(ProjectHostState{}, project, nil, true)
-			p.write(test.rel, test.edit)
-			hashutil.ResetDefault()
-			if xmlInputsFingerprint(ProjectHostState{}, project, nil, true) == xmlBefore {
-				t.Error("findings-bundle XML inputs fingerprint did not move")
-			}
-			if got := run(""); got != 0 {
-				t.Fatalf("after the edit: cache-free findings = %d, want 0", got)
-			}
-			if got := run(cacheDir); got != 0 {
-				t.Fatalf("after the edit: warm findings = %d, cache-free 0", got)
+			for _, e := range test.edits {
+				hashutil.ResetDefault()
+				xmlBefore := xmlInputsFingerprint(ProjectHostState{}, project, nil, true)
+				p.write(e.rel, e.body)
+				hashutil.ResetDefault()
+				if moved := xmlInputsFingerprint(ProjectHostState{}, project, nil, true) != xmlBefore; moved == e.unkeyed {
+					t.Errorf("edit of %s: findings-bundle XML inputs fingerprint moved = %v, want %v", e.rel, moved, !e.unkeyed)
+				}
+				if got := run(""); got != e.want {
+					t.Fatalf("edit of %s: cache-free findings = %d, want %d", e.rel, got, e.want)
+				}
+				if got := run(cacheDir); got != e.want {
+					t.Fatalf("edit of %s: warm findings = %d, cache-free %d", e.rel, got, e.want)
+				}
 			}
 		})
 	}

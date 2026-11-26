@@ -3,6 +3,7 @@ package pipeline
 import (
 	"context"
 	"encoding/hex"
+	"hash"
 	"os"
 	"path/filepath"
 	"sort"
@@ -19,7 +20,9 @@ import (
 // settings files under the scan paths (Project.GradlePaths), and, when readsGraph, the files the module graph of
 // each manifest's Gradle build is read from that the scan didn't hash (#1800). ProviderReadPermissionOnly walks that
 // graph, which reaches build files no scan path holds: a scan of only app/ and lib/, an explicit file list, a module
-// that is gitignored or mapped into a dot-directory or build/. It returns false when a scanned path can't be hashed.
+// that is gitignored or mapped into a dot-directory or build/. It also reads each manifest's own build script (is the
+// module an app, its namespace), which a build with no settings file has no graph for and a scan of only source
+// directories doesn't hold, so those candidates are hashed too. It returns false when a scanned path can't be hashed.
 func buildFilesFingerprint(project *android.Project, readsGraph bool) (string, bool) {
 	h := hashutil.Hasher().New()
 	if project == nil {
@@ -36,26 +39,34 @@ func buildFilesFingerprint(project *android.Project, readsGraph bool) (string, b
 		scanned[path] = true
 	}
 	memo := hashutil.Default()
-	for _, build := range projectBuildGraphs(project) {
+	inputs := projectBuildGraphs(project)
+	for _, build := range inputs.layouts {
 		_, _ = h.Write([]byte("graph\x00" + build.root + "\x00"))
 		for _, m := range build.modules {
 			_, _ = h.Write([]byte(m + "\x00"))
 		}
-		for _, file := range build.files {
-			if scanned[file] {
-				continue
-			}
-			_, _ = h.Write([]byte(file + "\x00"))
-			// A missing name is part of the key: creating the file changes the graph.
-			if sum, err := memo.HashFile(file, nil); err == nil {
-				_, _ = h.Write([]byte(sum))
-			} else {
-				_, _ = h.Write([]byte{'-'})
-			}
-			_, _ = h.Write([]byte{0})
-		}
+		writeUnscannedFileHashes(h, memo, build.files, scanned)
 	}
+	_, _ = h.Write([]byte("scripts\x00"))
+	writeUnscannedFileHashes(h, memo, inputs.scripts, scanned)
 	return hex.EncodeToString(h.Sum(nil)), true
+}
+
+// writeUnscannedFileHashes writes the path and content hash of every file the scan didn't hash. A missing file is
+// part of the key: creating it changes what is read.
+func writeUnscannedFileHashes(h hash.Hash, memo *hashutil.Memo, files []string, scanned map[string]bool) {
+	for _, file := range files {
+		if scanned[file] {
+			continue
+		}
+		_, _ = h.Write([]byte(file + "\x00"))
+		if sum, err := memo.HashFile(file, nil); err == nil {
+			_, _ = h.Write([]byte(sum))
+		} else {
+			_, _ = h.Write([]byte{'-'})
+		}
+		_, _ = h.Write([]byte{0})
+	}
 }
 
 // buildGraphLayout is the part of one Gradle build's module graph a cache key needs: its root, its modules as
@@ -66,6 +77,14 @@ type buildGraphLayout struct {
 	files   []string
 }
 
+// buildGraphInputs is what the module-graph rules read from disk beyond the scan: the layout of every build that
+// holds a manifest they read the graph for, sorted by root, and the build-script candidates of every manifest
+// (rules.ManifestBuildScriptCandidates) that no layout lists, sorted.
+type buildGraphInputs struct {
+	layouts []buildGraphLayout
+	scripts []string
+}
+
 // buildGraphMemo shares projectBuildGraphs between the findings-bundle and manifest-source keys of one run. An entry
 // is valid for one generation of the shared hashutil Memo, which the CLI and the daemon clear at the start of every
 // scan, and for one set of manifest and Gradle paths. It only feeds cache keys, so runs without caches never read a
@@ -74,23 +93,26 @@ var buildGraphMemo struct {
 	mu         sync.Mutex
 	generation uint64
 	identity   string
-	layouts    []buildGraphLayout
+	inputs     buildGraphInputs
 	valid      bool
 }
 
-// projectBuildGraphs returns, sorted by root, the module-graph layout of every Gradle build that holds one of the
-// project's manifests a rule can read the graph for (rules.ManifestNeedsModuleGraph). The upward build-root search is
-// shared across manifests, and each build is discovered once per run, without source roots.
-func projectBuildGraphs(project *android.Project) []buildGraphLayout {
+// projectBuildGraphs returns the build files the module-graph rules read for the project's manifests. When no
+// manifest declares what a rule reads the graph for (rules.ManifestNeedsModuleGraph), the rules read nothing and it
+// is empty. Otherwise it holds the layout of every Gradle build with such a manifest, and the build-script
+// candidates of every manifest, since the rule reads each manifest's script to find the apps. The upward build-root
+// search is shared across manifests, and each build is discovered once per run, without source roots.
+func projectBuildGraphs(project *android.Project) buildGraphInputs {
 	identity := strings.Join(project.ManifestPaths, "\x00") + "\x01" + strings.Join(project.GradlePaths, "\x00")
 	generation := hashutil.Default().Generation()
 	buildGraphMemo.mu.Lock()
 	defer buildGraphMemo.mu.Unlock()
 	if buildGraphMemo.valid && buildGraphMemo.generation == generation && buildGraphMemo.identity == identity {
-		return buildGraphMemo.layouts
+		return buildGraphMemo.inputs
 	}
 	var finder module.BuildRootFinder
 	roots := map[string]bool{}
+	needed := false
 	memo := hashutil.Default()
 	for _, manifest := range project.ManifestPaths {
 		// The manifest content is in every key this feeds, so skipping a manifest no rule discovers a graph for is
@@ -108,6 +130,7 @@ func projectBuildGraphs(project *android.Project) []buildGraphLayout {
 		if err == nil && !rules.ManifestNeedsModuleGraph(content) {
 			continue
 		}
+		needed = true
 		if root := finder.Find(filepath.Dir(manifest)); root != "" {
 			roots[root] = true
 		}
@@ -130,7 +153,33 @@ func projectBuildGraphs(project *android.Project) []buildGraphLayout {
 		sort.Strings(layout.modules)
 		layouts = append(layouts, layout)
 	}
-	buildGraphMemo.generation, buildGraphMemo.identity, buildGraphMemo.layouts, buildGraphMemo.valid =
-		generation, identity, layouts, true
-	return layouts
+	inputs := buildGraphInputs{layouts: layouts}
+	if needed {
+		inputs.scripts = manifestScriptsOutsideGraphs(project.ManifestPaths, layouts)
+	}
+	buildGraphMemo.generation, buildGraphMemo.identity, buildGraphMemo.inputs, buildGraphMemo.valid =
+		generation, identity, inputs, true
+	return inputs
+}
+
+// manifestScriptsOutsideGraphs returns, sorted, the build-script candidates of the manifests that none of the
+// layouts already lists.
+func manifestScriptsOutsideGraphs(manifests []string, layouts []buildGraphLayout) []string {
+	seen := map[string]bool{}
+	for _, layout := range layouts {
+		for _, file := range layout.files {
+			seen[file] = true
+		}
+	}
+	var scripts []string
+	for _, manifest := range manifests {
+		for _, script := range rules.ManifestBuildScriptCandidates(manifest) {
+			if !seen[script] {
+				seen[script] = true
+				scripts = append(scripts, script)
+			}
+		}
+	}
+	sort.Strings(scripts)
+	return scripts
 }

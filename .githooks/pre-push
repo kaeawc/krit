@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Pre-push hook: run scripts/pre-push.sh, the fast local mirror of CI.
-# Install once per clone (worktrees share it): make hooks
+# Install once per clone (worktrees share it): make hooks (scripts/install-hooks.sh)
 # Bypass once: git push --no-verify, or SKIP_PREPUSH=1 git push.
 set -euo pipefail
 
@@ -14,7 +14,7 @@ check=0
 # stdin: <local-ref> <local-oid> <remote-ref> <remote-oid> per pushed ref.
 while read -r local_ref local_oid _remote_ref _remote_oid; do
 	case "$local_ref" in
-		"(delete)"|refs/tags/*) continue ;;
+		""|"(delete)"|refs/tags/*) continue ;;
 	esac
 	[ "$local_oid" = "$zero" ] && continue
 	if [ "$local_oid" != "$head" ]; then

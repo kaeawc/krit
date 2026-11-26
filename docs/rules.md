@@ -226,7 +226,8 @@ static field imports and Kotlin property access (`date.time`). An instance call 
 source resolver or a declared type, so a receiver krit cannot type is not reported. As in Lint 0.11.1, the list's
 `ResourcesCompat.getDrawable`, `ViewPager2.setId` and `runBlocking` entries never match. Differences from Lint:
 
-- a same-file top-level `runCatching` shadows kotlin's, as the Kotlin compiler resolves it; Lint still reports it;
+- a top-level `runCatching` of the file's package (in any file) shadows kotlin's, as the Kotlin compiler resolves
+  it; Lint still reports it;
 - the detector also reports layout XML tags named after a listed constructor's class (`<java.util.LinkedList>`,
   which no real layout contains); krit does not check layouts.
 

@@ -16,6 +16,11 @@ All notable changes to Krit will be documented in this file.
   `androidx.annotation:annotation-experimental` 1.6.0, under their Lint IDs. Their findings match the Lint CLI running
   that release's `lint.jar` on the inputs under `internal/rules/testdata/androidx_annotation_experimental/` (#1317,
   #1318).
+- `ExperimentalAnnotationRetention`, `WrongRequiresOptIn`, `UnsafeOptInUsageError` and `UnsafeOptInUsageWarning`,
+  ports of the checks bundled with `androidx.annotation:annotation-experimental` 1.6.0, under their Lint IDs; the usage
+  checks cover opt-in markers declared in the project. Their findings match the Lint CLI running
+  that release's `lint.jar` on the inputs under `internal/rules/testdata/androidx_annotation_experimental/` (#1315,
+  #1316, #1317, #1318).
 - Gradle plugin: `kritCheck` with custom rule jars writes every enabled report from one krit run (one
   `--report FORMAT=PATH` each), like every other scan, instead of analyzing once per report (#1634).
 - `DoNotMockAnything`, `DoNotMockPlatformTypes`, `DoNotMockDataClass` and `DoNotMockObjectClass`, slack-lints 0.11.1's

@@ -163,6 +163,14 @@ rules:
     status: supported
     fixtures:
       - internal/rules/androidx_lint_parity_test.go
+  UnsafeOptInUsageError:
+    status: supported
+    fixtures:
+      - internal/rules/androidx_lint_parity_test.go
+  UnsafeOptInUsageWarning:
+    status: supported
+    fixtures:
+      - internal/rules/androidx_lint_parity_test.go
   UsingMaterialAndMaterial3Libraries:
     status: supported
     fixtures:

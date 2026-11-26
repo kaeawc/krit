@@ -12696,6 +12696,72 @@
             }
           }
         },
+        "UnsafeOptInUsageError": {
+          "description": "Detects uses of APIs marked with an error-level opt-in marker declared in the project, without opting in. [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]\nCaveat: Only opt-in markers declared in the project are known; APIs marked in libraries (CameraX, Media3, ...) need their class files, which source analysis does not read.\nCaveat: Usages are calls, constructor calls and member calls whose target resolves through imports, the file's package and same-file declarations; the lint.xml `opt-in` option is not read.\nCaveat: As in Lint, Kotlin code is only checked against androidx (Java) markers, since the Kotlin compiler enforces kotlin.RequiresOptIn markers itself.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable UnsafeOptInUsageError (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "UnsafeOptInUsageWarning": {
+          "description": "Detects uses of APIs marked with a warning-level opt-in marker declared in the project, without opting in. [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]\nCaveat: Only opt-in markers declared in the project are known; APIs marked in libraries (CameraX, Media3, ...) need their class files, which source analysis does not read.\nCaveat: Usages are calls, constructor calls and member calls whose target resolves through imports, the file's package and same-file declarations; the lint.xml `opt-in` option is not read.\nCaveat: As in Lint, Kotlin code is only checked against androidx (Java) markers, since the Kotlin compiler enforces kotlin.RequiresOptIn markers itself.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable UnsafeOptInUsageWarning (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "UnsafeProtectedBroadcastReceiverManifest": {
           "description": "Exported receiver for protected broadcast without permission [precision: project-structure-aware] [noisiness: normal] [capabilities: manifest]",
           "type": "object",

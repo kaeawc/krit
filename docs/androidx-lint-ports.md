@@ -59,3 +59,15 @@ import, as it does in Kotlin.
 
 Annotation names resolve through imports (aliases and star imports), the file's package and Kotlin's default
 `kotlin.*` / `kotlin.annotation.*` imports.
+
+- `UnsafeOptInUsageError` and `UnsafeOptInUsageWarning` (Kotlin and Java) report a use of an API marked with an
+  opt-in marker declared in the project, by the marker's level, without opting in: a call, constructor call or member
+  call (including through a Kotlin file facade such as `ApiKt.fn()` from Java) whose target carries the marker,
+  directly or through its class. The use is accepted when an enclosing declaration (or the file, `@file:OptIn`) is
+  annotated with the marker itself or opts in with an annotation the marker accepts: androidx markers need
+  `androidx.annotation.OptIn` (a `kotlin.OptIn` does not count, as in Lint), Kotlin markers accept either. As in Lint,
+  Kotlin code is only checked against androidx markers, since the Kotlin compiler enforces `kotlin.RequiresOptIn`
+  itself; Java code is checked against both. The message is the marker's `message`, or Lint's default. Both run
+  once per scan over every source file (markers, marked APIs and uses live in different files). Markers declared in
+  libraries (CameraX, Media3, …) are not known, because their class files are not read, and the lint.xml `opt-in`
+  option is not read either.

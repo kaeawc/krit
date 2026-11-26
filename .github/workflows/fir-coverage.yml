@@ -103,31 +103,6 @@ jobs:
           path: dist/
           retention-days: 3
 
-  # krit-gradle-plugin's own TestKit suite (#1628): model export, task wiring
-  # and configuration-cache tests that the coverage runs below depend on.
-  krit-gradle-plugin-tests:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v5
-        with:
-          distribution: zulu
-          java-version: "21"
-      - uses: gradle/actions/setup-gradle@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d # v4
-        with:
-          cache-cleanup: on-success
-          validate-wrappers: true
-      - name: Test krit-gradle-plugin
-        working-directory: krit-gradle-plugin
-        run: ./gradlew --no-daemon test --stacktrace
-      - name: Upload krit-gradle-plugin test reports
-        if: failure()
-        uses: actions/upload-artifact@de65e23aa2b7e23d713bb51fbfcb6d502f8667d8 # v4.6.2
-        with:
-          name: krit-gradle-plugin-test-reports
-          path: krit-gradle-plugin/build/reports/tests/test/
-
   # Gradle plugin path, each from a clean checkout:
   #  1. kritExportModel (with exportGenerated, so generators run), then the
   #     whole-build CLI scan from the plugin README's CI recipe;

@@ -421,6 +421,9 @@ All notable changes to Krit will be documented in this file.
   `MoshiUsageNonMoshiClassInternal`/`External` (#1384, #1395, #1396, #1404, #1407, #1408, #1409).
 
 ### Fixed
+- `CompileTimeConstant` only runs on files that mention `CompileTimeConstant`. Every finding needs an annotated
+  declaration in the same file, so other files cannot be reported; the rule spent about 2s on element-x-android and
+  0.7s on okhttp finding nothing. Lint ports can opt into the same gate by declaring `fileMentions()`.
 - Source-only scans of large Android projects are fast again: `ProviderReadPermissionOnly`,
   `UnsafeImplicitIntentLaunch` and `UnsafeIntentLaunch` index project classes once per run instead of rebuilding the
   index on every superclass query, and run concurrently. On a 300-module synthetic project the manifest-source phase

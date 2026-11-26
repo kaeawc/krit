@@ -1685,3 +1685,138 @@ class JavaFieldRegistrar {
 	}
 	assertUnsafeIntentLaunchLocs(t, manifest, sources, want)
 }
+
+// #1813 review: a same-name local whose scope does not enclose the registration (an `if` block, `run { }`, a lambda, an
+// anonymous object or class) does not hide the property, field, parameter or outer local the call reads, so the
+// filter is not taken from it. A local declared in a scope that encloses the call is still read.
+func TestUnsafeIntentLaunchFilterShadowedInSiblingScope(t *testing.T) {
+	manifest := `<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.example">
+    <application />
+</manifest>
+`
+	ktReceivers := []string{"ShadowIf", "ShadowRun", "ShadowLambda", "ShadowObject", "ShadowParam",
+		"ProtectedEnclosingOuter", "ProtectedEnclosingInner"}
+	javaReceivers := []string{"JavaShadowBlock", "JavaShadowAnonLocal", "JavaShadowAnonField", "JavaProtectedEnclosing"}
+	var kt, java strings.Builder
+	kt.WriteString("package com.example\n\nimport android.content.BroadcastReceiver\nimport android.content.Context\nimport android.content.Intent\n\n")
+	for _, name := range ktReceivers {
+		kt.WriteString("class " + name + ` : BroadcastReceiver() { override fun onReceive(context: Context, intent: Intent) { context.startActivity(intent) } }` + "\n")
+	}
+	java.WriteString("package com.example;\n\nimport android.content.BroadcastReceiver;\nimport android.content.Context;\nimport android.content.Intent;\n\n")
+	for _, name := range javaReceivers {
+		java.WriteString("class " + name + ` extends BroadcastReceiver { @Override public void onReceive(Context context, Intent intent) { context.startActivity(intent); } }` + "\n")
+	}
+	sources := map[string]string{
+		// Receivers.kt and JavaReceivers.java declare receiver i (0-based) of their list on line 7+i.
+		"com/example/Receivers.kt":       kt.String(),
+		"com/example/JavaReceivers.java": java.String(),
+		"com/example/ShadowRegistrar.kt": `package com.example
+
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+
+class ShadowRegistrar(private val context: Context) {
+    private val filter = IntentFilter("com.example.CUSTOM")
+
+    fun shadowIf(c: Boolean) {
+        if (c) {
+            val filter = IntentFilter(Intent.ACTION_SCREEN_OFF)
+            filter.addAction(Intent.ACTION_SCREEN_ON)
+        }
+        context.registerReceiver(ShadowIf(), filter)
+    }
+
+    fun shadowRun() {
+        val sh = IntentFilter("com.example.CUSTOM")
+        run { val sh = IntentFilter(Intent.ACTION_SCREEN_OFF) }
+        context.registerReceiver(ShadowRun(), sh)
+    }
+
+    fun shadowLambda() {
+        val lm = IntentFilter("com.example.CUSTOM")
+        listOf(1).forEach { val lm = IntentFilter(Intent.ACTION_SCREEN_OFF) }
+        context.registerReceiver(ShadowLambda(), lm)
+    }
+
+    fun shadowObject() {
+        val ob = IntentFilter("com.example.CUSTOM")
+        val task = object : Runnable {
+            override fun run() { val ob = IntentFilter(Intent.ACTION_SCREEN_OFF) }
+        }
+        context.registerReceiver(ShadowObject(), ob)
+    }
+
+    fun shadowParam(pp: IntentFilter, c: Boolean) {
+        if (c) { val pp = IntentFilter(Intent.ACTION_SCREEN_OFF) }
+        context.registerReceiver(ShadowParam(), pp)
+    }
+
+    fun enclosing(c: Boolean, d: Boolean) {
+        val outer = IntentFilter(Intent.ACTION_SCREEN_OFF)
+        if (c) {
+            context.registerReceiver(ProtectedEnclosingOuter(), outer)
+            val inner = IntentFilter(Intent.ACTION_SCREEN_OFF)
+            inner.addAction(Intent.ACTION_SCREEN_ON)
+            if (d) { context.registerReceiver(ProtectedEnclosingInner(), inner) }
+        }
+    }
+}
+`,
+		"com/example/JavaShadowRegistrar.java": `package com.example;
+
+import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
+
+class JavaShadowRegistrar {
+    private final Context context;
+    private final IntentFilter filter = new IntentFilter("com.example.CUSTOM");
+
+    JavaShadowRegistrar(Context context) { this.context = context; }
+
+    void shadowBlock(boolean c) {
+        if (c) {
+            IntentFilter filter = new IntentFilter(Intent.ACTION_SCREEN_OFF);
+            filter.addAction(Intent.ACTION_SCREEN_ON);
+        }
+        context.registerReceiver(new JavaShadowBlock(), filter);
+    }
+
+    void shadowAnonLocal() {
+        IntentFilter ob = new IntentFilter("com.example.CUSTOM");
+        Runnable task = new Runnable() {
+            @Override public void run() { IntentFilter ob = new IntentFilter(Intent.ACTION_SCREEN_OFF); }
+        };
+        context.registerReceiver(new JavaShadowAnonLocal(), ob);
+    }
+
+    void shadowAnonField() {
+        Runnable task = new Runnable() {
+            @Override public void run() { IntentFilter filter = new IntentFilter(Intent.ACTION_SCREEN_OFF); }
+        };
+        context.registerReceiver(new JavaShadowAnonField(), filter);
+    }
+
+    void enclosing(boolean c) {
+        IntentFilter outer = new IntentFilter(Intent.ACTION_SCREEN_OFF);
+        if (c) {
+            context.registerReceiver(new JavaProtectedEnclosing(), outer);
+        }
+    }
+}
+`,
+	}
+	var want []string
+	for i, name := range ktReceivers {
+		if !strings.HasPrefix(name, "Protected") {
+			want = append(want, "com/example/Receivers.kt:"+strconv.Itoa(7+i))
+		}
+	}
+	for i, name := range javaReceivers {
+		if !strings.HasPrefix(name, "JavaProtected") {
+			want = append(want, "com/example/JavaReceivers.java:"+strconv.Itoa(7+i))
+		}
+	}
+	assertUnsafeIntentLaunchLocs(t, manifest, sources, want)
+}

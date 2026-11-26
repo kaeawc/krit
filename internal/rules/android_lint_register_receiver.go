@@ -277,17 +277,27 @@ func receiverFilterCallable(file *scanner.File, idx uint32) uint32 {
 	return 0
 }
 
-// receiverFilterLocal finds the last declaration of a local called name in callable before the registration at call.
-// found reports such a declaration; init is 0 when it has no initializer or is a var that is reassigned.
+// receiverFilterLocal finds the last declaration of a local called name in callable before the registration at call
+// whose scope encloses the call. A same-name local in an `if` block, a lambda or an anonymous class that does not hold
+// the call does not hide the property, field, parameter or outer local the call reads. found reports such a
+// declaration; init is 0 when it has no initializer or is a var that is reassigned.
 func receiverFilterLocal(file *scanner.File, callable, call uint32, name string) (decl, init uint32, found bool) {
 	stop := file.FlatStartByte(call)
+	// A Kotlin local's scope is its statements container; a Java local's is the block around its declaration.
+	encloses := func(n uint32) bool {
+		scope, ok := file.FlatParent(n)
+		if ok && file.FlatType(scope) == "local_variable_declaration" {
+			scope, ok = file.FlatParent(scope)
+		}
+		return ok && file.FlatStartByte(scope) <= stop && file.FlatEndByte(scope) >= file.FlatEndByte(call)
+	}
 	file.FlatWalkAllNodes(callable, func(n uint32) {
 		if file.FlatStartByte(n) >= stop {
 			return
 		}
 		switch file.FlatType(n) {
 		case "property_declaration":
-			if vd, ok := file.FlatFindChild(n, "variable_declaration"); ok && lintDeclaredName(file, vd) == name {
+			if vd, ok := file.FlatFindChild(n, "variable_declaration"); ok && lintDeclaredName(file, vd) == name && encloses(n) {
 				kind, _ := file.FlatFindChild(n, "binding_pattern_kind")
 				decl, init, found = n, lintInitializerAfterEquals(file, n), true
 				if strings.TrimSpace(file.FlatNodeText(kind)) == "var" {
@@ -295,7 +305,7 @@ func receiverFilterLocal(file *scanner.File, callable, call uint32, name string)
 				}
 			}
 		case "variable_declarator":
-			if id, ok := file.FlatFindChild(n, "identifier"); ok && file.FlatNodeText(id) == name {
+			if id, ok := file.FlatFindChild(n, "identifier"); ok && file.FlatNodeText(id) == name && encloses(n) {
 				decl, init, found = n, lintInitializerAfterEquals(file, n), true
 			}
 		}

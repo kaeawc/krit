@@ -137,6 +137,20 @@ type FileEntry struct {
 	// computed from, or "" outside a git checkout. The git-clean shortcut
 	// serves the entry only while it equals the file's index blob.
 	GitBlob string `json:"-"`
+	// Decls records what the file contributed to the resolution of other
+	// files when the entry was written (typeinfer.CrossFileFacts), so the
+	// next run can tell which cached files a declaration change can reach
+	// (#1778). Zero when the run had no resolver or the file has none.
+	Decls DeclFacts `json:"-"`
+}
+
+// DeclFacts is a file's contribution to cross-file resolution
+// (typeinfer.CrossFileFacts): Hash identifies the declarations other files
+// can see, Names maps each name a lookup for them goes by to a hash of what
+// that lookup sees.
+type DeclFacts struct {
+	Hash  string
+	Names map[string]string
 }
 
 type fileEntryJSON struct {
@@ -145,6 +159,8 @@ type fileEntryJSON struct {
 	Size           int64                   `json:"size"`
 	OracleBlobHash string                  `json:"oracleBlobHash,omitempty"`
 	GitBlob        string                  `json:"gitBlob,omitempty"`
+	DeclHash       string                  `json:"declHash,omitempty"`
+	DeclNames      map[string]string       `json:"declNames,omitempty"`
 	Findings       []scanner.Finding       `json:"findings,omitempty"`
 	Columns        *scanner.FindingColumns `json:"columns,omitempty"`
 }
@@ -157,6 +173,8 @@ func (e FileEntry) MarshalJSON() ([]byte, error) {
 		Size:           e.Size,
 		OracleBlobHash: e.OracleBlobHash,
 		GitBlob:        e.GitBlob,
+		DeclHash:       e.Decls.Hash,
+		DeclNames:      e.Decls.Names,
 	}
 	if e.Columns.Len() > 0 {
 		clone := e.Columns.Clone()
@@ -178,6 +196,7 @@ func (e *FileEntry) UnmarshalJSON(data []byte) error {
 	e.Size = payload.Size
 	e.OracleBlobHash = payload.OracleBlobHash
 	e.GitBlob = payload.GitBlob
+	e.Decls = DeclFacts{Hash: payload.DeclHash, Names: payload.DeclNames}
 	e.Columns = scanner.FindingColumns{}
 	if payload.Columns != nil {
 		e.Columns = payload.Columns.Clone()
@@ -856,23 +875,56 @@ func (c *Cache) UpdateEntryColumns(path string, columns *scanner.FindingColumns)
 // file is read again to identify the content; UpdateEntryFromContent avoids
 // that when the analyzed bytes are at hand.
 func (c *Cache) UpdateEntryColumnsWithOracle(path string, columns *scanner.FindingColumns, blobHash string) {
-	c.UpdateEntryFromContent(path, nil, columns, blobHash)
+	c.UpdateEntryFromContent(path, nil, columns, blobHash, DeclFacts{})
 }
 
 // UpdateEntryFromContent records columns as the findings for content, the
 // bytes the analysis read from path. The entry is keyed by those bytes, not
 // by whatever path holds by now, so an edit between the analysis and this
 // call cannot pair the old findings with the new content. A nil content
-// reads path.
-func (c *Cache) UpdateEntryFromContent(path string, content []byte, columns *scanner.FindingColumns, blobHash string) {
+// reads path. decls is the file's contribution to cross-file resolution
+// (see FileEntry.Decls).
+func (c *Cache) UpdateEntryFromContent(path string, content []byte, columns *scanner.FindingColumns, blobHash string, decls DeclFacts) {
 	cols := scanner.FindingColumns{}
 	if columns != nil {
 		cols = columns.Clone()
 	}
-	c.updateEntry(path, content, cols, blobHash)
+	c.updateEntry(path, content, cols, decls, blobHash)
 }
 
-func (c *Cache) updateEntry(path string, content []byte, columns scanner.FindingColumns, blobHash ...string) {
+// PriorDecls returns the declaration facts recorded for path by the run
+// that wrote its entry.
+func (c *Cache) PriorDecls(path string) (DeclFacts, bool) {
+	if c == nil {
+		return DeclFacts{}, false
+	}
+	abs := absPath(path)
+	c.filesMu.RLock()
+	defer c.filesMu.RUnlock()
+	e, ok := c.Files[abs]
+	return e.Decls, ok
+}
+
+// VanishedDecls returns the declaration facts of entries for files that are
+// not in present (absolute paths): a deleted declaration can change how
+// cached files resolve. The cache header ties entries to the scan paths, so
+// an entry outside the current file set belongs to a deleted file.
+func (c *Cache) VanishedDecls(present map[string]bool) []DeclFacts {
+	if c == nil || c.backingStore != nil {
+		return nil
+	}
+	c.filesMu.RLock()
+	defer c.filesMu.RUnlock()
+	var out []DeclFacts
+	for path, e := range c.Files {
+		if len(e.Decls.Names) > 0 && !present[path] {
+			out = append(out, e.Decls)
+		}
+	}
+	return out
+}
+
+func (c *Cache) updateEntry(path string, content []byte, columns scanner.FindingColumns, decls DeclFacts, blobHash ...string) {
 	if content == nil {
 		var err error
 		if content, err = os.ReadFile(path); err != nil {
@@ -925,6 +977,7 @@ func (c *Cache) updateEntry(path string, content []byte, columns scanner.Finding
 		Size:           int64(len(content)),
 		Columns:        columns,
 		OracleBlobHash: oracleBlobHash,
+		Decls:          decls,
 	}
 	if hexLen := int(c.gitHexLen.Load()); hexLen != 0 {
 		entry.GitBlob = gitBlobID(content, hexLen)

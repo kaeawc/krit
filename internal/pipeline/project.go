@@ -1173,6 +1173,9 @@ func runProjectIndexPhase(ctx context.Context, args ProjectArgs, host ProjectHos
 	indexResult.CrossFileParentTracker = crossTracker
 	indexResult.ModuleParentTracker = moduleTracker
 	completeRunProjectIndexResult(args, host, warm, &indexResult)
+	if n := invalidateResolverDependents(&indexResult); n > 0 && host.Reporter != nil {
+		host.Reporter.Verbosef("verbose: analysis cache: re-analyzing %d cached files whose resolver facts changed\n", n)
+	}
 	return indexResult, nil
 }
 

@@ -262,6 +262,10 @@ func (r *defaultResolver) mergeFileResults(results []*FileTypeInfo) {
 	sort.SliceStable(ordered, func(i, j int) bool { return ordered[i].Path < ordered[j].Path })
 
 	for _, fi := range ordered {
+		if r.fileInfos == nil {
+			r.fileInfos = make(map[string]*FileTypeInfo, len(ordered))
+		}
+		r.fileInfos[fi.Path] = fi
 		r.imports[fi.Path] = fi.ImportTable
 		r.scopes[fi.Path] = fi.RootScope
 

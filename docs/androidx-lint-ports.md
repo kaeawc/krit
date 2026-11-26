@@ -74,8 +74,8 @@ import, as it does in Kotlin.
   receiver's same-file declaration (its declared `LiveData`/`MutableLiveData`/`MediatorLiveData` type, a
   `MutableLiveData<T>()` initializer, or the supertype of a same-file subclass). A nullable value is a name declared
   with a nullable type, unless an enclosing `if`/`when` condition null-checks it, it is inside the lambda of a safe
-  call on it (`x?.let { }`), or an earlier statement proves it non-null (`!!`, `?: return`, `requireNotNull`,
-  `require`/`check(x != null)`, `if (x == null || …) return`, an `isNullOrEmpty`/`isNullOrBlank` exit, or a
+  call on it (`x?.let { }`), or an earlier statement proves it non-null (`!!`, `?: return`, a `?: run { }` block
+  whose last statement exits (not `return@run`), `requireNotNull`, `require`/`check(x != null)`, `if (x == null || …) return`, an `isNullOrEmpty`/`isNullOrBlank` exit, or a
   subject-less `when` whose entries up to `x == null -> return` all exit), or a call of a same-file function with a
   nullable return type.
 - `UnsafeLifecycleWhenUsage` reports View access in the `finally` block of a `try` that makes a suspend call, inside

@@ -46,8 +46,7 @@ follows the cgroup CPU quota; see
 
 Facts are cached per module in `<repo>/.krit/module-facts`, keyed by the
 `krit-fir` jar, the module's compiler settings and plugins, its classpath
-(file size and modification time, plus the content hash for a file modified
-within the last 2 s; see
+(each jar's path and content, and each class directory's files; see
 [cache inventory](perf.md#cache-inventory-and-invalidation)), and the content
 of every source file. A changed module, or a rebuilt dependency jar,
 invalidates only the modules whose key changed. Unreferenced entries are

@@ -732,10 +732,17 @@ func RunProjectStreaming(ctx context.Context, in ProjectInput, out io.Writer) (P
 		firCoverage = host.FirCoverage()
 	}
 	outputStart := time.Now()
+	// The same model the index phase reads, for per-project report attribution (#1635).
+	gradleProjects := IndexPhase{}.gradleProjectIndex(IndexInput{
+		ParseResult:    ParseResult{Paths: args.Paths},
+		GradleModelDir: args.GradleModelDir,
+		NoGradleModel:  args.NoGradleModel,
+	})
 	outResult, err := OutputPhase{}.Run(ctx, OutputInput{
 		FixupResult:      fixupView,
 		FirDegraded:      firDegraded,
 		FirCoverage:      firCoverage,
+		GradleProjects:   gradleProjects,
 		Reporter:         host.Reporter,
 		Writer:           out,
 		Format:           format,

@@ -2,6 +2,7 @@ package gradlemodel
 
 import (
 	"path/filepath"
+	"slices"
 )
 
 // ProjectIndex maps source files to the Gradle project that compiles them.
@@ -50,6 +51,21 @@ func (idx *ProjectIndex) Len() int {
 		return 0
 	}
 	return len(idx.roots)
+}
+
+// Projects returns the paths of the indexed projects, sorted.
+func (idx *ProjectIndex) Projects() []string {
+	if idx == nil {
+		return nil
+	}
+	var out []string
+	for _, project := range idx.roots {
+		if !slices.Contains(out, project) {
+			out = append(out, project)
+		}
+	}
+	slices.Sort(out)
+	return out
 }
 
 // ProjectOf returns the Gradle path of the project owning the absolute path,

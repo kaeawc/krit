@@ -76,6 +76,33 @@ class KritAggregateTest {
     private fun invocations(root: File): List<String> =
         File(root, "invocations.log").takeIf { it.isFile }?.readLines().orEmpty()
 
+    // #1651: the whole-build report's byProject counts (krit #1635) become a summary in the log.
+    @Test
+    fun `kritCheckAll logs the findings per project`() {
+        val root = fixture("ignoreFailures = true")
+        val sarif = """{"runs": [{"results": [], "properties": {"byProject": {
+            ":a": {"findings": 1, "errors": 1, "warnings": 0},
+            ":nested:c": {"findings": 3, "errors": 0, "warnings": 3},
+            ":b": {"findings": 0, "errors": 0, "warnings": 0},
+            "": {"findings": 2, "errors": 0, "warnings": 2}}}}]}"""
+        File(root, "fake-krit").apply {
+            writeText(readText().replace("printf '{}\\n' > \"${'$'}arg\"", "printf '%s\\n' '$sarif' > \"${'$'}arg\""))
+        }
+        val result = run(root, "kritCheckAll")
+        assertTrue(result.output.contains(
+            "krit: findings by project\n" +
+                "  :nested:c                3 (0 errors, 3 warnings)\n" +
+                "  :a                       1 (1 error, 0 warnings)\n" +
+                "  (outside every project)  2 (0 errors, 2 warnings)\n"), result.output)
+        assertFalse(result.output.contains("  :b "), result.output)
+    }
+
+    @Test
+    fun `no project summary without byProject counts`() {
+        assertEquals(null, KritCheckAllTask.formatProjectSummary(mapOf(":a" to mapOf("findings" to 0))))
+        assertEquals(null, KritCheckAllTask.formatProjectSummary(emptyMap<String, Any>()))
+    }
+
     @Test
     fun `kritCheckAll runs krit once over the build root after every project's model export`() {
         val root = fixture()

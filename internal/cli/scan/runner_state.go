@@ -1234,6 +1234,7 @@ func (r *runner) outputPhase() int {
 		BaselineSuppressed: r.baselineSuppressed,
 		FirDegraded:        r.currentFirDegraded(),
 		FirCoverage:        r.firCoverage,
+		GradleProjects:     gradleProjectIndex(r.paths, *r.f.GradleModel, *r.f.NoGradleModel),
 		Format:             r.effectiveFormat,
 		BasePath:           r.basePath,
 		AbsolutePaths:      *r.f.AbsolutePaths,

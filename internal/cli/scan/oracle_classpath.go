@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"sync"
 
 	"github.com/kaeawc/krit/internal/gradlemodel"
 	"github.com/kaeawc/krit/internal/srcjar"
@@ -278,4 +279,38 @@ func withGeneratedSrcjars(sourceDirs, generated, jars []string, verbose bool, ou
 		fmt.Fprintf(out, "generated srcjars: %d of %d unpacked as generated source roots\n", len(dirs), len(jars))
 	}
 	return dedupePreservingOrder(append(sourceDirs, dirs...)), dedupePreservingOrder(append(generated, dirs...))
+}
+
+// gradleProjectIndex returns a lazy loader for the project index of the Gradle
+// models the scan reads (explicit, else discovered from the scan paths), so the
+// reports can attribute findings to projects. Nil when discovery is off and no
+// model is given.
+func gradleProjectIndex(paths []string, explicit string, disabled bool) func() *gradlemodel.ProjectIndex {
+	if disabled && explicit == "" {
+		return nil
+	}
+	return sync.OnceValue(func() *gradlemodel.ProjectIndex {
+		var dirs []string
+		if explicit != "" {
+			dirs = []string{explicit}
+		} else {
+			if len(paths) == 0 {
+				paths = []string{"."}
+			}
+			seen := map[string]bool{}
+			for _, path := range paths {
+				if dir := gradlemodel.Discover(path); dir != "" && !seen[dir] {
+					seen[dir] = true
+					dirs = append(dirs, dir)
+				}
+			}
+		}
+		merged := &gradlemodel.Model{}
+		for _, dir := range dirs {
+			if model, _, err := gradlemodel.Load(dir); err == nil {
+				merged.Projects = append(merged.Projects, model.Projects...)
+			}
+		}
+		return merged.ProjectIndex()
+	})
 }

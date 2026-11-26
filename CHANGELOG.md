@@ -5,6 +5,10 @@ All notable changes to Krit will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Per-project attribution for whole-build scans: with a Gradle model loaded, JSON findings carry `project` and
+  `summary.byProject` counts findings, errors and warnings per Gradle project (files outside every project under `""`);
+  SARIF has the same in each result's `properties.project` and `runs[0].properties.byProject`. The Gradle plugin's
+  `kritCheckAll` logs the counts (#1635, #1651).
 - `UnusedMaterialScaffoldPaddingParameter`, `UnusedMaterial3ScaffoldPaddingParameter`, `ConflictingOnColor` and
   `UsingMaterialAndMaterial3Libraries`, ports of the Lint checks bundled with `androidx.compose.material` 1.13.0 and
   `androidx.compose.material3` 1.5.0, under their Lint IDs. Their findings match the Lint CLI running those releases'

@@ -149,6 +149,7 @@ func init() {
 	registerThirdPartyDaggerRules()
 	registerThirdPartyKotlinCheckRules()
 	registerThirdPartyRxRules()
+	registerThirdPartyInclusiveRules()
 
 	applySecurityTaxonomy()
 }

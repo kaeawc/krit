@@ -223,6 +223,11 @@ All notable changes to Krit will be documented in this file.
   set's `assets` folder, with Lint's separate messages for `.so` libraries and other executables. The resource cache
   fingerprint now also covers the files directly inside `assets`, so adding or editing one there invalidates cached
   resource findings (#1274, #1285).
+- `InclusiveNaming`, slack-lints 0.11.1's inclusive-naming check, in the opt-in `slack-lint` rule set for Kotlin and
+  Java: names (file, package, classes, functions, properties, parameters, locals, labels) containing a word of the
+  new `blockList` option. Findings match the Lint CLI on `internal/rules/testdata/slack_lint/inclusive/`, apart from
+  the module suffix of `internal` members' JVM names. `Deprecation` gains slack-lints' `DeprecatedCall` as a Lint
+  alias (#1367, #1368).
 - `JavascriptInterface` and `UnsanitizedFilenameFromContentProvider`, ported from Android Lint 32.4.1's
   `JavaScriptInterfaceDetector` and `UnsafeFilenameDetector` under their Lint IDs for Kotlin and Java, and checked
   against the Lint CLI on the same inputs. `JavascriptInterface` reports an object passed to

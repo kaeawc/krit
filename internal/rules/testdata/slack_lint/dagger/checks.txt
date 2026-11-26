@@ -1,0 +1,1 @@
+BindingReceiverParameter,BindingReturnType,BindsMustBeAbstract,MustBeInModule,ProvidesMustNotBeAbstract

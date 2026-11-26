@@ -1,0 +1,6 @@
+# Docs edits check the mkdocs nav.
+docs/configuration.md
+mkdocs.yml
+---
+merge
+docs

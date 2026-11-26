@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# Pre-push hook: run scripts/pre-push.sh, the fast local mirror of CI.
+# Install once per clone (worktrees share it): make hooks
+# Bypass once: git push --no-verify, or SKIP_PREPUSH=1 git push.
+set -euo pipefail
+
+if [ "${SKIP_PREPUSH:-0}" = 1 ]; then
+	exit 0
+fi
+
+head=$(git rev-parse HEAD)
+zero=0000000000000000000000000000000000000000
+check=0
+# stdin: <local-ref> <local-oid> <remote-ref> <remote-oid> per pushed ref.
+while read -r local_ref local_oid _remote_ref _remote_oid; do
+	case "$local_ref" in
+		"(delete)"|refs/tags/*) continue ;;
+	esac
+	[ "$local_oid" = "$zero" ] && continue
+	if [ "$local_oid" != "$head" ]; then
+		echo "pre-push: $local_ref is not the checked-out HEAD; skipping local checks for it" >&2
+		continue
+	fi
+	check=1
+done
+
+if [ "$check" = 1 ]; then
+	exec bash "$(git rev-parse --show-toplevel)/scripts/pre-push.sh" </dev/null
+fi

@@ -1,0 +1,5 @@
+# Workflow edits run actionlint.
+.github/workflows/ci.yml
+---
+merge
+actions

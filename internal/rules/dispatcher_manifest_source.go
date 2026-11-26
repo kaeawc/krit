@@ -3,6 +3,7 @@ package rules
 import (
 	"os"
 	"sort"
+	"sync"
 
 	"github.com/kaeawc/krit/internal/javafacts"
 	"github.com/kaeawc/krit/internal/manifest"
@@ -34,16 +35,37 @@ func (d *Dispatcher) RunManifestSource(manifests []*manifest.Manifest, files []*
 		ctx.ParsedFiles = files
 		ctx.JavaSourceIndex = javaSourceIndex
 	}
+	// Each rule sees every file at once, so NeedsConcurrent rules run in parallel. Results are merged in rule order,
+	// which keeps the output independent of goroutine scheduling.
+	type ruleResult struct {
+		cols  scanner.FindingColumns
+		ok    bool
+		stats RunStats
+	}
+	results := make([]ruleResult, len(d.manifestSourceRules))
+	var wg sync.WaitGroup
+	for i, r := range d.manifestSourceRules {
+		run := func() {
+			res := &results[i]
+			res.cols, res.ok = d.runProjectRule(r, nil, populate, &res.stats)
+		}
+		if r.Needs.Has(api.NeedsConcurrent) {
+			wg.Go(run)
+		} else {
+			run()
+		}
+	}
+	wg.Wait()
 	collector := scanner.NewFindingCollector(0)
-	stats := RunStats{}
 	cacheable := true
-	for _, r := range d.manifestSourceRules {
-		cols, ok := d.runProjectRule(r, nil, populate, &stats)
-		cacheable = cacheable && ok
-		collector.AppendColumns(&cols)
+	var errs []DispatchError
+	for i := range results {
+		cacheable = cacheable && results[i].ok
+		collector.AppendColumns(&results[i].cols)
+		errs = append(errs, results[i].stats.Errors...)
 	}
 	d.projectStatsMu.Lock()
-	d.projectStats.Errors = append(d.projectStats.Errors, stats.Errors...)
+	d.projectStats.Errors = append(d.projectStats.Errors, errs...)
 	d.projectStatsMu.Unlock()
 	return d.filterManifestSourceFindings(*collector.Columns(), manifests, files), cacheable
 }

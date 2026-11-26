@@ -1,0 +1,10 @@
+# A Go change outside the rules: build, vet, lint and that package's tests.
+internal/oracle/daemon_jvm.go
+---
+merge
+gofmt
+build
+vet
+lint
+oraclefp
+test ./internal/oracle

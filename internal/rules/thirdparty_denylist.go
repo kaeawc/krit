@@ -451,8 +451,15 @@ func denyMethodOwner(ctx *api.Context, fqn string) string {
 // class's static factory returns.
 func denyReceiverType(ctx *api.Context, recv uint32) string {
 	file := ctx.File
-	if ctx.Resolver != nil {
+	// The resolver answers a member it does not know with the owner's type (`cal.time` as Calendar), so a
+	// navigation receiver is typed below instead.
+	if ctx.Resolver != nil && file.FlatType(recv) != "navigation_expression" {
 		if typ := ctx.Resolver.ResolveFlatNode(recv, file); typ != nil && typ.Name != "" {
+			// The file's imports decide which listed class a simple name is: the resolver can pick a same-named
+			// source class from another package (HOM-31).
+			if listed := denyClassFQN(file, typ.Name); listed != "" && lintImportsOf(file).bySimple[typ.Name] != typ.FQN {
+				return listed
+			}
 			if strings.Contains(typ.FQN, ".") {
 				return typ.FQN
 			}

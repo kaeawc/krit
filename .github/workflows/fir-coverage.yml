@@ -249,12 +249,18 @@ jobs:
       - name: krit_aspect (FIR per target)
         working-directory: ${{ env.SAMPLE }}
         run: |
-          bazel build //... --aspects=@krit//:defs.bzl%krit_aspect --output_groups=krit \
-            --@krit//:config=//:krit.yml 2>&1 | tee "$RUNNER_TEMP/fir/bazel-krit-aspect.log"
+          # --keep_going and no exit on failure: a failed Krit action (for
+          # example a degraded FIR pass) is reported as a checker error and
+          # its target's files count against the threshold.
+          bazel build --keep_going //... --aspects=@krit//:defs.bzl%krit_aspect --output_groups=krit \
+            --@krit//:config=//:krit.yml 2>&1 | tee "$RUNNER_TEMP/fir/bazel-krit-aspect.log" || true
           mkdir -p "$RUNNER_TEMP/fir/bazel-sarif"
-          (cd bazel-bin && find -L . -name '*.krit.sarif' -not -path '*.runfiles/*' -exec cp --parents {} "$RUNNER_TEMP/fir/bazel-sarif/" \;)
+          # Reports plus each target's generated krit model, for debugging gating.
+          (cd bazel-bin && find -L . \( -name '*.krit.sarif' -o -path '*.krit-model/model.json' \) -not -path '*.runfiles/*' \
+            -exec cp --parents {} "$RUNNER_TEMP/fir/bazel-sarif/" \;)
           mapfile -t sarifs < <(find "$RUNNER_TEMP/fir/bazel-sarif" -name '*.krit.sarif' | sort)
-          python3 ci/fir_coverage.py measure-sarif bazel-krit_aspect "$RUNNER_TEMP/fir/bazel-krit_aspect.result.json" "${sarifs[@]}"
+          python3 ci/fir_coverage.py measure-sarif bazel-krit_aspect "$RUNNER_TEMP/fir/bazel-krit_aspect.result.json" \
+            --bazel-log "$RUNNER_TEMP/fir/bazel-krit-aspect.log" "${sarifs[@]}"
       - name: bazel build //... again (action cache hit)
         working-directory: ${{ env.SAMPLE }}
         run: |
@@ -266,8 +272,8 @@ jobs:
         working-directory: ${{ env.SAMPLE }}
         run: |
           bazel clean
-          bazel build //... --aspects=@krit//:defs.bzl%krit_aspect --output_groups=krit \
-            --@krit//:config=//:krit.yml --execution_log_json_file="$RUNNER_TEMP/fir/bazel-aspect-exec.json"
+          bazel build --keep_going //... --aspects=@krit//:defs.bzl%krit_aspect --output_groups=krit \
+            --@krit//:config=//:krit.yml --execution_log_json_file="$RUNNER_TEMP/fir/bazel-aspect-exec.json" || true
           if python3 ci/krit_actions_cached.py "$RUNNER_TEMP/fir/bazel-aspect-exec.json"; then hit=true; else hit=false; fi
           echo "{\"name\": \"bazel-krit_aspect-cache\", \"passed\": $hit}" > "$RUNNER_TEMP/fir/bazel-krit_aspect-cache.check.json"
       - uses: actions/upload-artifact@de65e23aa2b7e23d713bb51fbfcb6d502f8667d8 # v4.6.2

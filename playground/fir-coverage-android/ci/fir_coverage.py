@@ -5,11 +5,13 @@
         Sum every "verbose: FIR verdict:" line in the LOG files (one per krit
         run; per-project kritCheck runs give one each) into OUT.json.
 
-    fir_coverage.py measure-sarif NAME OUT.json SARIF...
+    fir_coverage.py measure-sarif NAME OUT.json [--bazel-log LOG] SARIF...
         Sum runs[].properties.fir (authoritative, gated, excluded, topCauses)
         of krit SARIF reports, such as krit_aspect's per-target
         <target>.krit.sarif files, into OUT.json. A report without it counts
-        as a run where FIR did not run.
+        as a run where FIR did not run. With --bazel-log, each "Running krit
+        on //x failed" action in the log (no report, e.g. a degraded FIR
+        pass) is listed as a checker error.
 
     fir_coverage.py report THRESHOLDS.json FILE...
         Print a Markdown table of the *.result.json files (from measure) and
@@ -81,7 +83,10 @@ def measure(name, out_path, log_paths):
         print(f"FIR checker error: {error}", file=sys.stderr)
 
 
-def measure_sarif(name, out_path, sarif_paths):
+FAILED_KRIT_ACTION = re.compile(r"Running krit on (//\S+?) failed")
+
+
+def measure_sarif(name, out_path, sarif_paths, bazel_log=None):
     totals = {"authoritative": 0, "gated": 0, "generatedGated": 0, "excluded": 0, "ruleErrors": 0}
     runs = 0
     causes = []
@@ -103,6 +108,12 @@ def measure_sarif(name, out_path, sarif_paths):
                 causes.append({"file": SAMPLE_PREFIX.sub("", path), "cause": f"{cause['cause']} x{cause['count']}"})
         if not found:
             errors.append(f"{SAMPLE_PREFIX.sub('', path)}: no FIR coverage in the report")
+    if bazel_log:
+        with open(bazel_log, encoding="utf-8", errors="replace") as log:
+            for line in log:
+                match = FAILED_KRIT_ACTION.search(line)
+                if match:
+                    errors.append(f"{match.group(1)}: Krit action failed (see the bazel log)")
     checked = totals["authoritative"] + totals["gated"]
     result = {
         "name": name,
@@ -208,7 +219,11 @@ def main(argv):
         measure(argv[2], argv[3], argv[4:])
         return 0
     if len(argv) >= 4 and argv[1] == "measure-sarif":
-        measure_sarif(argv[2], argv[3], argv[4:])
+        rest = argv[4:]
+        bazel_log = None
+        if len(rest) >= 2 and rest[0] == "--bazel-log":
+            bazel_log, rest = rest[1], rest[2:]
+        measure_sarif(argv[2], argv[3], rest, bazel_log)
         return 0
     if len(argv) >= 3 and argv[1] == "report":
         return report(argv[2], argv[3:])

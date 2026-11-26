@@ -1,0 +1,12 @@
+src/test/java/test/slack/test/TestClass.kt:10:3: DoNotMockAutoValue: Mocked type is annotated with non-mockable annotation com.google.auto.value.AutoValue.Builder
+src/test/java/test/slack/test/TestClass.kt:11:3: DoNotMockAutoValue: Mocked type is annotated with non-mockable annotation com.google.auto.value.AutoValue.Builder
+src/test/java/test/slack/test/TestClass.kt:14:22: DoNotMockAutoValue: Mocked type is annotated with non-mockable annotation com.google.auto.value.AutoValue
+src/test/java/test/slack/test/TestClass.kt:15:21: DoNotMockAutoValue: Mocked type is annotated with non-mockable annotation com.google.auto.value.AutoValue
+src/test/java/test/slack/test/TestClass.kt:16:22: DoNotMockAutoValue: Mocked type is annotated with non-mockable annotation com.google.auto.value.AutoValue
+src/test/java/test/slack/test/TestClass.kt:18:22: DoNotMockAutoValue: Mocked type is annotated with non-mockable annotation com.google.auto.value.AutoValue
+src/test/java/test/slack/test/TestClass.kt:20:29: DoNotMockAutoValue: Mocked type is annotated with non-mockable annotation com.google.auto.value.AutoValue.Builder
+src/test/java/test/slack/test/TestClass.kt:21:28: DoNotMockAutoValue: Mocked type is annotated with non-mockable annotation com.google.auto.value.AutoValue.Builder
+src/test/java/test/slack/test/TestClass.kt:22:29: DoNotMockAutoValue: Mocked type is annotated with non-mockable annotation com.google.auto.value.AutoValue.Builder
+src/test/java/test/slack/test/TestClass.kt:24:29: DoNotMockAutoValue: Mocked type is annotated with non-mockable annotation com.google.auto.value.AutoValue
+src/test/java/test/slack/test/TestClass.kt:8:3: DoNotMockAutoValue: Mocked type is annotated with non-mockable annotation com.google.auto.value.AutoValue
+src/test/java/test/slack/test/TestClass.kt:9:3: DoNotMockAutoValue: Mocked type is annotated with non-mockable annotation com.google.auto.value.AutoValue

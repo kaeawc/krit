@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kaeawc/krit/internal/rules"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -86,6 +87,34 @@ func upstreamParityExpected(t *testing.T, dir string) []string {
 	return parityLines(strings.Join(append(want, added...), "\n"))
 }
 
+// runCrossFileRuleWithJava runs a cross-file rule over files with the index built as the pipeline builds it:
+// Kotlin files as sources, Java files through the Java declaration pass.
+func runCrossFileRuleWithJava(r *api.Rule, files []*scanner.File) []scanner.Finding {
+	var kotlin, java []*scanner.File
+	for _, f := range files {
+		if f.Language == scanner.LangJava {
+			java = append(java, f)
+		} else {
+			kotlin = append(kotlin, f)
+		}
+	}
+	collector := scanner.NewFindingCollector(0)
+	r.Check(&api.Context{CodeIndex: scanner.BuildIndex(kotlin, 1, java...), ParsedFiles: files, Collector: collector, Rule: r})
+	var out []scanner.Finding
+	for _, f := range collector.Columns().Findings() {
+		suppressed := false
+		for _, file := range files {
+			if file.Path == f.File {
+				suppressed = scanner.BuildSuppressionFilter(file, nil, nil, "").IsSuppressedAtColumn(f.Rule, f.RuleSet, f.Line, f.Col)
+			}
+		}
+		if !suppressed {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
 // runCrossFileParityChecks parses every file of the case directory as one project, builds the cross-file index and
 // runs the checks on it, as the cross-file phase does.
 func runCrossFileParityChecks(t *testing.T, dir string, checks []string) []string {
@@ -127,7 +156,7 @@ func runCrossFileParityChecks(t *testing.T, dir string, checks []string) []strin
 		if rule == nil {
 			t.Fatalf("rule %q not registered", check)
 		}
-		for _, f := range runCrossFileRuleOnFiles(rule, files...) {
+		for _, f := range runCrossFileRuleWithJava(rule, files) {
 			rel, err := filepath.Rel(abs, f.File)
 			if err != nil {
 				t.Fatal(err)
@@ -296,6 +325,94 @@ class VarTest2 {
 	})
 	want := []string{"src/test/java/com/example/VarTest.kt:9: DoNotMockDataClass: 'com.example.Data' is a data class, so mocking it should not be necessary"}
 	// The inner `ref` shadows the outer one; a parameter and a Java `var` do not show their type, so they abstain.
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("got:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}
+
+// Review of #1756 (P2): DoNotMockAnything bans every mock, so like Lint it runs only when named. --experimental,
+// which turns on the other DoNotMock* rules, must not reach it, and --strict drops it as noisy.
+func TestDoNotMockAnythingRunsOnlyWhenNamed(t *testing.T) {
+	active := func(enabled map[string]bool, experimental, strict bool) map[string]bool {
+		out := map[string]bool{}
+		for _, r := range rules.ActiveRulesV2(nil, enabled, false, experimental, strict) {
+			out[r.ID] = true
+		}
+		return out
+	}
+	if got := active(nil, true, false); got["DoNotMockAnything"] || !got["DoNotMockDataClass"] {
+		t.Errorf("--experimental: DoNotMockAnything=%v (want false), DoNotMockDataClass=%v (want true)", got["DoNotMockAnything"], got["DoNotMockDataClass"])
+	}
+	if got := active(map[string]bool{"DoNotMockAnything": true}, false, true); !got["DoNotMockAnything"] {
+		t.Error("naming DoNotMockAnything must enable it, even under --strict")
+	}
+}
+
+// Review of #1756 (P3): a factory imported under an alias is still a factory, and a class named through the file's
+// only on-demand import of a platform package is a platform type.
+func TestDoNotMockAliasedFactoryAndStarImportedPlatformType(t *testing.T) {
+	got := mockFindings(t, []string{"DoNotMockDataClass", "DoNotMockPlatformTypes"}, map[string]string{
+		"src/main/java/com/example/Models.kt": mockModels,
+		"src/test/java/com/example/AliasTest.kt": `package com.example
+
+import org.mockito.Mockito.mock as m
+import org.mockito.kotlin.spy as s
+
+class AliasTest {
+  val data = m(Data::class.java)
+  val spied = s(Data(1))
+}
+`,
+		"src/test/java/com/example/StarTest.kt": `package com.example
+
+import android.content.*
+import org.mockito.kotlin.mock
+
+class StarTest {
+  val context = mock<Context>()
+}
+`,
+		// With two on-demand imports the package of Context is unknown, so only the class is mocked.
+		"src/test/java/com/example/TwoStarsTest.kt": `package com.example
+
+import android.content.*
+import android.app.*
+import org.mockito.kotlin.mock
+
+class TwoStarsTest {
+  val context = mock<Context>()
+}
+`,
+	})
+	want := []string{
+		"src/test/java/com/example/AliasTest.kt:7: DoNotMockDataClass: 'com.example.Data' is a data class, so mocking it should not be necessary",
+		"src/test/java/com/example/AliasTest.kt:8: DoNotMockDataClass: 'com.example.Data' is a data class, so mocking it should not be necessary",
+		"src/test/java/com/example/StarTest.kt:7: DoNotMockPlatformTypes: platform type 'android.content.Context' should not be mocked",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("got:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}
+
+// A test's private nested class is named by its simple name; an on-demand import of a platform package does not
+// claim it (found on mockito-kotlin's MockingTest, which imports java.util.*).
+func TestDoNotMockSameFileNestedClass(t *testing.T) {
+	got := mockFindings(t, []string{"DoNotMockDataClass", "DoNotMockPlatformTypes"}, map[string]string{
+		"src/test/java/com/example/NestedTest.kt": `package com.example
+
+import java.util.*
+import org.mockito.kotlin.mock
+
+class NestedTest {
+  val plain = mock<Helper>()
+  val data = mock<Value>()
+
+  private open class Helper
+  private data class Value(val a: Int)
+}
+`,
+	})
+	want := []string{"src/test/java/com/example/NestedTest.kt:8: DoNotMockDataClass: 'com.example.NestedTest.Value' is a data class, so mocking it should not be necessary"}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Errorf("got:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}

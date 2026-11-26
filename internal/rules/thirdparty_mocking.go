@@ -34,6 +34,9 @@ const (
 	mockDoNotMockPlatformTypes = "DoNotMockPlatformTypes"
 	mockDoNotMockDataClass     = "DoNotMockDataClass"
 	mockDoNotMockObjectClass   = "DoNotMockObjectClass"
+	mockDoNotMockSealedClass   = "DoNotMockSealedClass"
+	mockDoNotMockAutoValue     = "DoNotMockAutoValue"
+	mockDoNotMockRecordClass   = "DoNotMockRecordClass"
 
 	slotMockUsage = "mockUsage"
 )
@@ -62,6 +65,9 @@ var mockPlatformRoots = map[string]bool{"android": true, "androidx": true, "java
 // mockDoNotMockAnnotations make a type DoNotMockMockDetector's (not ported), which runs before the sealed,
 // AutoValue, object and record checkers and so hides them.
 var mockDoNotMockAnnotations = []string{"slack.lint.annotations.DoNotMock", "com.google.errorprone.annotations.DoNotMock"}
+
+// mockAutoValueAnnotations are AutoValueMockDetector's non-mockable annotations, in its order.
+var mockAutoValueAnnotations = []string{"com.google.auto.value.AutoValue", "com.google.auto.value.AutoValue.Builder"}
 
 type mockFinding struct {
 	rule string
@@ -173,7 +179,11 @@ func newMockType(file *scanner.File, node uint32, classOf bool) (mockType, bool)
 // provable from source.
 func mockCallType(file *scanner.File, idx uint32, depth int) (mockType, bool) {
 	call, ok := lintCallAt(file, idx)
-	if !ok || (call.Name != "mock" && call.Name != "spy") || !mockIsFactoryCall(file, call) {
+	if !ok {
+		return mockType{}, false
+	}
+	kind := mockFactoryKind(file, call)
+	if kind == "" {
 		return mockType{}, false
 	}
 	if file.FlatType(idx) == "call_expression" {
@@ -186,7 +196,7 @@ func mockCallType(file *scanner.File, idx uint32, depth int) (mockType, bool) {
 		if !ok {
 			return mockType{}, false
 		}
-		if call.Name == "mock" {
+		if kind == "mock" {
 			// mock(Class<T>) creates a T; a mock of anything else is not a factory MockDetector reads.
 			if !t.classOf {
 				return mockType{}, false
@@ -197,35 +207,39 @@ func mockCallType(file *scanner.File, idx uint32, depth int) (mockType, bool) {
 		// spy(instance) creates a spy of the instance's type.
 		return t, !t.classOf
 	}
-	if call.Name == "mock" && file.Language == scanner.LangKotlin {
+	if kind == "mock" && file.Language == scanner.LangKotlin {
 		return mockExpectedType(file, idx)
 	}
 	return mockType{}, false
 }
 
-// mockIsFactoryCall reports whether the call resolves to one of mockFactories.
-func mockIsFactoryCall(file *scanner.File, call lintCall) bool {
+// mockFactoryKind returns "mock" or "spy" when the call resolves to one of mockFactories, under its own name or
+// an import alias (`import org.mockito.Mockito.mock as m`), and "" otherwise.
+func mockFactoryKind(file *scanner.File, call lintCall) string {
 	if call.ReceiverText != "" {
 		for _, owner := range mockFactoryOwners {
 			if mockFactories[owner+"."+call.Name] && lintTypeRefMatches(file, call.ReceiverText, owner) {
-				return true
+				return call.Name
 			}
 		}
-		return false
+		return ""
 	}
 	if mockFileDeclaresFunction(file, call.Name) {
-		return false
+		return ""
 	}
 	imp := lintImportsOf(file)
 	if full, ok := imp.bySimple[call.Name]; ok {
-		return mockFactories[full]
+		if mockFactories[full] {
+			return full[strings.LastIndex(full, ".")+1:]
+		}
+		return ""
 	}
 	for _, star := range imp.stars {
 		if mockFactories[star+"."+call.Name] {
-			return true
+			return call.Name
 		}
 	}
-	return false
+	return ""
 }
 
 // mockFileDeclaresFunction reports whether the file declares a function called name, which shadows an import.
@@ -234,9 +248,7 @@ func mockFileDeclaresFunction(file *scanner.File, name string) bool {
 		names := map[string]bool{}
 		for _, kind := range []string{"function_declaration", "method_declaration"} {
 			file.FlatWalkNodes(0, kind, func(fn uint32) {
-				if n := extractIdentifierFlat(file, fn); n == "mock" || n == "spy" {
-					names[n] = true
-				}
+				names[extractIdentifierFlat(file, fn)] = true
 			})
 		}
 		return names
@@ -281,12 +293,23 @@ func mockExpressionType(file *scanner.File, expr uint32, depth int) (mockType, b
 		if t, ok := file.FlatFindChild(expr, "scoped_type_identifier"); ok {
 			return newMockType(file, t, true)
 		}
-	case "navigation_expression": // Kotlin Foo::class.java
+	case "navigation_expression": // Kotlin Foo::class.java, or Outer.Inner::class.java
 		ref := file.FlatFirstChild(expr)
 		suffix := file.FlatNextSib(ref)
-		if file.FlatType(ref) == "callable_reference" && strings.TrimSpace(strings.TrimPrefix(file.FlatNodeText(suffix), ".")) == "java" {
+		if strings.TrimSpace(strings.TrimPrefix(file.FlatNodeText(suffix), ".")) != "java" {
+			break
+		}
+		switch file.FlatType(ref) {
+		case "callable_reference":
 			if t := mockClassReferenceType(file, ref); t != 0 {
 				return newMockType(file, t, true)
+			}
+		case "navigation_expression":
+			// Outer.Inner::class parses as a navigation whose last suffix is `::class`.
+			owner := file.FlatFirstChild(ref)
+			classSuffix := file.FlatNextSib(owner)
+			if file.FlatNextSib(classSuffix) == 0 && strings.Join(strings.Fields(file.FlatNodeText(classSuffix)), "") == "::class" {
+				return newMockType(file, owner, true)
 			}
 		}
 	case "call_expression", "method_invocation":
@@ -547,6 +570,12 @@ func mockQualifiedName(index *scanner.CodeIndex, file *scanner.File, text string
 			return text, true
 		}
 	}
+	// A class declared in the file, such as a test's private nested class, is in scope by its simple name.
+	if !nested {
+		if fqn, ok := mockSameFileClass(index, file, text); ok {
+			return fqn, true
+		}
+	}
 	if pkg := moshiFilePackage(file); pkg != "" {
 		if _, ok := index.SymbolByFQN(pkg + "." + text); ok {
 			return pkg + "." + text, true
@@ -570,7 +599,31 @@ func mockQualifiedName(index *scanner.CodeIndex, file *scanner.File, text string
 	if javaLangClasses[text] {
 		return "java.lang." + text, true
 	}
+	// A class outside the project named through the file's only on-demand import of a platform package
+	// (`import android.content.*`) comes from that package. With several on-demand imports the package is unknown.
+	if len(imp.stars) == 1 && mockPlatformRoots[strings.SplitN(imp.stars[0], ".", 2)[0]] && mockLooksLikeClass(text) &&
+		len(index.SymbolsNamed(text)) == 0 {
+		return imp.stars[0] + "." + text, true
+	}
 	return "", false
+}
+
+// mockSameFileClass returns the FQN of the one class the file declares with this simple name, at any nesting.
+func mockSameFileClass(index *scanner.CodeIndex, file *scanner.File, name string) (string, bool) {
+	fqn := ""
+	for _, sym := range index.SymbolsNamed(name) {
+		if sym.File != file.Path || sym.Name != name {
+			continue
+		}
+		switch sym.Kind {
+		case "class", "interface", "object", "enum", "record", "annotation":
+			if fqn != "" && fqn != sym.FQN {
+				return "", false
+			}
+			fqn = sym.FQN
+		}
+	}
+	return fqn, fqn != ""
 }
 
 // declaration returns the declaration node of an indexed class.
@@ -633,9 +686,37 @@ func (a *mockAnalyzer) check(file *scanner.File, site uint32, t mockType) {
 			return
 		}
 	}
+	if mockIsSealed(c) {
+		a.report(mockDoNotMockSealedClass, file, site, fmt.Sprintf("'%s' is a sealed type and has a restricted type hierarchy, use a subtype instead.", c.fqn))
+		return
+	}
+	for _, fqn := range mockAutoValueAnnotations {
+		if mockClassHasAnnotation(c, fqn) {
+			a.report(mockDoNotMockAutoValue, file, site, "Mocked type is annotated with non-mockable annotation "+fqn)
+			return
+		}
+	}
 	if c.file.FlatType(c.decl) == "object_declaration" {
 		a.report(mockDoNotMockObjectClass, file, site, fmt.Sprintf("'%s' is an object, so mocking it should not be necessary", c.fqn))
+		return
 	}
+	if c.file.FlatType(c.decl) == "record_declaration" ||
+		(c.file.FlatFindModifierNode(c.decl, "data") != 0 && mockClassHasAnnotation(c, "kotlin.jvm.JvmRecord")) {
+		a.report(mockDoNotMockRecordClass, file, site, fmt.Sprintf("'%s' is a record class, so mocking it should not be necessary", c.fqn))
+	}
+}
+
+// mockIsSealed reports a Kotlin sealed class or interface, or a Java type declared sealed or with a permits clause.
+func mockIsSealed(c mockClass) bool {
+	if c.file.FlatFindModifierNode(c.decl, "sealed") != 0 {
+		return true
+	}
+	for child := c.file.FlatFirstChild(c.decl); child != 0; child = c.file.FlatNextSib(child) {
+		if c.file.FlatType(child) == "permits" {
+			return true
+		}
+	}
+	return false
 }
 
 func (a *mockAnalyzer) report(rule string, file *scanner.File, node uint32, msg string) {

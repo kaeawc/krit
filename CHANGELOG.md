@@ -30,6 +30,11 @@ All notable changes to Krit will be documented in this file.
   `androidx_uiautomator/`). As in Lint, each runs only when the project declares the artifact that ships it.
   `DontUseAccessibilityNodeInfoGetText` also matches the released `onElement*` names, which the shipped detector no
   longer recognizes (#1505, #1506, #1507).
+- `DoNotMockSealedClass`, `DoNotMockAutoValue` and `DoNotMockRecordClass`, the rest of slack-lints' `MockDetector`
+  checks, matched against slack-lints' detector tests like the first four. The factories also resolve under an import
+  alias, and a class named through the file's only on-demand import of a platform package is a platform type
+  (#1378, #1379, #1381).
+
 - Gradle plugin: `kritCheck` with custom rule jars writes every enabled report from one krit run (one
   `--report FORMAT=PATH` each), like every other scan, instead of analyzing once per report (#1634).
 - `DoNotMockAnything`, `DoNotMockPlatformTypes`, `DoNotMockDataClass` and `DoNotMockObjectClass`, slack-lints 0.11.1's
@@ -420,6 +425,8 @@ All notable changes to Krit will be documented in this file.
   same workers. `KRIT_WORKER_THREADS` caps the threads per JVM (default 4; `1` restores a JVM per module). Each
   concurrent compile keeps the heap a JVM per module had, and an out-of-memory error in one stops that JVM's
   remaining modules.
+- `DoNotMockAnything` runs only when named (`--enable-rules`, `krit.yml`): `--experimental` no longer turns it on, and
+  `--strict` leaves it off. As in Lint, it is too broad to ride a blanket opt-in.
 - The Gradle plugins `dev.jasonpearson.krit` and `dev.jasonpearson.krit.settings` declare configuration-cache
   support on the Gradle Plugin Portal. `kritCheck`, `kritFormat` and `kritBaseline` now resolve (and download) the
   krit binary when they run instead of while Gradle builds the task graph, so `--dry-run` no longer downloads it and

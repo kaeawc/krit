@@ -6,5 +6,6 @@ src/main/java/com/example/Bind.kt:35:8: WrongCommentType: This block comment loo
 src/main/java/com/example/Bind.kt:43:8: WrongCommentType: This block comment looks like it was intended to be a KDoc comment
 src/main/java/com/example/Bind.kt:49:8: WrongCommentType: This block comment looks like it was intended to be a KDoc comment
 src/main/java/com/example/Bind.kt:4:8: WrongCommentType: This block comment looks like it was intended to be a KDoc comment
+src/main/java/com/example/Bind.kt:69:8: WrongCommentType: This block comment looks like it was intended to be a KDoc comment
 src/main/java/com/example/Bind.kt:8:8: WrongCommentType: This block comment looks like it was intended to be a KDoc comment
 src/main/java/com/example/JBind.java:5:8: WrongCommentType: This block comment looks like it was intended to be a javadoc comment

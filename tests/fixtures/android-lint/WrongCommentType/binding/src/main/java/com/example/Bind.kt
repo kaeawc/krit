@@ -63,4 +63,9 @@ class Trailing {
     val e = 5 /* spans
         two lines */ /* @see Bind */
     fun afterMultiLineTrailing(): Int = 1
+
+    val b = 6 /* spans
+        two lines */ /* plain */
+    /* @see Bind */
+    fun afterTrailingChainThenTag(): Int = 1
 }

@@ -238,6 +238,37 @@ func (fw *fileWatcher) addWatch(path string) error {
 	return nil
 }
 
+// createdDirectory handles the creation of path when it is a directory,
+// or a symlink to one, and reports whether it was.
+func (fw *fileWatcher) createdDirectory(path string) bool {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return false
+	}
+	if info.IsDir() {
+		if err := fw.addRecursive(path); err != nil {
+			fw.warn("watch new dir %s: %v\n", path, err)
+		}
+		// A directory that arrives populated (mv, cp -r, git stash pop)
+		// delivers no events for what is inside it, and a file created
+		// between the mkdir and the new watch is missed too. Report every
+		// file already there as created.
+		fw.touchExistingSources(path)
+		return true
+	}
+	// Source collection and Android detection walk with filepath.WalkDir,
+	// which does not follow a symlinked directory, so neither does the
+	// watcher. Walking one reported the link again, without end when it
+	// points at an ancestor (#1911). A symlink to a file is collected, so
+	// it is handled as one.
+	if info.Mode()&os.ModeSymlink != 0 {
+		if target, err := os.Stat(path); err == nil && target.IsDir() {
+			return true
+		}
+	}
+	return false
+}
+
 // forgetDir reports whether path is a directory the watcher walked, and
 // forgets it.
 func (fw *fileWatcher) forgetDir(path string) bool {
@@ -327,27 +358,8 @@ func (fw *fileWatcher) run(ctx context.Context) {
 // also invalidate the cached LibraryFacts since they describe the
 // project's dependency closure.
 func (fw *fileWatcher) handle(ev backendEvent) {
-	if ev.Op&opCreate != 0 {
-		if info, err := os.Lstat(ev.Path); err == nil && info.IsDir() {
-			if err := fw.addRecursive(ev.Path); err != nil {
-				fw.warn("watch new dir %s: %v\n", ev.Path, err)
-			}
-			// A directory that arrives populated (mv, cp -r, git stash pop)
-			// delivers no events for what is inside it, and a file created
-			// between the mkdir and the new watch is missed too. Report every
-			// file already there as created.
-			fw.touchExistingSources(ev.Path)
-			return
-		} else if err == nil && info.Mode()&os.ModeSymlink != 0 {
-			// Source collection and Android detection walk with
-			// filepath.WalkDir, which does not follow a symlinked directory,
-			// so neither does the watcher. Walking one reported the link
-			// again, without end when it points at an ancestor (#1911). A
-			// symlink to a file is collected, so it falls through.
-			if target, err := os.Stat(ev.Path); err == nil && target.IsDir() {
-				return
-			}
-		}
+	if ev.Op&opCreate != 0 && fw.createdDirectory(ev.Path) {
+		return
 	}
 	// Chmod alone never changes file content. On macOS, kqueue emits
 	// spurious Chmod events when other processes stat or open watched

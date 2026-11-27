@@ -13,6 +13,7 @@ package rules
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/android"
@@ -93,8 +94,18 @@ func (r *OnClickRule) check(ctx *api.Context) {
 	if len(handlersByLayout) == 0 {
 		return
 	}
+	// R.layout.X in an Activity names its own module's layout X when there
+	// is one, so a layout is checked against the Activities of the module
+	// that owns this res directory, not every same-named layout's.
+	module := ""
+	if ctx.File != nil {
+		module = onClickModuleDir(ctx.File.Path)
+	}
 	for _, file := range ctx.ParsedFiles {
 		if file == nil || file.FlatTree == nil {
+			continue
+		}
+		if module != "" && !strings.HasPrefix(file.Path, module+string(filepath.Separator)) {
 			continue
 		}
 		for idx := range file.FlatTree.Types {
@@ -115,6 +126,19 @@ func (r *OnClickRule) check(ctx *api.Context) {
 			emitOnClickFindings(ctx, r.BaseRule, summary, handlersByLayout)
 		}
 	}
+}
+
+// onClickModuleDir returns the module directory of a res directory,
+// `<module>/src/<set>/res` or `<module>/res`, or "" for a path that is not one.
+func onClickModuleDir(resDir string) string {
+	if resDir == "" || filepath.Base(resDir) != "res" {
+		return ""
+	}
+	set := filepath.Dir(resDir)
+	if filepath.Base(filepath.Dir(set)) == "src" {
+		return filepath.Dir(filepath.Dir(set))
+	}
+	return set
 }
 
 func collectOnClickHandlerSites(idx *android.ResourceIndex) map[string][]onClickHandlerSite {

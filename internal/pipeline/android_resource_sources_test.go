@@ -32,7 +32,11 @@ func TestResourceCacheKeysOnSourcesOnlyWhereARuleReadsThem(t *testing.T) {
 	writeLayout(t, plain, "activity_plain", dupIDLayout)
 	click := filepath.Join(root, "click", "res")
 	writeLayout(t, click, "activity_main", onClickHandlerLayout)
-	src := filepath.Join(root, "MainActivity.kt")
+	// OnClick checks a layout against its own module's Activities.
+	src := filepath.Join(root, "click", "src", "MainActivity.kt")
+	if err := os.MkdirAll(filepath.Dir(src), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	cacheDir := filepath.Join(root, "cache")
 	active := []*api.Rule{findV2RuleForTest(t, "OnClick"), findV2RuleForTest(t, "DuplicateIdsResource")}
 

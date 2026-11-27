@@ -1,0 +1,9 @@
+package fixtures.compose
+
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+
+@Composable
+fun Tags(tags: List<String>, counts: Map<String, Int>?) {
+    Text("${tags.size} ${counts?.size}")
+}

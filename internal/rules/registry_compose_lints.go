@@ -53,6 +53,23 @@ func registerComposeLintsRules() {
 	order := &ComposeParameterOrderRule{BaseRule: BaseRule{RuleName: "ComposeParameterOrder", RuleSetName: composeLintsRuleSet,
 		Sev: "error", Desc: "Detects @Composable function parameters not ordered as required, modifiers, optional, trailing lambda."}}
 	registerComposeLintsProjectRule(order.BaseRule, order, order.check)
+
+	mutable := &ComposeMutableParametersRule{BaseRule: BaseRule{RuleName: "ComposeMutableParameters", RuleSetName: composeLintsRuleSet,
+		Sev: "error", Desc: "Detects @Composable parameters of inherently mutable types such as MutableList, ArrayList or MutableState."}}
+	registerComposeLintsRule(mutable.BaseRule, mutable, []string{"function_declaration"}, composeLintsMentions("Composable"), mutable.check)
+
+	collections := &ComposeUnstableCollectionsRule{BaseRule: BaseRule{RuleName: "ComposeUnstableCollections",
+		RuleSetName: composeLintsRuleSet, Sev: "warning", Desc: "Detects @Composable parameters typed as Kotlin List, Set, Map or Collection."}}
+	registerComposeLintsProjectRule(collections.BaseRule, collections, collections.check)
+
+	forwarding := &ComposeViewModelForwardingRule{BaseRule: BaseRule{RuleName: "ComposeViewModelForwarding",
+		RuleSetName: composeLintsRuleSet, Sev: "error", Desc: "Detects a ViewModel parameter forwarded whole to another composable."}}
+	registerComposeLintsProjectRule(forwarding.BaseRule, forwarding, forwarding.check)
+
+	injection := &ComposeViewModelInjectionRule{BaseRule: BaseRule{RuleName: "ComposeViewModelInjection",
+		RuleSetName: composeLintsRuleSet, Sev: "error", Desc: "Detects ViewModels acquired with viewModel()-style factories in a composable body instead of a default parameter."}}
+	registerComposeLintsRule(injection.BaseRule, injection, []string{"function_declaration"}, composeLintsMentions("ViewModel"),
+		injection.check)
 }
 
 // registerComposeLintsRule registers a node-dispatched port; fix, when given, is its autofix safety level.

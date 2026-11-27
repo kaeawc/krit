@@ -106,3 +106,42 @@ func (r *ComposeParameterOrderRule) Meta() api.RuleDescriptor {
 			"compose-lints' reordering autofix is not ported: moving parameters breaks positional callers.",
 		}}
 }
+
+func (r *ComposeMutableParametersRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "ComposeMutableParameters", RuleSet: composeLintsRuleSet, DefaultActive: false,
+		OptInReason: api.OptInReasonOpinionated,
+		KnownLimitations: []string{
+			"Types match by their written simple name, as compose-lints matches class names; a type alias of a mutable type is not expanded.",
+		}}
+}
+
+func (r *ComposeUnstableCollectionsRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "ComposeUnstableCollections", RuleSet: composeLintsRuleSet, DefaultActive: false,
+		OptInReason: api.OptInReasonOpinionated,
+		KnownLimitations: []string{
+			"Overlaps ComposeUnstableParameter (on by default), which reports the same parameters only when strong skipping is off; enable one of them.",
+			"Type aliases declared in the analyzed sources expand; library type aliases do not.",
+		}}
+}
+
+func (r *ComposeViewModelForwardingRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "ComposeViewModelForwarding", RuleSet: composeLintsRuleSet, DefaultActive: false,
+		OptInReason: api.OptInReasonOpinionated,
+		KnownLimitations: []string{
+			"A ViewModel parameter is one whose declared type name ends with ViewModel; a type alias is not expanded.",
+			"Like Lint's data flow, a local initialized with the ViewModel, or with a call taking it as a whole argument, is tracked too; reassignments and builder-style receiver calls are not followed.",
+			"A callee resolves by name against the analyzed sources: a composable function counts, a class or non-composable function does not, and an undeclared capitalized name counts (compose-lints' fallback when it cannot resolve).",
+		}}
+}
+
+func (r *ComposeViewModelInjectionRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "ComposeViewModelInjection", RuleSet: composeLintsRuleSet, DefaultActive: false,
+		OptInReason: api.OptInReasonOpinionated,
+		Options: []api.ConfigOption{
+			api.StringListOption(api.StringListOptionSpec[ComposeViewModelInjectionRule]{
+				Name:        "viewModelFactories",
+				Description: "Extra ViewModel factory function names (compose-lints `viewmodel-factories`).",
+				Apply:       func(r *ComposeViewModelInjectionRule, v []string) { r.ViewModelFactories = v },
+			}),
+		}}
+}

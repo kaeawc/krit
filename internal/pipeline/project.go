@@ -794,6 +794,12 @@ var testHookBeforeManifestData func()
 // run hands IndexPhase.
 var testHookIndexInput func(IndexInput)
 
+func runTestHookIndexInput(in IndexInput) {
+	if testHookIndexInput != nil {
+		testHookIndexInput(in)
+	}
+}
+
 func runTestHookBeforeManifestData() {
 	if testHookBeforeManifestData != nil {
 		testHookBeforeManifestData()
@@ -1176,9 +1182,7 @@ func runProjectIndexPhase(ctx context.Context, args ProjectArgs, host ProjectHos
 		indexInput.CacheRuleNames = cacheRuleNames(args.ActiveRules, true)
 		indexInput.CacheConfig = args.Config
 	}
-	if testHookIndexInput != nil {
-		testHookIndexInput(indexInput)
-	}
+	runTestHookIndexInput(indexInput)
 	indexResult, err := IndexPhase{Workers: args.Workers}.Run(ctx, indexInput)
 	if err != nil {
 		return IndexResult{}, err

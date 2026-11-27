@@ -94,7 +94,7 @@ func slackAnnotatedCallsFor(ctx *api.Context) *slackAnnotatedResult {
 	if index == nil || len(index.Files) == 0 {
 		return &slackAnnotatedResult{}
 	}
-	return filefacts.StringFact(fileFactsCache(), fmt.Sprintf("%p", index), slotSlackAnnotatedCalls, func() *slackAnnotatedResult {
+	return filefacts.StringFact(ctx.Facts, fmt.Sprintf("%p", index), slotSlackAnnotatedCalls, func() *slackAnnotatedResult {
 		return analyzeSlackAnnotatedCalls(index, ctx.Resolver)
 	})
 }
@@ -132,12 +132,17 @@ func analyzeSlackAnnotatedCalls(index *scanner.CodeIndex, resolver typeinfer.Typ
 	if len(byName) == 0 {
 		return result
 	}
-	names := make([][]byte, 0, len(byName))
-	for name := range byName {
-		names = append(names, []byte(name))
+	h := newSlackHier(index)
+	names := make([]string, 0, len(byName))
+	for name, decls := range byName {
+		names = append(names, name)
+		for i := range decls {
+			slackAddPackageOverloads(h, &decls[i])
+		}
 	}
-	for _, file := range index.Files {
-		if file == nil || file.FlatTree == nil || file.Language != scanner.LangKotlin || !slackMentionsAny(file.Content, names) {
+	files := h.candidateFiles(names)
+	for _, file := range files {
+		if file == nil || file.FlatTree == nil || file.Language != scanner.LangKotlin {
 			continue
 		}
 		file.FlatWalkNodes(0, "call_expression", func(idx uint32) {
@@ -150,7 +155,7 @@ func analyzeSlackAnnotatedCalls(index *scanner.CodeIndex, resolver typeinfer.Typ
 				return
 			}
 			for _, d := range byName[call.Name] {
-				if !slackCallTargets(file, call, d, index, resolver) {
+				if !slackCallTargets(file, call, d, h, resolver) {
 					continue
 				}
 				switch d.annotation {
@@ -170,15 +175,6 @@ func analyzeSlackAnnotatedCalls(index *scanner.CodeIndex, resolver typeinfer.Typ
 		})
 	}
 	return result
-}
-
-func slackMentionsAny(content []byte, names [][]byte) bool {
-	for _, n := range names {
-		if bytes.Contains(content, n) {
-			return true
-		}
-	}
-	return false
 }
 
 // slackCollectAnnotatedDecls returns the file's functions and constructors annotated @MustUseNamedParams (Kotlin
@@ -263,7 +259,7 @@ func slackDeclOwner(file *scanner.File, decl uint32, pkg string) (string, bool) 
 }
 
 // slackCallTargets reports whether a Kotlin call resolves to the annotated declaration.
-func slackCallTargets(file *scanner.File, call lintCall, d slackAnnotatedDecl, index *scanner.CodeIndex, resolver typeinfer.TypeResolver) bool {
+func slackCallTargets(file *scanner.File, call lintCall, d slackAnnotatedDecl, h *slackHier, resolver typeinfer.TypeResolver) bool {
 	if !slackArityPicks(file, call, d) {
 		return false
 	}
@@ -271,46 +267,66 @@ func slackCallTargets(file *scanner.File, call lintCall, d slackAnnotatedDecl, i
 	case d.ctor:
 		if call.ReceiverText != "" {
 			// `pkg.Outer.Inner(...)`, or `Outer.Inner(...)` with Outer imported.
-			return call.ReceiverText+"."+call.Name == d.owner || slackClassFQN(index, file, call.ReceiverText+"."+call.Name) == d.owner
+			return call.ReceiverText+"."+call.Name == d.owner || slackClassFQN(h.index, file, call.ReceiverText+"."+call.Name) == d.owner
 		}
-		return slackClassFQN(index, file, call.Name) == d.owner
+		return slackClassFQN(h.index, file, call.Name) == d.owner
 	case d.owner == "":
-		if call.ReceiverText != "" {
-			return call.ReceiverText == d.pkg
-		}
-		// A local function, a member of an enclosing class or of its project supertypes wins over any import.
-		if slackCallShadowedByMember(file, call, index) {
-			return false
-		}
-		imp := lintImportsOf(file)
-		if full, ok := imp.bySimple[call.Name]; ok {
-			return full == d.pkg+"."+call.Name
-		}
-		if moshiFilePackage(file) == d.pkg {
-			return true
-		}
-		for _, star := range imp.stars {
-			if star == d.pkg {
-				return true
-			}
-		}
+		return slackTopLevelCallTargets(file, call, d, h)
+	}
+	return slackMemberCallTargets(file, call, d, h, resolver)
+}
+
+// slackTopLevelCallTargets reports whether a Kotlin call resolves to the top-level declaration d.
+func slackTopLevelCallTargets(file *scanner.File, call lintCall, d slackAnnotatedDecl, h *slackHier) bool {
+	if call.ReceiverText != "" {
+		return call.ReceiverText == d.pkg
+	}
+	// A local function or a function-typed local or parameter, a member of an enclosing class or of its project
+	// supertypes wins over any import.
+	if slackLocallyShadowed(file, call.Idx, call.Name) || slackCallShadowedByMember(file, call, h) {
 		return false
 	}
-	// A member: the receiver's type, or for an unqualified call the enclosing class, must be the owner or extend it.
+	imp := lintImportsOf(file)
+	if full, ok := imp.bySimple[call.Name]; ok {
+		return full == d.pkg+"."+call.Name
+	}
+	if moshiFilePackage(file) == d.pkg {
+		return true
+	}
+	for _, star := range imp.stars {
+		if star == d.pkg {
+			return true
+		}
+	}
+	return false
+}
+
+// slackMemberCallTargets reports whether a Kotlin call resolves to the member d: the receiver's type, or for an
+// unqualified call the enclosing class, must be d's owner or extend it, with no class on the way declaring a
+// same-named function the call fits.
+func slackMemberCallTargets(file *scanner.File, call lintCall, d slackAnnotatedDecl, h *slackHier, resolver typeinfer.TypeResolver) bool {
+	index := h.index
+	n := slackCallArgCount(file, call)
+	overrides := d.annotation != fqcnRestrictCallsTo
+	reaches := func(from string) bool {
+		return slackTypeExtends(h, from, d.owner) && !slackIntermediateShadows(h, from, d.owner, call.Name, n, overrides)
+	}
 	if call.ReceiverNode == 0 || call.ReceiverText == "this" {
+		if call.ReceiverNode == 0 && slackLocallyShadowed(file, call.Idx, call.Name) {
+			return false
+		}
 		class, ok := flatEnclosingAncestor(file, call.Idx, "class_declaration", "object_declaration")
 		if !ok {
 			return false
 		}
 		owner, _ := slackDeclOwner(file, class, moshiFilePackage(file))
-		name := extractIdentifierFlat(file, class)
-		self := name
+		self := extractIdentifierFlat(file, class)
 		if owner != "" {
-			self = owner + "." + name
+			self = owner + "." + self
 		} else if pkg := moshiFilePackage(file); pkg != "" {
-			self = pkg + "." + name
+			self = pkg + "." + self
 		}
-		return slackTypeExtends(index, self, d.owner)
+		return reaches(self)
 	}
 	if slackClassFQN(index, file, call.ReceiverText) == d.owner {
 		return true // an object or companion member called through its class
@@ -331,7 +347,7 @@ func slackCallTargets(file *scanner.File, call lintCall, d slackAnnotatedDecl, i
 			continue
 		}
 		if _, indexed := index.SymbolByFQN(name); indexed || name == d.owner {
-			return slackTypeExtends(index, name, d.owner)
+			return reaches(name)
 		}
 	}
 	return false
@@ -462,9 +478,19 @@ func slackClassFQN(index *scanner.CodeIndex, file *scanner.File, text string) st
 
 // slackTypeExtends reports whether the type (FQN, or simple name when the resolver gives no FQN) is owner or a
 // project class whose supertypes reach it. Supertypes are read from each class's declaration and resolved through
-// that file's imports and package, not by simple name, so a same-named class elsewhere does not match.
-func slackTypeExtends(index *scanner.CodeIndex, name, owner string) bool {
+// that file's enclosing classes, imports and package, not by simple name, so a same-named class elsewhere does not
+// match.
+func slackTypeExtends(h *slackHier, name, owner string) bool {
+	found, _ := slackTypeExtendsKnown(h, name, owner)
+	return found
+}
+
+// slackTypeExtendsKnown is slackTypeExtends that also reports whether the walk was complete: false when some
+// supertype on the way could not be told to be a project class or a library type (a typealias, a generated class),
+// so a negative answer is not proof.
+func slackTypeExtendsKnown(h *slackHier, name, owner string) (found, complete bool) {
 	seen := map[string]bool{}
+	complete = true
 	var visit func(string) bool
 	visit = func(fqn string) bool {
 		if fqn == "" || seen[fqn] {
@@ -474,63 +500,64 @@ func slackTypeExtends(index *scanner.CodeIndex, name, owner string) bool {
 		if fqn == owner {
 			return true
 		}
-		for _, super := range slackDirectSupertypes(index, fqn) {
+		supers, ok := slackDirectSupertypesOf(h, fqn)
+		if !ok {
+			complete = false
+		}
+		for _, super := range supers {
 			if visit(super) {
 				return true
 			}
 		}
 		return false
 	}
-	return visit(name)
+	return visit(name), complete
 }
 
 // slackDirectSupertypes returns the FQNs of an indexed class's direct supertypes that are project classes.
-func slackDirectSupertypes(index *scanner.CodeIndex, fqn string) []string {
-	sym, ok := index.SymbolByFQN(fqn)
-	if !ok {
-		return nil
-	}
-	var file *scanner.File
-	for _, f := range index.Files {
-		if f != nil && f.Path == sym.File {
-			file = f
-			break
-		}
-	}
-	if file == nil || file.FlatTree == nil {
-		return nil
-	}
-	decl, ok := file.FlatNamedDescendantForByteRange(uint32(sym.StartByte), uint32(sym.EndByte))
-	if !ok {
-		return nil
+func slackDirectSupertypes(h *slackHier, fqn string) []string {
+	supers, _ := slackDirectSupertypesOf(h, fqn)
+	return supers
+}
+
+// slackDirectSupertypesOf returns an indexed class's direct project supertypes, memoized per class, and whether
+// every other supertype is a known library type.
+func slackDirectSupertypesOf(h *slackHier, fqn string) ([]string, bool) {
+	if supers, ok := h.supers[fqn]; ok {
+		return supers, h.complete[fqn]
 	}
 	var out []string
-	file.FlatForEachChild(decl, func(child uint32) {
-		switch file.FlatType(child) {
-		case "delegation_specifier", "delegation_specifiers", "superclass", "super_interfaces", "extends_interfaces":
-		default:
-			return
-		}
-		file.FlatWalkAllNodes(child, func(n uint32) {
-			switch file.FlatType(n) {
-			case "user_type", "type_identifier", "scoped_type_identifier":
+	complete := true
+	file, decl, ok := h.classDecl(fqn)
+	if ok {
+		file.FlatForEachChild(decl, func(child uint32) {
+			switch file.FlatType(child) {
+			case "delegation_specifier", "delegation_specifiers", "superclass", "super_interfaces", "extends_interfaces":
 			default:
 				return
 			}
-			if parent, _ := file.FlatParent(n); file.FlatType(parent) == "user_type" || file.FlatType(parent) == "type_arguments" ||
-				file.FlatType(parent) == "type_projection" || file.FlatType(parent) == "scoped_type_identifier" {
-				return
-			}
-			text := strings.Join(strings.Fields(file.FlatNodeText(n)), "")
-			if i := strings.IndexByte(text, '<'); i >= 0 {
-				text = text[:i]
-			}
-			if super := slackClassFQN(index, file, text); super != "" {
-				out = append(out, super)
-			}
+			file.FlatWalkAllNodes(child, func(n uint32) {
+				switch file.FlatType(n) {
+				case "user_type", "type_identifier", "scoped_type_identifier":
+				default:
+					return
+				}
+				if parent, _ := file.FlatParent(n); file.FlatType(parent) == "user_type" || file.FlatType(parent) == "type_arguments" ||
+					file.FlatType(parent) == "type_projection" || file.FlatType(parent) == "scoped_type_identifier" {
+					return
+				}
+				super, library := h.slackTypeNameKind(file, decl, file.FlatNodeText(n))
+				switch {
+				case super != "":
+					out = append(out, super)
+				case !library:
+					complete = false
+				}
+			})
 		})
-	})
-	return out
+	}
+	h.supers[fqn], h.complete[fqn] = out, complete
+	return out, complete
 }
 
 // slackAllArgumentsNamed reports whether every argument in the call's parentheses is named (a trailing lambda is
@@ -552,17 +579,7 @@ func slackSameFile(a, b *scanner.File) bool {
 // slackArityPicks reports whether the call's argument count fits the declaration and no same-named overload of it,
 // so Kotlin and Lint resolve the call to this declaration; with an overload that also fits, krit abstains.
 func slackArityPicks(file *scanner.File, call lintCall, d slackAnnotatedDecl) bool {
-	n := len(call.Args)
-	if file.Language == scanner.LangKotlin {
-		// A trailing lambda is an argument too; `f(x) { }` puts it on the call wrapping this one.
-		if slackHasTrailingLambda(file, call.Idx) {
-			n++
-		}
-		if parent, ok := file.FlatParent(call.Idx); ok && file.FlatType(parent) == "call_expression" && file.FlatFirstChild(parent) == call.Idx &&
-			slackHasTrailingLambda(file, parent) {
-			n++
-		}
-	}
+	n := slackCallArgCount(file, call)
 	if !d.arity.accepts(n) {
 		return false
 	}
@@ -658,7 +675,7 @@ func slackOverloadArities(file *scanner.File, decl uint32, name string, ctor boo
 // slackCallShadowedByMember reports whether an unqualified Kotlin call's name is a local function in scope, a member
 // function of an enclosing class, or a member of one of that class's project supertypes, any of which Kotlin
 // resolves before a top-level function.
-func slackCallShadowedByMember(file *scanner.File, call lintCall, index *scanner.CodeIndex) bool {
+func slackCallShadowedByMember(file *scanner.File, call lintCall, h *slackHier) bool {
 	child := call.Idx
 	for parent, ok := file.FlatParent(call.Idx); ok; parent, ok = file.FlatParent(parent) {
 		switch file.FlatType(parent) {
@@ -679,7 +696,7 @@ func slackCallShadowedByMember(file *scanner.File, call lintCall, index *scanner
 			} else if pkg := moshiFilePackage(file); pkg != "" {
 				self = pkg + "." + self
 			}
-			if slackSupertypeDeclaresFunction(index, self, call.Name, map[string]bool{}) {
+			if slackSupertypeDeclaresFunction(h, self, call.Name, map[string]bool{}) {
 				return true
 			}
 		}
@@ -703,25 +720,16 @@ func slackClassDeclaresFunction(file *scanner.File, class uint32, name string) b
 
 // slackSupertypeDeclaresFunction reports whether a project supertype of the class fqn declares a function called
 // name.
-func slackSupertypeDeclaresFunction(index *scanner.CodeIndex, fqn, name string, seen map[string]bool) bool {
-	for _, super := range slackDirectSupertypes(index, fqn) {
+func slackSupertypeDeclaresFunction(h *slackHier, fqn, name string, seen map[string]bool) bool {
+	for _, super := range slackDirectSupertypes(h, fqn) {
 		if seen[super] {
 			continue
 		}
 		seen[super] = true
-		sym, ok := index.SymbolByFQN(super)
-		if !ok {
-			continue
+		if f, decl, ok := h.classDecl(super); ok && slackClassDeclaresFunction(f, decl, name) {
+			return true
 		}
-		for _, f := range index.Files {
-			if f == nil || f.Path != sym.File || f.FlatTree == nil {
-				continue
-			}
-			if decl, ok := f.FlatNamedDescendantForByteRange(uint32(sym.StartByte), uint32(sym.EndByte)); ok && slackClassDeclaresFunction(f, decl, name) {
-				return true
-			}
-		}
-		if slackSupertypeDeclaresFunction(index, super, name, seen) {
+		if slackSupertypeDeclaresFunction(h, super, name, seen) {
 			return true
 		}
 	}
@@ -736,4 +744,115 @@ func slackHasTrailingLambda(file *scanner.File, call uint32) bool {
 	}
 	_, ok = file.FlatFindChild(suffix, "annotated_lambda")
 	return ok
+}
+
+// slackAddPackageOverloads adds to a top-level declaration's overloads the same-named top-level functions other
+// files of its package declare, which Kotlin picks between by their parameters too.
+func slackAddPackageOverloads(h *slackHier, d *slackAnnotatedDecl) {
+	if d.owner != "" || d.ctor {
+		return
+	}
+	for _, sym := range h.index.SymbolsNamed(d.name) {
+		if sym.Kind != "function" || sym.Owner != "" || sym.Package != d.pkg || sym.File == d.file.Path {
+			continue
+		}
+		if f, decl, ok := h.declOf(sym); ok {
+			d.overloads = append(d.overloads, slackArityOf(f, decl))
+		}
+	}
+}
+
+// slackCallArgCount returns a call's argument count: the arguments in its parentheses, plus a trailing lambda (which
+// `f(x) { }` puts on the call wrapping this one).
+func slackCallArgCount(file *scanner.File, call lintCall) int {
+	n := len(call.Args)
+	if file.Language != scanner.LangKotlin {
+		return n
+	}
+	if slackHasTrailingLambda(file, call.Idx) {
+		n++
+	}
+	if parent, ok := file.FlatParent(call.Idx); ok && file.FlatType(parent) == "call_expression" && file.FlatFirstChild(parent) == call.Idx &&
+		slackHasTrailingLambda(file, parent) {
+		n++
+	}
+	return n
+}
+
+// slackIntermediateShadows reports whether a class on the way from the class from up to owner (owner excluded)
+// declares its own function called name that takes n arguments, an overload (or, with overrides, an override)
+// Kotlin calls instead of the owner's. RestrictCallsTo follows overrides to the annotated declaration, as Lint does,
+// so only an overload stops it.
+func slackIntermediateShadows(h *slackHier, from, owner, name string, n int, overrides bool) bool {
+	declares := map[string]bool{}
+	for _, sym := range h.index.SymbolsNamed(name) {
+		if sym.Kind != "function" || sym.Owner == "" || sym.Owner == owner || (sym.IsOverride && !overrides) {
+			continue
+		}
+		if f, decl, ok := h.declOf(sym); ok && slackArityOf(f, decl).accepts(n) {
+			declares[sym.Owner] = true
+		}
+	}
+	if len(declares) == 0 {
+		return false
+	}
+	seen := map[string]bool{}
+	var visit func(string) bool // reports whether fqn reaches owner, marking a shadowing class on the way
+	shadowed := false
+	visit = func(fqn string) bool {
+		if fqn == owner {
+			return true
+		}
+		if fqn == "" || seen[fqn] {
+			return false
+		}
+		seen[fqn] = true
+		reaches := false
+		for _, super := range slackDirectSupertypes(h, fqn) {
+			if visit(super) {
+				reaches = true
+			}
+		}
+		if reaches && declares[fqn] {
+			shadowed = true
+		}
+		return reaches
+	}
+	visit(from)
+	return shadowed
+}
+
+// slackLocallyShadowed reports whether a local function, a local variable, or a function or lambda parameter in
+// scope at idx is called name, any of which an unqualified call resolves to before a member or top-level function.
+func slackLocallyShadowed(file *scanner.File, idx uint32, name string) bool {
+	child := idx
+	for parent, ok := file.FlatParent(idx); ok; parent, ok = file.FlatParent(parent) {
+		switch file.FlatType(parent) {
+		case "statements":
+			for sib, found := file.FlatPrevSibling(child); found; sib, found = file.FlatPrevSibling(sib) {
+				switch file.FlatType(sib) {
+				case "function_declaration":
+					if extractIdentifierFlat(file, sib) == name {
+						return true
+					}
+				case "property_declaration":
+					if v, ok := file.FlatFindChild(sib, "variable_declaration"); ok && extractIdentifierFlat(file, v) == name {
+						return true
+					}
+				}
+			}
+		case "function_declaration", "anonymous_function", "secondary_constructor":
+			if params, ok := file.FlatFindChild(parent, "function_value_parameters"); ok && lintParamsDeclare(file, params, name) {
+				return true
+			}
+		case "lambda_literal":
+			if params, ok := file.FlatFindChild(parent, "lambda_parameters"); ok && lintParamsDeclare(file, params, name) {
+				return true
+			}
+		case "class_body", "source_file":
+			return false
+		}
+		child = parent
+	}
+	return false
 }

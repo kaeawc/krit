@@ -57,7 +57,7 @@ func emitJavaOnlyFindings(ctx *api.Context) {
 	if index == nil || len(index.Files) == 0 {
 		return
 	}
-	findings := filefacts.StringFact(fileFactsCache(), fmt.Sprintf("%p", index), slotSlackJavaOnly, func() []mockFinding {
+	findings := filefacts.StringFact(ctx.Facts, fmt.Sprintf("%p", index), slotSlackJavaOnly, func() []mockFinding {
 		return analyzeJavaOnly(index, ctx.Resolver)
 	})
 	for _, f := range findings {
@@ -86,22 +86,29 @@ func analyzeJavaOnly(index *scanner.CodeIndex, resolver typeinfer.TypeResolver) 
 	if len(ix.classes) == 0 && len(ix.methods) == 0 {
 		return nil
 	}
-	var names [][]byte
+	h := newSlackHier(index)
+	var names []string
 	for _, c := range ix.classes {
-		names = append(names, []byte(c.display[strings.LastIndexByte(c.display, '.')+1:]))
+		names = append(names, c.display[strings.LastIndexByte(c.display, '.')+1:])
 	}
 	for name := range ix.methods {
-		names = append(names, []byte(name))
+		names = append(names, name)
 	}
+	// Kotlin files that mention an annotated name, plus those that mention the annotations themselves.
+	files := h.candidateFiles(names)
+	for _, f := range index.Files {
+		if f != nil && javaOnlyMentions(f.Content) {
+			files = append(files, f)
+		}
+	}
+	seen := map[*scanner.File]bool{}
 	var out []mockFinding
-	for _, file := range index.Files {
-		if file == nil || file.FlatTree == nil || file.Language != scanner.LangKotlin {
+	for _, file := range files {
+		if file == nil || file.FlatTree == nil || file.Language != scanner.LangKotlin || seen[file] {
 			continue
 		}
-		if !javaOnlyMentions(file.Content) && !slackMentionsAny(file.Content, names) {
-			continue
-		}
-		s := &javaOnlyScan{ix: ix, index: index, resolver: resolver, file: file}
+		seen[file] = true
+		s := &javaOnlyScan{ix: ix, index: index, h: h, resolver: resolver, file: file}
 		s.scan()
 		out = append(out, s.out...)
 	}
@@ -200,6 +207,7 @@ func javaOnlyDeclName(file *scanner.File, decl uint32) string {
 type javaOnlyScan struct {
 	ix       *javaOnlyIndex
 	index    *scanner.CodeIndex
+	h        *slackHier
 	resolver typeinfer.TypeResolver
 	file     *scanner.File
 	out      []mockFinding
@@ -248,7 +256,7 @@ func (s *javaOnlyScan) checkClass(decl uint32) {
 	if j || k {
 		return
 	}
-	supers := slackDirectSupertypes(s.index, s.classFQN(decl))
+	supers := slackDirectSupertypes(s.h, s.classFQN(decl))
 	for _, want := range []string{"KotlinOnly", "JavaOnly"} {
 		for _, super := range supers {
 			c := s.ix.classes[super]
@@ -338,7 +346,7 @@ func (s *javaOnlyScan) checkFunction(fn uint32) {
 // superMethod returns the nearest annotated method called name of a project supertype of the class fqn, and the
 // supertype declaring it.
 func (s *javaOnlyScan) superMethod(fqn, name string, seen map[string]bool) (*javaOnlyMethod, *javaOnlyClass) {
-	supers := slackDirectSupertypes(s.index, fqn)
+	supers := slackDirectSupertypes(s.h, fqn)
 	for _, super := range supers {
 		for i := range s.ix.methods[name] {
 			m := &s.ix.methods[name][i]
@@ -387,7 +395,7 @@ func (s *javaOnlyScan) checkCall(idx uint32) {
 	for i := range s.ix.methods[call.Name] {
 		m := &s.ix.methods[call.Name][i]
 		reason, applies := s.javaOnlyReason(m)
-		if applies && slackCallTargets(file, call, m.decl, s.index, s.resolver) {
+		if applies && slackCallTargets(file, call, m.decl, s.h, s.resolver) {
 			s.report(idx, javaOnlyCallMessage(reason, "called from Kotlin"))
 			return
 		}

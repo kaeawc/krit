@@ -133,8 +133,9 @@ Both call checks match only what the source shows: a top-level function through 
 import; a constructor through its class; a member through the receiver's resolved or declared type (walking project
 supertypes as each declaring file names them), or through the enclosing class for an unqualified call. A local
 function or a member of an enclosing class (or of its project supertypes) with the same name wins over a top-level
-function, as in Kotlin. When the annotated declaration has same-named overloads in its file (or its class has other
-constructors), the call must fit its argument count and no overload's; otherwise krit abstains. Annotated
+function, as in Kotlin. When the annotated declaration has same-named overloads (in its file, other files of its package,
+or classes between the receiver's type and the owner, including overrides for `MustUseNamedParams`), or its class
+has other constructors, the call must fit its argument count and no overload's; otherwise krit abstains. Annotated
 declarations in libraries are not seen, and as in Lint 0.11.1, Java call sites are not checked. Known false
 negatives: a call through an import alias (`import com.example.f as g`), an unqualified member call from a nested,
 inner or anonymous class inside a subclass, and annotated extension functions.
@@ -233,8 +234,9 @@ rules instead: `BindsWrongParameterCount` is a Lint alias of `BindsMismatchedAri
 - `BindsTypeMismatch` is the detector's last check: a `@Binds` method none of the earlier checks reported whose
   parameter type is not assignable to its return type. krit reports it only when the return type is a project class
   and the parameter is either a project class whose project supertypes never reach it, or a library type, which
-  cannot implement a project type. It abstains on a parameterized return type, a library return type and a parameter
-  type the source does not show.
+  cannot implement a project type. Names resolve in the enclosing classes first, then through imports and the
+  package. It abstains on a parameterized return type, a library return type, and a parameter or supertype it
+  cannot place (a typealias, a generated class of a project package).
 - `DoNotCallProviders` reports a call from main sources to a project method annotated `@Binds`, `@Provides` or
   `@Produces`, unless the innermost class is annotated `@Generated`. The call is matched through the class name
   (`Module.INSTANCE.m()` and `Module.Companion.m()` from Java too), the receiver's resolved or declared type, a

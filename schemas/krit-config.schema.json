@@ -718,6 +718,39 @@
             }
           }
         },
+        "AnnotateVersionCheck": {
+          "description": "Annotate SDK_INT checks [precision: ast-backed] [noisiness: normal]\nCaveat: Only plain SDK_INT comparisons are checked (not SdkExtensions.getExtensionVersion, getBuildSdkInt, when branches or bare SDK_INT field aliases); the library module comes from the nearest build script's plugins.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable AnnotateVersionCheck (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "AnnotationProcessorOnCompilePath": {
           "description": "Annotation Processor on Compile Classpath [precision: project-structure-aware] [noisiness: normal] [capabilities: gradle]",
           "type": "object",
@@ -10452,6 +10485,39 @@
             }
           }
         },
+        "ReturnThis": {
+          "description": "Method must return `this` [precision: ast-backed] [noisiness: normal]\nCaveat: An override is checked when the overridden @ReturnThis method is declared in the same file; library and other-file supertypes are not followed.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable ReturnThis (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "RtlAware": {
           "description": "Using non-RTL-aware View methods [precision: type-aware] [noisiness: normal] [capabilities: oracle:call-targets, resolver]",
           "type": "object",
@@ -14452,6 +14518,39 @@
           "properties": {
             "active": {
               "description": "Enable UseRxSetProgress2 (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "UseSdkSuppress": {
+          "description": "Using `@SdkSuppress` instead of `@RequiresApi` [precision: ast-backed] [noisiness: normal]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable UseSdkSuppress (default: true).",
               "type": "boolean",
               "default": true
             },

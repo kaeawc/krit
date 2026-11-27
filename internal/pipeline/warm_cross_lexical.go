@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/rules"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -33,7 +34,7 @@ var lexicalReuseRules = []string{
 // lexicalNeedleVersion versions what a lexical tag means: the rule slots and
 // crossRuleLexicallyIrrelevant's needles. Bump it with any change to either,
 // so tags saved under the old meaning are not read under the new one.
-const lexicalNeedleVersion = 2
+const lexicalNeedleVersion = 3
 
 // lexicalReuseKey is saved with the cross findings and must match for the
 // last-value slot to be reused: the rules the findings came from (ruleHash)
@@ -150,9 +151,14 @@ func crossRuleLexicallyIrrelevant(ruleID, _, text string) bool {
 	case "RoomRelationWithoutIndex":
 		return !containsAny(lowerText, "@relation", "foreignkey", "@entity", "room")
 	case "AnvilMergeComponentEmptyScope":
-		return !containsAny(lowerText, "mergecomponent", "contributesto", "anvil", "scope::class")
+		// The rule's own file filter, case and all: any Contributes* or
+		// MergeComponent annotation, whatever package it comes from.
+		return !rules.AnvilMergeComponentMayMatch([]byte(text))
 	case "RoomLoadsAllWhereFirstUsed":
-		return !containsAny(lowerText, "@query", "@dao", "room", ".first(", ".firstornull(", ".single(", ".singleornull(", "getall")
+		// A finding needs a receiver whose text names a dao
+		// (roomLoadAllReceiverLooksDao), and the load-all methods it counts
+		// are declared in @Dao classes, so every relevant file says dao.
+		return !strings.Contains(lowerText, "dao")
 	default:
 		return false
 	}

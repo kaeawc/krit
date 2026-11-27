@@ -18,6 +18,14 @@ var (
 	anvilMergeComponentToken     = []byte("MergeComponent")
 )
 
+// AnvilMergeComponentMayMatch reports whether a file can declare or
+// contribute to an Anvil (or metro) merge scope: AnvilMergeComponentEmptyScope
+// skips every file it rejects, so the warm cross-findings reuse judges edits
+// with it too.
+func AnvilMergeComponentMayMatch(content []byte) bool {
+	return anvilMergeComponentMayMatch(content)
+}
+
 func anvilMergeComponentMayMatch(content []byte) bool {
 	return bytes.Contains(content, anvilContributesToToken) ||
 		bytes.Contains(content, anvilContributesBindingToken) ||

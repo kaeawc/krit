@@ -156,3 +156,41 @@ func TestWarmCrossFindingsLexicalReuseRefusesOtherRules(t *testing.T) {
 		t.Fatalf("after switching to a rule that reports nothing: %d findings, want 0 (the first rule's were replayed)", got)
 	}
 }
+
+// For each rule the lexical reuse still judges, an edit to a file the rule's
+// findings depend on, in either direction, must re-run it (#1906 review).
+// Each pair is a caller with and without the construct the rule looks for.
+func TestLexicalReuseRefusesCallerEditsForJudgeableRules(t *testing.T) {
+	for _, tc := range []struct{ rule, with, without string }{
+		{"OnClick",
+			"class MainActivity : AppCompatActivity() {\n    fun onSubmitClicked(v: View) {}\n}\n",
+			"class MainActivity : AppCompatActivity()\n"},
+		{"RoomConflictStrategyReplaceOnFk",
+			"interface PetDao {\n    @Insert(onConflict = OnConflictStrategy.REPLACE)\n    fun insert(pet: Pet)\n}\n",
+			"interface PetDao {\n    fun insert(pet: Pet)\n}\n"},
+		{"RoomRelationWithoutIndex",
+			"data class UserWithPets(\n    @Relation(parentColumn = \"id\", entityColumn = \"ownerId\")\n    val pets: List<Pet>,\n)\n",
+			"data class UserWithPets(val pets: List<Pet>)\n"},
+		{"AnvilMergeComponentEmptyScope",
+			"import dev.zacsweers.metro.ContributesBinding\n\n@ContributesBinding(AppGraph::class)\nclass Impl : Api\n",
+			"class Impl : Api\n"},
+		{"RoomLoadsAllWhereFirstUsed",
+			"fun latest(userDao: UserDao) = userDao.findAll().lastOrNull()\n",
+			"fun latest(userDao: UserDao) = userDao.findAll().size\n"},
+	} {
+		rules := []*api.Rule{api.FakeRule(tc.rule, api.WithNeeds(api.NeedsCrossFile))}
+		path := filepath.Join(t.TempDir(), "Caller.kt")
+		for _, edit := range []struct{ name, before, after string }{
+			{"construct removed", tc.with, tc.without},
+			{"construct added", tc.without, tc.with},
+		} {
+			if err := os.WriteFile(path, []byte("package p\n\n"+edit.after), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			saved := lexicalTags(rules, []*scanner.File{{Path: path, Content: []byte("package p\n\n" + edit.before)}})
+			if canReuseCrossFindingsForLexicallyIrrelevantMisses(rules, []string{path}, saved) {
+				t.Errorf("%s, %s: the caller edit reused the cross findings", tc.rule, edit.name)
+			}
+		}
+	}
+}

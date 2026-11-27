@@ -589,6 +589,20 @@ All notable changes to Krit will be documented in this file.
   `internal/rules/testdata/slack_lint_crossfile/annotations/` (#1423, #1432, #1433).
 
 ### Fixed
+- Warm runs follow version-catalog edits for every manifest rule. Manifest rules read whether a module is an app or a
+  library from its build script's `alias(libs.plugins...)` entries, resolved through `gradle/*.versions.toml`, and
+  whether it uses the SplashScreen library from its `libs.` dependency aliases, resolved through the catalogs the
+  library model finds (settings-declared ones included). Only `ProviderReadPermissionOnly`'s module-graph path keyed
+  those catalogs, so changing only the plugin id behind `alias(libs.plugins.mod)` from `com.android.application` to
+  `com.android.library` kept reporting `DataExtractionRules` on warm CLI and daemon runs while `--no-cache` did not.
+  Whenever a manifest or manifest-source rule is active, the per-manifest, manifest-bundle, Android project-bundle and
+  manifest-source keys and the findings-bundle fingerprint now hash the build script each manifest is read from and,
+  for a script with aliases, every directory its catalog search globbed, with what it found, and the catalogs found.
+  Catalogs no search reaches don't move the keys. On a 300-module project a no-op warm scan takes about 10 ms more
+  (#1853).
+- The manifest-source cache key canonicalizes every source-file hash to one width. It mixed the analysis cache's
+  16-hex hashes with the hash memo's 64-hex ones, so the same content gave different keys, and the first warm run after
+  a cold one, or a res-only edit after a source edit, re-ran the manifest-source rules (#1853).
 - `--no-cache` skips every cache that can change findings. A one-shot scan read the cross-file findings cache, so a
   stale entry replayed into the run warm results are checked against; it now skips that cache and also the cross-file
   index, resource index, file-walk and incremental oracle caches. Only the parse cache stays on (#1818).

@@ -284,6 +284,48 @@ func TestDeltaModelThatCannotBeCopiedWholeIsAnError(t *testing.T) {
 	}
 }
 
+// changedBuildInputs sees a build script renamed to a non-build name and a
+// non-ASCII path, which git quotes without -z (review of #1941).
+func TestChangedBuildInputsSeesRenamesAndNonASCIIPaths(t *testing.T) {
+	changed := func(t *testing.T, change func(repo string, git func(...string))) []string {
+		t.Helper()
+		repo := t.TempDir()
+		git := func(args ...string) {
+			t.Helper()
+			cmd := exec.Command("git", append([]string{"-c", "user.email=k@example.com", "-c", "user.name=k", "-c", "core.quotePath=true"}, args...)...)
+			cmd.Dir = repo
+			if out, err := cmd.CombinedOutput(); err != nil {
+				t.Fatalf("git %v: %v\n%s", args, err, out)
+			}
+		}
+		writeFile(t, filepath.Join(repo, "app/build.gradle.kts"), "plugins {\n    kotlin(\"jvm\")\n}\n// padding so a rename is detected as one\n")
+		git("init", "-q")
+		git("add", "-A")
+		git("commit", "-qm", "base")
+		change(repo, git)
+		git("add", "-A")
+		got, err := changedBuildInputs("HEAD", repo)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	t.Run("renamed away", func(t *testing.T) {
+		got := changed(t, func(_ string, git func(...string)) { git("mv", "app/build.gradle.kts", "app/build.gradle.kts.bak") })
+		if !slices.Equal(got, []string{"app/build.gradle.kts"}) {
+			t.Fatalf("changed build inputs = %q, want the renamed-away script", got)
+		}
+	})
+	t.Run("non-ASCII path", func(t *testing.T) {
+		got := changed(t, func(repo string, _ func(...string)) {
+			writeFile(t, filepath.Join(repo, "módulo/build.gradle.kts"), "// new module\n")
+		})
+		if !slices.Equal(got, []string{"módulo/build.gradle.kts"}) {
+			t.Fatalf("changed build inputs = %q, want the unquoted non-ASCII path", got)
+		}
+	})
+}
+
 func TestIsBuildInput(t *testing.T) {
 	for path, want := range map[string]bool{
 		"build.gradle.kts": true, "app/build.gradle": true, "settings.gradle.kts": true,

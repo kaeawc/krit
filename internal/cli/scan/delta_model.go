@@ -277,9 +277,12 @@ func isBuildInput(rel string) bool {
 
 // changedBuildInputs lists the build inputs that changed since ref (git's
 // repository-relative names), for the warning that the base scan compiles
-// with this checkout's model.
+// with this checkout's model. --no-renames lists a renamed file under its old
+// name too (a build script moved to a non-build name is still a build
+// change), and -z keeps git from quoting non-ASCII names, which would hide
+// their suffix.
 func changedBuildInputs(ref string, repoRoot string) ([]string, error) {
-	out, err := exec.CommandContext(context.Background(), "git", "-C", repoRoot, "diff", "--name-only", ref, "--").Output()
+	out, err := exec.CommandContext(context.Background(), "git", "-C", repoRoot, "diff", "--name-only", "--no-renames", "-z", ref, "--").Output()
 	if err != nil {
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
@@ -288,9 +291,9 @@ func changedBuildInputs(ref string, repoRoot string) ([]string, error) {
 		return nil, err
 	}
 	var changed []string
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		if line != "" && isBuildInput(line) {
-			changed = append(changed, line)
+	for _, name := range strings.Split(string(out), "\x00") {
+		if name != "" && isBuildInput(name) {
+			changed = append(changed, name)
 		}
 	}
 	return changed, nil

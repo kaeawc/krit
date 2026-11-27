@@ -257,3 +257,35 @@ fun PlainBinding.inflate(): View = root
 		t.Errorf("InflationInItemDecoration: want one finding, on binding.inflate(), got %v", got)
 	}
 }
+
+// #1949: a function-type receiver inside a View class is the function's, not the class's, so its toString() is not
+// reported; a typealias, parenthesized or bounded type-parameter receiver naming a View is.
+func TestViewChecksExtensionReceiverShapes(t *testing.T) {
+	got := runRuleOnSourcesWithResolverAll(t, "DoNotCallViewToString", map[string]string{"KView.kt": `package com.example
+
+import android.content.Context
+import android.widget.LinearLayout
+
+class KView(c: Context) : LinearLayout(c) {
+  override fun toString(): String = "k"
+  fun (() -> Unit).fnType() = toString()
+  fun ((Int) -> KView).fnTypeReturningView() = toString()
+}
+
+typealias KV = KView
+fun KV.alias() = toString()
+fun (KView).paren() = toString()
+fun <T : KView> T.bounded() = toString()
+fun <T> T.whereBounded() where T : KView = toString()
+fun <T> T.unbounded() = toString()
+fun (KView)?.parenNullable() = toString()
+`})
+	var lines []int
+	for _, f := range got {
+		lines = append(lines, f.Line)
+	}
+	sort.Ints(lines)
+	if fmt.Sprint(lines) != "[13 14 15 16]" {
+		t.Errorf("DoNotCallViewToString: want lines 13-16, got %v", got)
+	}
+}

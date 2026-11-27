@@ -2,6 +2,7 @@ package oracle
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -173,9 +174,63 @@ func (c *CompositeResolver) IsNullableFlat(idx uint32, file *scanner.File) *bool
 // ClassHierarchy checks oracle first (has dependency types), then fallback.
 func (c *CompositeResolver) ClassHierarchy(typeName string) *typeinfer.ClassInfo {
 	if info := c.oracle.LookupClass(typeName); info != nil {
-		return info
+		return c.withSourceSupertypes(typeName, info)
 	}
 	return c.fallback.ClassHierarchy(typeName)
+}
+
+// withSourceSupertypes fills in the supertypes krit-fir could not resolve. A
+// class outside its classpath comes back as an error type, such as
+// `??? (Unresolved qualified name: AppCompatActivity)`, which ends every
+// hierarchy walk through it; the source resolver still names it from the
+// declaration (#1869). The oracle's shared entry is not modified.
+func (c *CompositeResolver) withSourceSupertypes(typeName string, info *typeinfer.ClassInfo) *typeinfer.ClassInfo {
+	if !hasUnresolvedSupertype(info.Supertypes) && !hasUnresolvedSupertype(info.DirectSupertypes) {
+		return info
+	}
+	merged := *info
+	var srcSupers, srcDirect []string
+	if src := c.fallback.ClassHierarchy(typeName); src != nil {
+		srcSupers, srcDirect = src.Supertypes, src.DirectSupertypes
+	}
+	merged.Supertypes = mergeResolvedSupertypes(info.Supertypes, srcSupers)
+	merged.DirectSupertypes = mergeResolvedSupertypes(info.DirectSupertypes, srcDirect)
+	return &merged
+}
+
+// mergeResolvedSupertypes keeps the oracle's resolved supertypes and adds the
+// source resolver's, without repeats. An oracle list with nothing unresolved
+// is returned as is.
+func mergeResolvedSupertypes(oracle, source []string) []string {
+	if !hasUnresolvedSupertype(oracle) {
+		return oracle
+	}
+	out := make([]string, 0, len(oracle)+len(source))
+	seen := make(map[string]bool, len(oracle)+len(source))
+	for _, list := range [][]string{oracle, source} {
+		for _, super := range list {
+			if !isUnresolvedSupertype(super) && !seen[super] {
+				seen[super] = true
+				out = append(out, super)
+			}
+		}
+	}
+	return out
+}
+
+func hasUnresolvedSupertype(supers []string) bool {
+	for _, super := range supers {
+		if isUnresolvedSupertype(super) {
+			return true
+		}
+	}
+	return false
+}
+
+// isUnresolvedSupertype reports whether krit-fir rendered a supertype as an
+// error type.
+func isUnresolvedSupertype(name string) bool {
+	return strings.HasPrefix(name, "???") || isErrorType(name)
 }
 
 // HasKnownSubtypes delegates to the source-level fallback resolver.

@@ -252,16 +252,21 @@ interface JRepo {}
 
 class JOuter {
   static class JImpl implements JRepo {}
+  interface JInner {}
+  static class JInnerImpl implements JInner {}
 }
 
 @Module
 abstract class JBindings {
   @Binds abstract JRepo bind(JOuter.JImpl impl);
+  // Both sides nested: JInner resolves in JOuter, so JInnerImpl is assignable and JImpl is not.
+  @Binds abstract JOuter.JInner bindInner(JOuter.JInnerImpl impl);
+  @Binds abstract JOuter.JInner bindWrong(JOuter.JImpl impl);
 }
 `,
 	})
-	if len(got) != 0 {
-		t.Errorf("BindsTypeMismatch: want no findings, got %v", got)
+	if strings.Join(got, " ") != "src/main/java/com/example/JOuter.java:19" {
+		t.Errorf("BindsTypeMismatch: want only the nested mismatch (JOuter.java:19), got %v", got)
 	}
 }
 

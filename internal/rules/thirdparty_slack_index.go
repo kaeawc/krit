@@ -17,11 +17,19 @@ type slackHier struct {
 	supers   map[string][]string
 	complete map[string]bool // whether every direct supertype of a class resolved (see slackDirectSupertypesOf)
 	packages map[string]bool
+	// memberArities memoizes, per function name and whether overrides count, the arities of each class's own
+	// same-named functions (see slackIntermediateShadows).
+	memberArities map[slackMemberKey]map[string][]slackArity
+}
+
+type slackMemberKey struct {
+	name      string
+	overrides bool
 }
 
 func newSlackHier(index *scanner.CodeIndex) *slackHier {
 	h := &slackHier{index: index, byPath: map[string]*scanner.File{}, supers: map[string][]string{},
-		complete: map[string]bool{}, packages: map[string]bool{}}
+		complete: map[string]bool{}, packages: map[string]bool{}, memberArities: map[slackMemberKey]map[string][]slackArity{}}
 	for _, f := range index.Files {
 		if f == nil {
 			continue
@@ -51,6 +59,27 @@ func (h *slackHier) classDecl(fqn string) (*scanner.File, uint32, bool) {
 		return nil, 0, false
 	}
 	return h.declOf(sym)
+}
+
+// memberFunctionArities returns, by owner class, the arities of the indexed member functions called name, leaving
+// out overrides unless overrides is set. It is built once per name, so a pass costs one scan of the declarations of
+// each name it asks about rather than one per call.
+func (h *slackHier) memberFunctionArities(name string, overrides bool) map[string][]slackArity {
+	key := slackMemberKey{name, overrides}
+	if byOwner, ok := h.memberArities[key]; ok {
+		return byOwner
+	}
+	byOwner := map[string][]slackArity{}
+	for _, sym := range h.index.SymbolsNamed(name) {
+		if sym.Kind != "function" || sym.Owner == "" || (sym.IsOverride && !overrides) {
+			continue
+		}
+		if f, decl, ok := h.declOf(sym); ok {
+			byOwner[sym.Owner] = append(byOwner[sym.Owner], slackArityOf(f, decl))
+		}
+	}
+	h.memberArities[key] = byOwner
+	return byOwner
 }
 
 // isProjectPackage reports whether some project file is in pkg.

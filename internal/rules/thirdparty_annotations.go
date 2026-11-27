@@ -784,16 +784,17 @@ func slackCallArgCount(file *scanner.File, call lintCall) int {
 // Kotlin calls instead of the owner's. RestrictCallsTo follows overrides to the annotated declaration, as Lint does,
 // so only an overload stops it.
 func slackIntermediateShadows(h *slackHier, from, owner, name string, n int, overrides bool) bool {
-	declares := map[string]bool{}
-	for _, sym := range h.index.SymbolsNamed(name) {
-		if sym.Kind != "function" || sym.Owner == "" || sym.Owner == owner || (sym.IsOverride && !overrides) {
-			continue
-		}
-		if f, decl, ok := h.declOf(sym); ok && slackArityOf(f, decl).accepts(n) {
-			declares[sym.Owner] = true
-		}
+	byOwner := h.memberFunctionArities(name, overrides)
+	if len(byOwner) == 0 {
+		return false
 	}
-	if len(declares) == 0 {
+	// The walk stops at owner before asking, so owner's own declarations never count.
+	declares := func(fqn string) bool {
+		for _, a := range byOwner[fqn] {
+			if a.accepts(n) {
+				return true
+			}
+		}
 		return false
 	}
 	seen := map[string]bool{}
@@ -813,7 +814,7 @@ func slackIntermediateShadows(h *slackHier, from, owner, name string, n int, ove
 				reaches = true
 			}
 		}
-		if reaches && declares[fqn] {
+		if reaches && declares(fqn) {
 			shadowed = true
 		}
 		return reaches

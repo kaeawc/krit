@@ -104,12 +104,17 @@ func viewSourceClassFQN(ctx *api.Context, name string) string {
 }
 
 // viewEnclosingClassFQN returns the FQN of the named class whose `this` an unqualified call inside it reaches, or ""
-// when a Kotlin lambda (which may bind another receiver) or an anonymous object comes first.
+// when a receiver-binding Kotlin lambda, a companion or an anonymous object comes first.
 func viewEnclosingClassFQN(file *scanner.File, idx uint32) string {
 	var names []string
 	for p, ok := file.FlatParent(idx); ok; p, ok = file.FlatParent(p) {
 		switch file.FlatType(p) {
-		case "lambda_literal", "object_literal", "annotated_lambda", "companion_object":
+		case "lambda_literal":
+			// A lambda keeps the class's `this` unless it binds a receiver (`apply`, `run`, `with`, `buildString`, …).
+			if len(names) == 0 && viewLambdaBindsReceiver(file, p) {
+				return ""
+			}
+		case "object_literal", "companion_object":
 			if len(names) == 0 {
 				return ""
 			}
@@ -187,7 +192,52 @@ func viewInflaterReceiverType(ctx *api.Context, recv uint32) string {
 			return viewLayoutInflaterFQN
 		}
 	}
-	return denyReceiverType(ctx, recv)
+	if t := denyReceiverType(ctx, recv); t != "" {
+		return t
+	}
+	// An untyped property or local initialized by `LayoutInflater.from(context)`.
+	if init := viewInitializerOf(file, recv); init != 0 && init != recv {
+		if t := file.FlatType(init); t == "call_expression" || t == "method_invocation" {
+			return viewInflaterReceiverType(ctx, init)
+		}
+	}
+	return ""
+}
+
+// viewInitializerOf returns the initializer of the Kotlin property or local, or Java local or field, a name refers
+// to (the nearest declaration in an enclosing block, class body or file), or 0.
+func viewInitializerOf(file *scanner.File, use uint32) uint32 {
+	switch file.FlatType(use) {
+	case "simple_identifier", "identifier":
+	default:
+		return 0
+	}
+	name := file.FlatNodeText(use)
+	child := use
+	for parent, ok := file.FlatParent(use); ok; parent, ok = file.FlatParent(parent) {
+		switch file.FlatType(parent) {
+		case "statements", "block", "class_body", "source_file":
+			for sib := file.FlatFirstChild(parent); sib != 0; sib = file.FlatNextSib(sib) {
+				if (file.FlatType(parent) == "statements" || file.FlatType(parent) == "block") && sib == child {
+					break
+				}
+				switch file.FlatType(sib) {
+				case "property_declaration":
+					if v, ok := file.FlatFindChild(sib, "variable_declaration"); ok && extractIdentifierFlat(file, v) == name {
+						return lintInitializerAfterEquals(file, sib)
+					}
+				case "local_variable_declaration", "field_declaration":
+					for d := file.FlatFirstChild(sib); d != 0; d = file.FlatNextSib(d) {
+						if file.FlatType(d) == "variable_declarator" && extractIdentifierFlat(file, d) == name {
+							return lintInitializerAfterEquals(file, d)
+						}
+					}
+				}
+			}
+		}
+		child = parent
+	}
+	return 0
 }
 
 // viewEnclosingClassExtends reports whether the innermost class, object or anonymous class around idx extends
@@ -198,6 +248,9 @@ func viewEnclosingClassExtends(ctx *api.Context, idx uint32, target string) bool
 		switch file.FlatType(p) {
 		case "class_declaration", "object_declaration", "object_literal":
 			return viewClassNodeExtends(ctx, p, target)
+		case "companion_object":
+			// A companion is its own class, and it extends nothing here.
+			return false
 		case "class_body":
 			if parent, ok := file.FlatParent(p); ok && file.FlatType(parent) == "object_creation_expression" {
 				return viewClassNodeExtends(ctx, parent, target)
@@ -266,4 +319,28 @@ func viewJavaTypeName(file *scanner.File, n uint32) string {
 		text = text[:i]
 	}
 	return text
+}
+
+// viewReceiverLambdaCalls are the standard-library functions whose lambda has a receiver.
+var viewReceiverLambdaCalls = map[string]bool{"apply": true, "run": true, "with": true, "buildString": true, "buildList": true,
+	"buildSet": true, "buildMap": true}
+
+// viewLambdaBindsReceiver reports whether a Kotlin lambda is passed to a function known to give it a receiver, or to
+// a function krit cannot tell about (anything but a plain call by name), which may.
+func viewLambdaBindsReceiver(file *scanner.File, lambda uint32) bool {
+	call := lambda
+	for call != 0 && file.FlatType(call) != "call_expression" {
+		call, _ = file.FlatParent(call)
+	}
+	if call == 0 {
+		return true
+	}
+	if inner := file.FlatFirstChild(call); file.FlatType(inner) == "call_expression" {
+		call = inner
+	}
+	c, ok := lintCallAt(file, call)
+	if !ok {
+		return true
+	}
+	return viewReceiverLambdaCalls[c.Name]
 }

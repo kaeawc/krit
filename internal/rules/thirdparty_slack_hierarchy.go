@@ -82,6 +82,11 @@ func slackClassExtendsSeen(resolver typeinfer.TypeResolver, fqn, target string, 
 		return false
 	}
 	seen[fqn] = true
+	for _, super := range slackKnownLibrarySupertypes[fqn] {
+		if slackClassExtendsSeen(resolver, super, target, seen) {
+			return true
+		}
+	}
 	info := resolver.ClassHierarchy(fqn)
 	if info == nil || info.FQN != fqn {
 		return false
@@ -136,3 +141,10 @@ func slackJavaFileImports(path string) map[string]string {
 }
 
 const slotSlackJavaImports = "slackJavaImports"
+
+// slackKnownLibrarySupertypes are library classes the source resolver has no hierarchy for, with the supertypes the
+// slack-lints ports need to see through (Lint's isInheritor walks the classpath).
+var slackKnownLibrarySupertypes = map[string][]string{
+	"androidx.recyclerview.widget.DividerItemDecoration": {"androidx.recyclerview.widget.RecyclerView.ItemDecoration"},
+	"androidx.recyclerview.widget.ItemTouchHelper":       {"androidx.recyclerview.widget.RecyclerView.ItemDecoration"},
+}

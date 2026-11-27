@@ -533,7 +533,7 @@ All notable changes to Krit will be documented in this file.
 - `DoNotCallViewToString` and `InflationInItemDecoration`, slack-lints 0.11.1's View checks, in the opt-in
   `slack-lint` rule set for Kotlin and Java: a `toString()` call resolving to a View subclass's override, and a
   `LayoutInflater` or ViewBinding `inflate()` inside a `RecyclerView.ItemDecoration`. Findings match the Lint CLI on
-  `internal/rules/testdata/slack_lint_resolver/view_checks/` (#1435, #1436).
+  `internal/rules/testdata/slack_lint/view_checks/` (#1435, #1436).
 - `ModifierFactoryExtensionFunction`, `ModifierFactoryReturnType`, `ModifierFactoryUnreferencedReceiver` and
   `ModifierParameter`, ported from `androidx.compose.ui:ui-android` 1.12.1 under their Lint IDs and checked against the
   Lint CLI on the same inputs. A declaration is checked when its declared type, or an expression body rooted at

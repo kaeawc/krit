@@ -1,107 +1,10 @@
 package rules_test
 
 import (
-	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 	"sort"
-	"strings"
 	"testing"
-
-	"github.com/kaeawc/krit/internal/rules"
-	api "github.com/kaeawc/krit/internal/rules/api"
-	"github.com/kaeawc/krit/internal/scanner"
-	"github.com/kaeawc/krit/internal/typeinfer"
 )
-
-// TestSlackLintResolverParity is TestSlackLintParity for ports that need the source resolver's class index: each
-// case under testdata/slack_lint_resolver (except stubs) is indexed as one project, the way the pipeline builds the
-// resolver, before its checks run. The case layout and divergences.txt are as in testdata/slack_lint/README.md.
-func TestSlackLintResolverParity(t *testing.T) {
-	root := filepath.Join("testdata", "slack_lint_resolver")
-	cases, err := os.ReadDir(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ran := 0
-	for _, c := range cases {
-		if !c.IsDir() || c.Name() == "stubs" {
-			continue
-		}
-		ran++
-		dir := filepath.Join(root, c.Name())
-		t.Run(c.Name(), func(t *testing.T) {
-			checks := strings.Split(strings.TrimSpace(readParityFile(t, filepath.Join(dir, "checks.txt"))), ",")
-			want := slackParityExpected(t, dir)
-			got := runResolverParityChecks(t, dir, checks)
-			if strings.Join(got, "\n") != strings.Join(want, "\n") {
-				t.Errorf("krit findings differ from slack-lints 0.11.1 (with divergences.txt applied)\n--- want\n%s\n--- got\n%s",
-					strings.Join(want, "\n"), strings.Join(got, "\n"))
-			}
-		})
-	}
-	if ran == 0 {
-		t.Fatal("no resolver parity cases found")
-	}
-}
-
-func runResolverParityChecks(t *testing.T, dir string, checks []string) []string {
-	t.Helper()
-	abs, err := filepath.Abs(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var files []*scanner.File
-	err = filepath.WalkDir(abs, func(path string, d os.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
-			return err
-		}
-		var file *scanner.File
-		switch filepath.Ext(path) {
-		case ".kt":
-			file, err = scanner.ParseFile(context.Background(), path)
-		case ".java":
-			file, err = scanner.ParseJavaFile(context.Background(), path)
-		default:
-			return nil
-		}
-		if err == nil {
-			files = append(files, file)
-		}
-		return err
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	resolver := typeinfer.NewResolver()
-	resolver.IndexFilesParallel(files, 1)
-	var out []string
-	for _, check := range checks {
-		var rule *api.Rule
-		for _, r := range api.Registry {
-			if r.ID == check {
-				rule = r
-			}
-		}
-		if rule == nil {
-			t.Fatalf("rule %q not registered", check)
-		}
-		dispatcher := rules.NewDispatcher([]*api.Rule{rule}, resolver)
-		for _, file := range files {
-			cols := dispatcher.Run(file)
-			for _, f := range cols.Findings() {
-				rel, err := filepath.Rel(abs, f.File)
-				if err != nil {
-					t.Fatal(err)
-				}
-				out = append(out, fmt.Sprintf("%s:%d:%d: %s: %s", filepath.ToSlash(rel), f.Line, f.Col, f.Rule, f.Message))
-			}
-		}
-	}
-	sort.Strings(out)
-	return out
-}
 
 // The override's class is found across files, through the declaring file's imports: a `View` imported from another
 // package there is not android.view.View.
@@ -216,5 +119,63 @@ class Deco : RecyclerView.ItemDecoration() {
 `}, "Deco.kt")
 	if len(got) != 0 {
 		t.Errorf("a source class that is not a ViewBinding: want no finding, got %v", got)
+	}
+}
+
+// Orchestrator first pass on #1829: an untyped inflater property, a library ItemDecoration subclass, a companion
+// inside a decoration, a Java source superclass, and toString() in a plain lambda versus an apply block.
+func TestViewChecksFirstPassReview(t *testing.T) {
+	got := runRuleOnSourcesWithResolver(t, "InflationInItemDecoration", map[string]string{"D.kt": `package com.example
+
+import android.content.Context
+import android.view.LayoutInflater
+import android.view.ViewGroup
+import androidx.recyclerview.widget.DividerItemDecoration
+import androidx.recyclerview.widget.RecyclerView
+
+class Header(parent: ViewGroup) : RecyclerView.ItemDecoration() {
+  private val inflater = LayoutInflater.from(parent.context)
+  fun draw(p: ViewGroup) = inflater.inflate(0, p, false)
+
+  companion object {
+    fun make(i: LayoutInflater) = i.inflate(0, null)
+  }
+}
+
+class Divider(c: Context, private val i: LayoutInflater) : DividerItemDecoration(c, 0) {
+  fun draw() = i.inflate(0, null)
+}
+`}, "D.kt")
+	var lines []int
+	for _, f := range got {
+		lines = append(lines, f.Line)
+	}
+	sort.Ints(lines)
+	if fmt.Sprint(lines) != "[11 19]" {
+		t.Errorf("InflationInItemDecoration: want lines 11 and 19, got %v", got)
+	}
+	got = runRuleOnSourcesWithResolverAll(t, "DoNotCallViewToString", map[string]string{
+		"JBase.java": "package com.example;\n\nimport android.content.Context;\nimport android.widget.LinearLayout;\n\npublic class JBase extends LinearLayout {\n  public JBase(Context c) { super(c); }\n}\n",
+		"KView.kt": `package com.example
+
+import android.content.Context
+
+class KView(c: Context) : JBase(c) {
+  override fun toString(): String = "k"
+  fun log() {
+    post { toString() }
+    StringBuilder().apply { toString() }
+  }
+}
+
+fun f(k: KView) = k.toString()
+`})
+	lines = nil
+	for _, f := range got {
+		lines = append(lines, f.Line)
+	}
+	sort.Ints(lines)
+	if fmt.Sprint(lines) != "[8 13]" {
+		t.Errorf("DoNotCallViewToString: want lines 8 and 13, got %v", got)
 	}
 }

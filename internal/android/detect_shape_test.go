@@ -56,3 +56,33 @@ func TestProjectHasPathsUnder(t *testing.T) {
 		}
 	}
 }
+
+func TestAffectsDetection(t *testing.T) {
+	for path, want := range map[string]bool{
+		"/repo/app/src/main/AndroidManifest.xml":          true,
+		"/repo/app/src/debug/AndroidManifest.xml":         true,
+		"/repo/app/src/main/res/drawable/ic.png":          true,
+		"/repo/app/src/main/res/font/a.ttf":               true,
+		"/repo/app/src/main/res/layout/main.xml":          true,
+		"/repo/app/src/main/java/com/example/A.kt":        false,
+		"/repo/app/src/main/assets/data.xml":              false,
+		"/repo/app/build.gradle.kts":                      false,
+		"/repo/app/src/main/java/com/example/res/ic.png":  false,
+		"/repo/app/src/main/resources/AndroidManifest.md": false,
+	} {
+		if got := AffectsDetection(filepath.FromSlash(path)); got != want {
+			t.Errorf("AffectsDetection(%s) = %v, want %v", path, got, want)
+		}
+	}
+}
+
+func TestDetectionSkipsDir(t *testing.T) {
+	for name, want := range map[string]bool{
+		".cxx": true, ".gradle": true, "build": true, "node_modules": true, "__pycache__": true,
+		"app": false, "src": false, "builds": false, "res": false,
+	} {
+		if got := DetectionSkipsDir(name); got != want {
+			t.Errorf("DetectionSkipsDir(%q) = %v, want %v", name, got, want)
+		}
+	}
+}

@@ -25,7 +25,7 @@ type watcherState interface {
 	InvalidateLibraryFacts()
 	InvalidateResolver()
 	// InvalidateAndroidProjectFor drops the cached Android project detection
-	// when an XML file created, removed or renamed at path changes it.
+	// when a file created, removed or renamed at path changes it.
 	InvalidateAndroidProjectFor(path string)
 	// InvalidateAndroidProjectUnder drops it when the project lists a path
 	// under dir, which left the tree.
@@ -315,7 +315,7 @@ func (fw *fileWatcher) handle(ev backendEvent) {
 			// A directory that arrives populated (mv, cp -r, git stash pop)
 			// delivers no events for what is inside it, and a file created
 			// between the mkdir and the new watch is missed too. Report every
-			// source file already there as created.
+			// file already there as created.
 			fw.touchExistingSources(ev.Path)
 			return
 		}
@@ -346,6 +346,13 @@ func (fw *fileWatcher) handle(ev backendEvent) {
 			fw.directoryGone(ev.Path)
 			return
 		}
+	}
+	// A manifest or res file (a drawable or font as much as an XML file)
+	// that arrives or leaves can change the detected project (its
+	// ManifestPaths and ResDirs), which only a build-script edit dropped
+	// before (#1903). A content edit cannot.
+	if relevant&(opCreate|opRemove|opRename) != 0 {
+		fw.state.InvalidateAndroidProjectFor(ev.Path)
 	}
 	// Library-config paths come first — build.gradle.kts also matches
 	// isKotlinPath because of its extension, but it drives library
@@ -411,12 +418,6 @@ func (fw *fileWatcher) handle(ev backendEvent) {
 		fw.state.Touch(ev.Path)
 		fw.state.BumpSourceMTimeVersion()
 		fw.state.BumpXMLFilesVersion()
-		// A manifest or res file that arrives or leaves can change the
-		// detected project (its ManifestPaths and ResDirs), which only a
-		// build-script edit dropped before (#1903). A content edit cannot.
-		if relevant&(opCreate|opRemove|opRename) != 0 {
-			fw.state.InvalidateAndroidProjectFor(ev.Path)
-		}
 	}
 }
 
@@ -446,8 +447,9 @@ func (fw *fileWatcher) invalidateKotlinNow(path string) {
 	fw.invalidateKotlinState(path)
 }
 
-// touchExistingSources reports every Kotlin and Java source already under dir
-// as created.
+// touchExistingSources reports every file already under dir as created:
+// sources, and the manifests, resources and build scripts that shape the
+// detected Android project.
 func (fw *fileWatcher) touchExistingSources(dir string) {
 	_ = filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -460,11 +462,9 @@ func (fw *fileWatcher) touchExistingSources(dir string) {
 			}
 			return nil
 		}
-		// Manifests, resources and build scripts count too: they change the
-		// detected Android project and the library facts.
-		if isKotlinPath(path) || isJavaPath(path) || isXMLPath(path) || isLibraryConfigPath(path) {
-			fw.handle(backendEvent{Path: path, Op: opCreate})
-		}
+		// Every file counts: manifests, resources of any type and build
+		// scripts change the detected Android project and the library facts.
+		fw.handle(backendEvent{Path: path, Op: opCreate})
 		return nil
 	})
 }

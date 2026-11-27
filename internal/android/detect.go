@@ -39,6 +39,19 @@ func (p *Project) IsEmpty() bool {
 	return len(p.ManifestPaths) == 0 && len(p.ResDirs) == 0 && len(p.GradlePaths) == 0 && len(p.BazelPaths) == 0
 }
 
+// AffectsDetection reports whether a file at path can change what
+// DetectProject finds when it arrives or leaves: a manifest, or any file of a
+// src/main/res directory (a drawable, font or raw file as much as an XML one).
+func AffectsDetection(path string) bool {
+	return filepath.Base(path) == "AndroidManifest.xml" || srcMainResDir(path) != ""
+}
+
+// DetectionSkipsDir reports a directory name DetectProject does not descend
+// into: hidden directories, node_modules, build outputs and __pycache__.
+func DetectionSkipsDir(name string) bool {
+	return strings.HasPrefix(name, ".") || name == "node_modules" || name == "build" || name == "__pycache__"
+}
+
 // ShapeChangedBy reports whether a file created or removed at path changes
 // what DetectProject finds: a manifest it does not list, a listed manifest
 // that is gone, or a file in a src/main/res directory it does not list. exists
@@ -240,7 +253,7 @@ func detectWalkEntry(path string, d os.DirEntry, err error, proj *Project, seen 
 
 func detectWalkDir(path string, d os.DirEntry, proj *Project, seen map[string]bool) error {
 	name := d.Name()
-	if strings.HasPrefix(name, ".") || name == "node_modules" || name == "build" || name == "__pycache__" {
+	if DetectionSkipsDir(name) {
 		return filepath.SkipDir
 	}
 	if name == "res" && strings.HasSuffix(filepath.Dir(path), filepath.Join("src", "main")) {

@@ -330,12 +330,43 @@ func TestFileWatcher_InvalidatesAndroidProjectOnManifestArrival(t *testing.T) {
 		t.Fatal("moving in a directory that holds a manifest left the cached Android project in place")
 	}
 
+	// A manifest in a directory detection skips is never listed, so it changes nothing.
 	detect(manifest)
-	if err := os.RemoveAll(filepath.Join(root, "app", "src", "main")); err != nil {
+	hidden := filepath.Join(root, "app", ".cxx")
+	if err := os.MkdirAll(hidden, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(hidden, "AndroidManifest.xml"), []byte("<manifest/>\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(300 * time.Millisecond)
+	if !ws.HasAndroidProject() {
+		t.Error("a manifest under a hidden directory dropped the cached Android project")
+	}
+
+	// A res directory that arrives holding only a drawable adds a res dir.
+	staged = filepath.Join(t.TempDir(), "res")
+	if err := os.MkdirAll(filepath.Join(staged, "drawable"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(staged, "drawable", "ic.png"), []byte("png"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(staged, filepath.Join(mainDir, "res")); err != nil {
 		t.Fatal(err)
 	}
 	if !waitForCondition(func() bool { return !ws.HasAndroidProject() }) {
-		t.Fatal("deleting the directory of a listed manifest left the cached Android project in place")
+		t.Fatal("moving in a res directory holding only a drawable left the cached Android project in place")
+	}
+
+	// Moving a directory out of the tree delivers one event for the directory and none for its files, so only the
+	// directory's departure can drop a manifest listed under it.
+	detect(manifest)
+	if err := os.Rename(mainDir, filepath.Join(t.TempDir(), "gone")); err != nil {
+		t.Fatal(err)
+	}
+	if !waitForCondition(func() bool { return !ws.HasAndroidProject() }) {
+		t.Fatal("moving the directory of a listed manifest out of the tree left the cached Android project in place")
 	}
 }
 

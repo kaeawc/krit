@@ -55,6 +55,10 @@ func TestRulePathHeuristicsIgnoreFoldersAboveProjectRoot(t *testing.T) {
 			content: "package p\n\nval api = \"http://localhost:8080/api/v1\"\n",
 		},
 		{
+			rule: "HardcodedEnvironmentName", folder: "debug", inside: "app/src/debug/kotlin/p/Api.kt",
+			content: "package p\n\nfun apiConfig(environment: String): String = environment\n\nfun createApi(): String {\n    return apiConfig(\"staging\")\n}\n",
+		},
+		{
 			rule: "PrintStackTraceInProduction", folder: "tooling", inside: "tooling/src/main/kotlin/p/UserService.kt",
 			content: "package p\n\nimport timber.log.Timber\n\nclass UserService {\n    fun load() {\n        try {\n            doWork()\n        } catch (e: Exception) {\n            e.printStackTrace()\n        }\n    }\n\n    private fun doWork() {}\n}\n",
 		},
@@ -117,7 +121,9 @@ func TestProjectPathMarkers(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "tools", "repo")
 	ctx := &api.Context{Facts: NewDispatcher(nil, nil).fileFacts}
 	ctx.Facts.SetProjectRoot(root)
-	inTools := projectPath(ctx, filepath.Join(root, "tools", "Debug.kt"))
+	// Screen.kt, not a name a built-in marker such as /debug matches, so only
+	// the configured marker can match.
+	inTools := projectPath(ctx, filepath.Join(root, "tools", "Screen.kt"))
 	inApp := projectPath(ctx, filepath.Join(root, "app", "Screen.kt"))
 
 	absolute := projectPathMarkers(ctx, []string{filepath.Join(root, "tools") + string(filepath.Separator)})

@@ -27,6 +27,7 @@ Two failure modes recur:
   ```bash
   ./krit -no-cache -perf -f json -q -o /tmp/krit.json /path/to/project || true
   ```
+  `-no-cache` keeps the content-keyed parse cache. When the change touches parsing, the tree-sitter grammar, or tree repair, the baseline is `./krit -no-daemon -no-cache -no-parse-cache ...`; otherwise both runs reuse the same cached trees and a missing parse-cache version bump (`kotlinTreeRepairRevision`) goes unnoticed (#1912). `-no-parse-cache` is not forwarded to a daemon, hence `-no-daemon`.
 - **Invalidation does not cover every resident piece of state.** When a config or rule registration changes, invalidation must cover resident resolver, oracle filter, code index, and bundle cache. See `fix(pipeline) InvalidateAll covers resident resolver + oracle filter` (#133).
 
 When changing any resident state, walk every `InvalidateAll` / shutdown path and confirm the new state is included.

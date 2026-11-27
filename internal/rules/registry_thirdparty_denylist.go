@@ -24,7 +24,7 @@ func registerThirdPartyDenyListRules() {
 	}{
 		{slackDenyListedAPI, "Deny-listed API",
 			[]string{"call_expression", "method_invocation", "object_creation_expression", "navigation_expression", "field_access",
-				"import_header", "import_declaration"},
+				"directly_assignable_expression", "import_header", "import_declaration"},
 			denyListFileGate, checkDenyListedAPI},
 		{slackDenyListedBlockingAPI, "Deny-listed API",
 			[]string{"call_expression", "method_invocation"}, denyBlockingFileGate, checkDenyListedBlockingAPI},

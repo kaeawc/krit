@@ -20,6 +20,7 @@ import (
 	"github.com/kaeawc/krit/internal/filefacts"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/typeinfer"
 )
 
 const (
@@ -165,7 +166,8 @@ func checkDenyListedAPI(ctx *api.Context) {
 	switch ctx.File.FlatType(ctx.Idx) {
 	case "call_expression", "method_invocation", "object_creation_expression":
 		hits = denyCallHits(ctx, ctx.Idx)
-	case "navigation_expression", "field_access":
+	case "navigation_expression", "field_access", "directly_assignable_expression":
+		// A property write (`cal.timeInMillis = t`) is the setter call.
 		hits = denyFieldHits(ctx, ctx.Idx)
 	case "import_header", "import_declaration":
 		hits = denyImportHits(ctx.File, ctx.Idx)
@@ -213,7 +215,7 @@ func denyCallHits(ctx *api.Context, idx uint32) []denyHit {
 		return nil
 	}
 	if isJavaNew {
-		return denyConstructorHits(denyClassFQN(file, call.TypeText), call, idx)
+		return denyConstructorHits(denyClassFQN(ctx.Resolver, file, call.TypeText), call, idx)
 	}
 	name := slackCalleeNameNode(file, idx)
 	if name == 0 {
@@ -221,7 +223,7 @@ func denyCallHits(ctx *api.Context, idx uint32) []denyHit {
 	}
 	if file.Language == scanner.LangKotlin && call.Name != "" && call.Name[0] >= 'A' && call.Name[0] <= 'Z' {
 		// A Kotlin constructor call, `LinkedList<T>()` or `java.util.LinkedList()`.
-		return denyConstructorHits(denyClassFQN(file, call.TypeText), call, name)
+		return denyConstructorHits(denyClassFQN(ctx.Resolver, file, call.TypeText), call, name)
 	}
 	nargs := len(call.Args)
 	if denyTrailingLambda(file, idx) {
@@ -315,7 +317,7 @@ func denyCallOwners(ctx *api.Context, call lintCall) []string {
 		return denyUnqualifiedOwners(ctx, call)
 	}
 	// A static call through the class name, unless the name is a variable or parameter in scope (`Object Date`).
-	if fqn := denyClassFQN(file, call.ReceiverText); fqn != "" && !denyNamesVariable(file, call.ReceiverNode) {
+	if fqn := denyClassFQN(ctx.Resolver, file, call.ReceiverText); fqn != "" && !denyNamesVariable(file, call.ReceiverNode) {
 		return []string{fqn}
 	}
 	owners := denyExtensionOwners(ctx, call)
@@ -354,9 +356,14 @@ func denyUnqualifiedOwners(ctx *api.Context, call lintCall) []string {
 	owners := append([]string(nil), imp.stars...)
 	switch file.Language {
 	case scanner.LangKotlin:
+		// An implicit receiver's member wins: `cal.apply { set(...) }`, or setOnClickListener(null) inside a View
+		// subclass.
+		if typ := denyImplicitReceiverType(ctx, call.Idx); typ != "" {
+			owners = append(owners, denyMethodOwner(ctx, typ))
+		}
 		owners = append(owners, "kotlin")
 	case scanner.LangJava:
-		if cls := denyEnclosingJavaSuperclass(file, call.Idx); cls != "" {
+		if cls := denyEnclosingJavaSuperclass(ctx.Resolver, file, call.Idx); cls != "" {
 			owners = append(owners, cls)
 		}
 	}
@@ -444,7 +451,7 @@ func denyNamesVariable(file *scanner.File, recv uint32) bool {
 	default:
 		return false
 	}
-	return denyVariableTypeText(file, recv) != "" || lintNameIsParameterAt(file, recv, file.FlatNodeText(recv))
+	return denyVariableTypeText(nil, file, recv) != "" || lintNameIsParameterAt(file, recv, file.FlatNodeText(recv))
 }
 
 // denyReceiverDeclaresMember reports whether the receiver's class is a source class whose own member has the
@@ -484,7 +491,7 @@ func denyNullableAnyExtension(ctx *api.Context, call lintCall) bool {
 			return typ.Nullable
 		}
 	}
-	return file.FlatType(call.ReceiverNode) == "simple_identifier" && strings.HasSuffix(denyVariableTypeText(file, call.ReceiverNode), "?")
+	return file.FlatType(call.ReceiverNode) == "simple_identifier" && strings.HasSuffix(denyVariableTypeText(ctx.Resolver, file, call.ReceiverNode), "?")
 }
 
 // denyMethodOwner maps a receiver type to the listed class a method called on it is declared in: RxJava 3 subjects,
@@ -517,14 +524,13 @@ func denyMethodOwner(ctx *api.Context, fqn string) string {
 // class's static factory returns.
 func denyReceiverType(ctx *api.Context, recv uint32) string {
 	file := ctx.File
-	// The resolver answers a member it does not know with the owner's type (`cal.time` as Calendar), so a
-	// navigation receiver is typed below instead.
-	if ctx.Resolver != nil && file.FlatType(recv) != "navigation_expression" {
-		if typ := ctx.Resolver.ResolveFlatNode(recv, file); typ != nil && typ.Name != "" {
+	if ctx.Resolver != nil {
+		if typ := denyResolvedType(ctx, recv); typ != nil {
 			// The file's imports decide which listed class a simple name is: the resolver can pick a same-named
 			// source class from another package (HOM-31).
-			if listed := denyClassFQN(file, typ.Name); listed != "" && lintImportsOf(file).bySimple[typ.Name] != typ.FQN {
-				return listed
+			if alt := denyAnyClassFQN(ctx.Resolver, file, typ.Name); strings.Contains(alt, ".") && alt != typ.FQN &&
+				lintImportsOf(file).bySimple[typ.Name] != typ.FQN {
+				return alt
 			}
 			if strings.Contains(typ.FQN, ".") {
 				return typ.FQN
@@ -540,14 +546,31 @@ func denyReceiverType(ctx *api.Context, recv uint32) string {
 	}
 	switch file.FlatType(recv) {
 	case "simple_identifier", "identifier":
-		return denyAnyClassFQN(file, denyVariableTypeText(file, recv))
+		return denyAnyClassFQN(ctx.Resolver, file, denyVariableTypeText(ctx.Resolver, file, recv))
 	case "call_expression", "object_creation_expression":
-		return denyCallResultClass(file, recv)
+		return denyCallResultClass(ctx.Resolver, file, recv)
 	case "navigation_expression":
+		sel := denySelectorNode(file, recv)
+		if sel == 0 {
+			return ""
+		}
+		owner := denyReceiverType(ctx, file.FlatFirstChild(recv))
 		// `calendar.time` is Calendar.getTime(), a Date.
-		if sel := denySelectorNode(file, recv); sel != 0 && file.FlatNodeText(sel) == "time" &&
-			denyReceiverType(ctx, file.FlatFirstChild(recv)) == "java.util.Calendar" {
+		if owner == "java.util.Calendar" && file.FlatNodeText(sel) == "time" {
 			return "java.util.Date"
+		}
+		return denyMemberPropertyType(ctx, owner, file.FlatNodeText(sel))
+	case "indexing_expression":
+		// `views[0]`: the element type, the last type argument of the collection's type.
+		if ctx.Resolver != nil {
+			if typ := ctx.Resolver.ResolveFlatNode(file.FlatFirstChild(recv), file); typ != nil && len(typ.TypeArgs) > 0 {
+				if el := typ.TypeArgs[len(typ.TypeArgs)-1]; el.Name != "" {
+					if strings.Contains(el.FQN, ".") {
+						return el.FQN
+					}
+					return denyAnyClassFQN(ctx.Resolver, file, el.Name)
+				}
+			}
 		}
 	case "parenthesized_expression":
 		for c := file.FlatFirstChild(recv); c != 0; c = file.FlatNextSib(c) {
@@ -559,19 +582,60 @@ func denyReceiverType(ctx *api.Context, recv uint32) string {
 	return ""
 }
 
+// denyResolvedType returns the resolver's type for a receiver, or nil. The resolver answers a member it does not
+// know with the owner's type (`cal.time` as Calendar), so for a navigation `a.b` its answer counts only when it differs
+// from a's type; otherwise the navigation is typed from source.
+func denyResolvedType(ctx *api.Context, recv uint32) *typeinfer.ResolvedType {
+	file := ctx.File
+	typ := ctx.Resolver.ResolveFlatNode(recv, file)
+	if typ == nil || typ.Name == "" {
+		return nil
+	}
+	if file.FlatType(recv) == "navigation_expression" {
+		if owner := ctx.Resolver.ResolveFlatNode(file.FlatFirstChild(recv), file); owner != nil && owner.Name == typ.Name && owner.FQN == typ.FQN {
+			return nil
+		}
+	}
+	return typ
+}
+
 // denyCallResultClass returns the listed class a constructor call (`Date()`, `new Date()`) creates or a listed
 // class's static call (`Calendar.getInstance()`) returns, or "".
-func denyCallResultClass(file *scanner.File, call uint32) string {
+func denyCallResultClass(res typeinfer.TypeResolver, file *scanner.File, call uint32) string {
 	c, ok := lintCallAt(file, call)
 	if !ok {
 		return ""
 	}
 	if file.FlatType(call) == "object_creation_expression" || c.ReceiverText == "" {
-		return denyClassFQN(file, c.TypeText)
+		return denyClassFQN(res, file, c.TypeText)
 	}
-	if fqn := denyClassFQN(file, c.ReceiverText); denyAllMemberOwners[fqn] != "" && (c.Name == "getInstance" || c.Name == "getDateInstance" ||
+	if fqn := denyClassFQN(res, file, c.ReceiverText); denyAllMemberOwners[fqn] != "" && (c.Name == "getInstance" || c.Name == "getDateInstance" ||
 		c.Name == "getTimeInstance" || c.Name == "getDateTimeInstance") {
 		return fqn
+	}
+	// RxJava 3's static factories return their own type (`Observable.just(1)`), and a subject's, processor's or
+	// relay's `create*` returns it (`BehaviorSubject.createDefault(0)`).
+	fqn := denyAnyClassFQN(res, file, c.ReceiverText)
+	switch denyRxPackage(fqn) {
+	case "io.reactivex.rxjava3.core":
+		return fqn
+	case "io.reactivex.rxjava3.subjects", "io.reactivex.rxjava3.processors", "com.jakewharton.rxrelay3":
+		if strings.HasPrefix(c.Name, "create") {
+			return fqn
+		}
+	}
+	return ""
+}
+
+// denyRxPackage returns the RxJava 3 or RxRelay 3 package of a class FQN, or "".
+func denyRxPackage(fqn string) string {
+	dot := strings.LastIndexByte(fqn, '.')
+	if dot < 0 {
+		return ""
+	}
+	switch pkg := fqn[:dot]; pkg {
+	case "io.reactivex.rxjava3.core", "io.reactivex.rxjava3.subjects", "io.reactivex.rxjava3.processors", "com.jakewharton.rxrelay3":
+		return pkg
 	}
 	return ""
 }
@@ -592,7 +656,7 @@ func denyFieldHits(ctx *api.Context, idx uint32) []denyHit {
 		return nil
 	}
 	if denyIsConstantName(file.FlatNodeText(selector)) {
-		if msg, ok := denyAllFieldOwners[denyClassFQN(file, file.FlatNodeText(recv))]; ok {
+		if msg, ok := denyAllFieldOwners[denyClassFQN(ctx.Resolver, file, file.FlatNodeText(recv))]; ok {
 			return []denyHit{{slackDenyListedAPI, msg, idx}}
 		}
 		return nil
@@ -682,17 +746,17 @@ func denyIsConstantName(s string) bool {
 
 // denyClassFQN resolves the name of a listed class written in file: in full, through an import or through an
 // on-demand import of its package. It returns "" for anything else.
-func denyClassFQN(file *scanner.File, text string) string {
-	fqn := denyAnyClassFQN(file, text)
+func denyClassFQN(res typeinfer.TypeResolver, file *scanner.File, text string) string {
+	fqn := denyAnyClassFQN(res, file, text)
 	if _, ok := denyKnownClasses[fqn]; ok {
 		return fqn
 	}
 	return ""
 }
 
-// denyAnyClassFQN resolves a class name through the file's imports; a name with no import resolves to itself, or
-// to a listed class of an on-demand-imported package.
-func denyAnyClassFQN(file *scanner.File, text string) string {
+// denyAnyClassFQN resolves a class name through the file's imports; a name with no import resolves to a class of
+// the file's package the resolver knows, to a listed class of an on-demand-imported package, or to itself.
+func denyAnyClassFQN(res typeinfer.TypeResolver, file *scanner.File, text string) string {
 	text = strings.TrimSuffix(strings.Join(strings.Fields(text), ""), "?")
 	if i := strings.IndexByte(text, '<'); i >= 0 {
 		text = text[:i]
@@ -709,6 +773,12 @@ func denyAnyClassFQN(file *scanner.File, text string) string {
 		return full
 	}
 	if !nested {
+		// A class of the file's own package (in any file) wins over an on-demand import, in Kotlin and Java.
+		if pkg := moshiFilePackage(file); res != nil && pkg != "" {
+			if info := res.ClassHierarchy(pkg + "." + text); info != nil && info.FQN == pkg+"."+text {
+				return info.FQN
+			}
+		}
 		for _, star := range imp.stars {
 			if _, ok := denyKnownClasses[star+"."+text]; ok {
 				return star + "." + text
@@ -720,14 +790,14 @@ func denyAnyClassFQN(file *scanner.File, text string) string {
 
 // denyEnclosingJavaSuperclass returns the listed class a Java class enclosing idx directly extends, whose methods an
 // unqualified call can reach, or "".
-func denyEnclosingJavaSuperclass(file *scanner.File, idx uint32) string {
+func denyEnclosingJavaSuperclass(res typeinfer.TypeResolver, file *scanner.File, idx uint32) string {
 	for p, ok := file.FlatParent(idx); ok; p, ok = file.FlatParent(p) {
 		if file.FlatType(p) != "class_declaration" {
 			continue
 		}
 		if sc, ok := file.FlatFindChild(p, "superclass"); ok {
 			for c := file.FlatFirstChild(sc); c != 0; c = file.FlatNextSib(c) {
-				if fqn := denyClassFQN(file, file.FlatNodeText(c)); fqn != "" && file.FlatIsNamed(c) {
+				if fqn := denyClassFQN(res, file, file.FlatNodeText(c)); fqn != "" && file.FlatIsNamed(c) {
 					return fqn
 				}
 			}
@@ -758,20 +828,20 @@ func denySelectorNode(file *scanner.File, nav uint32) uint32 {
 
 // denyVariableTypeText returns the declared type of the Kotlin or Java variable or parameter a name refers to, or,
 // for a Kotlin property without a type, the listed class its initializer creates; "" when neither is shown.
-func denyVariableTypeText(file *scanner.File, use uint32) string {
+func denyVariableTypeText(res typeinfer.TypeResolver, file *scanner.File, use uint32) string {
 	name := file.FlatNodeText(use)
 	child := use
 	for parent, ok := file.FlatParent(use); ok; parent, ok = file.FlatParent(parent) {
 		switch file.FlatType(parent) {
 		case "statements", "block", "class_body", "source_file":
 			for sib, found := file.FlatPrevSibling(child); found; sib, found = file.FlatPrevSibling(sib) {
-				if t, matched := denyDeclarationType(file, sib, name); matched {
+				if t, matched := denyDeclarationType(res, file, sib, name); matched {
 					return t
 				}
 			}
 			if file.FlatType(parent) == "class_body" {
 				for sib, found := file.FlatNextSibling(child); found; sib, found = file.FlatNextSibling(sib) {
-					if t, matched := denyDeclarationType(file, sib, name); matched {
+					if t, matched := denyDeclarationType(res, file, sib, name); matched {
 						return t
 					}
 				}
@@ -822,7 +892,7 @@ func denyParameterType(file *scanner.File, p uint32, name string) (string, bool)
 	return "", false
 }
 
-func denyDeclarationType(file *scanner.File, decl uint32, name string) (string, bool) {
+func denyDeclarationType(res typeinfer.TypeResolver, file *scanner.File, decl uint32, name string) (string, bool) {
 	switch file.FlatType(decl) {
 	case "property_declaration":
 		v, ok := file.FlatFindChild(decl, "variable_declaration")
@@ -833,7 +903,7 @@ func denyDeclarationType(file *scanner.File, decl uint32, name string) (string, 
 			return t, true
 		}
 		if init := lintInitializerAfterEquals(file, decl); file.FlatType(init) == "call_expression" {
-			return denyCallResultClass(file, init), true
+			return denyCallResultClass(res, file, init), true
 		}
 		return "", true
 	case "local_variable_declaration", "field_declaration":
@@ -881,4 +951,113 @@ func denyJavaTypeText(file *scanner.File, decl uint32) string {
 		}
 	}
 	return ""
+}
+
+// denyImplicitReceiverType returns the class of the implicit receiver an unqualified Kotlin call inside idx's
+// innermost scope reaches: the receiver of an enclosing `x.apply { }` / `x.run { }` / `with(x) { }`, or, with no
+// lambda in between, the enclosing class. It returns "" when neither is shown.
+func denyImplicitReceiverType(ctx *api.Context, idx uint32) string {
+	file := ctx.File
+	for p, ok := file.FlatParent(idx); ok; p, ok = file.FlatParent(p) {
+		switch file.FlatType(p) {
+		case "lambda_literal":
+			if recv := denyScopeReceiver(file, p); recv != 0 {
+				return denyReceiverType(ctx, recv)
+			}
+			return ""
+		case "class_declaration", "object_declaration":
+			pkg := moshiFilePackage(file)
+			owner, _ := slackDeclOwner(file, p, pkg)
+			name := extractIdentifierFlat(file, p)
+			switch {
+			case owner != "":
+				name = owner + "." + name
+			case pkg != "":
+				name = pkg + "." + name
+			}
+			return name
+		}
+	}
+	return ""
+}
+
+// denyScopeReceiver returns the receiver expression a lambda passed to `x.apply { }`, `x.run { }` or `with(x) { }`
+// binds as `this`, or 0.
+func denyScopeReceiver(file *scanner.File, lambda uint32) uint32 {
+	call := lambda
+	for call != 0 && file.FlatType(call) != "call_expression" {
+		call, _ = file.FlatParent(call)
+	}
+	if call == 0 {
+		return 0
+	}
+	if inner := file.FlatFirstChild(call); file.FlatType(inner) == "call_expression" {
+		if c, ok := lintCallAt(file, inner); ok && c.Name == "with" && c.ReceiverNode == 0 && len(c.Args) == 1 {
+			return c.Args[0]
+		}
+		return 0
+	}
+	if c, ok := lintCallAt(file, call); ok && (c.Name == "apply" || c.Name == "run") {
+		return c.ReceiverNode
+	}
+	return 0
+}
+
+// denyMemberPropertyType returns the FQN of the declared type of a property called name of the source class owner,
+// resolved through the declaring file's imports, or "".
+func denyMemberPropertyType(ctx *api.Context, owner, name string) string {
+	if ctx.Resolver == nil || owner == "" {
+		return ""
+	}
+	info := ctx.Resolver.ClassHierarchy(owner)
+	if info == nil {
+		return ""
+	}
+	// The resolver records body members only; a class declared in this file is read for constructor properties.
+	if info.File == ctx.File.Path {
+		if t := denySameFilePropertyType(ctx, info.Name, name); t != "" {
+			return t
+		}
+	}
+	for _, m := range info.Members {
+		if m.Name != name || m.Kind != "property" || m.Type == nil || m.Type.Name == "" {
+			continue
+		}
+		if strings.Contains(m.Type.FQN, ".") {
+			return m.Type.FQN
+		}
+		return slackSupertypeFQN(ctx.Resolver, info, m.Type.Name)
+	}
+	return ""
+}
+
+// denySameFilePropertyType returns the FQN of the declared type of a constructor or body property called name of the
+// class cls declared in the current file, or "".
+func denySameFilePropertyType(ctx *api.Context, cls, name string) string {
+	file := ctx.File
+	var out string
+	file.FlatWalkNodes(0, "class_declaration", func(decl uint32) {
+		if id, ok := file.FlatFindChild(decl, "type_identifier"); out != "" || !ok || file.FlatNodeText(id) != cls {
+			return
+		}
+		if ctor, ok := file.FlatFindChild(decl, "primary_constructor"); ok {
+			for p := file.FlatFirstChild(ctor); p != 0; p = file.FlatNextSib(p) {
+				if file.FlatType(p) == "class_parameter" && extractIdentifierFlat(file, p) == name {
+					if _, isProperty := file.FlatFindChild(p, "binding_pattern_kind"); isProperty {
+						out = denyAnyClassFQN(ctx.Resolver, file, denyKotlinTypeText(file, slackDeclaredTypeAfterColon(file, p)))
+					}
+					return
+				}
+			}
+		}
+		if body, ok := file.FlatFindChild(decl, "class_body"); ok {
+			for m := file.FlatFirstChild(body); m != 0; m = file.FlatNextSib(m) {
+				if t, matched := denyDeclarationType(ctx.Resolver, file, m, name); matched {
+					out = denyAnyClassFQN(ctx.Resolver, file, t)
+					return
+				}
+			}
+		}
+	})
+	return out
 }

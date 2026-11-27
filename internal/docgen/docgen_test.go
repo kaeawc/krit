@@ -244,3 +244,18 @@ func TestGenerateKnownLimitations(t *testing.T) {
 		}
 	}
 }
+
+// Markdown passes a bare `<` through as HTML, so `List<WorkRequest>` in a
+// limitation would render as a hidden tag; inside backticks it is shown as
+// written (#1914 review).
+func TestKnownLimitationsEscapeHTMLOutsideCodeSpans(t *testing.T) {
+	v := ruleView{meta: api.RuleDescriptor{KnownLimitations: []string{
+		"Returns List<T> & ignores <meta-data>, but `List<T> & x` is code.",
+	}}}
+	var b strings.Builder
+	v.writeLimitations(&b)
+	want := "- Returns List&lt;T&gt; &amp; ignores &lt;meta-data&gt;, but `List<T> & x` is code.\n"
+	if !strings.Contains(b.String(), want) {
+		t.Fatalf("limitations section:\n%s\nwant line:\n%s", b.String(), want)
+	}
+}

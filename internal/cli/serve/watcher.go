@@ -110,6 +110,12 @@ type fileWatcher struct {
 	// the daemon fails with EMFILE. fdUsed is the running estimate.
 	fdBudget int64
 	fdUsed   atomic.Int64
+	// dirs holds every directory the watcher has walked, so a path that
+	// is removed or renamed away can be told apart from a file once it
+	// no longer exists to stat. A directory leaves it when it is
+	// reported gone; its subdirectories stay until their own events.
+	dirsMu sync.Mutex
+	dirs   map[string]struct{}
 	// degraded is set once a watch could not be added (budget reached
 	// or backend error). The watcher then no longer sees every change
 	// under root, so CoversTree reports false for the daemon's life.
@@ -139,6 +145,7 @@ func startFileWatcherWithState(ctx context.Context, root string, state watcherSt
 		debounceWindow: defaultDebounceWindow,
 		backendKind:    kindAuto,
 		fdBudget:       -1,
+		dirs:           make(map[string]struct{}),
 	}
 	for _, opt := range opts {
 		opt(fw)
@@ -225,7 +232,20 @@ func (fw *fileWatcher) addWatch(path string) error {
 		fw.markDegraded(fmt.Errorf("%s: %w", path, err))
 		return err
 	}
+	fw.dirsMu.Lock()
+	fw.dirs[path] = struct{}{}
+	fw.dirsMu.Unlock()
 	return nil
+}
+
+// forgetDir reports whether path is a directory the watcher walked, and
+// forgets it.
+func (fw *fileWatcher) forgetDir(path string) bool {
+	fw.dirsMu.Lock()
+	defer fw.dirsMu.Unlock()
+	_, ok := fw.dirs[path]
+	delete(fw.dirs, path)
+	return ok
 }
 
 // markDegraded records that the watcher no longer covers the tree,
@@ -308,7 +328,7 @@ func (fw *fileWatcher) run(ctx context.Context) {
 // project's dependency closure.
 func (fw *fileWatcher) handle(ev backendEvent) {
 	if ev.Op&opCreate != 0 {
-		if info, err := os.Stat(ev.Path); err == nil && info.IsDir() {
+		if info, err := os.Lstat(ev.Path); err == nil && info.IsDir() {
 			if err := fw.addRecursive(ev.Path); err != nil {
 				fw.warn("watch new dir %s: %v\n", ev.Path, err)
 			}
@@ -318,6 +338,15 @@ func (fw *fileWatcher) handle(ev backendEvent) {
 			// file already there as created.
 			fw.touchExistingSources(ev.Path)
 			return
+		} else if err == nil && info.Mode()&os.ModeSymlink != 0 {
+			// Source collection and Android detection walk with
+			// filepath.WalkDir, which does not follow a symlinked directory,
+			// so neither does the watcher. Walking one reported the link
+			// again, without end when it points at an ancestor (#1911). A
+			// symlink to a file is collected, so it falls through.
+			if target, err := os.Stat(ev.Path); err == nil && target.IsDir() {
+				return
+			}
 		}
 	}
 	// Chmod alone never changes file content. On macOS, kqueue emits
@@ -340,9 +369,11 @@ func (fw *fileWatcher) handle(ev backendEvent) {
 	// A directory moved or deleted out of the tree delivers one event for the
 	// directory, and none for the files in it (rm -rf deletes them one by one,
 	// mv does not). Report the directory so the next analyze notices that the
-	// source set shrank.
-	if relevant&(opRemove|opRename) != 0 && filepath.Ext(ev.Path) == "" && !isPrunedDir(filepath.Base(ev.Path)) {
-		if _, err := os.Lstat(ev.Path); err != nil {
+	// source set shrank. The path no longer exists to stat, so whether it was
+	// a directory comes from the walked set: a name says nothing (com.example
+	// is a directory, gradlew a file).
+	if relevant&(opRemove|opRename) != 0 && !isPrunedDir(filepath.Base(ev.Path)) {
+		if _, err := os.Lstat(ev.Path); err != nil && fw.forgetDir(ev.Path) {
 			fw.directoryGone(ev.Path)
 			return
 		}
@@ -464,6 +495,7 @@ func (fw *fileWatcher) touchExistingSources(dir string) {
 		}
 		// Every file counts: manifests, resources of any type and build
 		// scripts change the detected Android project and the library facts.
+		// A symlink is a file here too; handle skips one to a directory.
 		fw.handle(backendEvent{Path: path, Op: opCreate})
 		return nil
 	})

@@ -244,3 +244,36 @@ func TestRunDaemonAnalyzeReportsFirCoverage(t *testing.T) {
 		t.Fatalf("handled=%v code=%d stderr=%q", handled, code, stderr)
 	}
 }
+
+// --no-cache-oracle, and --no-cache which implies it, must reach the daemon:
+// it runs the oracle inside the project analysis, so without the field a
+// delegated --no-cache scan reused the oracle's cache (#1831).
+func TestBuildDaemonAnalyzeArgs_ForwardsNoCacheOracle(t *testing.T) {
+	cases := []struct {
+		name                   string
+		noCache, noCacheOracle bool
+		want                   bool
+	}{
+		{name: "defaults"},
+		{name: "--no-cache-oracle", noCacheOracle: true, want: true},
+		{name: "--no-cache", noCache: true, want: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := freshScanFlags(t)
+			*f.NoCache, *f.NoCacheOracle = tc.noCache, tc.noCacheOracle
+			applyNoCache(f)
+			args := buildDaemonAnalyzeArgs(f, []string{"/tmp"})
+			if args.NoCacheOracle != tc.want {
+				t.Fatalf("NoCacheOracle = %v, want %v", args.NoCacheOracle, tc.want)
+			}
+			raw, err := json.Marshal(args)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := strings.Contains(string(raw), `"no_cache_oracle":true`); got != tc.want {
+				t.Fatalf("wire %s: no_cache_oracle present=%v, want %v", raw, got, tc.want)
+			}
+		})
+	}
+}

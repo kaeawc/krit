@@ -254,6 +254,7 @@ func (s *daemonState) runStrictVerify(ctx context.Context, args daemon.AnalyzePr
 		// from the matching ensureOracleDaemon slot.
 		OracleEnabled: oracleDaemon != nil,
 		NoTypeOracle:  args.NoTypeOracle,
+		NoCacheOracle: noCacheOracle(args),
 	}
 	applyOracleModelArgs(args, &baselineArgs)
 	baseline, err := pipeline.RunProjectAnalysis(ctx, pipeline.ProjectInput{

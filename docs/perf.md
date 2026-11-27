@@ -285,7 +285,7 @@ near-zero on a warm run.
 
 | Flag | What it disables |
 |---|---|
-| `--no-cache` | Every cache that can change findings: the incremental analysis cache, the cross-file index and the cross-file findings cache, the findings bundle, the Android findings cache, the resource index, the file-walk cache, the type-index and library-profile caches, the incremental oracle cache, the `--fir` check cache `.krit/fir-cache` and the incremental FIR bundle `.krit/fir-incremental`. None is read or written. The parse cache stays on. A daemon-delegated scan forwards the flag, and the daemon also skips its parse cache for that call |
+| `--no-cache` | Every cache that can change findings: the incremental analysis cache, the cross-file index and the cross-file findings cache, the findings bundle, the Android findings cache, the resource index, the file-walk cache, the tracked-files cache (the git file listing), the type-index and library-profile caches, the incremental oracle cache, the `--fir` check cache `.krit/fir-cache` and the incremental FIR bundle `.krit/fir-incremental`. None of these is read or written. The content-keyed parse cache (Kotlin, Java and XML trees) and the content-hash memo stay on, and a type-oracle run still writes its output, `.krit/types.json`. A daemon-delegated scan forwards the flag, and the daemon also skips its parse cache for that call |
 | `--no-parse-cache` | Tree-sitter parse-tree cache |
 | `--no-resource-cache` | Android values-XML ResourceIndex cache |
 | `--no-cross-file-cache` | Cross-file index cache |

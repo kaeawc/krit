@@ -115,6 +115,10 @@ type ProjectArgs struct {
 	// on it (analysis cache, cross-file findings, findings bundles) is kept
 	// apart from oracle-backed runs over the same sources.
 	NoTypeOracle bool
+	// NoCacheOracle mirrors --no-cache-oracle (and --no-cache): the oracle
+	// neither reuses a cached types.json nor runs through its incremental
+	// cache, so its facts are computed afresh.
+	NoCacheOracle bool
 	// CustomRuleJars are Kotlin custom-rule plugin jars loaded by the
 	// krit-fir daemon and merged into the standard finding stream.
 	CustomRuleJars []string
@@ -786,6 +790,10 @@ func RunProjectStreaming(ctx context.Context, in ProjectInput, out io.Writer) (P
 // reading the sources and buildManifestData stat-ing them.
 var testHookBeforeManifestData func()
 
+// testHookIndexInput, when set by a test, observes the IndexInput a project
+// run hands IndexPhase.
+var testHookIndexInput func(IndexInput)
+
 func runTestHookBeforeManifestData() {
 	if testHookBeforeManifestData != nil {
 		testHookBeforeManifestData()
@@ -1155,6 +1163,7 @@ func runProjectIndexPhase(ctx context.Context, args ProjectArgs, host ProjectHos
 		OracleSourceDirs:    args.OracleSourceDirs,
 		OracleJvmTarget:     args.OracleJvmTarget,
 		OracleKotlin:        args.OracleKotlin,
+		NoCacheOracle:       args.NoCacheOracle,
 		Thorough:            args.TargetedResolution,
 	}
 	wireOracleHandles(&indexInput, args, host)
@@ -1166,6 +1175,9 @@ func runProjectIndexPhase(ctx context.Context, args ProjectArgs, host ProjectHos
 		// (which keys the cross-file findings cache) from these fields.
 		indexInput.CacheRuleNames = cacheRuleNames(args.ActiveRules, true)
 		indexInput.CacheConfig = args.Config
+	}
+	if testHookIndexInput != nil {
+		testHookIndexInput(indexInput)
 	}
 	indexResult, err := IndexPhase{Workers: args.Workers}.Run(ctx, indexInput)
 	if err != nil {

@@ -636,6 +636,7 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs, backend 
 			Version:             kritVersion(),
 			OracleEnabled:       !args.NoTypeOracle && (oracleDaemon != nil || args.InputTypesPath != ""),
 			NoTypeOracle:        args.NoTypeOracle,
+			NoCacheOracle:       noCacheOracle(args),
 			ShowPerf:            args.ShowPerf || args.PerfRules,
 			PerfRules:           args.PerfRules,
 			ProfileDispatch:     args.ProfileDispatch,
@@ -826,6 +827,13 @@ type diskCacheWiring struct {
 	findingsBundleRoot    string
 	manifestLoader        pipeline.FindingsBundleManifestLoader
 	manifestSaver         pipeline.FindingsBundleManifestSaver
+}
+
+// noCacheOracle reports whether the request's oracle computes its facts
+// afresh: --no-cache-oracle, or --no-cache, which implies it as it does for
+// a one-shot scan.
+func noCacheOracle(args daemon.AnalyzeProjectArgs) bool {
+	return args.NoCacheOracle || args.NoCache
 }
 
 // resolveDiskCacheWiring computes the per-call on-disk cache pointer

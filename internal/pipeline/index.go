@@ -2017,6 +2017,18 @@ func (p IndexPhase) runModuleShards(in IndexInput, scanPaths, sourceDirs []strin
 	if repoDir == "" {
 		return ""
 	}
+	// Each unit's facts are cached under the project state, keyed by
+	// everything they depend on. --no-cache-oracle (and --no-cache) analyze
+	// every unit afresh in a directory of their own.
+	cacheDir := filepath.Join(fsutil.ProjectStateDir(repoDir), "module-facts")
+	if in.NoCacheOracle {
+		tmp, err := os.MkdirTemp("", "krit-module-facts-")
+		if err != nil {
+			return ""
+		}
+		defer os.RemoveAll(tmp)
+		cacheDir = tmp
+	}
 	// The FIR check rides on the module analyses the way it rides on the whole-repo compile.
 	var checkRequest []byte
 	var deliverCheck func([]byte)
@@ -2039,7 +2051,7 @@ func (p IndexPhase) runModuleShards(in IndexInput, scanPaths, sourceDirs []strin
 			JavaPath:     javaPath,
 			Workers:      workers,
 			Isolate:      isolate,
-			CacheDir:     filepath.Join(fsutil.ProjectStateDir(repoDir), "module-facts"),
+			CacheDir:     cacheDir,
 			OutputPath:   outputPath,
 			Required:     required,
 			CheckRequest: checkRequest,

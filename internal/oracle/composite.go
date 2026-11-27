@@ -174,7 +174,7 @@ func (c *CompositeResolver) IsNullableFlat(idx uint32, file *scanner.File) *bool
 // ClassHierarchy checks oracle first (has dependency types), then fallback.
 func (c *CompositeResolver) ClassHierarchy(typeName string) *typeinfer.ClassInfo {
 	if info := c.oracle.LookupClass(typeName); info != nil {
-		return c.withSourceSupertypes(typeName, info)
+		return c.withSourceSupertypes(info)
 	}
 	return c.fallback.ClassHierarchy(typeName)
 }
@@ -184,38 +184,61 @@ func (c *CompositeResolver) ClassHierarchy(typeName string) *typeinfer.ClassInfo
 // `??? (Unresolved qualified name: AppCompatActivity)`, which ends every
 // hierarchy walk through it; the source resolver still names it from the
 // declaration (#1869). The oracle's shared entry is not modified.
-func (c *CompositeResolver) withSourceSupertypes(typeName string, info *typeinfer.ClassInfo) *typeinfer.ClassInfo {
-	if !hasUnresolvedSupertype(info.Supertypes) && !hasUnresolvedSupertype(info.DirectSupertypes) {
+//
+// The source class must be the same class, looked up by the oracle's FQN: a
+// lookup by the caller's name could find a same-named class in another
+// package. Its direct supertypes are used, as Supertypes also carries
+// generic arguments (`Callback<Throwable>` would make the class a Throwable).
+func (c *CompositeResolver) withSourceSupertypes(info *typeinfer.ClassInfo) *typeinfer.ClassInfo {
+	if !hasUnresolvedSupertype(info.Supertypes) {
 		return info
 	}
-	merged := *info
-	var srcSupers, srcDirect []string
-	if src := c.fallback.ClassHierarchy(typeName); src != nil {
-		srcSupers, srcDirect = src.Supertypes, src.DirectSupertypes
+	var source []string
+	if src := c.fallback.ClassHierarchy(info.FQN); src != nil && src.FQN == info.FQN {
+		source = src.DirectSupertypes
+		if len(source) == 0 {
+			source = src.Supertypes
+		}
 	}
-	merged.Supertypes = mergeResolvedSupertypes(info.Supertypes, srcSupers)
-	merged.DirectSupertypes = mergeResolvedSupertypes(info.DirectSupertypes, srcDirect)
+	merged := *info
+	merged.Supertypes = mergeResolvedSupertypes(info.Supertypes, source)
 	return &merged
 }
 
 // mergeResolvedSupertypes keeps the oracle's resolved supertypes and adds the
-// source resolver's, without repeats. An oracle list with nothing unresolved
-// is returned as is.
+// source resolver's, once each. A source name, often written unqualified,
+// whose simple name a resolved oracle supertype already has is the same type
+// and is skipped.
 func mergeResolvedSupertypes(oracle, source []string) []string {
-	if !hasUnresolvedSupertype(oracle) {
-		return oracle
-	}
 	out := make([]string, 0, len(oracle)+len(source))
 	seen := make(map[string]bool, len(oracle)+len(source))
-	for _, list := range [][]string{oracle, source} {
-		for _, super := range list {
-			if !isUnresolvedSupertype(super) && !seen[super] {
-				seen[super] = true
-				out = append(out, super)
-			}
+	for _, super := range oracle {
+		if !isUnresolvedSupertype(super) && !seen[super] {
+			seen[super] = true
+			seen[simpleSupertypeName(super)] = true
+			out = append(out, super)
 		}
 	}
+	for _, super := range source {
+		if isUnresolvedSupertype(super) || seen[super] || seen[simpleSupertypeName(super)] {
+			continue
+		}
+		seen[super] = true
+		seen[simpleSupertypeName(super)] = true
+		out = append(out, super)
+	}
 	return out
+}
+
+// simpleSupertypeName is a supertype's simple name without type arguments.
+func simpleSupertypeName(name string) string {
+	if i := strings.IndexByte(name, '<'); i >= 0 {
+		name = name[:i]
+	}
+	if i := strings.LastIndexByte(name, '.'); i >= 0 {
+		name = name[i+1:]
+	}
+	return strings.TrimSpace(name)
 }
 
 func hasUnresolvedSupertype(supers []string) bool {

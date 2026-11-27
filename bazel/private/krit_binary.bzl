@@ -165,8 +165,9 @@ toolchain(
 
 _TARGET_TOOLS = """\
 # krit, krit-lsp and krit-mcp for the target platform: `bazel run @krit//:krit`
-# and krit_test, which run them on the machine the target is for. Only the
-# selected platform's archive is fetched.
+# and krit_test, which run them on the machine the target is for (the host's
+# binary when the target platform is none of the release platforms). Only
+# the selected platform's archive is fetched.
 [alias(
     name = tool,
     actual = {actual},
@@ -213,11 +214,21 @@ def _krit_toolchains_impl(rctx):
             )
             for suffix, repo in platforms
         ])
+        branches = ['":is_%s": "@%s//:" + tool' % (suffix, repo) for suffix, repo in platforms]
+
+        # A target platform that names none of the release platforms (an
+        # Android platform, one without @platforms constraints) gets the
+        # host's binary, which is where such a test or `bazel run` runs.
+        host = _host_platform(rctx)
+        if host in rctx.attr.platform_repos:
+            branches.append('"//conditions:default": "@%s//:" + tool' % rctx.attr.platform_repos[host])
+            no_match = ""
+        else:
+            no_match = ", no_match_error = %r" % (
+                "krit: no release binary for the target platform or the host (%s)" % ", ".join([s for s, _ in platforms])
+            )
         build += "\n" + _TARGET_TOOLS.format(
-            actual = "select({%s}, no_match_error = %r)" % (
-                ", ".join(['":is_%s": "@%s//:" + tool' % (suffix, repo) for suffix, repo in platforms]),
-                "krit: no release binary for the target platform (%s)" % ", ".join([s for s, _ in platforms]),
-            ),
+            actual = "select({%s}%s)" % (", ".join(branches), no_match),
             tools = tools,
         )
     rctx.file("BUILD.bazel", build)

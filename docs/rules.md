@@ -182,8 +182,10 @@ Three Android source checks prove their receiver before reporting:
   `is Activity` / `instanceof Activity` check is not reported: it is not a cast.
 - `ArgInFormattedQuantityStringRes` reports format arguments of `Resources.getQuantityString` that are not a
   `getFormattedCount()` call (in Java, also a local initialized by one). The receiver must be typed `Resources` (or a
-  project subclass), or be Android's accessor (`context.resources`, `getResources()`, an unqualified `resources`)
-  on a Context, View or Fragment, so a project's own `getQuantityString` wrapper is not reported.
+  Kotlin subclass, direct or indirect, with each supertype resolved through its declaring file's imports), or be
+  Android's accessor (`context.resources`, `getResources()`, an unqualified `resources`) on a Context, View or
+  Fragment, so a project's own `getQuantityString` wrapper or `Resources` lookalike is not reported. A Java subclass
+  of `Resources` is not seen yet, because the pipeline does not index Java classes into the resolver (#1885).
 - `SpanMarkPointMissingMask` reports `==`/`!=` against a `Spanned` mark-point flag (`SPAN_EXCLUSIVE_EXCLUSIVE`, ...)
   whose other side does not mask with `SPAN_POINT_MARK_MASK` (a bitwise `and`/`&`; `or`/`|` does not mask). A
   parameter or local named like the flag shadows its static import. Unlike Lint, krit looks inside parentheses, so

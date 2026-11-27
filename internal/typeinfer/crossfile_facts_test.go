@@ -84,3 +84,35 @@ func TestNamesDependingOnFollowsTypesOnly(t *testing.T) {
 		}
 	}
 }
+
+// An import that names a class's supertype is part of what other files resolve: a rule reading the supertype
+// through the declaring file's imports sees a different class when only that import changes (#1857). Other import
+// edits keep the hash.
+func TestCrossFileFactsHashFollowsSupertypeImports(t *testing.T) {
+	base := "package p\n\nimport android.view.View\n\nopen class Base : View()\n"
+	same := map[string]string{
+		"unrelated import added":   "package p\n\nimport android.view.View\nimport java.util.Date\n\nopen class Base : View()\n",
+		"unrelated wildcard added": "package p\n\nimport android.view.View\nimport java.util.*\n\nopen class Base : View()\n",
+	}
+	changed := map[string]string{
+		"supertype import swapped": "package p\n\nimport q.View\n\nopen class Base : View()\n",
+		"supertype import aliased": "package p\n\nimport q.Widget as View\n\nopen class Base : View()\n",
+		"supertype import removed": "package p\n\nopen class Base : View()\n",
+	}
+	want := crossFileFactsOf(t, base).Hash
+	for name, src := range same {
+		if got := crossFileFactsOf(t, src).Hash; got != want {
+			t.Errorf("%s changed the hash", name)
+		}
+	}
+	for name, src := range changed {
+		if got := crossFileFactsOf(t, src).Hash; got == want {
+			t.Errorf("%s kept the hash", name)
+		}
+	}
+	// With no explicit import, the supertype resolves through the file's on-demand imports.
+	star := crossFileFactsOf(t, "package p\n\nimport android.view.*\n\nopen class Base : View()\n").Hash
+	if got := crossFileFactsOf(t, "package p\n\nimport q.*\n\nopen class Base : View()\n").Hash; got == star {
+		t.Error("swapping the on-demand import a supertype resolves through kept the hash")
+	}
+}

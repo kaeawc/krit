@@ -374,8 +374,10 @@ func slackTypeIsAny(resolver typeinfer.TypeResolver, typ *typeinfer.ResolvedType
 				return true
 			}
 		}
-		for _, super := range info.Supertypes {
-			if visit(super) {
+		// Supertypes are recorded as written (`Resources`, `ContextWrapper`), so each is resolved through the
+		// declaring file's imports before it is compared with the roots.
+		for _, super := range slackRecordedSupertypes(info) {
+			if visit(slackSupertypeFQN(resolver, info, super)) {
 				return true
 			}
 		}

@@ -1,9 +1,9 @@
 {
-  "_comment": "Ratchet only: raise a value when a fix lands (the report lists what to raise it to); never lower one to get green. Coverage is authoritative / (authoritative + gated). maxCheckerErrors (default 0) only goes down: the known failed Krit actions are //data and //proto (#1688). findings-parity.gradleOnly lists the path prefixes with no Bazel target (#1752): Gradle findings there are left out of the comparison, and a Bazel finding there fails it.",
+  "_comment": "Ratchet only: raise a value when a fix lands (the report lists what to raise it to); never lower one to get green. Coverage is authoritative / (authoritative + gated). maxCheckerErrors (default 0) only goes down: the known failed Krit actions are //data and //proto (#1688). findings-parity.gradleOnly lists the path prefixes with no Bazel target (#1752, #1724): Gradle findings there are left out of the comparison, and a Bazel finding there fails it.",
   "coverage": {
-    "gradle-model-cli": {"minAuthoritative": 18, "minCoverage": 1.0},
-    "gradle-kritCheckAll": {"minAuthoritative": 18, "minCoverage": 1.0},
-    "gradle-kritCheck": {"minAuthoritative": 18, "minCoverage": 1.0},
+    "gradle-model-cli": {"minAuthoritative": 20, "minCoverage": 1.0},
+    "gradle-kritCheckAll": {"minAuthoritative": 20, "minCoverage": 1.0},
+    "gradle-kritCheck": {"minAuthoritative": 19, "minCoverage": 1.0},
     "bazel-krit_aspect": {"minAuthoritative": 6, "minCoverage": 0.8571, "maxCheckerErrors": 2}
   },
   "checks": {
@@ -11,6 +11,6 @@
     "gradle-up-to-date": {"required": true},
     "bazel-action-cache": {"required": true},
     "bazel-krit_aspect-cache": {"required": false},
-    "findings-parity": {"required": false, "gradleOnly": ["shared/"]}
+    "findings-parity": {"required": false, "gradleOnly": ["shared/", "app/src/test/", "app/src/androidTest/"]}
   }
 }

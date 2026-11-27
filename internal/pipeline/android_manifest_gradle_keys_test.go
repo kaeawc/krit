@@ -1,8 +1,10 @@
 package pipeline
 
 import (
+	"cmp"
 	"context"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -381,36 +383,43 @@ func TestManifestRules_KeyOnSettingsDeclaredCatalogs(t *testing.T) {
 		catalogs map[string]string
 		cold     int
 		edits    []edit
+		// build replaces the build script, which otherwise reaches the catalog as libs.
+		build string
 	}{
 		{"settings-declared catalog edited", settingsOf("libs", "deps/catalog.toml", ""), map[string]string{"deps/catalog.toml": app}, 1, []edit{
 			{"deps/catalog.toml", library, 0, false},
 			{"deps/catalog.toml", app + "# back to an app\n", 1, false},
-		}},
+		}, ""},
 		{"create renamed", settingsOf("libs", "deps/catalog.toml", ""), map[string]string{"deps/catalog.toml": library}, 0, []edit{
 			{settingsRel, settingsOf("tools", "deps/catalog.toml", ""), 1, false},
 			{settingsRel, settingsOf("libs", "deps/catalog.toml", "// libs again\n"), 0, false},
-		}},
+		}, ""},
 		{"from(files) pointed elsewhere", settingsOf("libs", "deps/catalog.toml", ""), map[string]string{"deps/catalog.toml": library, "deps/app.toml": app}, 0, []edit{
 			{settingsRel, settingsOf("libs", "deps/app.toml", ""), 1, false},
-		}},
+		}, ""},
 		{"default catalog renamed", "include(\":app\")\n", map[string]string{"gradle/libs.versions.toml": library}, 0, []edit{
 			{settingsRel, "include(\":app\")\n\ndependencyResolutionManagement {\n    defaultLibrariesExtensionName = \"projectLibs\"\n}\n", 1, false},
-		}},
+		}, ""},
 		{"programmatic declaration edited", programmatic("com.android.library"), nil, 0, []edit{
 			{settingsRel, programmatic("com.android.application"), 1, false},
-		}},
+		}, ""},
+		// A block that declares a published deps catalog takes the name from the unimported gradle/deps.versions.toml,
+		// so the alias no longer resolves and the module is no longer a known library (#1872 review).
+		{"published catalog declared under an unimported file's name", "include(\":app\")\n", map[string]string{"gradle/deps.versions.toml": library}, 0, []edit{
+			{settingsRel, "include(\":app\")\n\ndependencyResolutionManagement {\n    versionCatalogs {\n        create(\"deps\") {\n            from(\"com.example:catalog:1.0\")\n        }\n    }\n}\n", 1, false},
+		}, strings.Replace(build, "libs.plugins", "deps.plugins", 1)},
 		{"unrelated files", settingsOf("libs", "deps/catalog.toml", ""), map[string]string{"deps/catalog.toml": library}, 0, []edit{
 			{"deps/unused.toml", app, 0, true},
 			{"gradle/notes.toml", app, 0, true},
 			{"tools/gradle/libs.versions.toml", app, 0, true},
 			{settingsRel, settingsOf("libs", "deps/catalog.toml", "include(\":other\")\n"), 0, true},
 			{"deps/catalog.toml", app, 1, false},
-		}},
+		}, ""},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			p := &manifestSourceProject{t: t, dir: t.TempDir()}
 			p.write(settingsRel, test.settings)
-			p.write(buildRel, build)
+			p.write(buildRel, cmp.Or(test.build, build))
 			p.write(manifestRel, manifest)
 			for rel, body := range test.catalogs {
 				p.write(rel, body)

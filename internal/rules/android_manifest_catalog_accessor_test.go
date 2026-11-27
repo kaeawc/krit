@@ -54,6 +54,24 @@ func TestGoogleAppIndexingWarningManifest_SettingsDeclaredCatalogApp(t *testing.
 			"gradle/libs.versions.toml": "[plugins]\nandroid-application = { id = \"com.android.application\", version = \"8.5.0\" }\n",
 			"app/build.gradle.kts":      "plugins {\n    alias(tools.plugins.android.application)\n}\n",
 		}, 0},
+		// #1872 review: a settings block declaring a published deps catalog takes that name from the unimported
+		// gradle/deps.versions.toml; a block in a string literal declares nothing; Groovy's paren-less from files(...)
+		// imports its file.
+		{"published catalog shadows an unimported file", map[string]string{
+			"settings.gradle.kts":       "dependencyResolutionManagement {\n    versionCatalogs {\n        create(\"deps\") {\n            from(\"com.example:catalog:1.0\")\n        }\n    }\n}\n",
+			"gradle/deps.versions.toml": "[plugins]\nandroid-application = { id = \"com.android.application\", version = \"8.5.0\" }\n",
+			"app/build.gradle.kts":      "plugins {\n    alias(deps.plugins.android.application)\n}\n",
+		}, 0},
+		{"block in a settings string literal", map[string]string{
+			"settings.gradle.kts":  "val s = \"versionCatalogs { create('tools') { from(files('deps/catalog.toml')) } }\"\n",
+			"deps/catalog.toml":    "[plugins]\nandroid-application = { id = \"com.android.application\", version = \"8.5.0\" }\n",
+			"app/build.gradle.kts": "plugins {\n    alias(tools.plugins.android.application)\n}\n",
+		}, 0},
+		{"groovy paren-less from files", map[string]string{
+			"settings.gradle":      "dependencyResolutionManagement {\n    versionCatalogs {\n        tools {\n            from files('deps/catalog.toml')\n        }\n    }\n}\n",
+			"deps/catalog.toml":    "[plugins]\nandroid-application = { id = \"com.android.application\", version = \"8.5.0\" }\n",
+			"app/build.gradle.kts": "plugins {\n    alias(tools.plugins.android.application)\n}\n",
+		}, 1},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			path := writeCatalogProject(t, test.files)

@@ -194,7 +194,8 @@ var manifestGradleInfoMemo runScoped[string]
 //     each with its kind and accessor name (#1872). Discovery runs again every run, so a catalog created in a
 //     directory it globs, or a settings file that declares one, moves the key, and so do a settings edit that
 //     changes which files its versionCatalogs blocks import or the names they import them under, such as a
-//     create("libs") renamed, and a renamed defaultLibrariesExtensionName;
+//     create("libs") renamed, a renamed defaultLibrariesExtensionName, and a block that declares a catalog under the
+//     name of an unimported gradle/<name>.versions.toml, which then no longer serves that name (Shadowed);
 //   - the content, or absence, of every catalog source those discoveries found: TOML files, and the settings files
 //     and settings plugins that declare catalogs programmatically.
 //
@@ -245,6 +246,9 @@ func computeManifestGradleInfoFingerprint(manifests []string) string {
 		sources, _ := discovery.FindVersionCatalogSourcesForGradlePath(script)
 		for _, source := range sources {
 			entry += "\x00" + string(source.Kind) + "\x00" + source.Path + "\x00" + source.Accessor
+			if source.Shadowed {
+				entry += "\x00shadowed"
+			}
 			reads[i].libraryPaths = append(reads[i].libraryPaths, source.Path)
 		}
 		reads[i].library = entry

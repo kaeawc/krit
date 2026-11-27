@@ -52,6 +52,11 @@ type CatalogSource struct {
 	// block, and for a programmatic source, whose blocks each name their own catalog (LoadCatalogPluginsByAccessor).
 	// Discovery, merging and the catalog contents don't depend on it.
 	Accessor string
+	// Shadowed is set on a gradle/<name>.versions.toml other than libs when a settings file beside it declares a
+	// catalog called <name>, as `create("<name>") { from("com.example:catalog:1.0") }` does for a published one:
+	// build scripts reach that catalog, not this file, as <name>, so CatalogPluginsByAccessor serves no alias of
+	// <name> from this file (#1872 review). Discovery, merging and the catalog contents don't depend on it either.
+	Shadowed bool
 }
 
 type CatalogCompleteness int
@@ -75,7 +80,7 @@ var (
 	catalogVersionAccessorRe  = lazyre.New(`libs\.versions\.([A-Za-z0-9_.]+)\.get\s*\(`)
 	catalogDependencyAliasRe  = lazyre.New(`["']?([A-Za-z_][A-Za-z0-9_]*)["']?\s*\(\s*(?:platform\s*\(\s*)?libs\.([A-Za-z0-9_.]+)`)
 	unresolvedStructuralRefRe = lazyre.New(`(?m)(?:["']?[A-Za-z_][A-Za-z0-9_]*["']?\s*\(\s*(?:platform\s*\(\s*)?(?:versions\.|deps\.|project\s*\(|projects\.)|apply\s*(?:\(|from\s*=|plugin\s*:)|id\s*\(\s*["'][^"']*(?:convention|build-logic)[^"']*["']|plugins?\s*\{[^}]*\b(?:convention|build-logic)\b)`)
-	settingsCatalogFileRe     = lazyre.New(`from\s*\(\s*files\s*\(\s*["']([^"']+)["']\s*\)\s*\)`)
+	settingsCatalogFileRe     = lazyre.New(`\bfrom\s*(?:\(\s*files\s*\(\s*["']([^"']+)["']\s*\)\s*\)|files\s*\(\s*["']([^"']+)["']\s*\))`)
 	settingsLibraryRe         = lazyre.New(`library\s*\(\s*["']([^"']+)["']\s*,\s*["']([^"']+)["']\s*,\s*["']([^"']+)["']\s*\)\s*(?:\.\s*(?:version\s*\(\s*(?:"([^"]+)"|'([^']+)'|[A-Za-z0-9_.]+)\s*\)|withoutVersion\s*\(\s*\)))?`)
 	settingsPluginRe          = lazyre.New(`plugin\s*\(\s*["']([^"']+)["']\s*,\s*["']([^"']+)["']\s*\)\s*(?:\.\s*version\s*\(\s*(?:"([^"]+)"|'([^']+)'|[A-Za-z0-9_.]+)\s*\))?`)
 	settingsPluginIDRe        = lazyre.New(`id\s*\(\s*["']([A-Za-z0-9_.-]+)["']\s*\)`)
@@ -294,9 +299,11 @@ func FindVersionCatalogSourcesForGradlePath(gradlePath string) ([]CatalogSource,
 	return (*CatalogDiscovery)(nil).FindVersionCatalogSourcesForGradlePath(gradlePath)
 }
 
-// settingsFile is a settings file of a directory, with its comments stripped.
+// settingsFile is a settings file of a directory, with its comments stripped, and which bytes of that content are
+// code (gradleCode).
 type settingsFile struct {
 	path, content string
+	code          []bool
 }
 
 func readSettingsFiles(dir string) []settingsFile {
@@ -307,7 +314,8 @@ func readSettingsFiles(dir string) []settingsFile {
 		if err != nil {
 			continue
 		}
-		files = append(files, settingsFile{path: path, content: stripGradleComments(string(content))})
+		stripped := stripGradleComments(string(content))
+		files = append(files, settingsFile{path: path, content: stripped, code: gradleCode(stripped, isGroovyScript(path))})
 	}
 	return files
 }
@@ -317,8 +325,10 @@ func readSettingsFiles(dir string) []settingsFile {
 func defaultCatalogName(settings []settingsFile) string {
 	name := defaultCatalogAccessor
 	for _, file := range settings {
-		for _, match := range defaultLibrariesExtensionNameRe.FindAllStringSubmatch(file.content, -1) {
-			name = match[1]
+		for _, match := range defaultLibrariesExtensionNameRe.FindAllStringSubmatchIndex(file.content, -1) {
+			if gradleCodeAt(file.code, match[0]) {
+				name = file.content[match[2]:match[3]]
+			}
 		}
 	}
 	return name
@@ -332,12 +342,15 @@ func (c *CatalogDiscovery) catalogSourcesForDir(dir string) []CatalogSource {
 	settings := readSettingsFiles(dir)
 	catalogPaths, err := filepath.Glob(filepath.Join(dir, "gradle", "*.versions.toml"))
 	if err == nil && len(catalogPaths) > 0 {
+		declared := settingsDeclaredCatalogNames(settings)
 		for _, catalogPath := range orderVersionCatalogPaths(catalogPaths) {
 			source := CatalogSource{Path: catalogPath, Kind: CatalogSourceMergedTOML}
 			// Gradle imports only this one by convention; with no settings file beside it, as in a partial checkout
 			// or a fixture, it keeps the default name, as before #1872.
 			if filepath.Base(catalogPath) == "libs.versions.toml" {
 				source.Accessor = defaultCatalogName(settings)
+			} else {
+				source.Shadowed = declared[strings.TrimSuffix(filepath.Base(catalogPath), ".versions.toml")]
 			}
 			sources = append(sources, source)
 		}
@@ -350,9 +363,17 @@ func (c *CatalogDiscovery) settingsCatalogSources(dir string, settings []setting
 	var sources []CatalogSource
 	for _, file := range settings {
 		settingsPath, settingsContent := file.path, file.content
-		blocks := settingsCatalogBlocks(settingsContent)
+		blocks := settingsCatalogBlocks(settingsContent, file.code)
 		for _, match := range settingsCatalogFileRe.FindAllStringSubmatchIndex(settingsContent, -1) {
-			catalogPath := filepath.Clean(filepath.Join(dir, settingsContent[match[2]:match[3]]))
+			if !gradleCodeAt(file.code, match[0]) {
+				continue
+			}
+			// from(files("path")), or Groovy's paren-less from files('path').
+			path := match[2:4]
+			if path[0] < 0 {
+				path = match[4:6]
+			}
+			catalogPath := filepath.Clean(filepath.Join(dir, settingsContent[path[0]:path[1]]))
 			sources = append(sources, CatalogSource{
 				Path:     catalogPath,
 				Kind:     CatalogSourceSettingsTOML,

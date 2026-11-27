@@ -35,12 +35,17 @@ type settingsCatalogBlock struct {
 
 // settingsCatalogBlocks finds the catalogs a comment-stripped settings file (or settings plugin) declares:
 // each create("name") { }, register("name") { } or Groovy name { } directly inside a versionCatalogs { } block, and
-// each versionCatalogs.create("name") { } chain.
-func settingsCatalogBlocks(content string) []settingsCatalogBlock {
+// each versionCatalogs.create("name") { } chain. code marks the bytes of content that are code (gradleCode): a match
+// must start in code, and only braces in code nest, so text in a string literal declares nothing and a string or
+// template holding a brace leaves the blocks balanced.
+func settingsCatalogBlocks(content string, code []bool) []settingsCatalogBlock {
 	var blocks []settingsCatalogBlock
 	for _, m := range versionCatalogsBlockRe.FindAllStringSubmatchIndex(content, -1) {
+		if !gradleCodeAt(code, m[0]) {
+			continue
+		}
 		open := m[1] - 1
-		end := matchingBrace(content, open)
+		end := matchingBrace(content, code, open)
 		if end < 0 {
 			continue
 		}
@@ -48,19 +53,31 @@ func settingsCatalogBlocks(content string) []settingsCatalogBlock {
 			blocks = append(blocks, settingsCatalogBlock{name: content[m[2]:m[3]], start: open + 1, end: end})
 			continue
 		}
-		blocks = append(blocks, catalogBlocksIn(content, open+1, end)...)
+		blocks = append(blocks, catalogBlocksIn(content, code, open+1, end)...)
 	}
 	return blocks
 }
 
+// settingsDeclaredCatalogNames returns the names of every catalog the settings files declare (settingsCatalogBlocks).
+func settingsDeclaredCatalogNames(settings []settingsFile) map[string]bool {
+	names := map[string]bool{}
+	for _, file := range settings {
+		for _, block := range settingsCatalogBlocks(file.content, file.code) {
+			names[block.name] = true
+		}
+	}
+	return names
+}
+
 // catalogBlocksIn returns the catalog blocks at the top level of content[start:end], the body of versionCatalogs { }.
-func catalogBlocksIn(content string, start, end int) []settingsCatalogBlock {
+func catalogBlocksIn(content string, code []bool, start, end int) []settingsCatalogBlock {
 	var blocks []settingsCatalogBlock
 	depth := 0
 	for i := start; i < end; i++ {
+		if !gradleCodeAt(code, i) {
+			continue
+		}
 		switch ch := content[i]; {
-		case ch == '"' || ch == '\'':
-			i = skipQuoted(content, i)
 		case ch == '{':
 			depth++
 		case ch == '}':
@@ -80,7 +97,7 @@ func catalogBlocksIn(content string, start, end int) []settingsCatalogBlock {
 				name = content[i+m[4] : i+m[5]]
 			}
 			open := i + m[1] - 1
-			blockEnd := matchingBrace(content, open)
+			blockEnd := matchingBrace(content, code, open)
 			if blockEnd < 0 || blockEnd > end {
 				return blocks
 			}
@@ -103,13 +120,14 @@ func catalogBlockAt(blocks []settingsCatalogBlock, offset int) string {
 	return ""
 }
 
-// matchingBrace returns the index of the brace closing the one at open, skipping string literals, or -1.
-func matchingBrace(content string, open int) int {
+// matchingBrace returns the index of the brace closing the one at open, counting only braces in code, or -1.
+func matchingBrace(content string, code []bool, open int) int {
 	depth := 0
 	for i := open; i < len(content); i++ {
+		if !gradleCodeAt(code, i) {
+			continue
+		}
 		switch content[i] {
-		case '"', '\'':
-			i = skipQuoted(content, i)
 		case '{':
 			depth++
 		case '}':
@@ -120,20 +138,6 @@ func matchingBrace(content string, open int) int {
 		}
 	}
 	return -1
-}
-
-// skipQuoted returns the index of the quote closing the string literal that opens at start, or the last index.
-func skipQuoted(content string, start int) int {
-	quote := content[start]
-	for i := start + 1; i < len(content); i++ {
-		switch content[i] {
-		case '\\':
-			i++
-		case quote:
-			return i
-		}
-	}
-	return len(content) - 1
 }
 
 func isIdentStart(ch byte) bool {
@@ -180,6 +184,8 @@ func LoadCatalogPluginsByAccessor(sources []CatalogSource) CatalogPluginsByAcces
 			}
 		case source.Accessor != "":
 			mergeCatalogPlugins(p.named, source.Accessor, parsed[""])
+		case source.Shadowed:
+			// The settings declare a catalog of this file's name from elsewhere, such as a published one.
 		case source.Kind == CatalogSourceMergedTOML || source.Kind == CatalogSourceStandardTOML:
 			mergeCatalogPlugins(p.unimported, strings.TrimSuffix(filepath.Base(source.Path), ".versions.toml"), parsed[""])
 		}
@@ -236,18 +242,30 @@ func parseCatalogSourcePlugins(source CatalogSource) map[string]map[string]Catal
 		return map[string]map[string]CatalogPlugin{"": ParseVersionCatalogContent(string(content)).Plugins}
 	}
 	stripped := stripGradleComments(string(content))
+	code := gradleCode(stripped, isGroovyScript(source.Path))
 	tables := map[string]map[string]CatalogPlugin{}
-	for _, block := range settingsCatalogBlocks(stripped) {
-		mergeCatalogPlugins(tables, block.name, programmaticCatalogPlugins(stripped[block.start:block.end]))
+	for _, block := range settingsCatalogBlocks(stripped, code) {
+		mergeCatalogPlugins(tables, block.name, programmaticCatalogPlugins(stripped, code, block))
 	}
 	return tables
 }
 
-// programmaticCatalogPlugins reads the plugin("alias", "id") declarations of a comment-stripped catalog block.
-func programmaticCatalogPlugins(body string) map[string]CatalogPlugin {
+// programmaticCatalogPlugins reads the plugin("alias", "id") declarations in code of a catalog block of a
+// comment-stripped settings file.
+func programmaticCatalogPlugins(content string, code []bool, block settingsCatalogBlock) map[string]CatalogPlugin {
 	plugins := map[string]CatalogPlugin{}
-	for _, match := range settingsPluginRe.FindAllStringSubmatch(body, -1) {
-		plugins[match[1]] = CatalogPlugin{ID: match[2], Version: cmp.Or(match[3], match[4])}
+	body := content[block.start:block.end]
+	for _, m := range settingsPluginRe.FindAllStringSubmatchIndex(body, -1) {
+		if !gradleCodeAt(code, block.start+m[0]) {
+			continue
+		}
+		group := func(n int) string {
+			if m[2*n] < 0 {
+				return ""
+			}
+			return body[m[2*n]:m[2*n+1]]
+		}
+		plugins[group(1)] = CatalogPlugin{ID: group(2), Version: cmp.Or(group(3), group(4))}
 	}
 	return plugins
 }

@@ -58,66 +58,10 @@ func (fps *resDirFingerprints) fingerprint(resDir string) string {
 		h.Write([]byte(manifests))
 		fp = hex.EncodeToString(h.Sum(nil))
 	}
-	// RelativeClassResolution reads the module's namespace, applicationId and plugins from its build script (and
-	// plugin aliases from the version catalog), so editing them must invalidate its findings.
-	if scripts := resDirBuildScriptFingerprint(resDir); scripts != "" {
-		h := hashutil.Hasher().New()
-		h.Write([]byte(fp))
-		h.Write([]byte("\x00build\x00"))
-		h.Write([]byte(scripts))
-		fp = hex.EncodeToString(h.Sum(nil))
-	}
+	// Build scripts and version catalogs are not part of it: the resource rules that read them declare what they read
+	// (rules.ResourceBuildInfoReader), and the resource keys fold that in only when such a rule is active (#1883).
 	fps.values[resDir] = fp
 	return fp
-}
-
-func fileExists(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil
-}
-
-// resDirBuildScriptFingerprint fingerprints the build script of the module that owns resDir (`<module>/src/<set>/res`
-// or `<module>/res`), the nearest gradle/libs.versions.toml and settings script above it, or returns "" when none
-// exists.
-func resDirBuildScriptFingerprint(resDir string) string {
-	module := filepath.Dir(resDir)
-	if filepath.Base(filepath.Dir(module)) == "src" {
-		module = filepath.Dir(filepath.Dir(module))
-	}
-	paths := []string{filepath.Join(module, "build.gradle.kts"), filepath.Join(module, "build.gradle")}
-	// The nearest version catalog and settings script above the module: VectorDrawableCompat names the module's
-	// Gradle path, which the settings script decides.
-	catalog, settings := false, false
-	for dir, depth := module, 0; depth < 8 && (!catalog || !settings); dir, depth = filepath.Dir(dir), depth+1 {
-		if p := filepath.Join(dir, "gradle", "libs.versions.toml"); !catalog && fileExists(p) {
-			paths, catalog = append(paths, p), true
-		}
-		for _, name := range []string{"settings.gradle.kts", "settings.gradle"} {
-			if p := filepath.Join(dir, name); !settings && dir != module && fileExists(p) {
-				paths, settings = append(paths, p), true
-			}
-		}
-		if parent := filepath.Dir(dir); parent == dir {
-			break
-		}
-	}
-	h := hashutil.Hasher().New()
-	memo := hashutil.Default()
-	found := false
-	for _, path := range paths {
-		hx, err := memo.HashFile(path, nil)
-		if err != nil {
-			continue
-		}
-		found = true
-		h.Write([]byte(filepath.Base(path)))
-		h.Write([]byte{0})
-		h.Write([]byte(hx))
-	}
-	if !found {
-		return ""
-	}
-	return hex.EncodeToString(h.Sum(nil))
 }
 
 // resDirManifestFingerprint fingerprints the manifests a resource check reads for resDir: the AndroidManifest.xml of

@@ -224,10 +224,8 @@ func buildResourceGraph(ctx *api.Context, ignoreID string) *resourceGraph {
 	}
 	var keepPatterns []string
 	for _, resRoot := range unusedResourceRoots(ctx) {
-		moduleDir := filepath.Dir(resRoot)
 		rootRefs := map[string]bool{}
-		for _, extra := range []string{filepath.Join(moduleDir, "AndroidManifest.xml"), filepath.Join(filepath.Dir(moduleDir), "build.gradle"), filepath.Join(filepath.Dir(moduleDir), "build.gradle.kts"),
-			filepath.Join(filepath.Dir(filepath.Dir(moduleDir)), "build.gradle"), filepath.Join(filepath.Dir(filepath.Dir(moduleDir)), "build.gradle.kts")} {
+		for _, extra := range unusedResourceRootFiles(resRoot) {
 			if data, err := os.ReadFile(extra); err == nil {
 				scanRefs(string(data), rootRefs)
 			}

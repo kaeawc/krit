@@ -3296,7 +3296,7 @@ func xmlInputsFingerprint(host ProjectHostState, project *android.Project, kotli
 		resDirs = project.ResDirs
 	}
 	sdkLevels := sdkLevelsFingerprint(project)
-	hasBuildFiles := project != nil && (len(project.GradlePaths) > 0 || len(project.ManifestPaths) > 0)
+	hasBuildFiles := readsBuildFiles(project, reads)
 	if len(xmlFiles) == 0 && len(manifests) == 0 && len(resDirs) == 0 && sdkLevels == "" && !hasBuildFiles {
 		return ""
 	}
@@ -3347,6 +3347,16 @@ func xmlInputsFingerprint(host ProjectHostState, project *android.Project, kotli
 		}
 	}
 	return hex.EncodeToString(h.Sum(nil))
+}
+
+// readsBuildFiles reports whether the rules can read build files for the project: its scanned build scripts, the
+// build script and catalogs of each manifest, and, for a resource rule that reads build files, those beside each res
+// directory, which a scan of only res directories doesn't hold (#1883).
+func readsBuildFiles(project *android.Project, reads buildFileReaders) bool {
+	if project == nil {
+		return false
+	}
+	return len(project.GradlePaths) > 0 || len(project.ManifestPaths) > 0 || (reads.resources != nil && len(project.ResDirs) > 0)
 }
 
 func preparseProjectFingerprints(args ProjectArgs, host ProjectHostState) (string, string) {

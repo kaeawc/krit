@@ -243,10 +243,7 @@ var (
 // moduleVectorSettingsForRes reads the settings of the module that owns a res directory. Without a build script
 // the check is skipped, as Lint skips it without a build variant.
 func moduleVectorSettingsForRes(resDir string) moduleVectorSettings {
-	module := filepath.Dir(resDir)
-	if filepath.Base(filepath.Dir(module)) == "src" {
-		module = filepath.Dir(filepath.Dir(module))
-	}
+	module := resModuleDir(resDir)
 	return filefacts.RequestFact(fileFactsCache(), module, slotModuleVectorSettings, func() moduleVectorSettings {
 		return readModuleVectorSettings(module)
 	})
@@ -257,7 +254,7 @@ const slotModuleVectorSettings = "lintModuleVectorSettings"
 
 func readModuleVectorSettings(module string) moduleVectorSettings {
 	var s moduleVectorSettings
-	for _, name := range []string{"build.gradle.kts", "build.gradle"} {
+	for _, name := range manifestBuildScriptNames {
 		data, err := os.ReadFile(filepath.Join(module, name))
 		if err != nil {
 			continue
@@ -292,18 +289,35 @@ func vectorLayoutNamespaces(root *android.View) map[string]string {
 // gradleModulePath returns the module's Gradle path with a trailing separator (":app/") when a settings script above
 // it includes it, or "" for a module krit cannot place in a build.
 func gradleModulePath(module string) string {
+	candidates := gradleSettingsCandidates(module)
+	if len(candidates) == 0 {
+		return ""
+	}
+	settings := candidates[len(candidates)-1]
+	if _, err := os.Stat(settings); err != nil {
+		return ""
+	}
+	rel, err := filepath.Rel(filepath.Dir(settings), module)
+	if err != nil {
+		return ""
+	}
+	return ":" + strings.ReplaceAll(filepath.ToSlash(rel), "/", ":") + string(filepath.Separator)
+}
+
+// gradleSettingsCandidates returns the settings scripts gradleModulePath looks for above module, nearest first, up to
+// and including the first that exists; the list holds none that exists when there is no settings script above it.
+func gradleSettingsCandidates(module string) []string {
+	var candidates []string
 	for dir := filepath.Dir(module); ; dir = filepath.Dir(dir) {
 		for _, name := range []string{"settings.gradle.kts", "settings.gradle"} {
-			if _, err := os.Stat(filepath.Join(dir, name)); err == nil {
-				rel, err := filepath.Rel(dir, module)
-				if err != nil {
-					return ""
-				}
-				return ":" + strings.ReplaceAll(filepath.ToSlash(rel), "/", ":") + string(filepath.Separator)
+			path := filepath.Join(dir, name)
+			candidates = append(candidates, path)
+			if _, err := os.Stat(path); err == nil {
+				return candidates
 			}
 		}
 		if parent := filepath.Dir(dir); parent == dir {
-			return ""
+			return candidates
 		}
 	}
 }
@@ -409,11 +423,7 @@ func (r *TranslucentOrientationRule) check(ctx *api.Context) {
 // screenOrientation, and the application theme when such an activity has none. It reports false when the module's
 // target SDK is below 26 or it has no manifest.
 func translucentInterestingThemes(resDir string) (map[string]bool, string, bool) {
-	module := filepath.Dir(resDir)
-	path := filepath.Join(module, "AndroidManifest.xml")
-	if filepath.Base(filepath.Dir(module)) == "src" && filepath.Base(module) != "main" {
-		path = filepath.Join(filepath.Dir(module), "main", "AndroidManifest.xml")
-	}
+	path := translucentManifestPath(resDir)
 	root := manifestRoot(&Manifest{Path: path})
 	if root == nil {
 		return nil, "", false
@@ -445,6 +455,16 @@ func translucentInterestingThemes(resDir string) (map[string]bool, string, bool)
 		return nil, "", false
 	}
 	return themes, defaultTheme, len(themes) > 0 || defaultTheme != ""
+}
+
+// translucentManifestPath is the module manifest TranslucentOrientation reads for a res directory: its source set's,
+// or the main one for a res directory of another source set.
+func translucentManifestPath(resDir string) string {
+	sourceSet := filepath.Dir(resDir)
+	if filepath.Base(filepath.Dir(sourceSet)) == "src" && filepath.Base(sourceSet) != "main" {
+		return filepath.Join(filepath.Dir(sourceSet), "main", "AndroidManifest.xml")
+	}
+	return filepath.Join(sourceSet, "AndroidManifest.xml")
 }
 
 // translucentTargetSdk resolves the module's target SDK as Lint does: the build script, else <uses-sdk>, else the

@@ -17,7 +17,7 @@ Invoke the `krit-dogfood` skill against the target path in ARGUMENTS.
    TARGET="$ARGUMENTS"
    ./krit -no-cache -perf -perf-rules -f json -q -o /tmp/krit_dogfood.json "$TARGET" || true
    ```
-   Pass `--config` if the target's `krit.yml` is not auto-discovered.
+   Pass `--config` if the target's `krit.yml` is not auto-discovered. `-no-cache` keeps the parse cache: if the Krit change touches parsing, the tree-sitter grammar, or tree repair, add `-no-daemon -no-parse-cache` (#1912).
 3. **Check project profile first.**
    ```bash
    jq '.projectProfile | {hasGradle, dependencyExtractionComplete, hasUnresolvedDependencyRefs, catalogCompleteness}' /tmp/krit_dogfood.json

@@ -1931,7 +1931,9 @@ func (p AndroidPhase) Run(ctx context.Context, in AndroidInput) (AndroidResult, 
 		result.Stats = in.Dispatcher.ProjectRuleStats()
 		runHadPanic = len(result.Stats.Errors) > projectPanicCount
 	}
-	saveAndroidProjectBundle(in, projectBundleKey, cols, !runHadPanic)
+	// A resource rule that read sources the fingerprint does not describe
+	// leaves the run's findings uncacheable as a whole, too.
+	saveAndroidProjectBundle(in, projectBundleKey, cols, !runHadPanic && in.resourceRuleSources().cacheable())
 	return result, nil
 }
 

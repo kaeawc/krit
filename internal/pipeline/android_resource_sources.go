@@ -23,6 +23,7 @@ type resourceRuleSources struct {
 	filesOnce sync.Once
 	files     []*scanner.File
 	filesOK   bool
+	asked     bool
 
 	fpOnce sync.Once
 	fp     string
@@ -60,6 +61,7 @@ func (s *resourceRuleSources) sources() ([]*scanner.File, bool) {
 		return nil, false
 	}
 	s.filesOnce.Do(func() {
+		s.asked = true
 		s.files, s.filesOK = s.parsed, true
 		// A skipped parse leaves the cache hits as stubs without a tree.
 		var parsed []*scanner.File
@@ -92,6 +94,13 @@ func (s *resourceRuleSources) sources() ([]*scanner.File, bool) {
 		s.files = append(parsed, more...)
 	})
 	return s.files, s.filesOK
+}
+
+// cacheable reports whether every rule that read the sources this run got a
+// result worth caching: true when none read them. Call it once the readers
+// are done (the resource subphase has returned).
+func (s *resourceRuleSources) cacheable() bool {
+	return s == nil || !s.asked || s.filesOK
 }
 
 // matchesFingerprint reports whether files hold the content fingerprint

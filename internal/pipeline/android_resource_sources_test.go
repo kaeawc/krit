@@ -181,3 +181,75 @@ func equalStrings(a, b []string) bool {
 	}
 	return true
 }
+
+// With no parsed sources the Android phase can answer from, and save, one
+// bundle for the whole project. A resource rule that read sources the
+// fingerprint does not describe must leave that bundle unsaved too (#1860
+// review).
+func TestAndroidProjectBundleSkipsSaveWhenOnDemandSourcesMismatch(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		stale   bool
+		wantHit bool
+	}{
+		{"hashes match", false, true},
+		{"file changed since its hash was validated", true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			click := filepath.Join(root, "click", "src", "main", "res")
+			writeLayout(t, click, "activity_main", onClickHandlerLayout)
+			src := filepath.Join(root, "click", "src", "main", "kotlin", "MainActivity.kt")
+			if err := os.MkdirAll(filepath.Dir(src), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			content := []byte(onClickActivityHead + "}\n")
+			if err := os.WriteFile(src, content, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			parsed, err := scanner.ParseFile(context.Background(), src)
+			if err != nil {
+				t.Fatal(err)
+			}
+			hash := hashutil.HashHex(content)[:16]
+			if tc.stale {
+				hash = hashutil.HashHex([]byte("an earlier version"))[:16]
+			}
+			cacheDir := filepath.Join(root, "cache")
+			active := []*api.Rule{findV2RuleForTest(t, "OnClick")}
+			run := func() int64 {
+				t.Helper()
+				writer := scanner.NewAndroidCacheWriter(1)
+				tracker := perf.New(true)
+				_, err := (AndroidPhase{}).Run(context.Background(), AndroidInput{
+					Project:        &android.Project{ResDirs: []string{click}},
+					ActiveRules:    active,
+					Dispatcher:     rules.NewDispatcher(active, nil),
+					SourcePaths:    []string{src},
+					SourceHashes:   map[string]string{src: hash},
+					ParseSources:   func([]string) ([]*scanner.File, error) { return []*scanner.File{parsed}, nil },
+					RuleHash:       "test-rule-hash",
+					LibraryFactsFP: "test-lf",
+					CacheDir:       cacheDir,
+					CacheWriter:    writer,
+					Tracker:        tracker,
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := writer.Close(); err != nil {
+					t.Fatal(err)
+				}
+				entry, ok := findTimingDeep(tracker.GetTimings(), "androidProjectCache")
+				if !ok {
+					t.Fatal("no androidProjectCache timing entry; the project bundle path did not run")
+				}
+				return entry.Metrics["hits"]
+			}
+			run()
+			if hit := run() == 1; hit != tc.wantHit {
+				t.Fatalf("second run hit the project bundle = %v, want %v", hit, tc.wantHit)
+			}
+		})
+	}
+}

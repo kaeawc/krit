@@ -641,6 +641,11 @@ All notable changes to Krit will be documented in this file.
   whatever the daemon's last project run had cached. Facts read from disk now last for one request, as the
   version-catalog memo has since #1787, and a request still running in the LSP cannot hand a pre-edit value to a
   later one (#1788).
+- `MustUseNamedParams`, `RestrictCallsTo` and `JavaOnlyDetector` no longer scale quadratically. Each call that
+  reached the annotated member's hierarchy rescanned every same-named function in the project; the per-name arities are
+  now built once per run. A 2,000-file project with an override per file went from 37.9 s to 0.6 s.
+  `JavaOnlyDetector` matches an override by parameter count, so `override fun on(x: Int)` is not reported against
+  `@JavaOnly fun on()` (#1899).
 - Warm runs follow version-catalog edits for every manifest rule. Manifest rules read whether a module is an app or a
   library from its build script's `alias(libs.plugins...)` entries, resolved through `gradle/*.versions.toml`, and
   whether it uses the SplashScreen library from its `libs.` dependency aliases, resolved through the catalogs the

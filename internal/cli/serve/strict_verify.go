@@ -93,17 +93,18 @@ func (r *strictVerifyAnalyzeResponse) WriteRawResponse(ctx context.Context, w io
 	}
 
 	stats := daemon.AnalyzeProjectStats{
-		FilesScanned:      res.FilesScanned,
-		FindingsCount:     res.FindingsCount,
-		WallSeconds:       time.Since(r.start).Seconds(),
-		CodeIndexHit:      xfile.HasCodeIndex,
-		LibraryFactsHit:   xfile.HasLibraryFacts,
-		ResolverHit:       xfile.HasResolver,
-		DirtyFiles:        r.dirtyN,
-		Cold:              r.cold,
-		ParseHits:         res.ParseHits,
-		ParseMisses:       res.ParseMisses,
-		FindingsBundleHit: res.FindingsBundleHit,
+		FilesScanned:       res.FilesScanned,
+		FindingsCount:      res.FindingsCount,
+		WallSeconds:        time.Since(r.start).Seconds(),
+		CodeIndexHit:       xfile.HasCodeIndex,
+		LibraryFactsHit:    xfile.HasLibraryFacts,
+		ResolverHit:        xfile.HasResolver,
+		DirtyFiles:         r.dirtyN,
+		Cold:               r.cold,
+		ParseHits:          res.ParseHits,
+		ParseMisses:        res.ParseMisses,
+		ParseCacheBypassed: r.args.NoParseCache,
+		FindingsBundleHit:  res.FindingsBundleHit,
 		PhaseTimingsMs: daemon.PhaseTimingsMs{
 			Parse:     res.PhaseTimingsMs.Parse,
 			Index:     res.PhaseTimingsMs.Index,
@@ -232,11 +233,16 @@ func (s *daemonState) runStrictVerify(ctx context.Context, args daemon.AnalyzePr
 		oracleDaemon = nil
 	}
 
-	pc, err := scanner.NewParseCacheWithCap(s.repoDir, cacheutil.DefaultParseCacheCapBytes)
-	if err != nil {
-		return "", fmt.Errorf("baseline parse cache: %w", err)
+	// A --no-parse-cache request is compared against a baseline that parses
+	// every file afresh too.
+	var pc *scanner.ParseCache
+	if !args.NoParseCache {
+		pc, err = scanner.NewParseCacheWithCap(s.repoDir, cacheutil.DefaultParseCacheCapBytes)
+		if err != nil {
+			return "", fmt.Errorf("baseline parse cache: %w", err)
+		}
+		defer pc.Close() //nolint:errcheck // best effort
 	}
-	defer pc.Close() //nolint:errcheck // best effort
 
 	baselineArgs := pipeline.ProjectArgs{
 		Config:           cfg,

@@ -290,6 +290,15 @@ type AnalyzeProjectArgs struct {
 	// subsequent calls. This flag is per-call: the next analyze-
 	// project call without NoCache resumes normal cache behavior.
 	NoCache bool `json:"no_cache,omitempty"`
+	// NoParseCache mirrors --no-parse-cache: the request parses every
+	// Kotlin and Java file afresh. It neither reads nor writes the
+	// daemon's parse cache, nor its resident parsed trees (which are
+	// filled from that cache), so a stale parse-cache entry cannot reach
+	// it. Both stay as they are for later requests. A daemon that
+	// honours the flag confirms it in AnalyzeProjectStats.
+	// ParseCacheBypassed; one that predates it ignores the field, and the
+	// CLI then falls back to an in-process scan.
+	NoParseCache bool `json:"no_parse_cache,omitempty"`
 	// ProfileDispatch mirrors --profile-dispatch: when true the
 	// daemon arms DispatchPhase's per-file timing fan-out and emits
 	// the resulting FileTiming slice plus the dispatch wall in
@@ -470,6 +479,10 @@ type AnalyzeProjectStats struct {
 	// no parse cache is attached.
 	ParseHits   int64 `json:"parse_hits"`
 	ParseMisses int64 `json:"parse_misses"`
+	// ParseCacheBypassed confirms that the daemon served a NoParseCache
+	// request without its parse cache or resident parsed trees. Daemons
+	// that predate AnalyzeProjectArgs.NoParseCache leave it false.
+	ParseCacheBypassed bool `json:"parse_cache_bypassed,omitempty"`
 	// FindingsBundleHit is true when the whole-run findings cache
 	// served the result without redoing dispatch or cross-file work.
 	// A true value means the call replayed a prior identical-input

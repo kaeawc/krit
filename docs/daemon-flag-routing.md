@@ -391,6 +391,30 @@ already wipes the matrix cache too. The standalone `--clear-matrix-cache`
 verb keeps the host-wide directory deletable without also dropping the
 daemon's resident WorkspaceState / analysis cache / parse cache.
 
+## Cache bypass flags
+
+`--no-cache` rides on `AnalyzeProjectArgs.NoCache`: the daemon skips every
+on-disk cache for that request, including its parse cache, but keeps its
+resident `WorkspaceState` slots (parsed trees, type facts, resolver, code
+index), which are keyed on file content.
+
+`--no-parse-cache` rides on `AnalyzeProjectArgs.NoParseCache` (#1919): the
+request parses every Kotlin and Java file afresh, neither reading nor writing
+the daemon's parse cache or its resident parsed trees (which are filled from
+the parse cache, so a stale entry could otherwise reach the request through
+them). Both stay as they are for later requests. The daemon confirms the
+bypass in `AnalyzeProjectStats.ParseCacheBypassed`; when a daemon that
+predates the field leaves it unset, the CLI discards the result and scans
+in-process. Older daemons normally never see the request, because the binary
+hash handshake already rejects or replaces a daemon built from another binary.
+
+These per-scan cache flags are still not carried on the wire, so a delegated
+scan ignores them: `--no-cross-file-cache` (pair it with `--no-cache` or
+`--no-daemon`), `--cache-dir` (the daemon keeps the analysis cache under its
+own `.krit/cache`) and `--parse-cache-cap-mb` (the daemon uses the default
+cap). `--no-resource-cache` has nothing to skip in the daemon, which keeps no
+on-disk resource index cache.
+
 ## Adding a new flag
 
 When introducing a new CLI flag, decide which bucket it belongs in:

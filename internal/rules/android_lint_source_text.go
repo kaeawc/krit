@@ -556,9 +556,11 @@ func wctPrecedingComment(file *scanner.File, decl uint32) uint32 {
 				continue
 			}
 			if wctTrailsCode(file, cur, decl) {
-				// The comments after it on its line bind to the same code.
-				row := file.FlatRow(cur)
-				for len(run) > 0 && file.FlatRow(run[len(run)-1]) == row {
+				// The comments that follow it without a line break bind to the same code, also after a comment that
+				// spans lines.
+				end := file.FlatEndByte(cur)
+				for len(run) > 0 && !bytes.Contains(file.Content[end:file.FlatStartByte(run[len(run)-1])], []byte("\n")) {
+					end = file.FlatEndByte(run[len(run)-1])
 					run = run[:len(run)-1]
 				}
 				cur = 0

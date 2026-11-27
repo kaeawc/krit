@@ -10,4 +10,8 @@ public class JBind {
 
     int w = 4; /* plain */ /* @return same line as code */
     void afterTwoTrailing() {}
+
+    int e = 5; /* spans
+        two lines */ /* @see JBind */
+    void afterMultiLineTrailing() {}
 }

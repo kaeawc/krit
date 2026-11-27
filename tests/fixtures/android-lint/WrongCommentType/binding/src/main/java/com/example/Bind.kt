@@ -59,4 +59,8 @@ class Trailing {
 
     val w = 4 /* plain */ /* @return same line as code */
     fun afterTwoTrailing(): Int = 1
+
+    val e = 5 /* spans
+        two lines */ /* @see Bind */
+    fun afterMultiLineTrailing(): Int = 1
 }

@@ -502,7 +502,13 @@ the catalog Gradle generates under that name:
   `plugin("<alias>", "<id>")` declarations belong to that catalog.
 - Gradle doesn't import any other `gradle/*.versions.toml` by itself. krit reads one only for an accessor that names no
   imported catalog and matches its file name, as `deps` does for `gradle/deps.versions.toml`, because the import may sit
-  where krit can't read it, such as a settings plugin.
+  where krit can't read it, such as a settings plugin. A settings block that declares a catalog of that name from
+  elsewhere, such as a published `create("deps") { from("com.example:catalog:1.0") }`, takes the name: the file then
+  serves no alias.
+- Text in settings comments and string literals declares no catalog. Groovy's paren-less `from files('...')` imports
+  like `from(files(...))`.
+- Gradle rejects an unquoted dotted key in `[plugins]`, such as `android.application = { id = "..." }`: TOML reads it as
+  a nested table. krit reads no plugin from it. A quoted `"android.application"` key is one alias.
 
 An alias whose accessor names no catalog applies no plugin krit can see. `alias(tools.plugins.x)` never reads
 `libs`.

@@ -644,7 +644,9 @@ All notable changes to Krit will be documented in this file.
   catalog sources in librarymodel carry this accessor name. Warm runs and the daemon key the settings-derived source
   list: the files, their kinds and their names. Editing a settings-declared catalog, renaming a `create(...)`, or
   pointing `from(files(...))` at another file reruns the manifest rules. A settings edit that leaves the catalogs
-  alone doesn't (#1872).
+  alone doesn't (#1872). Settings scanning skips comments and string literals, lexes string templates, and reads
+  Groovy's paren-less `from files('...')`. A settings block that declares a catalog krit can't read, such as a
+  published one, stops an unimported `gradle/<name>.versions.toml` of that name from serving its accessor.
 - MCP `analyze` (mode `android`) reports OnClick for a relative `projectPath`. The sources stayed relative while the
   res dirs were absolute, so no Activity matched its res dir's module (#1908). Rule pages now list a rule's known
   limitations, including OnClick's: a layout is checked only against Activities in its own module.

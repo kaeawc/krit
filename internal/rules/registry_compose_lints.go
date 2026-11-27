@@ -68,7 +68,7 @@ func registerComposeLintsRules() {
 
 	injection := &ComposeViewModelInjectionRule{BaseRule: BaseRule{RuleName: "ComposeViewModelInjection",
 		RuleSetName: composeLintsRuleSet, Sev: "error", Desc: "Detects ViewModels acquired with viewModel()-style factories in a composable body instead of a default parameter."}}
-	registerComposeLintsRule(injection.BaseRule, injection, []string{"function_declaration"}, composeLintsMentions("ViewModel"),
+	registerComposeLintsRule(injection.BaseRule, injection, []string{"function_declaration"}, composeLintsMentions("Composable"),
 		injection.check)
 }
 

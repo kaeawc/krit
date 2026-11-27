@@ -646,6 +646,34 @@ func isErrorType(fqn string) bool {
 	return strings.HasPrefix(fqn, "<error>")
 }
 
+// trimNullableMarker strips the `?` that makes a whole type nullable. A
+// function type's trailing `?` belongs to its return type (`(Int) -> Unit?`),
+// so one with a top-level arrow is left alone; a parenthesized nullable
+// function type, `((Int) -> Unit)?`, is stripped.
+func trimNullableMarker(fqn string) (string, bool) {
+	if !strings.HasSuffix(fqn, "?") {
+		return fqn, false
+	}
+	depth := 0
+	for i := 0; i < len(fqn); i++ {
+		switch fqn[i] {
+		case '(', '<', '[':
+			depth++
+		case ')', ']':
+			depth--
+		case '>':
+			if i > 0 && fqn[i-1] == '-' {
+				if depth == 0 {
+					return fqn, false
+				}
+				continue
+			}
+			depth--
+		}
+	}
+	return strings.TrimSuffix(fqn, "?"), true
+}
+
 type exprTypeKey struct {
 	fqn      string
 	nullable bool
@@ -668,6 +696,13 @@ func (o *Oracle) internExprType(fqn string, nullable bool) *typeinfer.ResolvedTy
 }
 
 func makeResolvedType(fqn string, nullable bool) *typeinfer.ResolvedType {
+	// krit-fir writes a nullable type with its marker (`kotlin.String?`) as
+	// well as nullable=true, where source inference keeps FQN and Name bare
+	// and sets Nullable. Strip it so a rule comparing FQNs sees the same type
+	// with and without the oracle (#1869).
+	if bare, ok := trimNullableMarker(fqn); ok {
+		fqn, nullable = bare, true
+	}
 	if isErrorType(fqn) {
 		// Unresolved type: report unknown nullability so nullability-based
 		// rules fall through / skip instead of treating it as non-null.

@@ -1,24 +1,24 @@
 load("@bazel_skylib//rules:common_settings.bzl", "bool_flag", "int_flag", "string_flag")
 load("@bazel_skylib//rules:native_binary.bzl", "native_binary")
-load("//private:toolchain.bzl", "krit_tool")
 
-# `bazel run @krit//:krit -- <args>` runs krit from the krit toolchain
-# resolved for the execution platform (the host, without remote execution).
-krit_tool(
+# `bazel run @krit//:krit -- <args>` runs the release binary for the target
+# platform (the host, by default). krit_aspect and krit_project_report run
+# krit from the krit toolchain of their actions' execution platform instead.
+alias(
     name = "krit",
-    tool = "krit",
+    actual = "@krit_toolchains//:krit",
     visibility = ["//visibility:public"],
 )
 
-krit_tool(
+alias(
     name = "krit-lsp",
-    tool = "krit_lsp",
+    actual = "@krit_toolchains//:krit-lsp",
     visibility = ["//visibility:public"],
 )
 
-krit_tool(
+alias(
     name = "krit-mcp",
-    tool = "krit_mcp",
+    actual = "@krit_toolchains//:krit-mcp",
     visibility = ["//visibility:public"],
 )
 

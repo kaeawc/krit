@@ -473,10 +473,11 @@ All notable changes to Krit will be documented in this file.
 
 ### Changed
 - The Bazel module registers krit's release binaries as toolchains (`@krit//toolchains:toolchain_type`), one per
-  execution platform, instead of downloading the host's archive into `@krit_bin`. `krit_aspect`, `krit_project_report`
-  and `krit_test` resolve it for the platform that runs their actions, so remote execution on another OS or
-  architecture runs the right binary, and `krit_toolchain` lets a root module register its own build. The `krit_bin`
-  repository is gone: register a `krit_toolchain` instead of overriding it. The BCR presubmit runs on Debian 13
+  execution platform, instead of downloading the host's archive into `@krit_bin`. `krit_aspect` and
+  `krit_project_report` resolve it for the platform that runs their actions, so remote execution on another OS or
+  architecture runs the right binary, and `krit_toolchain` lets a root module register its own build. `@krit//:krit`
+  and `krit_test` take the binary for the target platform. Only the archives of the platforms Bazel picks are
+  fetched. The `krit_bin` repository is gone: register a `krit_toolchain`, or override `krit_toolchains`, instead. The BCR presubmit runs on Debian 13
   instead of the end-of-life Debian 11.
 - `publish-bcr.yml` authenticates with a fine-grained token limited to the `kaeawc/bazel-central-registry` fork instead
   of a classic token whose `repo` scope reached every repository. Fine-grained tokens cannot open pull requests

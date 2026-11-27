@@ -62,25 +62,3 @@ or None for a server the toolchain lacks) and `<tool>_runfiles`.
         ),
     },
 )
-
-def _krit_tool_impl(ctx):
-    toolchain = ctx.toolchains[KRIT_TOOLCHAIN_TYPE]
-    tool = getattr(toolchain, ctx.attr.tool)
-    if tool == None:
-        fail("krit: the resolved krit toolchain has no %s" % ctx.attr.tool.replace("_", "-"))
-    exe = tool.executable
-    out = ctx.actions.declare_file(ctx.label.name + (".exe" if exe.extension == "exe" else ""))
-    ctx.actions.symlink(output = out, target_file = exe, is_executable = True)
-    runfiles = ctx.runfiles(files = [out]).merge(getattr(toolchain, ctx.attr.tool + "_runfiles"))
-    return [DefaultInfo(executable = out, files = depset([out]), runfiles = runfiles)]
-
-# `bazel run @krit//:krit` and `data = ["@krit//:krit"]`: the binary of the
-# krit toolchain resolved for this target's execution platform.
-krit_tool = rule(
-    implementation = _krit_tool_impl,
-    executable = True,
-    toolchains = [KRIT_TOOLCHAIN_TYPE],
-    attrs = {
-        "tool": attr.string(mandatory = True, values = _TOOLS),
-    },
-)

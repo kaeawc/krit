@@ -54,6 +54,27 @@ PLATFORMS = {
     "windows_amd64": ("windows", "amd64", ["@platforms//os:windows", "@platforms//cpu:x86_64"]),
 }
 
+def _host_platform(rctx):
+    """Returns the PLATFORMS key of the machine running Bazel, or None."""
+    name = rctx.os.name.lower()
+    arch = rctx.os.arch.lower()
+    if name.startswith("mac os"):
+        os = "darwin"
+    elif name.startswith("windows"):
+        os = "windows"
+    elif name.startswith("linux"):
+        os = "linux"
+    else:
+        return None
+    if arch in ("amd64", "x86_64", "x64"):
+        arch = "amd64"
+    elif arch in ("aarch64", "arm64"):
+        arch = "arm64"
+    else:
+        return None
+    key = os + "_" + arch
+    return key if key in PLATFORMS else None
+
 def _checksum(rctx, base, asset):
     pinned = rctx.attr.sha256.get(asset, "")
     if pinned:
@@ -88,7 +109,10 @@ def _krit_binary_impl(rctx):
     if rctx.attr.local:
         local = _getenv(rctx, _LOCAL_DIST)
         if not local:
-            fail("krit: %s is not set" % _LOCAL_DIST)
+            # Nothing refers to this repository without a local build, but
+            # `bazel fetch --all` and `bazel vendor` fetch it anyway.
+            rctx.file("BUILD.bazel", "# Unused: %s is not set.\n" % _LOCAL_DIST)
+            return
 
         # A local build is for the host; .exe only matters on Windows.
         ext = ".exe" if rctx.os.name.lower().startswith("windows") else ""
@@ -139,26 +163,63 @@ toolchain(
 )
 """
 
+_TARGET_TOOLS = """\
+# krit, krit-lsp and krit-mcp for the target platform: `bazel run @krit//:krit`
+# and krit_test, which run them on the machine the target is for. Only the
+# selected platform's archive is fetched.
+[alias(
+    name = tool,
+    actual = {actual},
+    visibility = ["//visibility:public"],
+) for tool in {tools}]
+"""
+
+_CONFIG_SETTING = """\
+config_setting(
+    name = {name},
+    constraint_values = {constraints},
+)
+"""
+
+def _constraints(suffix):
+    return repr([str(Label(c)) for c in PLATFORMS[suffix][2]])
+
 def _krit_toolchains_impl(rctx):
     toolchain_type = repr(str(Label("//toolchains:toolchain_type")))
+    tools = repr(["krit", "krit-lsp", "krit-mcp"])
     if _getenv(rctx, _LOCAL_DIST):
-        # A local build runs on the host only, so it is the one toolchain.
+        # A local build runs on this machine only, so it is the one toolchain.
+        host = _host_platform(rctx)
         build = _TOOLCHAIN.format(
             name = repr("local"),
-            constraints = "[]",
+            constraints = _constraints(host) if host else "[]",
             impl = repr("@%s//:toolchain" % rctx.attr.local_repo),
             toolchain_type = toolchain_type,
+        ) + "\n" + _TARGET_TOOLS.format(
+            actual = '"@%s//:" + tool' % rctx.attr.local_repo,
+            tools = tools,
         )
     else:
+        platforms = sorted(rctx.attr.platform_repos.items())
         build = "\n".join([
             _TOOLCHAIN.format(
                 name = repr(suffix),
-                constraints = repr([str(Label(c)) for c in PLATFORMS[suffix][2]]),
+                constraints = _constraints(suffix),
                 impl = repr("@%s//:toolchain" % repo),
                 toolchain_type = toolchain_type,
+            ) + "\n" + _CONFIG_SETTING.format(
+                name = repr("is_" + suffix),
+                constraints = _constraints(suffix),
             )
-            for suffix, repo in sorted(rctx.attr.platform_repos.items())
+            for suffix, repo in platforms
         ])
+        build += "\n" + _TARGET_TOOLS.format(
+            actual = "select({%s}, no_match_error = %r)" % (
+                ", ".join(['":is_%s": "@%s//:" + tool' % (suffix, repo) for suffix, repo in platforms]),
+                "krit: no release binary for the target platform (%s)" % ", ".join([s for s, _ in platforms]),
+            ),
+            tools = tools,
+        )
     rctx.file("BUILD.bazel", build)
 
 # Declares the toolchains without fetching any archive: Bazel fetches only
@@ -170,7 +231,7 @@ krit_toolchains = repository_rule(
         "local_repo": attr.string(doc = "Name of the krit_binary repository with local = True."),
     },
     environ = [_LOCAL_DIST],
-    doc = "Declares a krit toolchain for each platform (or only the local build with KRIT_BAZEL_LOCAL_DIST).",
+    doc = "Declares a krit toolchain for each platform (or only the local build with KRIT_BAZEL_LOCAL_DIST) and target-platform aliases of the binaries.",
 )
 
 def _krit_fir_jar_impl(rctx):

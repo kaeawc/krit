@@ -24,11 +24,12 @@ bazel_dep(name = "krit", version = "x.y.z")
 bazel run @krit//:krit -- --base-path "$PWD" "$PWD"
 ```
 
-`@krit//:krit-lsp` and `@krit//:krit-mcp` are available too. Bazel
-resolves the toolchain (`@krit//toolchains:toolchain_type`) for the
-platform that runs each action, so with remote execution krit's actions run
-the binary built for the remote workers, and it downloads only the archive
-of a platform it resolves. The archive is verified against the release's
+`@krit//:krit-lsp` and `@krit//:krit-mcp` are available too. They, and
+`krit_test`, run the binary for the target platform (the host, by default).
+`krit_aspect` and `krit_project_report` resolve the krit toolchain
+(`@krit//toolchains:toolchain_type`) for the platform that runs each
+action, so with remote execution they run the binary built for the remote
+workers. Bazel downloads only the archives of the platforms it picks. The archive is verified against the release's
 `checksums.txt`. To pin the checksums
 yourself, or to run a different release than the module's version:
 
@@ -41,8 +42,9 @@ krit.toolchain(
 ```
 
 Linux (amd64, arm64), macOS (amd64, arm64) and Windows (amd64) are
-supported. To run another krit build, register a `krit_toolchain` of your
-own ahead of the module's:
+supported. To run another krit build in `krit_aspect` and
+`krit_project_report`, register a `krit_toolchain` of your own ahead of the
+module's:
 
 ```starlark
 # BUILD.bazel

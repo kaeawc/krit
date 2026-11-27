@@ -157,7 +157,6 @@ func init() {
 	registerThirdPartyRxRules()
 	registerThirdPartyInclusiveRules()
 	registerThirdPartyDaggerCrossFileRules()
-	registerThirdPartyDenyListRules()
 
 	applySecurityTaxonomy()
 }

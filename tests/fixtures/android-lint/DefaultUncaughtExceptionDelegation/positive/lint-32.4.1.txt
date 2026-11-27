@@ -1,0 +1,3 @@
+src/main/java/com/example/Crash.kt:4:5: DefaultUncaughtExceptionDelegation: Must call `getDefaultUncaughtExceptionHandler()` to get the existing handler, and call `existingHandler.uncaughtException(thread, throwable)` from your new handler
+src/main/java/com/example/Crash.kt:5:5: DefaultUncaughtExceptionDelegation: Must call `getDefaultUncaughtExceptionHandler()` to get the existing handler, and call `existingHandler.uncaughtException(thread, throwable)` from your new handler
+src/main/java/com/example/JCrash.java:5:9: DefaultUncaughtExceptionDelegation: Must call `getDefaultUncaughtExceptionHandler()` to get the existing handler, and call `existingHandler.uncaughtException(thread, throwable)` from your new handler

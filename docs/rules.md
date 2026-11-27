@@ -513,6 +513,28 @@ Ports of Android Lint 32.4.1 checks with recorded Lint output under `tests/fixtu
   `windowIsTranslucent`, matching Lint) item of a style used by an activity with a fixed portrait or landscape
   orientation, or of the application theme when such an activity has no theme. `setTheme()` calls are not followed.
 
+## Android Lint Source and Gradle Checks (adapters, views, handlers)
+
+Ports of Android Lint 32.4.1 checks with recorded Lint output under `tests/fixtures/android-lint/<RuleID>/`:
+
+- `RecyclerView` (error, Kotlin and Java) reports the `position` parameter of an adapter's `onBindViewHolder` when it
+  is assigned to a field (directly or through a local, and in Java through `holder.field`) or read inside an anonymous
+  or inner class. Lambdas do not count, as in Lint, and neither does a read of a name the inner class declares again
+  (a parameter, an earlier local, or a Java field).
+- `FindViewByIdCast` (warning, Java, autofix) reports an unqualified `findViewById`/`requireViewById` passed to a
+  generic method `<T> T m(T)` whose result is dereferenced, which needs a `(View)` cast on Java 8. Known library
+  identities (`Objects.requireNonNull`, Guava/AndroidX `checkNotNull`, `Verify.verifyNotNull`) and same-file generic
+  methods qualify.
+- `RemoteViewLayout` (error, Kotlin and Java) reports `RemoteViews(pkg, R.layout.x)` when any configuration of the
+  layout contains views RemoteViews cannot inflate (CheckBox, Switch, RadioButton and RadioGroup are allowed from
+  API 31, by the folder's `-vNN` qualifier or the minSdk). The calling module's own layout overrides a library's of
+  the same name; another module's layout is read only when the calling module has none.
+- `DefaultUncaughtExceptionDelegation` (warning, Kotlin and Java) reports `Thread.setDefaultUncaughtExceptionHandler`
+  in a module (the directory of the nearest build script) that never calls `getDefaultUncaughtExceptionHandler`.
+- `WrongGradleMethod` (error, Groovy and Kotlin DSL) reports a `dependencies` block inside a build type or product
+  flavor, naming the `<name>Implementation` configuration to use, and `firebaseAppDistribution` in a `.kts` script
+  without its import. These are the patterns Lint checks without a resolved build classpath.
+
 ## AndroidX Library Lint Checks
 
 Lint loads the checks bundled in an AndroidX AAR only when that AAR is on the module's classpath. Krit's ports of

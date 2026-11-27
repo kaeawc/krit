@@ -1,0 +1,11 @@
+package fixtures;
+
+import android.app.Activity;
+import android.view.View;
+import java.util.Objects;
+
+public class FindViewByIdCast extends Activity {
+    void bind() {
+        Objects.requireNonNull((View) findViewById(R.id.title)).setVisibility(View.GONE);
+    }
+}

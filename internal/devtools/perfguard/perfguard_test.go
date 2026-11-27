@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"flag"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -367,5 +370,196 @@ func TestScalingFailsOnlyOnHeadWorseThanBase(t *testing.T) {
 	var buf bytes.Buffer
 	if !writeScaleReport(&buf, "s", "l", head, nil, g, knownSuperlinear{}) || !strings.Contains(buf.String(), "not caused by this change") {
 		t.Errorf("report should fail and list the pre-existing metric separately:\n%s", buf.String())
+	}
+}
+
+// The FIR corpus (#1729): deterministic, JVM-only, with a Gradle model whose
+// feature source sets depend on core, so krit compiles them as modules.
+func TestGenerateJVMIsDeterministicAndHasAModel(t *testing.T) {
+	spec := genSpec{Modules: 3, FilesPerModule: 2, ClassesPerFile: 2}
+	a := filepath.Join(t.TempDir(), "p")
+	if err := generateJVM(a, spec); err != nil {
+		t.Fatal(err)
+	}
+	ha, na := treeHash(t, a)
+	if err := os.RemoveAll(a); err != nil {
+		t.Fatal(err)
+	}
+	if err := generateJVM(a, spec); err != nil {
+		t.Fatal(err)
+	}
+	if hb, _ := treeHash(t, a); ha != hb {
+		t.Fatal("generateJVM is not deterministic")
+	}
+	// settings, model, core (build + 2 files), 3 features (build + 2 files).
+	if want := 2 + 3 + 3*3; na != want {
+		t.Errorf("generated %d files, want %d", na, want)
+	}
+	data, err := os.ReadFile(filepath.Join(a, ".krit", "gradle-model", "model.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var model struct {
+		RootDir  string `json:"rootDir"`
+		Projects []struct {
+			Path       string `json:"path"`
+			SourceSets []struct {
+				ProjectDeps []string `json:"projectDeps"`
+				SourceDirs  []string `json:"sourceDirs"`
+			} `json:"sourceSets"`
+		} `json:"projects"`
+	}
+	if err := json.Unmarshal(data, &model); err != nil {
+		t.Fatal(err)
+	}
+	if model.RootDir != a || len(model.Projects) != 4 {
+		t.Fatalf("model root %q with %d projects", model.RootDir, len(model.Projects))
+	}
+	feature := model.Projects[2]
+	if feature.Path != ":feature1" || len(feature.SourceSets) != 1 ||
+		strings.Join(feature.SourceSets[0].ProjectDeps, ",") != ":core" ||
+		feature.SourceSets[0].SourceDirs[0] != filepath.Join(a, "feature1", "src", "main", "kotlin") {
+		t.Fatalf("feature1 = %+v", feature)
+	}
+	src, err := os.ReadFile(filepath.Join(a, "feature1", "src", "main", "kotlin", "com", "example", "f1", "Feature0.kt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"import com.example.core.*", ": Base0_0(name), Source0_0", "suspend fun refresh"} {
+		if !strings.Contains(string(src), want) {
+			t.Errorf("feature source lacks %q", want)
+		}
+	}
+	if err := generateJVM(t.TempDir(), genSpec{}); err == nil {
+		t.Error("an empty spec must be rejected")
+	}
+}
+
+// A FIR run keeps the corpus's model, runs with the side's environment and a
+// fresh state directory of its own, and fails when FIR analyzed nothing.
+func TestRunSideFIR(t *testing.T) {
+	dir := t.TempDir()
+	corpus := filepath.Join(dir, "corpus")
+	for _, d := range []string{".krit/gradle-model", ".krit/fir-check-cache"} {
+		if err := os.MkdirAll(filepath.Join(corpus, filepath.FromSlash(d)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	states := filepath.Join(dir, "states")
+	report := strings.ReplaceAll(reportJSON, "\n", " ")
+	fake := func(name, fir string) string {
+		path := filepath.Join(dir, name)
+		script := "#!/bin/sh\nfor last; do :; done\n" +
+			"[ -d \"$last/.krit/gradle-model\" ] || { echo 'model removed' >&2; exit 3; }\n" +
+			"[ -e \"$last/.krit/fir-check-cache\" ] && { echo 'cache left behind' >&2; exit 3; }\n" +
+			"[ \"$KRIT_FIR_JAR\" = /jars/side.jar ] || { echo \"KRIT_FIR_JAR=$KRIT_FIR_JAR\" >&2; exit 3; }\n" +
+			"[ -d \"$KRIT_STATE_DIR\" ] && [ -z \"$(ls -A \"$KRIT_STATE_DIR\")\" ] || { echo 'state dir not fresh' >&2; exit 3; }\n" +
+			"echo \"$KRIT_STATE_DIR\" >> " + states + "\ntouch \"$KRIT_STATE_DIR/used\"\n" +
+			"mkdir -p \"$last/.krit/fir-check-cache\"\n" +
+			"echo '" + strings.Replace(report, `"perfRuleStats"`, `"summary": {"fir": {"authoritative": `+fir+`}}, "perfRuleStats"`, 1) + "'\nexit 1\n"
+		if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	sd := side{Bin: fake("krit", "12"), Env: []string{"KRIT_FIR_JAR=/jars/side.jar"}, FIR: true}
+	for i := 0; i < 2; i++ {
+		if _, err := runSide(t.Context(), sd, firScanArgs, corpus); err != nil {
+			t.Fatalf("run %d: %v", i+1, err)
+		}
+	}
+	data, err := os.ReadFile(states)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lines := strings.Fields(string(data)); len(lines) != 2 || lines[0] == lines[1] {
+		t.Fatalf("state dirs = %v, want two distinct ones", lines)
+	}
+	sd.Bin = fake("krit-no-fir", "0")
+	if _, err := runSide(t.Context(), sd, firScanArgs, corpus); err == nil || !strings.Contains(err.Error(), "FIR analyzed no file") {
+		t.Fatalf("a FIR run without FIR = %v", err)
+	}
+}
+
+// A head whose FIR analyzes fewer files than base's is not faster, it is
+// broken: the comparison fails instead of reporting the time it saved.
+func TestMeasureInterleavedFIRFileCount(t *testing.T) {
+	dir := t.TempDir()
+	report := strings.ReplaceAll(reportJSON, "\n", " ")
+	fake := func(name, fir string) side {
+		path := filepath.Join(dir, name)
+		script := "#!/bin/sh\necho '" + strings.Replace(report, `"perfRuleStats"`, `"summary": {"fir": {"authoritative": `+fir+`}}, "perfRuleStats"`, 1) + "'\nexit 1\n"
+		if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		return side{Bin: path, FIR: true}
+	}
+	corpus := t.TempDir()
+	noLog := func(string, ...any) {}
+	base, same, fewer := fake("base", "12"), fake("same", "12"), fake("fewer", "6")
+	bs, hs, err := measureInterleaved(t.Context(), base, same, firScanArgs, corpus, 2, noLog)
+	if err != nil || len(bs) != 2 || len(hs) != 2 {
+		t.Fatalf("equal file counts = %d, %d, %v", len(bs), len(hs), err)
+	}
+	_, _, err = measureInterleaved(t.Context(), base, fewer, firScanArgs, corpus, 2, noLog)
+	if err == nil || !strings.Contains(err.Error(), "head's FIR analyzed 6 files, base's 12") {
+		t.Fatalf("a head analyzing fewer files = %v", err)
+	}
+}
+
+// Under -fir only the total and phases are gated, with second-scale floors:
+// a rule's one-time cost moving between rules is not a regression.
+func TestFIRGates(t *testing.T) {
+	base := summ(20000, map[string]float64{"typeOracle": 18000, "ruleCallbacks": 1400},
+		map[string]float64{"ViewTag": 14, "FragmentLiveDataObserve": 222}, map[string]float64{"ViewTag": 2, "FragmentLiveDataObserve": 25})
+	blip := summ(20300, map[string]float64{"typeOracle": 18100, "ruleCallbacks": 1500},
+		map[string]float64{"ViewTag": 272, "FragmentLiveDataObserve": 4}, map[string]float64{"ViewTag": 31, "FragmentLiveDataObserve": 1})
+	if got := kinds(compareSummaries("c", base, blip, defaultFIRGates)); len(got) != 0 {
+		t.Fatalf("A/A noise regressed under the FIR gates: %v", got)
+	}
+	if got := kinds(compareSummaries("c", base, blip, defaultGates)); len(got) == 0 {
+		t.Fatal("the source-only gates should still see the rule blip (the reason FIR mode turns them off)")
+	}
+	slow := summ(24000, map[string]float64{"typeOracle": 23000, "ruleCallbacks": 1400}, base.Rules, base.Shares)
+	if got := strings.Join(kinds(compareSummaries("c", base, slow, defaultFIRGates)), ","); got != "phase:typeOracle,total:durationMs" {
+		t.Fatalf("a slower oracle compile = %s", got)
+	}
+
+	fs := flag.NewFlagSet("compare", flag.ContinueOnError)
+	g := defaultGates
+	fs.Float64Var(&g.TotalPct, "total-pct", g.TotalPct, "")
+	fs.Float64Var(&g.PhaseMinMs, "phase-min-ms", g.PhaseMinMs, "")
+	if err := fs.Parse([]string{"-total-pct", "8"}); err != nil {
+		t.Fatal(err)
+	}
+	got := firGatesWith(fs, g)
+	if got.TotalPct != 8 || got.PhaseMinMs != defaultFIRGates.PhaseMinMs || got.rulesGated() {
+		t.Fatalf("firGatesWith = %+v", got)
+	}
+}
+
+// removeState deletes a symlinked .krit as the link it is: following it
+// would delete the contents of a directory outside the corpus.
+func TestRemoveStateLeavesASymlinkTarget(t *testing.T) {
+	dir := t.TempDir()
+	outside := filepath.Join(dir, "outside")
+	if err := os.MkdirAll(filepath.Join(outside, "keep-me"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	corpus := filepath.Join(dir, "corpus")
+	if err := os.MkdirAll(corpus, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(corpus, ".krit")); err != nil {
+		t.Fatal(err)
+	}
+	if err := removeState(corpus); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(outside, "keep-me")); err != nil {
+		t.Fatalf("the link's target lost its contents: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(corpus, ".krit")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("the .krit link is still there: %v", err)
 	}
 }

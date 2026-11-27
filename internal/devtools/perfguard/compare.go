@@ -30,6 +30,20 @@ var defaultGates = gates{
 	NewRuleMaxMs: 250,
 }
 
+// defaultFIRGates are the gates compare -fir starts from (#1729). A FIR run
+// is mostly one JVM compile, so the total and phase floors are seconds, not
+// milliseconds. Rule gates are off: per-rule times are Go dispatch, which the
+// source-only guard already times, and under FIR a one-time cost (loading the
+// oracle's facts) lands on whichever rule asks first, so a rule's time moves
+// by hundreds of milliseconds between identical runs.
+var defaultFIRGates = gates{
+	TotalPct: 15, TotalMinMs: 2000,
+	PhasePct: 25, PhaseMinMs: 1500,
+	RulePct: math.Inf(1), RuleMinMs: math.Inf(1),
+	MaxRuleShare: math.Inf(1),
+	NewRuleMaxMs: math.Inf(1),
+}
+
 type regression struct {
 	Corpus string
 	Kind   string // total, phase, rule, rule-share, new-rule
@@ -43,12 +57,24 @@ func slower(base, head, pct, minMs float64) bool {
 	return head-base >= minMs && head > base*(1+pct/100)
 }
 
+// rulesGated reports whether any rule gate is on.
+func (g gates) rulesGated() bool {
+	return !math.IsInf(g.RuleMinMs, 1) || !math.IsInf(g.MaxRuleShare, 1) || !math.IsInf(g.NewRuleMaxMs, 1)
+}
+
 func compareSummaries(corpus string, base, head summary, g gates) []regression {
 	var out []regression
 	if slower(base.TotalMs, head.TotalMs, g.TotalPct, g.TotalMinMs) {
 		out = append(out, regression{corpus, "total", "durationMs", base.TotalMs, head.TotalMs,
 			fmt.Sprintf("> %.0f%% and >= %.0fms slower", g.TotalPct, g.TotalMinMs)})
 	}
+	// An infinite rule gate (compare -fir) never trips.
+	out = append(out, comparePhases(corpus, base, head, g)...)
+	return append(out, compareRules(corpus, base, head, g)...)
+}
+
+func comparePhases(corpus string, base, head summary, g gates) []regression {
+	var out []regression
 	for _, k := range sortedKeys(head.Phases) {
 		b, ok := base.Phases[k]
 		if !ok {
@@ -60,6 +86,11 @@ func compareSummaries(corpus string, base, head summary, g gates) []regression {
 				fmt.Sprintf("> %.0f%% and >= %.0fms slower", g.PhasePct, g.PhaseMinMs)})
 		}
 	}
+	return out
+}
+
+func compareRules(corpus string, base, head summary, g gates) []regression {
+	var out []regression
 	for _, k := range sortedKeys(head.Rules) {
 		h := head.Rules[k]
 		b, ok := base.Rules[k]
@@ -138,10 +169,14 @@ type corpusResult struct {
 // job summary and the PR comment.
 func writeReport(w io.Writer, results []corpusResult, regs []regression, g gates, title string) {
 	fmt.Fprintf(w, "## %s\n\n", title)
-	if len(regs) == 0 {
+	switch {
+	case len(regs) == 0 && !g.rulesGated():
+		fmt.Fprintf(w, "No performance regressions over the gates (total > %.0f%% and >= %.0fms; phase > %.0f%% and >= %.0fms; rules not gated).\n\n",
+			g.TotalPct, g.TotalMinMs, g.PhasePct, g.PhaseMinMs)
+	case len(regs) == 0:
 		fmt.Fprintf(w, "No performance regressions over the gates (total > %.0f%% and >= %.0fms; phase > %.0f%% and >= %.0fms; rule > %.0f%% and >= %.0fms; new rule >= %.0fms).\n\n",
 			g.TotalPct, g.TotalMinMs, g.PhasePct, g.PhaseMinMs, g.RulePct, g.RuleMinMs, g.NewRuleMaxMs)
-	} else {
+	default:
 		fmt.Fprintf(w, "**%d regression(s):**\n\n| Corpus | Kind | Metric | Base | Head | Gate |\n|---|---|---|---|---|---|\n", len(regs))
 		for _, r := range regs {
 			unit := "ms"

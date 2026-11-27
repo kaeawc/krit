@@ -10,26 +10,38 @@
 #      fails on super-linear phases/rules unless known-superlinear.txt lists
 #      them with their issue (perfguard scale)
 #
-# Usage: scripts/perf-guard.sh [--base REV]
+# With --fir (#1729) it instead times FIR and the type oracle: base and head,
+# each with the krit-fir jar built from its own sources, in one-shot JVMs on
+# a synthetic JVM-only multi-module project with a Gradle model (perfguard
+# gen -kind jvm, compare -fir). It needs a JDK 21; jars are built once per
+# source hash (scripts/build-dev-jar.sh). The report is fir.md.
+#
+# Usage: scripts/perf-guard.sh [--base REV] [--fir]
 #
 #   --base REV  revision to compare against (default: merge-base with
 #               origin/main)
+#   --fir       time FIR and the type oracle instead of the source-only scan
 #
 # Environment:
 #   KRIT_PERF_DIR      work directory (default ~/.krit/perf-guard): binaries,
-#                      corpora, compare.md and scale.md
+#                      corpora, compare.md and scale.md (fir.md with --fir)
 #   KRIT_PERF_CORPORA  pinned corpora from tests/corpus/repos.json
 #                      (default "nowinandroid okhttp"; "" for none)
 #   KRIT_PERF_ROUNDS   interleaved rounds per corpus (default 5)
 #
 # Exit status: 0 no regression, 1 regression, 2 setup error.
-set -euo pipefail
+set -Eeuo pipefail
+# A failed build or setup step is a setup error, not a regression: without
+# this, set -e would exit with the step's own status, often 1.
+trap 'exit 2' ERR
 
 base=""
+fir=0
 while [ $# -gt 0 ]; do
 	case "$1" in
 		--base) base=$2; shift 2 ;;
-		-h|--help) sed -n '2,25p' "$0"; exit 0 ;;
+		--fir) fir=1; shift ;;
+		-h|--help) sed -n '2,32p' "$0"; exit 0 ;;
 		*) echo "unknown argument: $1" >&2; exit 2 ;;
 	esac
 done
@@ -53,7 +65,41 @@ rm -rf "$work/base-tree"
 git worktree prune
 git worktree add -q --detach "$work/base-tree" "$base_sha"
 (cd "$work/base-tree" && go build -o "$work/bin/krit-base" ./cmd/krit/)
+if [ "$fir" = 1 ]; then
+	# Each side runs the krit-fir its own sources build; the same sources
+	# hash to the same cached jar.
+	base_jar=$(cd "$work/base-tree" && bash scripts/build-dev-jar.sh krit-fir | tail -n 1)
+	# A jar build leaves its Gradle (and Kotlin) daemons running; stop them
+	# so they do not share the CPU with the timed runs.
+	(cd "$work/base-tree/tools/krit-fir" && ./gradlew -q --stop)
+fi
 git worktree remove --force "$work/base-tree"
+
+if [ "$fir" = 1 ]; then
+	head_jar=$(bash scripts/build-dev-jar.sh krit-fir | tail -n 1)
+	(cd tools/krit-fir && ./gradlew -q --stop)
+	for jar in "$base_jar" "$head_jar"; do
+		[ -f "$jar" ] || { echo "perf-guard: no krit-fir jar at '$jar'" >&2; exit 2; }
+	done
+	echo "perf-guard: krit-fir base $base_jar, head $head_jar"
+	rm -rf "$work/fir-jvm"
+	"$work/bin/perfguard" gen -kind jvm -out "$work/fir-jvm" -modules 8 -files 20 -classes 4
+	status=0
+	"$work/bin/perfguard" compare -fir -base "$work/bin/krit-base" -head "$work/bin/krit-head" \
+		-base-env "KRIT_FIR_JAR=$base_jar" -head-env "KRIT_FIR_JAR=$head_jar" \
+		-corpus "jvm=$work/fir-jvm" -rounds "$rounds" -report "$work/fir.md" \
+		-title "FIR and type oracle: base ${base_sha:0:10} vs head" >/dev/null || status=$?
+	[ "$status" -le 1 ] || exit 2
+	# The runner's shape, for comparing timings across runs and runners.
+	printf '\nRunner: %s CPUs, %s.\n' "$(getconf _NPROCESSORS_ONLN)" "$(java -version 2>&1 | head -n 1)" >>"$work/fir.md"
+	cat "$work/fir.md"
+	if [ "$status" = 1 ]; then
+		echo "perf-guard: FIR regression (report: $work/fir.md)" >&2
+		exit 1
+	fi
+	echo "perf-guard: FIR OK (report: $work/fir.md)"
+	exit 0
+fi
 
 corpus_args=()
 for name in $corpora; do

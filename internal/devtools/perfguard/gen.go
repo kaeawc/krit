@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -294,4 +295,113 @@ func (w *treeWriter) file(rel, content string) {
 		return
 	}
 	w.err = os.WriteFile(path, []byte(content), 0o644)
+}
+
+// generateJVM writes a JVM-only multi-module project for timing FIR and the
+// type oracle (#1729): a `core` module and spec.Modules feature modules that
+// depend on it, with an exported-style Gradle model under .krit/gradle-model
+// so krit compiles each source set with its project dependencies. It needs no
+// Android SDK, no Gradle run and no network: the classpath is the Kotlin
+// standard library krit-fir brings. Output is deterministic for a given dir.
+func generateJVM(dir string, spec genSpec) error {
+	if spec.Modules < 1 || spec.FilesPerModule < 1 || spec.ClassesPerFile < 1 {
+		return fmt.Errorf("modules, files and classes must be >= 1 (got %+v)", spec)
+	}
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return err
+	}
+	w := &treeWriter{root: abs}
+	var settings strings.Builder
+	settings.WriteString("rootProject.name = \"perfguard-jvm\"\n\ninclude(\":core\")\n")
+	for m := 0; m < spec.Modules; m++ {
+		fmt.Fprintf(&settings, "include(\":feature%d\")\n", m)
+	}
+	w.file("settings.gradle.kts", settings.String())
+
+	type project struct {
+		Path       string           `json:"path"`
+		Dir        string           `json:"dir"`
+		SourceSets []map[string]any `json:"sourceSets"`
+	}
+	sourceSet := func(name string, deps ...string) []map[string]any {
+		return []map[string]any{{"name": "main", "kind": "main", "platform": "jvm", "projectDeps": deps,
+			"sourceDirs": []string{filepath.Join(abs, name, "src", "main", "kotlin")}}}
+	}
+	projects := []project{{Path: ":core", Dir: filepath.Join(abs, "core"), SourceSets: sourceSet("core")}}
+	w.file("core/build.gradle.kts", "plugins {\n    kotlin(\"jvm\")\n}\n")
+	for f := 0; f < spec.FilesPerModule; f++ {
+		w.file(fmt.Sprintf("core/src/main/kotlin/com/example/core/Core%d.kt", f), jvmCoreFile(f, spec.ClassesPerFile))
+	}
+	for m := 0; m < spec.Modules; m++ {
+		mod := fmt.Sprintf("feature%d", m)
+		w.file(mod+"/build.gradle.kts", "plugins {\n    kotlin(\"jvm\")\n}\n\ndependencies {\n    implementation(project(\":core\"))\n}\n")
+		for f := 0; f < spec.FilesPerModule; f++ {
+			w.file(fmt.Sprintf("%s/src/main/kotlin/com/example/f%d/Feature%d.kt", mod, m, f), jvmFeatureFile(m, f, spec.ClassesPerFile))
+		}
+		projects = append(projects, project{Path: ":" + mod, Dir: filepath.Join(abs, mod), SourceSets: sourceSet(mod, ":core")})
+	}
+	model, err := json.MarshalIndent(map[string]any{"schema": 2, "rootDir": abs, "projects": projects}, "", "  ")
+	if err != nil {
+		return err
+	}
+	w.file(".krit/gradle-model/model.json", string(model)+"\n")
+	return w.err
+}
+
+// jvmCoreFile declares an open base class, an interface and a sealed result
+// per class slot, for the feature modules to extend and call.
+func jvmCoreFile(f, classes int) string {
+	var b strings.Builder
+	b.WriteString("package com.example.core\n\n")
+	for c := 0; c < classes; c++ {
+		fmt.Fprintf(&b, `interface Source%[1]d_%[2]d {
+    fun load(id: Int): Result%[1]d_%[2]d
+}
+
+sealed interface Result%[1]d_%[2]d {
+    data class Ok(val value: String) : Result%[1]d_%[2]d
+    data class Failed(val code: Int) : Result%[1]d_%[2]d
+}
+
+open class Base%[1]d_%[2]d(protected val name: String) {
+    open fun describe(): String = "base " + name
+    fun length(): Int = name.length
+}
+
+`, f, c)
+	}
+	return b.String()
+}
+
+// jvmFeatureFile extends and calls core's declarations: overrides, a when over
+// a sealed type, lambdas, nullable chains and a suspend function, so the
+// checkers resolve across the module boundary.
+func jvmFeatureFile(m, f, classes int) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "package com.example.f%d\n\nimport com.example.core.*\n\n", m)
+	for c := 0; c < classes; c++ {
+		fmt.Fprintf(&b, `class Feature%[1]d_%[2]d_%[3]d(name: String) : Base%[2]d_%[3]d(name), Source%[2]d_%[3]d {
+    private val cache = mutableMapOf<Int, String>()
+
+    override fun describe(): String = "feature %[1]d " + super.describe()
+
+    override fun load(id: Int): Result%[2]d_%[3]d {
+        val hit = cache[id]
+        return if (hit != null) Result%[2]d_%[3]d.Ok(hit) else Result%[2]d_%[3]d.Failed(id)
+    }
+
+    fun render(id: Int): String = when (val r = load(id)) {
+        is Result%[2]d_%[3]d.Ok -> r.value.uppercase()
+        is Result%[2]d_%[3]d.Failed -> "error " + r.code
+    }
+
+    fun total(ids: List<Int>): Int = ids.map { render(it).length }.filter { it > %[3]d }.sum() + length()
+
+    suspend fun refresh(id: Int): String? = cache[id]?.trim()?.takeIf { it.isNotEmpty() }
+}
+
+`, m, f, c)
+	}
+	return b.String()
 }

@@ -1014,3 +1014,111 @@ jobs:
             echo "::error::perf-guard failed to run (status $STATUS); see the Base vs head step"
           fi
           exit 1
+
+  # perf-guard-fir (#1729) is perf-guard for the JVM work: FIR and the type
+  # oracle, base vs head, each with the krit-fir jar its own sources build,
+  # in one-shot JVMs (no shared warm JVM) on a synthetic JVM-only project with
+  # a Gradle model (`perfguard gen -kind jvm`). It gates the total and the
+  # phases with second-scale floors (internal/devtools/perfguard
+  # defaultFIRGates); rule timings are the source-only job's. Locally:
+  # scripts/perf-guard.sh --fir.
+  # On a push to main it only builds and caches main's krit-fir dev jar (a
+  # PR cannot read another PR's cache, only main's), so PRs skip that build.
+  perf-guard-fir:
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - uses: ./.github/actions/go-cache
+        with:
+          family: linux
+      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v5
+        with:
+          distribution: zulu
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d # v4
+        with:
+          cache-cleanup: on-success
+          validate-wrappers: true
+      - uses: ./.github/actions/maven-mirror
+      # scripts/build-dev-jar.sh keeps one jar per krit-fir source hash under
+      # ~/.krit/jars/dev. Pushes to main save it under main's hash; a PR
+      # restores the newest such cache (restore-keys falls back to main's
+      # scope), so one that leaves krit-fir alone builds no jar, and one that
+      # changes it builds only the head jar. A base older than main's last
+      # krit-fir change still builds its own.
+      - name: Cache krit-fir dev jars
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ~/.krit/jars/dev
+          key: perf-guard-fir-jars-${{ hashFiles('tools/krit-fir/**/*.kt', 'tools/krit-fir/**/*.kts', 'tools/krit-rule-api/**/*.kt', 'tools/krit-rule-api/**/*.kts') }}
+          restore-keys: perf-guard-fir-jars-
+      # restore-keys brings back main's previous jars too; keep only the
+      # current one so the saved cache holds one jar, not one per krit-fir
+      # change.
+      - name: Build main's krit-fir dev jar
+        if: github.event_name != 'pull_request'
+        run: |
+          bash scripts/build-dev-jar.sh krit-fir
+          keep=$(go run ./cmd/krit-dev-jar-hash krit-fir)
+          find ~/.krit/jars/dev -mindepth 1 -maxdepth 1 ! -name "$keep" -exec rm -rf {} +
+          ls ~/.krit/jars/dev
+      - name: Base vs head (FIR)
+        if: github.event_name == 'pull_request'
+        id: guard
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          KRIT_PERF_DIR: ${{ runner.temp }}/perf-guard
+        run: |
+          set +e
+          bash scripts/perf-guard.sh --fir --base "$BASE_SHA"
+          echo "status=$?" >> "$GITHUB_OUTPUT"
+      - name: Report
+        if: always() && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          SAME_REPO: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+          KRIT_PERF_DIR: ${{ runner.temp }}/perf-guard
+        run: |
+          mkdir -p "$KRIT_PERF_DIR"
+          body="$KRIT_PERF_DIR/fir-comment.md"
+          {
+            echo '<!-- krit-perf-guard-fir -->'
+            cat "$KRIT_PERF_DIR/fir.md" 2>/dev/null || echo "perf-guard-fir produced no report; see the job log."
+            echo
+            echo "<sub>perf-guard-fir (#1729): median of interleaved one-shot FIR runs on one runner. Reproduce locally with \`scripts/perf-guard.sh --fir\`.</sub>"
+          } > "$body"
+          cat "$body" >> "$GITHUB_STEP_SUMMARY"
+          # Fork PRs get a read-only token; the job summary still has the report.
+          if [ "$SAME_REPO" != "true" ]; then
+            exit 0
+          fi
+          id=$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments" --paginate \
+            --jq '.[] | select(.body | startswith("<!-- krit-perf-guard-fir -->")) | .id' | head -n 1)
+          if [ -n "$id" ]; then
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$id" -F "body=@$body" >/dev/null
+          else
+            gh api --method POST "repos/$GITHUB_REPOSITORY/issues/$PR/comments" -F "body=@$body" >/dev/null
+          fi
+      - name: Fail on a regression
+        if: github.event_name == 'pull_request' && steps.guard.outputs.status != '0'
+        env:
+          STATUS: ${{ steps.guard.outputs.status }}
+        run: |
+          if [ "$STATUS" = 1 ]; then
+            echo "::error::perf-guard-fir found a FIR/oracle performance regression; see the PR comment or job summary"
+          else
+            echo "::error::perf-guard-fir failed to run (status $STATUS); see the Base vs head (FIR) step"
+          fi
+          exit 1

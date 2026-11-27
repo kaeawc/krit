@@ -1,12 +1,15 @@
 // Command perfguard is krit's CI performance regression guard (#1657).
 //
-//	perfguard gen -out DIR [-modules N -files N -classes N]
-//	    Write a deterministic synthetic Android-shaped project.
-//	perfguard compare -base BIN -head BIN -corpus NAME=DIR [-corpus ...]
+//	perfguard gen -out DIR [-kind android|jvm] [-modules N -files N -classes N]
+//	    Write a deterministic synthetic project: Android-shaped (the default),
+//	    or JVM-only with a Gradle model, for timing FIR and the type oracle.
+//	perfguard compare -base BIN -head BIN -corpus NAME=DIR [-corpus ...] [-fir]
 //	    Time both krit binaries on each corpus in interleaved rounds on the
 //	    same machine and fail when head's median total, a phase or a rule is
 //	    slower than the gates allow. No stored baseline: a shared CI runner's
 //	    speed varies run to run, so base and head are measured side by side.
+//	    -fir times FIR and the type oracle in one-shot JVMs instead of the
+//	    source-only scan; -base-env/-head-env K=V set each side's KRIT_FIR_JAR.
 //	perfguard scale -bin BIN -small DIR -large DIR -factor F
 //	    Time one binary on a small and a large synthetic corpus and fail when
 //	    a phase or rule grows faster than the corpus (super-linear), unless
@@ -58,6 +61,7 @@ func usage() {
 func cmdGen(args []string) error {
 	fs := flag.NewFlagSet("gen", flag.ExitOnError)
 	out := fs.String("out", "", "output directory (required)")
+	kind := fs.String("kind", "android", "project shape: android, or jvm (with a Gradle model, for -fir)")
 	spec := genSpec{}
 	fs.IntVar(&spec.Modules, "modules", 20, "Gradle feature modules")
 	fs.IntVar(&spec.FilesPerModule, "files", 20, "Kotlin files per module")
@@ -66,10 +70,21 @@ func cmdGen(args []string) error {
 	if *out == "" {
 		return fmt.Errorf("gen: -out is required")
 	}
-	if err := generate(*out, spec); err != nil {
-		return err
+	switch *kind {
+	case "android":
+		if err := generate(*out, spec); err != nil {
+			return err
+		}
+		fmt.Printf("generated %s (android): %d modules, %d files, %d declarations\n", *out, spec.Modules, spec.Modules*spec.FilesPerModule, spec.classes())
+	case "jvm":
+		if err := generateJVM(*out, spec); err != nil {
+			return err
+		}
+		// The feature modules all depend on one more, :core, with as many files.
+		fmt.Printf("generated %s (jvm): %d modules + core, %d files, %d feature classes\n", *out, spec.Modules, (spec.Modules+1)*spec.FilesPerModule, spec.classes())
+	default:
+		return fmt.Errorf("gen: -kind must be android or jvm, got %q", *kind)
 	}
-	fmt.Printf("generated %s: %d modules, %d files, %d declarations\n", *out, spec.Modules, spec.Modules*spec.FilesPerModule, spec.classes())
 	return nil
 }
 
@@ -78,8 +93,12 @@ type corpusFlags []string
 func (c *corpusFlags) String() string     { return strings.Join(*c, ",") }
 func (c *corpusFlags) Set(v string) error { *c = append(*c, v); return nil }
 
-func scanArgs(extra string) []string {
-	args := append([]string{}, defaultScanArgs...)
+func scanArgs(fir bool, extra string) []string {
+	base := defaultScanArgs
+	if fir {
+		base = firScanArgs
+	}
+	args := append([]string{}, base...)
 	if extra != "" {
 		args = append(args, strings.Fields(extra)...)
 	}
@@ -109,6 +128,10 @@ func cmdCompare(args []string) (bool, error) {
 	extra := fs.String("args", "", "extra krit arguments")
 	report := fs.String("report", "", "also write the markdown report here")
 	title := fs.String("title", "Performance: base vs head", "report heading")
+	fir := fs.Bool("fir", false, "time FIR and the type oracle (one-shot JVMs) instead of the source-only scan")
+	var baseEnv, headEnv corpusFlags
+	fs.Var(&baseEnv, "base-env", "K=V added to the base binary's environment (repeatable)")
+	fs.Var(&headEnv, "head-env", "K=V added to the head binary's environment (repeatable)")
 	g := defaultGates
 	fs.Float64Var(&g.TotalPct, "total-pct", g.TotalPct, "total regression gate, percent")
 	fs.Float64Var(&g.TotalMinMs, "total-min-ms", g.TotalMinMs, "total regression gate, milliseconds")
@@ -119,6 +142,9 @@ func cmdCompare(args []string) (bool, error) {
 	fs.Float64Var(&g.MaxRuleShare, "max-rule-share", g.MaxRuleShare, "fail a rule that newly exceeds this share of rule time, percent")
 	fs.Float64Var(&g.NewRuleMaxMs, "new-rule-max-ms", g.NewRuleMaxMs, "fail a rule new in head that costs this much")
 	_ = fs.Parse(args)
+	if *fir {
+		g = firGatesWith(fs, g)
+	}
 	if *base == "" || *head == "" || len(corpora) == 0 || *rounds < 1 {
 		return false, fmt.Errorf("compare: -base, -head, at least one -corpus and -rounds >= 1 are required")
 	}
@@ -131,7 +157,8 @@ func cmdCompare(args []string) (bool, error) {
 			name, dir = c, c
 		}
 		logf("perfguard: %s (%s), %d rounds", name, dir, *rounds)
-		bs, hs, err := measureInterleaved(ctx, *base, *head, scanArgs(*extra), dir, *rounds, logf)
+		bs, hs, err := measureInterleaved(ctx, side{Bin: *base, Env: baseEnv, FIR: *fir}, side{Bin: *head, Env: headEnv, FIR: *fir},
+			scanArgs(*fir, *extra), dir, *rounds, logf)
 		if err != nil {
 			return false, err
 		}
@@ -172,22 +199,22 @@ func cmdScale(args []string) (bool, error) {
 	}
 	ctx := context.Background()
 	logf("perfguard: scaling %s -> %s, %d rounds each", *small, *large, *rounds)
-	ss, err := measure(ctx, *bin, scanArgs(*extra), *small, *rounds)
+	ss, err := measure(ctx, *bin, scanArgs(false, *extra), *small, *rounds)
 	if err != nil {
 		return false, err
 	}
-	ls, err := measure(ctx, *bin, scanArgs(*extra), *large, *rounds)
+	ls, err := measure(ctx, *bin, scanArgs(false, *extra), *large, *rounds)
 	if err != nil {
 		return false, err
 	}
 	results, stale := checkScaling(summarize(ss), summarize(ls), g, known)
 	if *baseBin != "" {
 		logf("perfguard: scaling the base binary too")
-		bss, err := measure(ctx, *baseBin, scanArgs(*extra), *small, *rounds)
+		bss, err := measure(ctx, *baseBin, scanArgs(false, *extra), *small, *rounds)
 		if err != nil {
 			return false, err
 		}
-		bls, err := measure(ctx, *baseBin, scanArgs(*extra), *large, *rounds)
+		bls, err := measure(ctx, *baseBin, scanArgs(false, *extra), *large, *rounds)
 		if err != nil {
 			return false, err
 		}
@@ -200,4 +227,31 @@ func cmdScale(args []string) (bool, error) {
 	}
 	defer closeFn()
 	return writeScaleReport(w, *small, *large, results, stale, g, known), nil
+}
+
+// firGatesWith is defaultFIRGates with the gate flags the command line set
+// (from parsed, which holds every flag's value) laid over it.
+func firGatesWith(fs *flag.FlagSet, parsed gates) gates {
+	g := defaultFIRGates
+	fs.Visit(func(f *flag.Flag) {
+		switch f.Name {
+		case "total-pct":
+			g.TotalPct = parsed.TotalPct
+		case "total-min-ms":
+			g.TotalMinMs = parsed.TotalMinMs
+		case "phase-pct":
+			g.PhasePct = parsed.PhasePct
+		case "phase-min-ms":
+			g.PhaseMinMs = parsed.PhaseMinMs
+		case "rule-pct":
+			g.RulePct = parsed.RulePct
+		case "rule-min-ms":
+			g.RuleMinMs = parsed.RuleMinMs
+		case "max-rule-share":
+			g.MaxRuleShare = parsed.MaxRuleShare
+		case "new-rule-max-ms":
+			g.NewRuleMaxMs = parsed.NewRuleMaxMs
+		}
+	})
+	return g
 }

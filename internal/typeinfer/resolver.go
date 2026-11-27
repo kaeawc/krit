@@ -60,6 +60,10 @@ type ClassInfo struct {
 	Line             int
 	NameScopeStart   uint32
 	NameScopeEnd     uint32
+	// Outer is the FQN krit-fir gives the enclosing class or object, so that
+	// Outer.Name is this class's krit-fir FQN. It is empty for a top-level
+	// class and for a local one, which krit-fir does not name by a container.
+	Outer string
 }
 
 func (r *defaultResolver) recordClassScope(fqn string, info *ClassInfo) {
@@ -490,6 +494,13 @@ func (s *ScopeTable) MarkSmartCastAfter(name string, startByte uint32) {
 	if current, ok := s.SmartCastStarts[name]; !ok || startByte < current {
 		s.SmartCastStarts[name] = startByte
 	}
+}
+
+// SourceClassFinder is an optional TypeResolver capability that finds the
+// source-declared class krit-fir names fqn: a top-level class by its FQN, a
+// nested one by its enclosing class's FQN and simple name.
+type SourceClassFinder interface {
+	SourceClass(fqn string) *ClassInfo
 }
 
 // SubtypeFinder is an optional TypeResolver capability that answers whether any indexed source

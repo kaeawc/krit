@@ -1,6 +1,7 @@
 package oracle
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/kaeawc/krit/internal/typeinfer"
@@ -19,7 +20,7 @@ func (f hierarchyOnlyFallback) ClassHierarchy(name string) *typeinfer.ClassInfo 
 	if c, ok := f.classes[name]; ok {
 		return c
 	}
-	return f.bySimple[simpleSupertypeName(name)]
+	return f.bySimple[name[strings.LastIndexByte(name, '.')+1:]]
 }
 
 // krit-fir renders a supertype outside its classpath as an error type, which

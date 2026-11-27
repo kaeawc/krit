@@ -46,6 +46,16 @@ func TestCrossFileFactsHash(t *testing.T) {
 	}
 }
 
+// The oracle names a nested class by its enclosing class, so moving it to
+// another one changes what other files resolve (#1928).
+func TestCrossFileFactsHashFollowsEnclosingClass(t *testing.T) {
+	inA := crossFileFactsOf(t, "package p\n\nclass A {\n    open class Inner : View()\n}\n\nclass B\n")
+	inB := crossFileFactsOf(t, "package p\n\nclass A\n\nclass B {\n    open class Inner : View()\n}\n")
+	if inA.Hash == inB.Hash {
+		t.Fatal("moving a nested class to another enclosing class kept the hash")
+	}
+}
+
 func TestCrossFileFactsNamesIncludeSupertypes(t *testing.T) {
 	facts := crossFileFactsOf(t, "package p\n\nsealed class Shape\n\nclass Circle : Shape()\n")
 	for _, n := range []string{"Shape", "p.Shape", "Circle", "p.Circle"} {

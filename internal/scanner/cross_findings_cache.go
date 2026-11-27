@@ -115,6 +115,10 @@ const crossFindingsMagic uint32 = 0x4b464e44 // "KFND"
 // directly; the columnar form is the canonical cross-rule output.
 type crossFindingsPayload struct {
 	Columns FindingColumns
+	// FileTags are the caller's per-path tags for the content the findings
+	// were computed from (SaveCrossFindingsTagged); nil when none were
+	// recorded. A payload written before the field existed decodes as nil.
+	FileTags map[string]uint16
 }
 
 // LoadCrossFindings reads cached cross-rule findings for the given key.
@@ -124,101 +128,111 @@ func LoadCrossFindings(cacheDir, key string) (FindingColumns, bool) {
 	if cacheDir == "" || key == "" {
 		return FindingColumns{}, false
 	}
-	return loadCrossFindings(cacheDir, key, true)
+	payload, ok := loadCrossFindings(cacheDir, key, true)
+	return payload.Columns, ok
 }
 
 // LoadLastCrossFindings reads the single on-disk cross-findings snapshot
 // without requiring the caller to know its key. This is for warm-delta
 // planning: the cache file is intentionally a last-value slot, so a
 // body-only edit can reuse the previous snapshot before the current
-// content fingerprint is available.
-func LoadLastCrossFindings(cacheDir string) (FindingColumns, bool) {
+// content fingerprint is available. It also returns the file tags saved with
+// the snapshot, nil when none were.
+func LoadLastCrossFindings(cacheDir string) (FindingColumns, map[string]uint16, bool) {
 	if cacheDir == "" {
-		return FindingColumns{}, false
+		return FindingColumns{}, nil, false
 	}
-	return loadCrossFindings(cacheDir, "", false)
+	payload, ok := loadCrossFindings(cacheDir, "", false)
+	return payload.Columns, payload.FileTags, ok
 }
 
-func loadCrossFindings(cacheDir, key string, requireKey bool) (FindingColumns, bool) {
+func loadCrossFindings(cacheDir, key string, requireKey bool) (crossFindingsPayload, bool) {
 	path := filepath.Join(cacheDir, crossFindingsCacheFile)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		crossFindingsMisses.Add(1)
-		return FindingColumns{}, false
+		return crossFindingsPayload{}, false
 	}
 	if len(data) < 4+4+2+4+8 {
 		crossFindingsMisses.Add(1)
-		return FindingColumns{}, false
+		return crossFindingsPayload{}, false
 	}
 	r := bytes.NewReader(data)
 	var hdr crossFindingsHeader
 	if err := binary.Read(r, binary.BigEndian, &hdr.Magic); err != nil {
 		crossFindingsMisses.Add(1)
-		return FindingColumns{}, false
+		return crossFindingsPayload{}, false
 	}
 	if hdr.Magic != crossFindingsMagic {
 		crossFindingsMisses.Add(1)
-		return FindingColumns{}, false
+		return crossFindingsPayload{}, false
 	}
 	if err := binary.Read(r, binary.BigEndian, &hdr.Version); err != nil || hdr.Version != crossFindingsCacheVersion {
 		crossFindingsMisses.Add(1)
-		return FindingColumns{}, false
+		return crossFindingsPayload{}, false
 	}
 	if err := binary.Read(r, binary.BigEndian, &hdr.KeyLen); err != nil {
 		crossFindingsMisses.Add(1)
-		return FindingColumns{}, false
+		return crossFindingsPayload{}, false
 	}
 	storedKey := make([]byte, hdr.KeyLen)
 	if _, err := io.ReadFull(r, storedKey); err != nil {
 		crossFindingsMisses.Add(1)
-		return FindingColumns{}, false
+		return crossFindingsPayload{}, false
 	}
 	if requireKey && string(storedKey) != key {
 		crossFindingsMisses.Add(1)
-		return FindingColumns{}, false
+		return crossFindingsPayload{}, false
 	}
 	if err := binary.Read(r, binary.BigEndian, &hdr.CRC32); err != nil {
 		crossFindingsMisses.Add(1)
-		return FindingColumns{}, false
+		return crossFindingsPayload{}, false
 	}
 	if err := binary.Read(r, binary.BigEndian, &hdr.Length); err != nil {
 		crossFindingsMisses.Add(1)
-		return FindingColumns{}, false
+		return crossFindingsPayload{}, false
 	}
 	// A garbage length (for example from a torn cache file) must read as a
 	// miss, not drive a huge allocation.
 	if hdr.Length > uint64(r.Len()) {
 		crossFindingsMisses.Add(1)
-		return FindingColumns{}, false
+		return crossFindingsPayload{}, false
 	}
 	compressed := make([]byte, hdr.Length)
 	if _, err := io.ReadFull(r, compressed); err != nil {
 		crossFindingsMisses.Add(1)
-		return FindingColumns{}, false
+		return crossFindingsPayload{}, false
 	}
 	if crc32.ChecksumIEEE(compressed) != hdr.CRC32 {
 		crossFindingsMisses.Add(1)
-		return FindingColumns{}, false
+		return crossFindingsPayload{}, false
 	}
 	raw, err := shardZstdDecoder.DecodeAll(compressed, nil)
 	if err != nil {
 		crossFindingsMisses.Add(1)
-		return FindingColumns{}, false
+		return crossFindingsPayload{}, false
 	}
 	var payload crossFindingsPayload
 	if err := gob.NewDecoder(bytes.NewReader(raw)).Decode(&payload); err != nil {
 		crossFindingsMisses.Add(1)
-		return FindingColumns{}, false
+		return crossFindingsPayload{}, false
 	}
 	crossFindingsHits.Add(1)
 	crossFindingsBytes.Store(int64(len(data)))
-	return payload.Columns, true
+	return payload, true
 }
 
 // SaveCrossFindings writes cached cross-rule findings for the given
 // key. Best-effort: any error returns nil after recording a miss
 // counter, since cache failures should never break analysis.
 func SaveCrossFindings(cacheDir, key string, cols FindingColumns) error {
+	return SaveCrossFindingsTagged(cacheDir, key, cols, nil)
+}
+
+// SaveCrossFindingsTagged is SaveCrossFindings that also records per-path
+// tags describing the content the findings were computed from, which
+// LoadLastCrossFindings returns with them.
+func SaveCrossFindingsTagged(cacheDir, key string, cols FindingColumns, fileTags map[string]uint16) error {
 	if cacheDir == "" || key == "" {
 		return nil
 	}
@@ -226,7 +240,7 @@ func SaveCrossFindings(cacheDir, key string, cols FindingColumns) error {
 		return err
 	}
 	var buf bytes.Buffer
-	if err := gob.NewEncoder(&buf).Encode(crossFindingsPayload{Columns: cols}); err != nil {
+	if err := gob.NewEncoder(&buf).Encode(crossFindingsPayload{Columns: cols, FileTags: fileTags}); err != nil {
 		return err
 	}
 	compressed := shardZstdEncoder.EncodeAll(buf.Bytes(), nil)

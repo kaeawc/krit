@@ -1528,11 +1528,8 @@ func loadWarmCrossFindings(args ProjectArgs, host ProjectHostState, warm warmAna
 	}
 	if warm.result != nil && warm.result.TotalFiles > 0 && warm.result.TotalCached != warm.result.TotalFiles {
 		missPaths := CacheMissPaths(warm.filePaths, warm.result)
-		if canReuseCrossFindingsForLexicallyIrrelevantMisses(args.ActiveRules, missPaths) {
-			cols, ok := scanner.LoadLastCrossFindings(host.CrossFindingsCacheDir)
-			if ok {
-				return true, &cols
-			}
+		if cols, tags, ok := scanner.LoadLastCrossFindings(host.CrossFindingsCacheDir); ok && canReuseCrossFindingsForLexicallyIrrelevantMisses(args.ActiveRules, missPaths, tags) {
+			return true, &cols
 		}
 		return false, nil
 	}

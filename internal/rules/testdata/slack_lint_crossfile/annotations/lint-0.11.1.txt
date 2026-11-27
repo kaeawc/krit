@@ -1,0 +1,10 @@
+src/main/java/com/example/Api.kt:22:3: MustUseNamedParams: Calls to @MustUseNamedParams-annotated methods must name all parameters.
+src/main/java/com/example/TP.kt:10:3: TestParameterSiteTarget: TestParameter annotation has the wrong site target
+src/main/java/com/example/TP.kt:6:3: TestParameterSiteTarget: TestParameter annotation has the wrong site target
+src/main/java/com/example/TP.kt:8:3: TestParameterSiteTarget: TestParameter annotation has the wrong site target
+src/main/java/com/example/other/Use.kt:11:3: MustUseNamedParams: Calls to @MustUseNamedParams-annotated methods must name all parameters.
+src/main/java/com/example/other/Use.kt:13:3: MustUseNamedParams: Calls to @MustUseNamedParams-annotated methods must name all parameters.
+src/main/java/com/example/other/Use.kt:15:3: RestrictCallsTo: Methods annotated with @RestrictedCallsTo should only be called from the specified scope.
+src/main/java/com/example/other/Use.kt:16:3: RestrictCallsTo: Methods annotated with @RestrictedCallsTo should only be called from the specified scope.
+src/main/java/com/example/other/Use.kt:22:5: RestrictCallsTo: Methods annotated with @RestrictedCallsTo should only be called from the specified scope.
+src/main/java/com/example/other/Use.kt:9:3: MustUseNamedParams: Calls to @MustUseNamedParams-annotated methods must name all parameters.

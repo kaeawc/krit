@@ -304,10 +304,13 @@ func axlStatementProvesNonNull(file *scanner.File, st uint32, name string) bool 
 	text := axlCompactText(file, st)
 	for _, proof := range []string{name + "!!", name + "?:return", name + "?:throw", "requireNotNull(" + name,
 		"checkNotNull(" + name, "require(" + name + "!=null", "require(null!=" + name, "check(" + name + "!=null",
-		"check(null!=" + name, name + "?:error(", name + "?:TODO(", name + "?:run{return"} {
+		"check(null!=" + name, name + "?:error(", name + "?:TODO("} {
 		if strings.Contains(text, proof) {
 			return true
 		}
+	}
+	if axlElvisRunExits(file, st, name) {
+		return true
 	}
 	switch file.FlatType(st) {
 	case "if_expression":
@@ -367,6 +370,36 @@ func axlBodyExits(file *scanner.File, body uint32) bool {
 		return !hasReceiver && (name == "error" || name == "TODO") && len(acrFunctionDecls(file, name)) == 0
 	}
 	return false
+}
+
+// axlElvisRunExits reports whether a statement contains `name ?: run { …; exit }`: an elvis whose right side is a
+// receiverless `run` call (not a same-file lookalike) and whose lambda ends in an exit. `return@run` only leaves
+// the lambda, so it is not an exit.
+func axlElvisRunExits(file *scanner.File, st uint32, name string) bool {
+	found := false
+	file.FlatWalkNodes(st, "elvis_expression", func(elvis uint32) {
+		if found || file.FlatNamedChildCount(elvis) != 2 || axlCompactText(file, file.FlatNamedChild(elvis, 0)) != name {
+			return
+		}
+		call := file.FlatNamedChild(elvis, 1)
+		if file.FlatType(call) != "call_expression" {
+			return
+		}
+		callee, _, hasReceiver := acrCallCallee(file, call)
+		if callee != "run" || hasReceiver || len(acrFunctionDecls(file, "run")) != 0 {
+			return
+		}
+		lambda := axlTrailingLambda(file, call)
+		body, ok := file.FlatFindChild(lambda, "statements")
+		if lambda == 0 || !ok {
+			return
+		}
+		if last := flatLastNamedChild(file, body); strings.HasPrefix(axlCompactText(file, last), "return@run") {
+			return
+		}
+		found = axlBodyExits(file, lambda)
+	})
+	return found
 }
 
 // axlIsElseBranch reports whether child is the else body of an if_expression.

@@ -1,0 +1,2 @@
+- src/main/res/values/strings.xml:9:34: StringEscaping: Apostrophe not preceded by \\ # Lint places a text node that follows a child element (<b>Bold</b>) from the earlier text's offset, so its column lands inside "Bold"; krit reports the apostrophe itself.
++ src/main/res/values/strings.xml:9:42: StringEscaping: Apostrophe not preceded by \\ # Same finding at the apostrophe's real column.

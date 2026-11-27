@@ -16,6 +16,8 @@ type axlRuleOptions struct {
 	Fix               api.FixLevel
 	Needs             api.Capabilities
 	NeedsLibraryFacts bool
+	// OptionalResolver gives the rule the type resolver when one is available; the rule must work without it.
+	OptionalResolver bool
 }
 
 // registerAxlRule registers an AndroidX Lint port under its Lint issue ID, so lint.xml and Gradle `lint { }`
@@ -42,7 +44,8 @@ func registerAxlRule(rule BaseRule, impl any, nodeTypes []string, languages []sc
 	api.Register(&api.Rule{
 		ID: rule.RuleName, Category: rule.RuleSetName, Description: rule.Desc, Sev: api.Severity(rule.Sev),
 		NodeTypes: nodeTypes, Languages: languages, Confidence: confidence, Fix: opts.Fix, Needs: opts.Needs,
-		NeedsLibraryFacts: opts.NeedsLibraryFacts, Implementation: impl, Check: check, FileGate: gate, LintIssue: true,
+		NeedsLibraryFacts: opts.NeedsLibraryFacts, OptionalResolver: opts.OptionalResolver, Implementation: impl,
+		Check: check, FileGate: gate, LintIssue: true,
 	})
 }
 

@@ -1,0 +1,11 @@
+<resources>
+    <string name="escaped">Don\'t do that</string>
+    <string name="double_quoted">"Don't do that"</string>
+    <string name="unicode">Good \u12F4 escape</string>
+    <string name="slashes">Path \\ and \n and \t and \@ and \? and \#</string>
+    <string name="empty"></string>
+    <string name="trailing_backslash">ends with \\</string>
+    <!-- <string name="comment">Don't</string> -->
+    <integer name="count">3</integer>
+    <item type="string" name="alias">Don\'t</item>
+</resources>

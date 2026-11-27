@@ -64,6 +64,81 @@ import, as it does in Kotlin.
   Bazel `MODULE.bazel`/`WORKSPACE` counts for the whole build.
   Fully qualified references such as `androidx.compose.material.Button()` are not reported, as in Lint.
 
+## Compose foundation
+
+`androidx.compose.foundation:foundation-android` 1.13.0 (Kotlin):
+
+- `UseOfNonLambdaOffsetOverload` reports `Modifier.offset(x, y)` and `absoluteOffset(x, y)` (the `Dp` overloads from
+  `androidx.compose.foundation.layout`) when an argument reads State: a value declared or initialized as a `State`,
+  `MutableState` or `Animatable` (`mutableStateOf`, `remember { … }`, `animate*AsState`, `derivedStateOf`,
+  `collectAsState`, `Animatable(…)`), the `.value` of one, or a local delegated `by` one. A value copied out of a State
+  first (`val v = state.value`) is not State-backed, as in Lint.
+- `UnusedBoxWithConstraintsScope` reports a `BoxWithConstraints` content lambda that never uses its scope, at the
+  lambda: no `this`, no read of `maxWidth`, `maxHeight`, `minWidth`, `minHeight` or `constraints` (including string
+  templates), no call of a same-file `BoxWithConstraintsScope` extension, and no invocation of a value typed with a
+  `BoxWithConstraintsScope` receiver.
+- `TextFieldBufferInternalAppend` reports `append` on a `TextFieldBuffer` (declared as one, or the implicit receiver of
+  `with(buffer)`, a `TextFieldBuffer` extension or an `edit { }` block) in files whose package is
+  `androidx.compose.foundation` or below. It guards AndroidX's own code, as in Lint, so it never fires in apps.
+
+## Opt-in markers
+
+`androidx.annotation:annotation-experimental` 1.6.0, on annotation declarations in production sources:
+
+- `ExperimentalAnnotationRetention` (Kotlin and Java) reports an opt-in marker (an annotation class meta-annotated
+  with `kotlin.RequiresOptIn`, `kotlin.Experimental`, `androidx.annotation.RequiresOptIn` or
+  `androidx.annotation.experimental.Experimental`) whose retention is not the expected one, at its name: Kotlin
+  markers need an explicit `kotlin.annotation.Retention(AnnotationRetention.BINARY)` (the default is `RUNTIME`), Java
+  markers the default `CLASS`. As in Lint, a Kotlin `java.lang.annotation.Retention` does not count, and the message
+  calls a retention equal to the default "default (`…`)".
+- `WrongRequiresOptIn` (Kotlin) reports a Kotlin annotation class marked with `androidx.annotation.RequiresOptIn`,
+  whose opt-in policy the Kotlin compiler does not enforce; use `kotlin.RequiresOptIn`.
+
+Annotation names resolve through imports (aliases and star imports), the file's package and Kotlin's default
+`kotlin.*` / `kotlin.annotation.*` imports.
+
+- `UnsafeOptInUsageError` and `UnsafeOptInUsageWarning` (Kotlin and Java) report a use of an API marked with an
+  opt-in marker declared in the project, by the marker's level, without opting in: a call, constructor call or member
+  call (including through a Kotlin file facade such as `ApiKt.fn()` from Java) whose target carries the marker,
+  directly or through its class. A member call's receiver type comes from a same-file declaration (a Kotlin or Java
+  local, parameter or field) or a class name. An unqualified Kotlin call that binds to a local function, a lambda or
+  function parameter, a local or class property, or an enclosing class's companion object is not the marked top-level
+  function. Lint also reports a Java type reference to a marked class (`MarkedClass field;`); krit does not yet (#1826).
+  The use is accepted when an enclosing declaration (or the file, `@file:OptIn`) is
+  annotated with the marker itself or opts in with an annotation the marker accepts: androidx markers need
+  `androidx.annotation.OptIn` (a `kotlin.OptIn` does not count, as in Lint), Kotlin markers accept either. As in Lint,
+  Kotlin code is only checked against androidx markers, since the Kotlin compiler enforces `kotlin.RequiresOptIn`
+  itself; Java code is checked against both. The message is the marker's `message`, or Lint's default. Both run
+  once per scan over every source file (markers, marked APIs and uses live in different files). Markers declared in
+  libraries (CameraX, Media3, …) are not known, because their class files are not read, and the lint.xml `opt-in`
+  option is not read either.
+
+## Lifecycle
+
+`androidx.lifecycle` 2.11.1 (`lifecycle-runtime`, `lifecycle-runtime-compose`, `lifecycle-runtime-testing`,
+`lifecycle-viewmodel-compose`), Kotlin:
+
+- `LifecycleCurrentStateInComposition` reports `….currentState` read in composition on a `Lifecycle`: a value
+  declared or initialized as a `Lifecycle` or `LifecycleRegistry`, or `owner.lifecycle` where the owner is a known
+  `LifecycleOwner` (Activity, Fragment, `LocalLifecycleOwner.current`, …) or a same-file class whose `lifecycle` is a
+  `Lifecycle`. An owner whose type is not in the file falls back to the property name, which `LifecycleOwner`
+  defines; a same-file class whose `lifecycle` is something else is not reported. Lint's quick fix
+  (`currentStateAsState().value` plus an import) is not ported.
+- `ViewModelConstructorInComposable` reports a constructor call of an `androidx.lifecycle.ViewModel` subclass declared
+  in the same file, in composition, at the class name. The per-file findings cache is keyed by the file's own content
+  (#1778), so a ViewModel declared in another file is not checked yet.
+- `TestLifecycleOwnerInCoroutine` reports a `kotlinx.coroutines.test.runTest { }` whose body's last assignment of a
+  constant is `….currentState = Lifecycle.State.X` (the blocking setter hangs inside a coroutine; use
+  `setCurrentState`), at `runTest`. It follows the detector source and its tests: the Lint CLI 9.4 reported nothing
+  for this ID against the released `lifecycle-runtime-testing` and `kotlinx-coroutines-test` classes. As in the
+  detector, the owner's type is not checked, and a later assignment of another constant clears the report.
+- `RepeatOnLifecycleWrongUsage` reports `repeatOnLifecycle` reached from `onStart` or `onResume` of a Kotlin class
+  extending `Fragment` or `androidx.core.app.ComponentActivity` (so also `ComponentActivity`, `FragmentActivity` and
+  `AppCompatActivity`), proven from the file alone (an imported androidx supertype or a same-file base class, for the
+  same cache reason), in production sources, with Lint's message naming the class and method. Unqualified and
+  `this.` calls are followed into functions declared in the same file, each once per class, as Lint follows each
+  method once; Lint also follows calls into other files. `super` calls are not followed.
+
 ## Lifecycle runtime and LiveData
 
 `androidx.lifecycle:lifecycle-livedata-core` and `lifecycle-runtime` 2.11.1 (Kotlin, production sources):
@@ -74,8 +149,8 @@ import, as it does in Kotlin.
   receiver's same-file declaration (its declared `LiveData`/`MutableLiveData`/`MediatorLiveData` type, a
   `MutableLiveData<T>()` initializer, or the supertype of a same-file subclass). A nullable value is a name declared
   with a nullable type, unless an enclosing `if`/`when` condition null-checks it, it is inside the lambda of a safe
-  call on it (`x?.let { }`), or an earlier statement proves it non-null (`!!`, `?: return`, `requireNotNull`,
-  `require`/`check(x != null)`, `if (x == null || …) return`, an `isNullOrEmpty`/`isNullOrBlank` exit, or a
+  call on it (`x?.let { }`), or an earlier statement proves it non-null (`!!`, `?: return`, a `?: run { }` block
+  whose last statement exits (not `return@run`), `requireNotNull`, `require`/`check(x != null)`, `if (x == null || …) return`, an `isNullOrEmpty`/`isNullOrBlank` exit, or a
   subject-less `when` whose entries up to `x == null -> return` all exit), or a call of a same-file function with a
   nullable return type.
 - `UnsafeLifecycleWhenUsage` reports View access in the `finally` block of a `try` that makes a suspend call, inside

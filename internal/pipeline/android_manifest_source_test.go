@@ -167,6 +167,254 @@ func TestManifestSourcePass_CachesAndInvalidatesOnEitherInput(t *testing.T) {
 	step("source edit unparsed", false, 1, 1)
 }
 
+// TestManifestSourcePass_InvalidatesOnGroovyBuildScriptEdit pins #1625 review: ProviderReadPermissionOnly reads the
+// app's Groovy build.gradle (not a source file) to decide whether a library provider reaches the merged manifest, so
+// the manifest-source key must cover the project's build scripts. Every warm result must equal a cache-free run.
+func TestManifestSourcePass_InvalidatesOnGroovyBuildScriptEdit(t *testing.T) {
+	const (
+		appBuildRel = "app/build.gradle"
+		libBuildRel = "lib/build.gradle.kts"
+		settingsRel = "settings.gradle.kts"
+		appManRel   = "app/src/main/AndroidManifest.xml"
+		libManRel   = "lib/src/main/AndroidManifest.xml"
+		providerRel = "lib/src/main/java/com/example/lib/NotesProvider.kt"
+		depends     = "plugins { id 'com.android.application' }\n\ndependencies {\n    implementation project(':lib')\n}\n"
+		independent = "plugins { id 'com.android.application' }\n"
+	)
+	p := &manifestSourceProject{t: t, dir: t.TempDir()}
+	p.write(settingsRel, "include(\":app\", \":lib\")\n")
+	p.write(appBuildRel, depends)
+	p.write(libBuildRel, "plugins { id(\"com.android.library\") }\n")
+	p.write(appManRel, "<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\" package=\"com.example.app\">\n    <application />\n</manifest>\n")
+	p.write(libManRel, "<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\" package=\"com.example.lib\">\n    <application>\n        <provider android:name=\".NotesProvider\" android:authorities=\"a\" android:readPermission=\"com.example.READ\" />\n    </application>\n</manifest>\n")
+	p.write(providerRel, `package com.example.lib
+
+import android.content.ContentProvider
+import android.content.ContentValues
+import android.net.Uri
+
+class NotesProvider : ContentProvider() {
+    override fun insert(uri: Uri, values: ContentValues?): Uri? = uri
+}
+`)
+	var rule *api.Rule
+	for _, r := range api.Registry {
+		if r.ID == "ProviderReadPermissionOnly" {
+			rule = r
+		}
+	}
+	if rule == nil {
+		t.Fatal("ProviderReadPermissionOnly is not registered")
+	}
+	cacheDir := filepath.Join(p.dir, ".krit", "android-findings-cache")
+	run := func(cacheDir string) int {
+		t.Helper()
+		hashutil.ResetDefault()
+		writer := scanner.NewAndroidCacheWriter(2)
+		res, err := (AndroidPhase{}).Run(context.Background(), AndroidInput{
+			Project: &android.Project{
+				ManifestPaths: []string{p.path(appManRel), p.path(libManRel)},
+				GradlePaths:   []string{p.path(settingsRel), p.path(appBuildRel), p.path(libBuildRel)},
+			},
+			ActiveRules:    []*api.Rule{rule},
+			Dispatcher:     rules.NewDispatcher([]*api.Rule{rule}, nil),
+			SourceFiles:    []*scanner.File{parseKotlinForTest(t, p.path(providerRel), readFile(t, p.path(providerRel)))},
+			SourcePaths:    []string{p.path(providerRel)},
+			RuleHash:       "test-rule-hash",
+			LibraryFactsFP: "test-lf",
+			CacheDir:       cacheDir,
+			CacheWriter:    writer,
+		})
+		if err != nil {
+			t.Fatalf("AndroidPhase.Run: %v", err)
+		}
+		if err := writer.Close(); err != nil {
+			t.Fatal(err)
+		}
+		return res.Findings.Len()
+	}
+	step := func(label string, want int) {
+		t.Helper()
+		if got := run(""); got != want {
+			t.Fatalf("%s: cache-free findings = %d, want %d", label, got, want)
+		}
+		if got := run(cacheDir); got != want {
+			t.Fatalf("%s: warm findings = %d, cache-free %d", label, got, want)
+		}
+	}
+	step("cold", 1)
+	step("warm unchanged", 1)
+	p.write(appBuildRel, independent)
+	step("dependency removed", 0)
+	p.write(appBuildRel, depends)
+	step("dependency restored", 1)
+}
+
+// TestManifestSourcePass_InvalidatesOnBuildFilesOutsideTheScan pins the #1800 second review: a scan of only app and
+// lib has neither the settings file nor the intermediate module's build script in Project.GradlePaths, yet
+// ProviderReadPermissionOnly's module graph reads both. Editing only one of them must not replay the cached result.
+// Without a settings file there is no graph, but the rule still reads each manifest's own build script (whether the
+// module is an app, its namespace), which a scan of only the source directories doesn't hold (#1800 fourth review).
+func TestManifestSourcePass_InvalidatesOnBuildFilesOutsideTheScan(t *testing.T) {
+	const (
+		settingsRel = "settings.gradle"
+		appBuildRel = "app/build.gradle.kts"
+		libBuildRel = "lib/build.gradle.kts"
+		appManRel   = "app/src/main/AndroidManifest.xml"
+		libManRel   = "lib/src/main/AndroidManifest.xml"
+		providerRel = "lib/src/main/java/com/example/lib/NotesProvider.kt"
+		unmapped    = "include ':app', ':lib', ':feat'\n"
+		apiDep      = "plugins { id(\"com.android.library\") }\n\ndependencies {\n    api(project(\":lib\"))\n}\n"
+		testOnly    = "plugins { id(\"com.android.library\") }\n\ndependencies {\n    testImplementation(project(\":lib\"))\n}\n"
+		library     = "plugins { id(\"com.android.library\") }\n"
+		application = "plugins {\n    id(\"com.android.application\")\n}\n"
+	)
+	const catalogRel = "gradle/libs.versions.toml"
+	catalogOf := func(id string) string {
+		return "[plugins]\nandroid-application = { id = \"" + id + "\", version = \"8.5.0\" }\n"
+	}
+	// edit writes body to rel; want is the finding count after it, and unkeyed marks a file no rule reads, whose edit
+	// must leave the findings-bundle key alone.
+	type edit struct {
+		rel, body string
+		want      int
+		unkeyed   bool
+	}
+	// :feat lives in featureDir only through the projectDir mapping.
+	mapped := func(featureDir string) string {
+		return "include ':app', ':lib', ':feat'\nproject(':feat').projectDir = file('" + featureDir + "')\n"
+	}
+	setup := func(t *testing.T, featureDir string, noSettings bool) *manifestSourceProject {
+		p := &manifestSourceProject{t: t, dir: t.TempDir()}
+		if !noSettings {
+			p.write(settingsRel, mapped(featureDir))
+		}
+		p.write(appBuildRel, "plugins { id(\"com.android.application\") }\n\ndependencies {\n    implementation(project(\":feat\"))\n}\n")
+		p.write(libBuildRel, "plugins { id(\"com.android.library\") }\n")
+		p.write(featureDir+"/build.gradle.kts", apiDep)
+		p.write(appManRel, "<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\" package=\"com.example.app\">\n    <application />\n</manifest>\n")
+		p.write(libManRel, "<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\" package=\"com.example.lib\">\n    <application>\n        <provider android:name=\".NotesProvider\" android:authorities=\"a\" android:readPermission=\"com.example.READ\" />\n    </application>\n</manifest>\n")
+		p.write(providerRel, "package com.example.lib\n\nimport android.content.ContentProvider\nimport android.content.ContentValues\nimport android.net.Uri\n\nclass NotesProvider : ContentProvider() {\n    override fun insert(uri: Uri, values: ContentValues?): Uri? = uri\n}\n")
+		return p
+	}
+	var rule *api.Rule
+	for _, r := range api.Registry {
+		if r.ID == "ProviderReadPermissionOnly" {
+			rule = r
+		}
+	}
+	if rule == nil {
+		t.Fatal("ProviderReadPermissionOnly is not registered")
+	}
+	catalogApp := []edit{
+		{appBuildRel, "plugins { alias(libs.plugins.android.application) }\n\ndependencies {\n    implementation(project(\":feat\"))\n}\n", 0, false},
+		{catalogRel, catalogOf("com.android.application"), 0, false},
+	}
+	for _, test := range []struct {
+		name, featureDir string
+		// scanSettings adds the settings file to the scanned Gradle files.
+		scanSettings bool
+		// noSettings leaves out the settings file, and the scan holds no Gradle file: `krit app/src lib/src`.
+		noSettings bool
+		edits      []edit
+		// before is written before the cold run.
+		before []edit
+	}{
+		// A scan of only app/ and lib/.
+		{"intermediate module script", "feature", false, false, []edit{{"feature/build.gradle.kts", testOnly, 0, false}}, nil},
+		{"settings file", "feature", false, false, []edit{{settingsRel, unmapped, 0, false}}, nil},
+		// An explicit file list (or a git file list with feature/ ignored) that holds the settings file but not the
+		// intermediate module's script (#1800 third review).
+		{"settings scanned, intermediate module script not", "feature", true, false,
+			[]edit{{"feature/build.gradle.kts", testOnly, 0, false}}, nil},
+		// `krit .`: detection skips dot-directories, but the settings file maps a module into one.
+		{"module mapped into a dot-directory", ".modules/feature", true, false,
+			[]edit{{".modules/feature/build.gradle.kts", testOnly, 0, false}}, nil},
+		// No settings file: the app's own build script decides whether it is an app (#1800 fourth review).
+		{"no settings file, app module turns library and back", "feature", false, true,
+			[]edit{{appBuildRel, library, 0, false}, {appBuildRel, application, 1, false}}, nil},
+		// A build script created nearer the manifest takes over, so a missing candidate is keyed too.
+		{"no settings file, nearer build script created", "feature", false, true,
+			[]edit{{"app/src/build.gradle.kts", library, 0, false}}, nil},
+		// A build script that is no manifest's candidate and in no graph doesn't move the key.
+		{"no settings file, unrelated build script", "feature", false, true,
+			[]edit{{"tools/build.gradle.kts", library, 1, true}}, nil},
+		// The app applies its plugin through a version-catalog alias, so the catalog decides whether it is an app:
+		// editing only the catalog, or creating one its search reaches first, must re-run the rule (#1800 fifth review).
+		{"version catalog plugin id", "feature", false, false,
+			[]edit{{catalogRel, catalogOf("com.android.library"), 0, false}, {catalogRel, catalogOf("com.android.application") + "\n", 1, false}},
+			catalogApp},
+		{"no settings file, version catalog plugin id", "feature", false, true,
+			[]edit{{catalogRel, catalogOf("com.android.library"), 0, false}}, catalogApp},
+		{"no settings file, nearer version catalog created", "feature", false, true,
+			[]edit{{"app/gradle/libs.versions.toml", catalogOf("com.android.library"), 0, false}}, catalogApp},
+		// A catalog no module's search reaches doesn't move the key.
+		{"no settings file, unrelated version catalog", "feature", false, true,
+			[]edit{{"tools/gradle/libs.versions.toml", catalogOf("com.android.library"), 1, true}}, catalogApp},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			p := setup(t, test.featureDir, test.noSettings)
+			for _, e := range test.before {
+				p.write(e.rel, e.body)
+			}
+			cacheDir := filepath.Join(p.dir, ".krit", "android-findings-cache")
+			project := &android.Project{
+				ManifestPaths: []string{p.path(appManRel), p.path(libManRel)},
+			}
+			if !test.noSettings {
+				project.GradlePaths = []string{p.path(appBuildRel), p.path(libBuildRel)}
+			}
+			if test.scanSettings {
+				project.GradlePaths = append(project.GradlePaths, p.path(settingsRel))
+			}
+			run := func(cacheDir string) int {
+				t.Helper()
+				hashutil.ResetDefault()
+				writer := scanner.NewAndroidCacheWriter(2)
+				res, err := (AndroidPhase{}).Run(context.Background(), AndroidInput{
+					Project:        project,
+					ActiveRules:    []*api.Rule{rule},
+					Dispatcher:     rules.NewDispatcher([]*api.Rule{rule}, nil),
+					SourceFiles:    []*scanner.File{parseKotlinForTest(t, p.path(providerRel), readFile(t, p.path(providerRel)))},
+					SourcePaths:    []string{p.path(providerRel)},
+					RuleHash:       "test-rule-hash",
+					LibraryFactsFP: "test-lf",
+					CacheDir:       cacheDir,
+					CacheWriter:    writer,
+				})
+				if err != nil {
+					t.Fatalf("AndroidPhase.Run: %v", err)
+				}
+				if err := writer.Close(); err != nil {
+					t.Fatal(err)
+				}
+				return res.Findings.Len()
+			}
+			if got := run(""); got != 1 {
+				t.Fatalf("cold cache-free findings = %d, want 1", got)
+			}
+			if got := run(cacheDir); got != 1 {
+				t.Fatalf("cold findings = %d, want 1", got)
+			}
+			for _, e := range test.edits {
+				hashutil.ResetDefault()
+				xmlBefore := xmlInputsFingerprint(ProjectHostState{}, project, nil, true)
+				p.write(e.rel, e.body)
+				hashutil.ResetDefault()
+				if moved := xmlInputsFingerprint(ProjectHostState{}, project, nil, true) != xmlBefore; moved == e.unkeyed {
+					t.Errorf("edit of %s: findings-bundle XML inputs fingerprint moved = %v, want %v", e.rel, moved, !e.unkeyed)
+				}
+				if got := run(""); got != e.want {
+					t.Fatalf("edit of %s: cache-free findings = %d, want %d", e.rel, got, e.want)
+				}
+				if got := run(cacheDir); got != e.want {
+					t.Fatalf("edit of %s: warm findings = %d, cache-free %d", e.rel, got, e.want)
+				}
+			}
+		})
+	}
+}
+
 func TestManifestSourceRules_SkipTheCrossFilePhase(t *testing.T) {
 	var calls int64
 	rule := manifestSourceJoinRule(&calls)

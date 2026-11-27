@@ -120,6 +120,36 @@ They report only what the source proves:
 Not ported: `MoshiUsageNonMoshiClassInternal` and `MoshiUsageNonMoshiClassExternal`, which split on whether a type
 lives in Slack's own `slack.*` packages.
 
+Three checks read annotations:
+
+- `TestParameterSiteTarget` reports `@TestParameter` on a Kotlin constructor property (`val`/`var`) without the
+  `param:` site target. As in Lint, any annotation named `TestParameter` counts.
+- `MustUseNamedParams` reports a Kotlin call with a positional argument to a Kotlin function or constructor
+  annotated `@slack.lint.annotations.MustUseNamedParams`.
+- `RestrictCallsTo` reports a Kotlin call, from another file, to a function annotated
+  `@slack.lint.annotations.RestrictCallsTo`, including calls through an override.
+
+Both call checks match only what the source shows: a top-level function through its import, package or a star
+import; a constructor through its class; a member through the receiver's resolved or declared type (walking project
+supertypes as each declaring file names them), or through the enclosing class for an unqualified call. A local
+function or a member of an enclosing class (or of its project supertypes) with the same name wins over a top-level
+function, as in Kotlin. When the annotated declaration has same-named overloads in its file (or its class has other
+constructors), the call must fit its argument count and no overload's; otherwise krit abstains. Annotated
+declarations in libraries are not seen, and as in Lint 0.11.1, Java call sites are not checked. Known false
+negatives: a call through an import alias (`import com.example.f as g`), an unqualified member call from a nested,
+inner or anonymous class inside a subclass, and annotated extension functions.
+
+`JavaOnlyDetector` ports `JavaOnlyDetector` for slack-lint-annotations' `@JavaOnly` and `@KotlinOnly`. As in Lint,
+it checks Kotlin sources only (Lint leaves Java to an ErrorProne check) and reads Java declarations for them. It
+reports a class or function annotated with both; a class whose direct superclass or interface, or a function whose
+overridden function, is annotated but which does not repeat the annotation (`@KotlinOnly` is checked before
+`@JavaOnly`); an object expression or a SAM-constructor lambda of a `@JavaOnly` Java type, unless returned from a
+`@JavaOnly` function; and a call or callable reference to a `@JavaOnly` function or to any member of a `@JavaOnly`
+class, with the annotation's `reason` in the message. Calls are matched like `MustUseNamedParams` above. A finding on
+a class sits at the declaration, where Lint starts it at the KDoc above. Not checked: annotated library
+declarations, a lambda passed where a `@JavaOnly` interface is expected without its SAM constructor, and Lint's
+package-level `@KotlinOnly` lookup.
+
 The R class import-alias checks (Kotlin only, as import aliases are a Kotlin feature) read the `importAliases` option,
 Lint's `import-aliases`: entries such as `slack.l10n.R as L10nR`.
 
@@ -198,6 +228,18 @@ rules instead: `BindsWrongParameterCount` is a Lint alias of `BindsMismatchedAri
   method covers;
 - `BindingReturnType` abstains on a Kotlin expression body without a declared type, unless the body is `Unit`.
 
+`BindsTypeMismatch` and `DoNotCallProviders` complete the Dagger checks and look across the project:
+
+- `BindsTypeMismatch` is the detector's last check: a `@Binds` method none of the earlier checks reported whose
+  parameter type is not assignable to its return type. krit reports it only when the return type is a project class
+  and the parameter is either a project class whose project supertypes never reach it, or a library type, which
+  cannot implement a project type. It abstains on a parameterized return type, a library return type and a parameter
+  type the source does not show.
+- `DoNotCallProviders` reports a call from main sources to a project method annotated `@Binds`, `@Provides` or
+  `@Produces`, unless the innermost class is annotated `@Generated`. The call is matched through the class name
+  (`Module.INSTANCE.m()` and `Module.Companion.m()` from Java too), the receiver's resolved or declared type, a
+  `with`/`run`/`apply` receiver, or the enclosing class. Provider methods in libraries are not seen.
+
 The `DoNotMock*` rules port `MockDetector` and, as in Lint, look only at test sources (`src/test`, `src/androidTest`
 and the other test source sets). A mock site is a call to one of the detector's default factories
 (`org.mockito.Mockito.mock`/`spy`, `org.mockito.kotlin.mock`/`spy`, `slack.test.mockito.mock`), also under an import
@@ -219,6 +261,30 @@ Differences from Lint:
 - `DoNotMockAnything` reports alongside the other `DoNotMock*` rules. Lint runs it first, so when it is enabled the
   others stay silent;
 - `DoNotMockRecordClass` also reports Java records, which Lint 0.11.1's own tests leave out pending Lint support.
+
+`InclusiveNaming` ports `InclusiveNamingSourceCodeScanner` for Kotlin and Java. It reports nothing until its
+`blockList` option (Lint's `block-list`) lists words, for example:
+
+```yaml
+slack-lint:
+  InclusiveNaming:
+    active: true
+    blockList: [master, slave, whitelist, blacklist]
+```
+
+As in Lint, a name matches when its lower-cased text contains an entry as written, and the names checked are those of
+the file, its package and the declarations Lint's light classes have: classes, functions and methods, fields and
+Kotlin properties (as the backing field and the `getX` getter, so a `val` constructor parameter is reported twice),
+parameters, local variables and labels. A local function, a `for` loop variable and a destructured lambda parameter
+are not checked, matching Lint. Differences from Lint:
+
+- an `internal` Kotlin member is reported under its source name. Lint reports the JVM name, which carries a
+  module-dependent suffix;
+- the resource half of the detector (XML attribute names) is not ported.
+
+`Deprecation` also answers to slack-lints' `DeprecatedCall` ID, so `@SuppressLint("DeprecatedCall")` and `lint.xml`
+entries for it apply. `DeprecatedCall` reports calls to deprecated methods and constructors; `Deprecation` covers
+those and deprecated property and type references too, and uses the compiler's verdict when the type oracle runs.
 
 ## Compose lint checks (compose-lints)
 
@@ -336,6 +402,48 @@ Gradle module (recorded with `scripts/lint-parity-record.sh`, AGP 9.4.1); `TestA
 
 Lint checks the merged manifest; krit checks each manifest file, so components declared only in a variant or library
 manifest are not seen, and the watch face dependency is read from build scripts and version catalogs.
+
+## Android Lint Source Text Checks
+
+Ports of Android Lint 32.4.1 source checks, with project fixtures and recorded Lint output under
+`tests/fixtures/android-lint/<RuleID>/`:
+
+- `TrimLambda` (info, Kotlin, autofix) reports the lambda of `s.trim { it <= ' ' }` or `s.trim { it.isWhitespace() }`
+  (implicit or single named parameter, parentheses allowed) on a `String` or `CharSequence`, with or without
+  parentheses around it. The fix removes the lambda as Lint's quick fix does; it is `FixSemantic` because
+  `<= ' '` and `isWhitespace()` disagree on some characters. Without type information the receiver must be a string
+  literal or a variable declared as `String`/`CharSequence`, and a file declaring its own `trim` or `isWhitespace` is
+  skipped.
+- `TextConcatSpace` (warning, Kotlin and Java) reports a `+` of two string literals on different lines where the left
+  one ends with a word after a space, has at least two words, and the right one starts with a letter, at the right
+  literal (Kotlin: its text; Java: its opening quote). Like Lint, a Kotlin escape or template at the joint ends the
+  match.
+- `WrongCommentType` (warning, Kotlin and Java, autofix `/*` → `/**`) reports a block comment on a non-private class,
+  object, function, property with a backing field, `val`/`var` constructor parameter, accessor or enum entry that
+  holds a doc tag: a lowercase `@tag` at a line start (in Kotlin, not when the tag's text contains a period), a
+  `[text](url)` link in a KDoc description, or `{@link}`/`{@linkplain}`/`{@inheritDoc}` in a Javadoc description.
+  Kotlin binds the run of comments before a declaration to it and Lint reads the first, so a line comment first
+  hides a tagged block comment after it; Java uses the nearest comment.
+
+## Android Lint Resource XML Checks
+
+Ports of Android Lint 32.4.1 resource checks, with recorded Lint output under `tests/fixtures/android-lint/<RuleID>/`.
+Cases whose resources AGP cannot compile carry `lint-standalone.txt` and are recorded with Lint's own CLI.
+
+- `StringEscaping` (error) runs aapt's escape scanner over the first text or CDATA node of every `<string>`, and of
+  every item of a `<string-array>` or `<plurals>`, in all values folders: an apostrophe outside double quotes and not
+  preceded by `\`, or a non-hex character in a `\u` escape. Entities are decoded first, so `&apos;` counts.
+- `InvalidNavigation` (warning) reports a `<navigation>` with children but no `app:startDestination`, one whose value
+  is not an `@id/` reference, and one whose start destination is neither a child's `android:id` nor the root id of
+  an `<include>`d graph. An include of a graph that is not in the scan's resources ends the check, as in Lint.
+- `ValidRestrictions` (fatal) validates `res/xml*/` files rooted at `<restrictions>`: required `key`, `title` and
+  `restrictionType`, unique literal keys, `entries`/`entryValues` for choice and multi-select, a `defaultValue` for
+  hidden, an `Integer.decode`-able integer default, nesting only under `bundle` and `bundle_array`, and Lint's size
+  limits.
+- `RelativeClassResolution` (fatal; warning when the applicationId equals the namespace) reports
+  `layout_behavior` or `layoutManager` values starting with `.` in layouts. The namespace and applicationId are read
+  from literal assignments in the module's build script (or the manifest package); without a namespace the check is
+  skipped.
 
 ## AndroidX Library Lint Checks
 

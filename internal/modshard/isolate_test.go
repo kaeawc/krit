@@ -16,7 +16,7 @@ import (
 
 func TestIsolationUnitsKeepEveryScannedSetOfAnOwningProject(t *testing.T) {
 	model, root := fixtureModel(t)
-	units, _ := Plan(model, root, []string{root})
+	units, _ := Plan(model, root, []string{root}, nil)
 	kept, skipped, _ := isolationUnits(units, []string{filepath.Join(root, "lib", "src", "test", "kotlin", "LTest.kt")})
 	var ids []string
 	for _, u := range kept {
@@ -29,7 +29,7 @@ func TestIsolationUnitsKeepEveryScannedSetOfAnOwningProject(t *testing.T) {
 
 func TestIsolationUnitsRecheckASingleSetAndIgnoreUnknownFiles(t *testing.T) {
 	model, root := fixtureModel(t)
-	units, _ := Plan(model, root, []string{root})
+	units, _ := Plan(model, root, []string{root}, nil)
 	gated := []string{filepath.Join(root, "app", "src", "main", "kotlin", "A.kt"), filepath.Join(root, "elsewhere", "B.kt")}
 	kept, skipped, _ := isolationUnits(units, gated)
 	if len(kept) != 1 || kept[0].Spec.ID != ":app:release" || len(skipped) != 0 {
@@ -39,7 +39,7 @@ func TestIsolationUnitsRecheckASingleSetAndIgnoreUnknownFiles(t *testing.T) {
 
 func TestIsolationUnitsSkipProjectsWithoutFullContext(t *testing.T) {
 	model, root := fixtureModel(t)
-	units, _ := Plan(model, root, []string{root})
+	units, _ := Plan(model, root, []string{root}, nil)
 	for i := range units {
 		if units[i].Spec.ID == ":lib:releaseUnitTest" {
 			units[i].ContextDropped = true
@@ -53,17 +53,17 @@ func TestIsolationUnitsSkipProjectsWithoutFullContext(t *testing.T) {
 
 func TestIsolatorIsOffWhenMergedIsRequested(t *testing.T) {
 	t.Setenv(ShardsEnv, "merged")
-	if Isolator([]string{t.TempDir()}, "", false, true, nil) != nil {
+	if Isolator([]string{t.TempDir()}, "", false, true, nil, nil) != nil {
 		t.Fatal("KRIT_MODULE_SHARDS=merged should turn the recheck off")
 	}
 	t.Setenv(ShardsEnv, "")
-	if Isolator([]string{t.TempDir()}, "", false, true, nil) == nil {
+	if Isolator([]string{t.TempDir()}, "", false, true, nil, nil) == nil {
 		t.Fatal("the recheck should be on by default")
 	}
-	if Isolator([]string{t.TempDir()}, "", true, true, nil) != nil {
+	if Isolator([]string{t.TempDir()}, "", true, true, nil, nil) != nil {
 		t.Fatal("--no-gradle-model leaves no model to recheck with")
 	}
-	if Isolator([]string{t.TempDir()}, t.TempDir(), true, true, nil) == nil {
+	if Isolator([]string{t.TempDir()}, t.TempDir(), true, true, nil, nil) == nil {
 		t.Fatal("--gradle-model overrides --no-gradle-model")
 	}
 }

@@ -1,0 +1,10 @@
+src/com/example/Aliased.kt:8:18: WrongRequiresOptIn: Experimental annotation should use kotlin.RequiresOptIn
+src/com/example/AliasedConstant.kt:12:18: ExperimentalAnnotationRetention: Experimental annotation has `SOURCE` retention, should use `BINARY`
+src/com/example/JavaMarkers.java:16:12: ExperimentalAnnotationRetention: Experimental annotation has `RUNTIME` retention, should use default (`CLASS`)
+src/com/example/JavaMarkers.java:20:12: ExperimentalAnnotationRetention: Experimental annotation has `SOURCE` retention, should use default (`CLASS`)
+src/com/example/Markers.kt:11:18: ExperimentalAnnotationRetention: Experimental annotation has default (`RUNTIME`) retention, should use `BINARY`
+src/com/example/Markers.kt:15:18: ExperimentalAnnotationRetention: Experimental annotation has default (`RUNTIME`) retention, should use `BINARY`
+src/com/example/Markers.kt:19:18: ExperimentalAnnotationRetention: Experimental annotation has `SOURCE` retention, should use `BINARY`
+src/com/example/Markers.kt:23:18: WrongRequiresOptIn: Experimental annotation should use kotlin.RequiresOptIn
+src/com/example/Markers.kt:26:18: ExperimentalAnnotationRetention: Experimental annotation has default (`RUNTIME`) retention, should use `BINARY`
+src/com/example/Markers.kt:26:18: WrongRequiresOptIn: Experimental annotation should use kotlin.RequiresOptIn

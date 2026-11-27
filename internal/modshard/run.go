@@ -35,6 +35,10 @@ type Input struct {
 	// ModelDir, when set, is the Gradle model directory to read instead of discovering one (only
 	// CheckIsolated reads it).
 	ModelDir string
+	// ProjectOutputs are the built outputs of Gradle project dependencies (--gradle-project-outputs,
+	// gradlemodel.LoadProjectOutputs). A project listed here goes on a unit's classpath as these jars
+	// instead of its conventional build paths or its sources (#1681).
+	ProjectOutputs map[string][]string
 	// JarPath is the krit-fir jar. JavaPath is the JVM to run it with.
 	JarPath, JavaPath string
 	// Workers is how many modules are compiled at a time, on threads of as few worker JVMs as
@@ -107,7 +111,7 @@ func Run(ctx context.Context, in Input) (Result, error) {
 		logf("verbose: module oracle: %s took %s\n", what, time.Since(stamp).Round(time.Millisecond))
 		stamp = time.Now()
 	}
-	units, missing := planWith(model, repoRoot, in.ScanPaths, projectsHolding(model, in.Only))
+	units, missing := planWith(model, repoRoot, in.ScanPaths, in.ProjectOutputs, projectsHolding(model, in.Only))
 	lap("planning")
 	res.Units, res.MissingJars = len(units), missing
 	if len(units) == 0 {

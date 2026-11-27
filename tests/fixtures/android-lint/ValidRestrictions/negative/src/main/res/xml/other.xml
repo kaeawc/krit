@@ -1,0 +1,3 @@
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android">
+    <restriction android:key="not_a_restrictions_file" />
+</PreferenceScreen>

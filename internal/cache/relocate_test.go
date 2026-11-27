@@ -526,8 +526,13 @@ func TestRulePathHeuristicsReadProjectPath(t *testing.T) {
 				continue
 			}
 			heuristicArgs(pf.dir, fd.Body, map[string]bool{}, rawPath, func(call *ast.CallExpr, arg ast.Expr) {
-				t.Errorf("%s: %s reads folder names from the raw path %s, which holds the folders above the project root; pass projectPath(ctx, file.Path) instead, threading ctx into the helper if it lacks one",
-					fset.Position(arg.Pos()), exprString(fset, call.Fun), exprString(fset, arg))
+				fix := "pass projectPath(ctx, file.Path) instead"
+				if calleeName(call) == "scanner.IsTestFile" {
+					// isProjectTestFile also keeps configured absolute markers matching.
+					fix = "call isProjectTestFile(ctx, file.Path) instead"
+				}
+				t.Errorf("%s: %s reads folder names from the raw path %s, which holds the folders above the project root; %s, threading ctx into the helper if it lacks one",
+					fset.Position(arg.Pos()), exprString(fset, call.Fun), exprString(fset, arg), fix)
 			})
 		}
 	}

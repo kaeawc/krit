@@ -1,0 +1,1 @@
+AGP 9.4.1 rejects a blank or non-id app:startDestination before lint runs, so this case is recorded with the standalone Lint 32.4.1 CLI.

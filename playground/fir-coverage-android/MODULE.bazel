@@ -28,16 +28,29 @@ krit = use_extension("@krit//:extensions.bzl", "krit")
 
 new_local_repository = use_repo_rule("@bazel_tools//tools/build_defs/repo:local.bzl", "new_local_repository")
 
+# krit from this checkout, as a krit toolchain (registered below, ahead of
+# the krit module's release toolchains).
 new_local_repository(
     name = "krit_local_bin",
     build_file_content = """
 load("@bazel_skylib//rules:native_binary.bzl", "native_binary")
+load("@krit//:defs.bzl", "krit_toolchain")
 
 native_binary(
     name = "krit",
     src = "dist/krit",
     out = "krit_bin",
-    visibility = ["//visibility:public"],
+)
+
+krit_toolchain(
+    name = "krit_toolchain",
+    krit = ":krit",
+)
+
+toolchain(
+    name = "toolchain",
+    toolchain = ":krit_toolchain",
+    toolchain_type = "@krit//toolchains:toolchain_type",
 )
 """,
     path = ".krit-bin",
@@ -52,11 +65,13 @@ new_local_repository(
 
 override_repo(
     krit,
-    krit_bin = "krit_local_bin",
     krit_fir = "krit_local_fir",
 )
 
-register_toolchains("//:kotlin_toolchain")
+register_toolchains(
+    "//:kotlin_toolchain",
+    "@krit_local_bin//:toolchain",
+)
 
 remote_android_extensions = use_extension("@rules_android//bzlmod_extensions:android_extensions.bzl", "remote_android_tools_extensions")
 use_repo(remote_android_extensions, "android_tools")

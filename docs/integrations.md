@@ -11,9 +11,9 @@ any MCP-compatible client see [MCP setup](mcp.md).
 
 ## Bazel
 
-The `krit` Bazel module (`bazel/` in this repository) downloads the
-prebuilt release for the host platform, so krit's version is an ordinary
-`bazel_dep` that Dependabot or Renovate can bump:
+The `krit` Bazel module (`bazel/` in this repository) registers krit's
+release binaries as Bazel toolchains, one per execution platform, so krit's
+version is an ordinary `bazel_dep` that Dependabot or Renovate can bump:
 
 ```starlark
 # MODULE.bazel
@@ -24,8 +24,12 @@ bazel_dep(name = "krit", version = "x.y.z")
 bazel run @krit//:krit -- --base-path "$PWD" "$PWD"
 ```
 
-`@krit//:krit-lsp` and `@krit//:krit-mcp` are available too. The archive
-is verified against the release's `checksums.txt`. To pin the checksums
+`@krit//:krit-lsp` and `@krit//:krit-mcp` are available too. Bazel
+resolves the toolchain (`@krit//toolchains:toolchain_type`) for the
+platform that runs each action, so with remote execution krit's actions run
+the binary built for the remote workers, and it downloads only the archive
+of a platform it resolves. The archive is verified against the release's
+`checksums.txt`. To pin the checksums
 yourself, or to run a different release than the module's version:
 
 ```starlark
@@ -37,7 +41,26 @@ krit.toolchain(
 ```
 
 Linux (amd64, arm64), macOS (amd64, arm64) and Windows (amd64) are
-supported. krit itself needs no Bazel build to analyze a Bazel workspace;
+supported. To run another krit build, register a `krit_toolchain` of your
+own ahead of the module's:
+
+```starlark
+# BUILD.bazel
+load("@krit//:defs.bzl", "krit_toolchain")
+
+krit_toolchain(
+    name = "my_krit",
+    krit = "//tools:krit",  # an executable target
+)
+
+toolchain(
+    name = "my_krit_toolchain",
+    toolchain = ":my_krit",
+    toolchain_type = "@krit//toolchains:toolchain_type",
+)
+```
+
+and `register_toolchains("//:my_krit_toolchain")` in `MODULE.bazel`. krit itself needs no Bazel build to analyze a Bazel workspace;
 see [Bazel workspaces](hermetic-builds.md#bazel-workspaces).
 
 ### krit_test
@@ -149,7 +172,7 @@ need a whole-repository run.
 
 To test an unreleased checkout of the module, point `KRIT_BAZEL_LOCAL_DIST`
 at a directory with a locally built `krit` and `krit-fir.jar`; it replaces
-the release download. `scripts/bazel-e2e-local.sh` does that for
+the release download (the local build becomes the one krit toolchain). `scripts/bazel-e2e-local.sh` does that for
 `bazel/e2e`, and checks that a second run after `bazel clean` is served
 entirely from the disk cache.
 

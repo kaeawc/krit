@@ -6,6 +6,7 @@ load("@rules_java//java/common:java_info.bzl", "JavaInfo")
 load(":android.bzl", "krit_android_sdk_aspect", "resource_dirs_build_file")
 load(":kotlin.bzl", "KT_TOOLCHAIN")
 load(":model.bzl", "compile_classpath", "krit_model_json", "krit_source_set", "target_source_set")
+load(":toolchain.bzl", "KRIT_TOOLCHAIN_TYPE")
 
 _SOURCE_EXTENSIONS = ["kt", "kts", "java"]
 
@@ -162,12 +163,14 @@ def _krit_test_impl(ctx):
         flags += ["--no-fir", "--no-type-oracle"]
         setup = _GO_ONLY_SETUP
 
+    # The krit toolchain of the platform that runs the test.
+    krit = ctx.toolchains[KRIT_TOOLCHAIN_TYPE]
     script = ctx.actions.declare_file(ctx.label.name + ".sh")
     ctx.actions.write(
         output = script,
         content = _SCRIPT.format(
             setup = setup,
-            krit = shell.quote(ctx.executable._krit.short_path),
+            krit = shell.quote(krit.krit.executable.short_path),
             flags = " ".join([shell.quote(f) for f in flags]),
             files = " ".join([shell.quote(f.short_path) for f in srcs + scan]),
         ),
@@ -177,7 +180,7 @@ def _krit_test_impl(ctx):
         files = inputs + ctx.files.data,
         transitive_files = depset(transitive = transitive_inputs),
     )
-    runfiles = runfiles.merge(ctx.attr._krit[DefaultInfo].default_runfiles)
+    runfiles = runfiles.merge(krit.krit_runfiles)
     for d in ctx.attr.data:
         runfiles = runfiles.merge(d[DefaultInfo].default_runfiles)
     return [DefaultInfo(executable = script, runfiles = runfiles)]
@@ -210,11 +213,6 @@ _ATTRS = {
         allow_files = True,
         doc = "Extra files the test's args refer to, e.g. args = [\"--baseline\", \"$(rootpath :old.xml)\"].",
     ),
-    "_krit": attr.label(
-        default = Label("//:krit"),
-        executable = True,
-        cfg = "target",
-    ),
 }
 
 # The type-aware variant is a rule of its own so that Go-only tests never
@@ -238,12 +236,14 @@ _TYPE_AWARE_ATTRS = _ATTRS | {
 _krit_go_test = rule(
     implementation = _krit_test_impl,
     test = True,
+    toolchains = [KRIT_TOOLCHAIN_TYPE],
     attrs = _ATTRS | {"type_aware": attr.bool(default = False)},
 )
 
 _krit_type_aware_test = rule(
     implementation = _krit_test_impl,
     test = True,
+    toolchains = [KRIT_TOOLCHAIN_TYPE],
     attrs = _TYPE_AWARE_ATTRS,
 )
 

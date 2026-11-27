@@ -13,6 +13,7 @@ load("@rules_java//java/common:java_info.bzl", "JavaInfo")
 load(":android.bzl", "android_inputs", "krit_android_sdk_aspect", "resource_dirs_build_file", "sdk_level_args")
 load(":kotlin.bzl", "KT_TOOLCHAIN")
 load(":model.bzl", "krit_model_json", "label_name", "target_source_set")
+load(":toolchain.bzl", "KRIT_TOOLCHAIN_TYPE")
 
 _SOURCE_EXTENSIONS = ["kt", "kts", "java"]
 
@@ -221,11 +222,15 @@ def _krit_aspect_impl(target, ctx):
     args.add_all(scan)
 
     size = _size(len(scan), ctx.attr._large_sources[BuildSettingInfo].value)
+    exec_group = _LARGE_EXEC_GROUP if size == "large" else None
+
+    # The krit binary for the platform that runs this action's exec group.
+    toolchains = ctx.exec_groups[exec_group].toolchains if exec_group else ctx.toolchains
     ctx.actions.run(
-        executable = ctx.executable._krit,
+        executable = toolchains[KRIT_TOOLCHAIN_TYPE].krit,
         arguments = ["bazel-worker", args],
         execution_requirements = _WORKER_REQUIREMENTS if _flag(ctx, "_worker") else {},
-        exec_group = _LARGE_EXEC_GROUP if size == "large" else None,
+        exec_group = exec_group,
         resource_set = _RESOURCES[(_flag(ctx, "_fir"), size)],
         inputs = depset(inputs, transitive = transitive),
         outputs = [sarif, plain, status],
@@ -292,15 +297,10 @@ Flags:
   files run in the `krit_large` exec group, so an execution platform's
   `krit_large.<key>` exec_properties apply to them only.
 """,
-    toolchains = [KT_TOOLCHAIN],
-    exec_groups = {_LARGE_EXEC_GROUP: exec_group()},
+    toolchains = [KT_TOOLCHAIN, KRIT_TOOLCHAIN_TYPE],
+    exec_groups = {_LARGE_EXEC_GROUP: exec_group(toolchains = [KRIT_TOOLCHAIN_TYPE])},
     requires = [krit_android_sdk_aspect],
     attrs = {
-        "_krit": attr.label(
-            default = Label("//:krit"),
-            executable = True,
-            cfg = "exec",
-        ),
         "_krit_fir_jar": attr.label(
             default = Label("//:krit_fir_jar"),
             allow_single_file = [".jar"],

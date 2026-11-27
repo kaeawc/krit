@@ -1,0 +1,6 @@
+# The krit toolchain type. The krit module registers a toolchain of this type
+# for each platform krit releases binaries for (see //private:toolchain.bzl).
+toolchain_type(
+    name = "toolchain_type",
+    visibility = ["//visibility:public"],
+)

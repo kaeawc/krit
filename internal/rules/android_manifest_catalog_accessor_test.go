@@ -112,3 +112,38 @@ func TestDataExtractionRules_AliasResolvesThroughItsAccessor(t *testing.T) {
 		})
 	}
 }
+
+// DataExtractionRules skips library modules. alias(tools.plugins.mod) applies the library plugin of the catalog the
+// settings import as tools from gradle/shared.versions.toml, however they declare it: by a brace-less
+// create("tools").from(...), in a versionCatalogs block or the dotted chain, or by a block after a triple-quoted string
+// holding a quote and a comment marker. Main resolved these by plugin key alone; the accessor must keep them resolved
+// (#1910 review round 3).
+func TestDataExtractionRules_SettingsCatalogDeclarationForms(t *testing.T) {
+	r := findManifestRule(t, "DataExtractionRules")
+	manifest := applicationManifest(21, `android:allowBackup="false"`)
+	for _, test := range []struct {
+		name, settingsName, settings string
+	}{
+		{"brace-less create", "settings.gradle.kts", "dependencyResolutionManagement {\n    versionCatalogs {\n        create(\"tools\").from(files(\"gradle/shared.versions.toml\"))\n    }\n}\n"},
+		{"dotted brace-less create", "settings.gradle.kts", "dependencyResolutionManagement.versionCatalogs.create(\"tools\").from(files(\"gradle/shared.versions.toml\"))\n"},
+		{"dotted brace-less maybeCreate", "settings.gradle.kts", "dependencyResolutionManagement.versionCatalogs.maybeCreate(\"tools\").from(files(\"gradle/shared.versions.toml\"))\n"},
+		{"groovy brace-less create", "settings.gradle", "dependencyResolutionManagement {\n    versionCatalogs {\n        create('tools').from(files('gradle/shared.versions.toml'))\n    }\n}\n"},
+		{"groovy dotted brace-less create, paren-less from", "settings.gradle", "dependencyResolutionManagement.versionCatalogs.create('tools').from files('gradle/shared.versions.toml')\n"},
+		{"raw string before the block", "settings.gradle.kts", "val note = \"\"\"a \" // b\"\"\"\ndependencyResolutionManagement {\n    versionCatalogs {\n        create(\"tools\") {\n            from(files(\"gradle/shared.versions.toml\"))\n        }\n    }\n}\n"},
+		{"groovy triple-quoted strings before the block", "settings.gradle", "def note = '''a ' // b'''\ndef other = \"\"\"a \" // b\"\"\"\ndependencyResolutionManagement {\n    versionCatalogs {\n        tools {\n            from(files('gradle/shared.versions.toml'))\n        }\n    }\n}\n"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			path := writeCatalogProject(t, map[string]string{
+				test.settingsName:                  test.settings,
+				"gradle/shared.versions.toml":      "[plugins]\nmod = { id = \"com.android.library\", version = \"8.5.0\" }\n",
+				"app/build.gradle.kts":             "plugins {\n    alias(tools.plugins.mod)\n}\n",
+				"app/src/main/AndroidManifest.xml": manifest,
+			})
+			m := parseManifestForTest(t, manifest)
+			m.Path = path
+			if got := len(runManifestRule(r, m)); got != 0 {
+				t.Fatalf("findings = %d, want 0: tools.plugins.mod is the library plugin", got)
+			}
+		})
+	}
+}

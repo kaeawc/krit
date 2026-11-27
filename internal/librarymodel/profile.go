@@ -211,7 +211,7 @@ func ProfileFromGradleContentWithCatalog(path, content string, catalog VersionCa
 	if err != nil {
 		return ProjectProfile{}
 	}
-	catalogContent := stripGradleComments(content)
+	catalogContent, _ := stripGradleComments(content, isGroovyScript(path))
 	profile := ProfileFromBuildConfig(path, cfg)
 	unresolvedAliases := unresolvedCatalogAliases(catalogContent, catalog, path)
 	profile.UnresolvedCatalogAliases = unresolvedAliases

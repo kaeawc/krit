@@ -657,9 +657,12 @@ All notable changes to Krit will be documented in this file.
   list: the files, their kinds and their names. Editing a settings-declared catalog, renaming a `create(...)`, or
   pointing `from(files(...))` at another file reruns the manifest rules, and the resource rules that read the
   module's build script, such as RelativeClassResolution and LibraryCustomView. A settings edit that leaves the
-  catalogs alone doesn't (#1872). Settings scanning skips comments and string literals, lexes string templates, and reads
-  Groovy's paren-less `from files('...')`. A settings block that declares a catalog krit can't read, such as a
-  published one, stops an unimported `gradle/<name>.versions.toml` of that name from serving its accessor.
+  catalogs alone doesn't (#1872). Settings scanning skips comments and string literals, triple-quoted ones included,
+  nests Kotlin block comments, lexes string templates, and reads Groovy's paren-less `from files('...')` and the
+  brace-less `create("<name>").from(...)`. A settings block that declares a catalog krit can't read, such as a
+  published one, stops an unimported `gradle/<name>.versions.toml` of that name from serving its accessor. Programmatic
+  `library(...)`/`plugin(...)` text in a settings string literal adds no library fact, and the parsed-catalog caches
+  follow file content, not only size and mtime.
 - MCP `analyze` (mode `android`) reports OnClick for a relative `projectPath`. The sources stayed relative while the
   res dirs were absolute, so no Activity matched its res dir's module (#1908). Rule pages now list a rule's known
   limitations, including OnClick's: a layout is checked only against Activities in its own module.

@@ -13,35 +13,50 @@ import (
 var (
 	// defaultLibrariesExtensionName = "x", defaultLibrariesExtensionName.set("x"), in either DSL.
 	defaultLibrariesExtensionNameRe = lazyre.New(`\bdefaultLibrariesExtensionName\s*(?:=|\.\s*set\s*\()\s*["']([A-Za-z_][A-Za-z0-9_]*)["']`)
-	// versionCatalogs { ... }, or a chained versionCatalogs.create("name") { ... }.
-	versionCatalogsBlockRe = lazyre.New(`\bversionCatalogs\s*(?:\{|\.\s*(?:create|register|maybeCreate)\s*\(\s*["']([A-Za-z_][A-Za-z0-9_]*)["']\s*\)\s*(?:\.\s*apply\s*)?\{)`)
-	// The head of one catalog inside versionCatalogs { }: create("name") {, register("name") {, or Groovy's name {.
-	catalogBlockHeadRe = lazyre.New(`^(?:(?:create|register|maybeCreate)\s*\(\s*["']([A-Za-z_][A-Za-z0-9_]*)["']\s*\)\s*(?:\.\s*apply\s*)?|([A-Za-z_][A-Za-z0-9_]*)\s*)\{`)
+	// versionCatalogs { ... }, or a chained versionCatalogs.create("name") { ... } or versionCatalogs.create("name")
+	// .from(...). Group 1 is the name, group 2 the from of the brace-less form.
+	versionCatalogsBlockRe = lazyre.New(`\bversionCatalogs\s*(?:\{|\.\s*` + namedCatalogHead + `)`)
+	// The head of one catalog inside versionCatalogs { }: create("name") {, register("name") {, maybeCreate("name")
+	// .apply {, create("name").from(...), or Groovy's name {. Groups 1 and 2 are namedCatalogHead's, 3 the bare name.
+	catalogBlockHeadRe = lazyre.New(`^(?:` + namedCatalogHead + `|([A-Za-z_][A-Za-z0-9_]*)\s*\{)`)
 )
 
+// namedCatalogHead matches create("name"), register("name") or maybeCreate("name"), MutableVersionCatalogContainer's
+// NamedDomainObjectContainer methods, followed by a configuring block, optionally through Kotlin's .apply, or by a
+// chained .from(...), as in create("tools").from(files("gradle/shared.versions.toml")) (#1910 review round 3). Group 1
+// is the name; group 2 is the from of the chained form.
+const namedCatalogHead = `(?:create|register|maybeCreate)\s*\(\s*["']([A-Za-z_][A-Za-z0-9_]*)["']\s*\)\s*(?:(?:\.\s*apply\s*)?\{|\.\s*(from)\b)`
+
 // notCatalogNames are Groovy block heads inside versionCatalogs { } that configure something other than a catalog
-// of that name.
+// of that name. They don't apply to an explicit create("all") and the like, which names a catalog (#1910 review round
+// 3).
 var notCatalogNames = map[string]bool{
 	"all": true, "configureEach": true, "else": true, "try": true, "finally": true, "do": true,
 	"apply": true, "run": true, "with": true, "also": true, "let": true,
 }
 
 // settingsCatalogBlock is the body of one catalog a settings file declares, as a span of its comment-stripped
-// content.
+// content: the inside of its braces, or the from(...) call that configures it.
 type settingsCatalogBlock struct {
 	name       string
 	start, end int
 }
 
 // settingsCatalogBlocks finds the catalogs a comment-stripped settings file (or settings plugin) declares:
-// each create("name") { }, register("name") { } or Groovy name { } directly inside a versionCatalogs { } block, and
-// each versionCatalogs.create("name") { } chain. code marks the bytes of content that are code (gradleCode): a match
-// must start in code, and only braces in code nest, so text in a string literal declares nothing and a string or
-// template holding a brace leaves the blocks balanced.
+// each create("name") { }, register("name") { }, create("name").from(...) or Groovy name { } directly inside a
+// versionCatalogs { } block, and each versionCatalogs.create("name") { } or .from(...) chain. code marks the bytes of
+// content that are code (gradleCode): a match must start in code, and only braces in code nest, so text in a string
+// literal declares nothing and a string or template holding a brace leaves the blocks balanced.
 func settingsCatalogBlocks(content string, code []bool) []settingsCatalogBlock {
 	var blocks []settingsCatalogBlock
 	for _, m := range versionCatalogsBlockRe.FindAllStringSubmatchIndex(content, -1) {
 		if !gradleCodeAt(code, m[0]) {
+			continue
+		}
+		if m[4] >= 0 {
+			if end := fromCallEnd(content, code, m[4]); end >= 0 {
+				blocks = append(blocks, settingsCatalogBlock{name: content[m[2]:m[3]], start: m[4], end: end})
+			}
 			continue
 		}
 		open := m[1] - 1
@@ -90,21 +105,33 @@ func catalogBlocksIn(content string, code []bool, start, end int) []settingsCata
 				}
 				continue
 			}
-			name := ""
+			// An explicit create("name") and the like always names a catalog; a bare Groovy name { } head may
+			// configure something else.
+			name, isCatalog := "", true
 			if m[2] >= 0 {
 				name = content[i+m[2] : i+m[3]]
 			} else {
-				name = content[i+m[4] : i+m[5]]
+				name = content[i+m[6] : i+m[7]]
+				isCatalog = !notCatalogNames[name]
 			}
-			open := i + m[1] - 1
-			blockEnd := matchingBrace(content, code, open)
-			if blockEnd < 0 || blockEnd > end {
+			// next is the index after the declaration: after its closing brace, or its from(...) call.
+			block, next := settingsCatalogBlock{name: name}, 0
+			if m[4] >= 0 {
+				// create("name").from(...): the call is the catalog's configuration.
+				block.start, block.end = i+m[4], fromCallEnd(content, code, i+m[4])
+				next = block.end
+			} else {
+				open := i + m[1] - 1
+				block.start, block.end = open+1, matchingBrace(content, code, open)
+				next = block.end + 1
+			}
+			if block.end < 0 || block.end > end {
 				return blocks
 			}
-			if !notCatalogNames[name] {
-				blocks = append(blocks, settingsCatalogBlock{name: name, start: open + 1, end: blockEnd})
+			if isCatalog {
+				blocks = append(blocks, block)
 			}
-			i = blockEnd
+			i = next - 1
 		}
 	}
 	return blocks
@@ -122,15 +149,20 @@ func catalogBlockAt(blocks []settingsCatalogBlock, offset int) string {
 
 // matchingBrace returns the index of the brace closing the one at open, counting only braces in code, or -1.
 func matchingBrace(content string, code []bool, open int) int {
+	return matchingClose(content, code, open, '{', '}')
+}
+
+// matchingClose returns the index of the closer closing the opener at open, counting only those in code, or -1.
+func matchingClose(content string, code []bool, open int, opener, closer byte) int {
 	depth := 0
 	for i := open; i < len(content); i++ {
 		if !gradleCodeAt(code, i) {
 			continue
 		}
 		switch content[i] {
-		case '{':
+		case opener:
 			depth++
-		case '}':
+		case closer:
 			depth--
 			if depth == 0 {
 				return i
@@ -138,6 +170,26 @@ func matchingBrace(content string, code []bool, open int) int {
 		}
 	}
 	return -1
+}
+
+// fromCallEnd returns the end of the from call whose name starts at from: after the parenthesis closing from(...),
+// or, for Groovy's paren-less from files('...'), at the end of the line. -1 when the parenthesis is never closed.
+func fromCallEnd(content string, code []bool, from int) int {
+	i := from + len("from")
+	for i < len(content) && (content[i] == ' ' || content[i] == '\t') {
+		i++
+	}
+	if i < len(content) && content[i] == '(' {
+		closing := matchingClose(content, code, i, '(', ')')
+		if closing < 0 {
+			return -1
+		}
+		return closing + 1
+	}
+	if newline := strings.IndexByte(content[i:], '\n'); newline >= 0 {
+		return i + newline
+	}
+	return len(content)
 }
 
 func isIdentStart(ch byte) bool {
@@ -215,8 +267,8 @@ var (
 )
 
 // catalogSourcePlugins returns the plugin tables of one source: under "" for a TOML file, and by block name for a
-// programmatic source. It reuses the previous parse while the file keeps its mtime and size. Callers must treat the
-// result as read-only.
+// programmatic source. It reuses the previous parse while the file keeps its content (catalogStamps). Callers must
+// treat the result as read-only.
 func catalogSourcePlugins(source CatalogSource) map[string]map[string]CatalogPlugin {
 	key := string(source.Kind) + "=" + source.Path
 	stamp := catalogStamps([]CatalogSource{source})[0]
@@ -241,8 +293,7 @@ func parseCatalogSourcePlugins(source CatalogSource) map[string]map[string]Catal
 	if source.Kind != CatalogSourceSettingsProgrammatic {
 		return map[string]map[string]CatalogPlugin{"": ParseVersionCatalogContent(string(content)).Plugins}
 	}
-	stripped := stripGradleComments(string(content))
-	code := gradleCode(stripped, isGroovyScript(source.Path))
+	stripped, code := stripGradleComments(string(content), isGroovyScript(source.Path))
 	tables := map[string]map[string]CatalogPlugin{}
 	for _, block := range settingsCatalogBlocks(stripped, code) {
 		mergeCatalogPlugins(tables, block.name, programmaticCatalogPlugins(stripped, code, block))
@@ -259,13 +310,8 @@ func programmaticCatalogPlugins(content string, code []bool, block settingsCatal
 		if !gradleCodeAt(code, block.start+m[0]) {
 			continue
 		}
-		group := func(n int) string {
-			if m[2*n] < 0 {
-				return ""
-			}
-			return body[m[2*n]:m[2*n+1]]
-		}
-		plugins[group(1)] = CatalogPlugin{ID: group(2), Version: cmp.Or(group(3), group(4))}
+		group := submatches(body, m)
+		plugins[group[1]] = CatalogPlugin{ID: group[2], Version: cmp.Or(group[3], group[4])}
 	}
 	return plugins
 }

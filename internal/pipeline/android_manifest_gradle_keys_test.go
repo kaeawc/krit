@@ -3,6 +3,7 @@ package pipeline
 import (
 	"cmp"
 	"context"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -474,5 +475,73 @@ func TestManifestRules_KeyOnSettingsDeclaredCatalogs(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// The librarymodel caches of parsed catalog sources live for the process, as a daemon keeps them across analyses.
+// Rewriting a settings-declared catalog with content of the same length and restoring its mtime must still change the
+// next analysis's findings, cache-free and warm (#1910 review round 3).
+func TestManifestRules_SettingsDeclaredCatalogSameStatEdit(t *testing.T) {
+	const (
+		catalogRel  = "deps/catalog.toml"
+		buildRel    = "app/build.gradle.kts"
+		manifestRel = "app/src/main/AndroidManifest.xml"
+		library     = "[plugins]\nmod = { id = \"com.android.library\", version = \"8.5.0\" }\n###\n"
+		app         = "[plugins]\nmod = { id = \"com.android.application\", version = \"8.5.0\" }\n"
+	)
+	if len(library) != len(app) {
+		t.Fatalf("test catalogs differ in length: %d vs %d", len(library), len(app))
+	}
+	rule := registeredRule(t, "DataExtractionRules")
+	p := &manifestSourceProject{t: t, dir: t.TempDir()}
+	p.write("settings.gradle.kts", "dependencyResolutionManagement {\n    versionCatalogs {\n        create(\"tools\") {\n            from(files(\"deps/catalog.toml\"))\n        }\n    }\n}\n")
+	p.write(buildRel, "plugins {\n    alias(tools.plugins.mod)\n}\n\nandroid {\n    defaultConfig {\n        minSdk = 21\n        targetSdk = 33\n    }\n}\n")
+	p.write(manifestRel, "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\" package=\"com.example\">\n    <application android:allowBackup=\"false\" />\n</manifest>\n")
+	p.write(catalogRel, library)
+	info, err := os.Stat(p.path(catalogRel))
+	if err != nil {
+		t.Fatal(err)
+	}
+	project := &android.Project{
+		ManifestPaths: []string{p.path(manifestRel)},
+		GradlePaths:   []string{p.path(buildRel), p.path("settings.gradle.kts")},
+	}
+	cacheDir := filepath.Join(p.dir, ".krit", "android-findings-cache")
+	run := func(cacheDir string) int {
+		t.Helper()
+		hashutil.ResetDefault()
+		writer := scanner.NewAndroidCacheWriter(2)
+		res, err := (AndroidPhase{}).Run(context.Background(), AndroidInput{
+			Project:        project,
+			ActiveRules:    []*api.Rule{rule},
+			Dispatcher:     rules.NewDispatcher([]*api.Rule{rule}, nil),
+			RuleHash:       "test-rule-hash",
+			LibraryFactsFP: "test-lf",
+			CacheDir:       cacheDir,
+			CacheWriter:    writer,
+		})
+		if err != nil {
+			t.Fatalf("AndroidPhase.Run: %v", err)
+		}
+		if err := writer.Close(); err != nil {
+			t.Fatal(err)
+		}
+		return res.Findings.Len()
+	}
+	if got := run(""); got != 0 {
+		t.Fatalf("library catalog: cache-free findings = %d, want 0", got)
+	}
+	if got := run(cacheDir); got != 0 {
+		t.Fatalf("library catalog: warm findings = %d, want 0", got)
+	}
+	p.write(catalogRel, app)
+	if err := os.Chtimes(p.path(catalogRel), info.ModTime(), info.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	if got := run(""); got != 1 {
+		t.Fatalf("same-size, same-mtime edit to an application catalog: cache-free findings = %d, want 1", got)
+	}
+	if got := run(cacheDir); got != 1 {
+		t.Fatalf("same-size, same-mtime edit to an application catalog: warm findings = %d, want 1", got)
 	}
 }

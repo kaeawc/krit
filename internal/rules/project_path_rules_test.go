@@ -144,3 +144,17 @@ func TestProjectPathMarkers(t *testing.T) {
 		t.Error("unchanged markers were copied")
 	}
 }
+
+// UseSdkSuppress reads only test sources, judged by the folders inside the
+// project: a checkout under a test/ folder does not make its main sources
+// test sources.
+func TestUseSdkSuppressIgnoresTestFolderAboveProjectRoot(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "test", "repo")
+	content := "package p\n\nimport androidx.annotation.RequiresApi\nimport org.junit.Test\n\nclass ApiTest {\n    @Test\n    @RequiresApi(28)\n    fun usesNewApi() {}\n}\n"
+	if n := projectPathRuleFindings(t, "UseSdkSuppress", root, "app/src/main/java/p/ApiTest.kt", content); n != 0 {
+		t.Errorf("UseSdkSuppress reported %d findings for a main source of a checkout under test/", n)
+	}
+	if n := projectPathRuleFindings(t, "UseSdkSuppress", root, "app/src/test/java/p/ApiTest.kt", content); n == 0 {
+		t.Error("UseSdkSuppress reported nothing for a test source")
+	}
+}

@@ -1,0 +1,3 @@
+src/main/java/com/example/Edge.kt:6:5: ReturnThis: This method should `return this` (because it has been annotated with `@ReturnThis`)
+src/main/java/com/example/Edge.kt:9:5: ReturnThis: This method should `return this` (because it has been annotated with `@ReturnThis`)
+src/main/java/com/example/JEdge.java:12:20: ReturnThis: This method should `return this` (because it has been annotated with `@ReturnThis`)

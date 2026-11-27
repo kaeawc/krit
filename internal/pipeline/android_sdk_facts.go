@@ -74,12 +74,16 @@ func (in AndroidInput) withSDKLevels() AndroidInput {
 }
 
 // withProjectFacts folds the project-level facts that per-file rules read beyond the file itself into the rule
-// hash that keys the per-file analysis cache: the module SDK levels (android.ResolveSDKLevels) and the Gradle
-// library facts. A Gradle or manifest edit then replaces the cached findings instead of replaying them. A scan
-// without an Android project keeps the hash as is, so every site that computes it must pass the same project.
-func withProjectFacts(ruleHash string, project *android.Project, libraryFactsFP string) string {
+// hash that keys the per-file analysis cache: the module SDK levels (android.ResolveSDKLevels), the Gradle
+// library facts and the modules' plugins, including those of a scan path's own module when the scan lies below its
+// root (withScanModuleScripts). A Gradle or manifest edit then replaces the cached findings instead of replaying them.
+// A scan without an Android project or a module build script keeps the hash as is, so every site that computes it
+// must pass the same project and scan paths.
+func withProjectFacts(ruleHash string, project *android.Project, libraryFactsFP string, scanPaths []string) string {
+	project = withScanModuleScripts(project, scanPaths)
 	if project == nil {
 		return ruleHash
 	}
-	return hashutil.HashHex([]byte(ruleHash + "|sdk=" + sdkLevelsFingerprint(project) + "|lib=" + libraryFactsFP))[:16]
+	return hashutil.HashHex([]byte(ruleHash + "|sdk=" + sdkLevelsFingerprint(project) + "|lib=" + libraryFactsFP +
+		"|plugins=" + modulePluginsFingerprint(project)))[:16]
 }

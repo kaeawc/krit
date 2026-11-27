@@ -88,8 +88,10 @@ func detektNamesByRule() map[string][]string {
 var extraLintAliases = map[string][]string{
 	"IgnoredReturnValue":             {"CheckResult"},
 	"RecyclerAdapterWithoutDiffUtil": {"NotifyDataSetChanged"},
-	"ExportedWithoutPermission":      {"ExportedActivity"},
-	"ServiceExportedManifest":        {"ExportedService"},
+	// Lint reports calls to @VisibleForTesting members from production code under VisibleForTests.
+	"VisibleForTestingCallerInNonTest": {"VisibleForTests"},
+	"ExportedWithoutPermission":        {"ExportedActivity"},
+	"ServiceExportedManifest":          {"ExportedService"},
 	// Android lint reports calls to @RequiresApi members under NewApi.
 	"RequiresApiViolation": {"NewApi"},
 	// Lint renamed the issue; the old ID still suppresses it.

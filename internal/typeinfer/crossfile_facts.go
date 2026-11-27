@@ -53,6 +53,7 @@ type crossFileClass struct {
 	Supertypes       []string     `json:"s"`
 	DirectSupertypes []string     `json:"d"`
 	Flags            [6]bool      `json:"b"`
+	Outer            string       `json:"o,omitempty"`
 	Members          []MemberInfo `json:"m"`
 	// SupertypeImports maps each supertype's first name segment to what the file explicitly imports it as. Rules
 	// resolve supertypes written as simple names through the declaring file's imports, so swapping only that
@@ -114,6 +115,7 @@ func (f crossFileFrags) addClasses(classes []*ClassInfo, imports *ImportTable) {
 			Name: ci.Name, FQN: ci.FQN, Kind: ci.Kind,
 			Supertypes: ci.Supertypes, DirectSupertypes: ci.DirectSupertypes,
 			Flags:   [6]bool{ci.IsSealed, ci.IsData, ci.IsInner, ci.IsAbstract, ci.IsOpen, ci.IsNested},
+			Outer:   ci.Outer,
 			Members: ci.Members,
 		}
 		class.SupertypeImports = supertypeImports(ci, imports)

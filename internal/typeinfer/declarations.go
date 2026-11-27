@@ -1,6 +1,7 @@
 package typeinfer
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/scanner"
@@ -302,6 +303,9 @@ func (r *defaultResolver) indexClassFlat(flatIdx uint32, file *scanner.File, it 
 	}
 	parentIdx, hasParent := file.FlatParent(flatIdx)
 	info.IsNested = hasParent && parentIdx != 0
+	if info.IsNested {
+		info.Outer = flatEnclosingClassFQN(file, flatIdx, pkg)
+	}
 
 	if bodyIdx := flatFindNamedChildOfType(file, flatIdx, "class_body"); bodyIdx != 0 {
 		info.Members = r.extractMembersFlat(bodyIdx, file, it)
@@ -345,6 +349,43 @@ func (r *defaultResolver) indexClassFlat(flatIdx uint32, file *scanner.File, it 
 			}
 		}
 	}
+}
+
+// flatEnclosingClassFQN returns the FQN krit-fir gives the class or object
+// whose body declares flatIdx, pkg.Outer. A declaration in a function body or
+// an object literal is local and gets "", as does one in a body the
+// declaration walker does not enter (companion objects, enum bodies, #1944).
+func flatEnclosingClassFQN(file *scanner.File, flatIdx uint32, pkg string) string {
+	var names []string
+	for cur := flatIdx; ; {
+		body, ok := file.FlatParent(cur)
+		if !ok || body == 0 {
+			break
+		}
+		owner, ok := file.FlatParent(body)
+		if !ok || owner == 0 || file.FlatType(body) != "class_body" {
+			return ""
+		}
+		switch file.FlatType(owner) {
+		case "class_declaration", "object_declaration":
+		default:
+			return ""
+		}
+		name := flatDeclarationName(file, owner)
+		if name == "" {
+			return ""
+		}
+		names = append(names, name)
+		cur = owner
+	}
+	if len(names) == 0 {
+		return ""
+	}
+	if pkg != "" {
+		names = append(names, pkg)
+	}
+	slices.Reverse(names)
+	return scanner.InternString(strings.Join(names, "."))
 }
 
 func flatClassNameScope(file *scanner.File, flatIdx, parentIdx uint32) (uint32, uint32) {
@@ -398,6 +439,9 @@ func (r *defaultResolver) indexObjectFlat(flatIdx uint32, file *scanner.File, it
 	}
 	parentIdx, hasParent := file.FlatParent(flatIdx)
 	info.IsNested = hasParent && parentIdx != 0
+	if info.IsNested {
+		info.Outer = flatEnclosingClassFQN(file, flatIdx, pkg)
+	}
 
 	if bodyIdx := flatFindNamedChildOfType(file, flatIdx, "class_body"); bodyIdx != 0 {
 		info.Members = r.extractMembersFlat(bodyIdx, file, it)

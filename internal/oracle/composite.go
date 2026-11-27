@@ -207,20 +207,18 @@ func (c *CompositeResolver) withSourceSupertypes(info *typeinfer.ClassInfo) *typ
 
 // sourceClass returns the source resolver's ClassInfo for the class the
 // oracle names fqn. The source index names a nested class by its package and
-// simple name (pkg.Inner for krit-fir's pkg.Outer.Inner), so when fqn itself
-// misses, each shorter prefix of it is tried as the package, and only a
-// nested class with exactly that name is taken (#1928).
+// simple name (pkg.Inner for krit-fir's pkg.Outer.Inner), so only its
+// recorded enclosing class proves it is the one the oracle means (#1928).
+// Otherwise a top-level class by that FQN is taken, which may come from the
+// classpath or the framework tables.
 func (c *CompositeResolver) sourceClass(fqn string) *typeinfer.ClassInfo {
-	if src := c.fallback.ClassHierarchy(fqn); src != nil && src.FQN == fqn {
-		return src
-	}
-	segs := strings.Split(fqn, ".")
-	simple := segs[len(segs)-1]
-	for k := len(segs) - 2; k >= 1; k-- {
-		cand := strings.Join(segs[:k], ".") + "." + simple
-		if src := c.fallback.ClassHierarchy(cand); src != nil && src.FQN == cand && src.IsNested {
+	if finder, ok := c.fallback.(typeinfer.SourceClassFinder); ok {
+		if src := finder.SourceClass(fqn); src != nil {
 			return src
 		}
+	}
+	if src := c.fallback.ClassHierarchy(fqn); src != nil && src.FQN == fqn && !src.IsNested {
+		return src
 	}
 	return nil
 }

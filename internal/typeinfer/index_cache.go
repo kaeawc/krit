@@ -36,7 +36,8 @@ const (
 	// Bumped to 20 when ParamInfo gained Vararg and Annotations and top-level
 	// FunctionDecls with annotated parameters gained Params.
 	// Bumped to 21 when FunctionDecls gained TopLevel (#1888).
-	typeIndexCacheVersion = 21
+	// Bumped to 22 when ClassInfo gained Outer, the enclosing class's FQN (#1928).
+	typeIndexCacheVersion = 22
 )
 
 var (

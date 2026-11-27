@@ -72,6 +72,7 @@ func init() {
 	registerAndroidxComposeRuntimeStateTypeRules()
 	registerAndroidxComposeRuntimeRememberArgRules()
 	registerAndroidxComposeRuntimeRetainRules()
+	registerAndroidxLifecycleRules()
 	registerAndroidxAnnotationExperimentalRules()
 	registerAndroidxLifecycleRuntimeRules()
 	registerAndroidxConstraintLayoutRules()

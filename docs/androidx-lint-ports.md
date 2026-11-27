@@ -113,6 +113,32 @@ Annotation names resolve through imports (aliases and star imports), the file's 
   libraries (CameraX, Media3, …) are not known, because their class files are not read, and the lint.xml `opt-in`
   option is not read either.
 
+## Lifecycle
+
+`androidx.lifecycle` 2.11.1 (`lifecycle-runtime`, `lifecycle-runtime-compose`, `lifecycle-runtime-testing`,
+`lifecycle-viewmodel-compose`), Kotlin:
+
+- `LifecycleCurrentStateInComposition` reports `….currentState` read in composition on a `Lifecycle`: a value
+  declared or initialized as a `Lifecycle` or `LifecycleRegistry`, or `owner.lifecycle` where the owner is a known
+  `LifecycleOwner` (Activity, Fragment, `LocalLifecycleOwner.current`, …) or a same-file class whose `lifecycle` is a
+  `Lifecycle`. An owner whose type is not in the file falls back to the property name, which `LifecycleOwner`
+  defines; a same-file class whose `lifecycle` is something else is not reported. Lint's quick fix
+  (`currentStateAsState().value` plus an import) is not ported.
+- `ViewModelConstructorInComposable` reports a constructor call of an `androidx.lifecycle.ViewModel` subclass declared
+  in the same file, in composition, at the class name. The per-file findings cache is keyed by the file's own content
+  (#1778), so a ViewModel declared in another file is not checked yet.
+- `TestLifecycleOwnerInCoroutine` reports a `kotlinx.coroutines.test.runTest { }` whose body's last assignment of a
+  constant is `….currentState = Lifecycle.State.X` (the blocking setter hangs inside a coroutine; use
+  `setCurrentState`), at `runTest`. It follows the detector source and its tests: the Lint CLI 9.4 reported nothing
+  for this ID against the released `lifecycle-runtime-testing` and `kotlinx-coroutines-test` classes. As in the
+  detector, the owner's type is not checked, and a later assignment of another constant clears the report.
+- `RepeatOnLifecycleWrongUsage` reports `repeatOnLifecycle` reached from `onStart` or `onResume` of a Kotlin class
+  extending `Fragment` or `androidx.core.app.ComponentActivity` (so also `ComponentActivity`, `FragmentActivity` and
+  `AppCompatActivity`), proven from the file alone (an imported androidx supertype or a same-file base class, for the
+  same cache reason), in production sources, with Lint's message naming the class and method. Unqualified and
+  `this.` calls are followed into functions declared in the same file, each once per class, as Lint follows each
+  method once; Lint also follows calls into other files. `super` calls are not followed.
+
 ## Lifecycle runtime and LiveData
 
 `androidx.lifecycle:lifecycle-livedata-core` and `lifecycle-runtime` 2.11.1 (Kotlin, production sources):

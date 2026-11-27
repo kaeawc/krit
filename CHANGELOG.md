@@ -72,6 +72,11 @@ All notable changes to Krit will be documented in this file.
   part of the analysis cache key. The Bazel rules pass them from `--@krit//:min_sdk_version` /
   `--@krit//:target_sdk_version`, and an `android_binary`'s own `krit_aspect` action from its `manifest_values`, since
   Bazel builds often declare the levels only there (#1682).
+- `LifecycleCurrentStateInComposition`, `ViewModelConstructorInComposable`, `TestLifecycleOwnerInCoroutine` and
+  `RepeatOnLifecycleWrongUsage`, ports of the Lint checks bundled with `androidx.lifecycle` 2.11.1, under their Lint
+  IDs, checked against the Lint CLI running those releases' `lint.jar` (`internal/rules/testdata/androidx_lifecycle/`).
+  `TestLifecycleOwnerInCoroutine` follows the detector source, as the CLI reports nothing for it against the released
+  classes (#1453, #1454, #1455, #1456).
 - `UnusedSharedTransitionModifierParameter`, `ConstantContentStateKeyInItemsCall`,
   `DisallowLookaheadAnimationVisualDebug` and `ArcAnimationSpecTypeIssue`, the remaining Lint checks bundled with
   `androidx.compose.animation` 1.13.0, under their Lint IDs and checked against the Lint CLI running those releases'

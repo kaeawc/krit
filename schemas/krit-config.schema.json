@@ -9924,6 +9924,39 @@
             }
           }
         },
+        "RepeatOnLifecycleWrongUsage": {
+          "description": "Detects repeatOnLifecycle reached from onStart or onResume of a Fragment or Activity instead of onCreate/onViewCreated. [precision: ast-backed] [noisiness: normal]\nCaveat: Calls are followed into functions declared in the same file; Lint also follows them into other files.\nCaveat: The Fragment or Activity ancestry is proven from the file alone (a supertype imported from androidx, or a same-file base class); a base class declared in another file is not followed until the per-file cache tracks cross-file inputs (#1778).",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable RepeatOnLifecycleWrongUsage (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "RequiredSizeResource": {
           "description": "View missing layout_width or layout_height [precision: project-structure-aware] [noisiness: normal] [capabilities: resources]",
           "type": "object",
@@ -12078,6 +12111,39 @@
               "description": "Enable TargetNewer (default: false).",
               "type": "boolean",
               "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "TestLifecycleOwnerInCoroutine": {
+          "description": "Detects currentState set inside runTest, whose blocking setter hangs in a coroutine; use setCurrentState(). [precision: ast-backed] [noisiness: normal]\nCaveat: Follows the detector source and its tests: the Lint CLI 9.4 reported nothing for this ID against the released lifecycle-runtime-testing 2.11.1 and kotlinx-coroutines-test 1.10.2 classes.\nCaveat: As in the detector, the last assignment in the runTest body decides: `x.currentState = Lifecycle.State.X` reports, and a later assignment of another constant clears it.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable TestLifecycleOwnerInCoroutine (default: true).",
+              "type": "boolean",
+              "default": true
             },
             "excludes": {
               "description": "Glob patterns for paths to exclude from this rule.",
@@ -19208,6 +19274,39 @@
             }
           }
         },
+        "LifecycleCurrentStateInComposition": {
+          "description": "Detects Lifecycle.currentState read in composition, which does not observe changes; use currentStateAsState(). [precision: ast-backed] [noisiness: normal]\nCaveat: The receiver must be `\u003cowner\u003e.lifecycle` or a value declared or initialized as a Lifecycle or LifecycleRegistry. Lint's quick fix (currentStateAsState().value plus an import) is not ported.\nCaveat: A lambda counts as composition only when the file proves its parameter is @Composable: a same-file declaration, a @Composable-annotated or -typed variable, or a known Compose content API (Column, Box, Scaffold, CompositionLocalProvider, lazy item content, ...).\nCaveat: Receivers must be proven by a same-file declaration or initializer; values typed only by inference across files are not checked.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable LifecycleCurrentStateInComposition (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "LocalContextConfigurationRead": {
           "description": "Detects LocalContext.current.resources.configuration reads, which are not updated when the Configuration changes. [precision: ast-backed] [noisiness: normal]\nCaveat: A Context or Resources value is followed only through same-file vals and properties initialized to LocalContext.current (or its resources).",
           "type": "object",
@@ -20502,6 +20601,39 @@
           "properties": {
             "active": {
               "description": "Enable UsingMaterialAndMaterial3Libraries (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "ViewModelConstructorInComposable": {
+          "description": "Detects ViewModels constructed directly in composition instead of through viewModel(). [precision: ast-backed] [noisiness: normal]\nCaveat: The constructed class must be declared in the same file and extend androidx.lifecycle.ViewModel through same-file classes and imports; a ViewModel declared in another file is not checked until the per-file cache tracks cross-file inputs (#1778).\nCaveat: A lambda counts as composition only when the file proves its parameter is @Composable: a same-file declaration, a @Composable-annotated or -typed variable, or a known Compose content API (Column, Box, Scaffold, CompositionLocalProvider, lazy item content, ...).\nCaveat: Receivers must be proven by a same-file declaration or initializer; values typed only by inference across files are not checked.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable ViewModelConstructorInComposable (default: true).",
               "type": "boolean",
               "default": true
             },

@@ -465,6 +465,11 @@ All notable changes to Krit will be documented in this file.
   `FrequentlyChangedStateReadInComposition` still suppress the matching rule (#1472, #1476, #1478).
 
 ### Changed
+- `publish-bcr.yml` authenticates with a fine-grained token limited to the `kaeawc/bazel-central-registry` fork instead
+  of a classic token whose `repo` scope reached every repository. Fine-grained tokens cannot open pull requests
+  against `bazelbuild/bazel-central-registry`, so the run pushes the entry to the fork and prints a link; a maintainer
+  opens the pull request as a draft and marks it ready, which BCR takes as their approval. The workflow previously
+  opened non-draft pull requests, which a maintainer could not approve as their own.
 - `krit_aspect`'s persistent worker keeps one warm krit-fir JVM for every target with the same compiler settings
   instead of one per classpath: its scans share a krit-fir daemon pool slot, and the daemon rebuilds its session for
   each action's sources and classpath. On a 24-target benchmark the Krit actions of a full build went from 79.9 s to

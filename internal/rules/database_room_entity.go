@@ -48,6 +48,38 @@ func classParameterIsVarFlat(file *scanner.File, param uint32) bool {
 	return false
 }
 
+// The Room entity rules read only the files these filters pass. The warm
+// cross-findings reuse judges edits with the same filters (#1925), so a file
+// a rule never reads can be edited without re-running it, and any file it
+// does read cannot.
+func roomFkEntityFileMayMatch(content []byte) bool {
+	return bytes.Contains(content, []byte("Entity")) && bytes.Contains(content, []byte("foreignKeys"))
+}
+
+func roomReplaceInsertFileMayMatch(content []byte) bool {
+	return bytes.Contains(content, []byte("Insert")) && bytes.Contains(content, []byte("REPLACE"))
+}
+
+func roomEntityFileMayMatch(content []byte) bool {
+	return bytes.Contains(content, []byte("Entity"))
+}
+
+func roomRelationFileMayMatch(content []byte) bool {
+	return bytes.Contains(content, []byte("Relation"))
+}
+
+// RoomConflictStrategyReplaceOnFkMayMatch reports whether
+// RoomConflictStrategyReplaceOnFk reads a file with this content.
+func RoomConflictStrategyReplaceOnFkMayMatch(content []byte) bool {
+	return roomFkEntityFileMayMatch(content) || roomReplaceInsertFileMayMatch(content)
+}
+
+// RoomRelationWithoutIndexMayMatch reports whether RoomRelationWithoutIndex
+// reads a file with this content.
+func RoomRelationWithoutIndexMayMatch(content []byte) bool {
+	return roomEntityFileMayMatch(content) || roomRelationFileMayMatch(content)
+}
+
 func (r *RoomConflictStrategyReplaceOnFkRule) check(ctx *api.Context) {
 	index := ctx.CodeIndex
 	if index == nil || len(index.Files) == 0 {
@@ -59,7 +91,7 @@ func (r *RoomConflictStrategyReplaceOnFkRule) check(ctx *api.Context) {
 		if file == nil || file.FlatTree == nil {
 			continue
 		}
-		if !bytes.Contains(file.Content, []byte("Entity")) || !bytes.Contains(file.Content, []byte("foreignKeys")) {
+		if !roomFkEntityFileMayMatch(file.Content) {
 			continue
 		}
 		file.FlatWalkNodes(0, "class_declaration", func(idx uint32) {
@@ -82,7 +114,7 @@ func (r *RoomConflictStrategyReplaceOnFkRule) check(ctx *api.Context) {
 		if file == nil || file.FlatTree == nil {
 			continue
 		}
-		if !bytes.Contains(file.Content, []byte("Insert")) || !bytes.Contains(file.Content, []byte("REPLACE")) {
+		if !roomReplaceInsertFileMayMatch(file.Content) {
 			continue
 		}
 		file.FlatWalkNodes(0, "function_declaration", func(idx uint32) {
@@ -297,7 +329,7 @@ func (r *RoomRelationWithoutIndexRule) check(ctx *api.Context) {
 		if file == nil || file.FlatTree == nil {
 			continue
 		}
-		if !bytes.Contains(file.Content, []byte("Entity")) {
+		if !roomEntityFileMayMatch(file.Content) {
 			continue
 		}
 		file.FlatWalkNodes(0, "class_declaration", func(idx uint32) {
@@ -314,7 +346,7 @@ func (r *RoomRelationWithoutIndexRule) check(ctx *api.Context) {
 		if file == nil || file.FlatTree == nil {
 			continue
 		}
-		if !bytes.Contains(file.Content, []byte("Relation")) {
+		if !roomRelationFileMayMatch(file.Content) {
 			continue
 		}
 		check := func(node uint32) { r.checkRelation(ctx, file, node, entities) }

@@ -249,3 +249,22 @@ func TestWarmCrossFindingsFollowMetroContributionEdits(t *testing.T) {
 		{"contribution removed", impl, plain},
 	})
 }
+
+// RoomConflictStrategyReplaceOnFk reads a DAO whose @Insert names REPLACE,
+// whatever spells it: here a same-package typealias Insert and const val
+// REPLACE, with no Room import in the DAO. Adding or removing the conflict
+// strategy there must re-run the rule (#1925).
+func TestWarmCrossFindingsFollowAliasedRoomInsertEdits(t *testing.T) {
+	const dao = "app/src/main/java/com/example/PetDao.kt"
+	const replaces = "package com.example\n\ninterface PetDao {\n    @Insert(onConflict = REPLACE)\n    fun insert(pet: Pet)\n}\n"
+	const plain = "package com.example\n\ninterface PetDao {\n    @Insert\n    fun insert(pet: Pet)\n}\n"
+	runWarmCrossSteps(t, "RoomConflictStrategyReplaceOnFk", true, map[string]string{
+		"app/src/main/java/com/example/Aliases.kt": "package com.example\n\nimport androidx.room.OnConflictStrategy\n\ntypealias Insert = androidx.room.Insert\n\nconst val REPLACE = OnConflictStrategy.REPLACE\n",
+		"app/src/main/java/com/example/Pet.kt":     "package com.example\n\nimport androidx.room.Entity\nimport androidx.room.ForeignKey\n\n@Entity(foreignKeys = [ForeignKey(entity = Owner::class, parentColumns = [\"id\"], childColumns = [\"ownerId\"])])\nclass Pet(val ownerId: Long)\n\nclass Owner\n",
+		dao:                                        replaces,
+	}, []warmCrossStep{
+		{"cold", "", ""},
+		{"conflict strategy removed", dao, plain},
+		{"conflict strategy added back", dao, replaces},
+	})
+}

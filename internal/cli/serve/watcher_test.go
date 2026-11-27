@@ -1048,3 +1048,67 @@ func (s *pathRecordingState) snapshot() []string {
 	copy(out, s.paths)
 	return out
 }
+
+// A Gradle Kotlin script is a library-config path and also a Kotlin source the
+// rules analyze. A write or an editor's atomic save of one must drop its
+// resident parse under both path forms as well as the library facts: with
+// only the library-config invalidation, the next warm scan of the script
+// reused the pre-edit tree and served its old findings (#1968).
+func TestFileWatcher_GradleKotlinScriptEditDropsResidentParse(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		file   string
+		atomic bool
+	}{
+		{"settings write", "settings.gradle.kts", false},
+		{"build script write", filepath.Join("lib", "build.gradle.kts"), false},
+		{"settings atomic save", "settings.gradle.kts", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			path := filepath.Join(root, tc.file)
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			old := []byte("include(\":a\", \":b\", \":c\", \":d\", \":e\")\n")
+			if err := os.WriteFile(path, old, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			ws := pipeline.NewWorkspaceState(root)
+			ws.LibraryFacts("lf", func() *librarymodel.Facts { return &librarymodel.Facts{} })
+			ws.StoreParsed(path, old, &scanner.File{Path: path, Content: old})
+			ws.StoreParsed(tc.file, old, &scanner.File{Path: tc.file, Content: old})
+
+			w, err := startFileWatcher(context.Background(), root, ws, nil)
+			if err != nil {
+				t.Fatalf("startFileWatcher: %v", err)
+			}
+			defer w.Stop()
+			<-w.Ready()
+
+			edited := []byte("include(\":a\", \":b\", \":c\", \":d\")\n")
+			if tc.atomic {
+				tmp := path + ".tmp"
+				if err := os.WriteFile(tmp, edited, 0o644); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Rename(tmp, path); err != nil {
+					t.Fatal(err)
+				}
+			} else if err := os.WriteFile(path, edited, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			dropped := func() bool {
+				_, abs := ws.LookupParsedByPath(path)
+				_, rel := ws.LookupParsedByPath(tc.file)
+				return !abs && !rel && !ws.CrossFileStats().HasLibraryFacts
+			}
+			if !waitForCondition(dropped) {
+				_, abs := ws.LookupParsedByPath(path)
+				_, rel := ws.LookupParsedByPath(tc.file)
+				t.Fatalf("after the edit: resident parse kept abs=%t rel=%t, library facts kept=%t",
+					abs, rel, ws.CrossFileStats().HasLibraryFacts)
+			}
+		})
+	}
+}

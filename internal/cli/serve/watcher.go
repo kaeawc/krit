@@ -433,9 +433,11 @@ func (fw *fileWatcher) handle(ev backendEvent) {
 	if relevant&(opCreate|opRemove|opRename) != 0 {
 		fw.state.InvalidateAndroidProjectFor(ev.Path)
 	}
-	// Library-config paths come first — build.gradle.kts also matches
-	// isKotlinPath because of its extension, but it drives library
-	// facts, not the per-file parse cache.
+	// Library-config paths come first: build.gradle.kts also matches
+	// isKotlinPath because of its extension. It drives library facts, and
+	// it is also a Kotlin source the rules analyze, so a .gradle.kts edit
+	// drops its resident parse too, or a later scan of it reuses the old
+	// tree (#1968).
 	switch {
 	case isKritConfigPath(ev.Path):
 		// krit.yml / .krit.yml drives rule selection. The cached
@@ -456,6 +458,9 @@ func (fw *fileWatcher) handle(ev backendEvent) {
 		// FileStats sweep, so any change invalidates the
 		// stats-clean memo just like a .kt edit.
 		fw.state.BumpSourceMTimeVersion()
+		if isKotlinPath(ev.Path) {
+			fw.kotlinChanged(ev.Path, relevant)
+		}
 	case isKotlinPath(ev.Path):
 		// Editors emit Write+Write+Chmod on a single logical save.
 		// Create, Remove and Rename change the file SET, not just a file's
@@ -466,11 +471,7 @@ func (fw *fileWatcher) handle(ev backendEvent) {
 		// A Write invalidates at once for the first event of a burst, and
 		// once more after debounceWindow of silence for a burst of several,
 		// so a later write in it is covered too. See kotlinEdited.
-		if relevant&(opCreate|opRemove|opRename) != 0 {
-			fw.invalidateKotlinNow(ev.Path)
-		} else {
-			fw.kotlinEdited(ev.Path)
-		}
+		fw.kotlinChanged(ev.Path, relevant)
 	case isJavaPath(ev.Path):
 		// .java edits invalidate the daemon-resident
 		// javafacts.SourceIndex cache. Kotlin and Java live on
@@ -625,6 +626,16 @@ func (fw *fileWatcher) invalidateKotlinState(path string) {
 // dirty set all still holding the old file, that analyze would reuse the old
 // tree, hash the old content, and record it under the new on-disk stat.
 // Nothing after it would tell the bundle that the file changed (#832).
+// kotlinChanged invalidates what a Kotlin source event makes stale: at once
+// for a change to the file set, through kotlinEdited for a content write.
+func (fw *fileWatcher) kotlinChanged(path string, relevant backendOp) {
+	if relevant&(opCreate|opRemove|opRename) != 0 {
+		fw.invalidateKotlinNow(path)
+	} else {
+		fw.kotlinEdited(path)
+	}
+}
+
 func (fw *fileWatcher) kotlinEdited(path string) {
 	first := !fw.burstPending(path)
 	// Arming the timer bumps the version, which must precede the invalidation.

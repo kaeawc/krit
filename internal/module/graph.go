@@ -135,20 +135,37 @@ func accessorSegmentsMatch(path string, want []string) bool {
 
 var accessorSpellingReplacer = strings.NewReplacer("-", "", "_", "")
 
-// FileToModule maps an absolute file path to the Gradle path of the module
-// that contains it. Returns an empty string if no module matches.
+// FileToModule maps a file path, absolute or relative to the working
+// directory, to the Gradle path of the module that contains it. Returns an
+// empty string if no module matches.
 func (g *Graph) FileToModule(filePath string) string {
 	clean := filepath.Clean(filePath)
+	if !filepath.IsAbs(clean) {
+		// Discovery spells module directories absolute, while a scan of "."
+		// through the daemon hands over paths relative to the caller's
+		// directory, which the daemon has entered (#1968). A graph built
+		// with relative directories still matches as spelled.
+		if abs, err := filepath.Abs(clean); err == nil {
+			if m := g.moduleContaining(abs); m != "" {
+				return m
+			}
+		}
+	}
+	return g.moduleContaining(clean)
+}
+
+// moduleContaining returns the module whose directory most closely contains
+// clean, compared as spelled.
+func (g *Graph) moduleContaining(clean string) string {
 	bestMatch := ""
 	bestLen := 0
 	for _, m := range g.Modules {
 		dir := filepath.Clean(m.Dir)
-		// Check that the file is under this module's directory.
-		if strings.HasPrefix(clean, dir+string(filepath.Separator)) || clean == dir {
-			if len(dir) > bestLen {
-				bestLen = len(dir)
-				bestMatch = m.Path
-			}
+		// The file is the module directory or under it.
+		if len(dir) > bestLen && strings.HasPrefix(clean, dir) &&
+			(len(clean) == len(dir) || clean[len(dir)] == filepath.Separator) {
+			bestLen = len(dir)
+			bestMatch = m.Path
 		}
 	}
 	return bestMatch

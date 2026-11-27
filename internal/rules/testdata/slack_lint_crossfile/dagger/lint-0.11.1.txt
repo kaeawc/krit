@@ -1,0 +1,14 @@
+src/main/java/com/example/Binds.kt:18:3: BindsTypeMismatch: @Binds parameter/return must be type-assignable
+src/main/java/com/example/Binds.kt:19:3: BindsTypeMismatch: @Binds parameter/return must be type-assignable
+src/main/java/com/example/Binds.kt:22:3: BindsTypeMismatch: @Binds parameter/return must be type-assignable
+src/main/java/com/example/Binds.kt:24:3: BindsTypeMismatch: @Binds parameter/return must be type-assignable
+src/main/java/com/example/Binds.kt:26:3: BindsTypeMismatch: @Binds parameter/return must be type-assignable
+src/main/java/com/example/JBinds.java:9:3: BindsTypeMismatch: @Binds parameter/return must be type-assignable
+src/main/java/com/example/JModule.java:13:5: DoNotCallProviders: Dagger provider methods should not be called directly by user code.
+src/main/java/com/example/JModule.java:14:16: DoNotCallProviders: Dagger provider methods should not be called directly by user code.
+src/main/java/com/example/JModule.java:25:5: DoNotCallProviders: Dagger provider methods should not be called directly by user code.
+src/main/java/com/example/Modules.kt:27:5: DoNotCallProviders: Dagger provider methods should not be called directly by user code.
+src/main/java/com/example/Modules.kt:29:5: DoNotCallProviders: Dagger provider methods should not be called directly by user code.
+src/main/java/com/example/Modules.kt:31:5: DoNotCallProviders: Dagger provider methods should not be called directly by user code.
+src/main/java/com/example/Modules.kt:48:23: DoNotCallProviders: Dagger provider methods should not be called directly by user code.
+src/main/java/com/example/Modules.kt:55:39: DoNotCallProviders: Dagger provider methods should not be called directly by user code.

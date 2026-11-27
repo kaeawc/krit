@@ -12,7 +12,10 @@ import (
 //   - a class header followed by a constructor on a later line (see
 //     ctorGapBreaks);
 //   - two or more top-level annotations before a modifier-led function with
-//     an empty parameter list, which the grammar reads as an expression.
+//     an empty parameter list, which the grammar reads as an expression;
+//   - a nested class-like body closed on the same line as its last member,
+//     which turns the enclosing class and the rest of the file into an ERROR
+//     (see closeSameLineBodies).
 //
 // Byte offsets, rows and columns in the result match content.
 func ParseKotlinFlat(ctx context.Context, parser *sitter.Parser, content []byte) (*FlatTree, error) {
@@ -28,22 +31,37 @@ func ParseKotlinFlat(ctx context.Context, parser *sitter.Parser, content []byte)
 	}
 	defer tree.Close()
 	ft := normalizeExplicitBackingFields(flattenTree(tree.RootNode()), content)
+	var bodySemis []uint32
+	if ft.Flags[0]&flatNodeFlagError != 0 {
+		ft, src, bodySemis = closeSameLineBodies(ctx, parser, ft, src, content)
+	}
 	if chains := findMisparsedAnnotationChains(ft, src); len(chains) > 0 {
 		var spans [][2]uint32
 		for _, ch := range chains {
 			spans = append(spans, ch.annotationSpans...)
 		}
-		tree2, err := parser.ParseCtx(ctx, nil, blankSpans(src, spans))
+		blanked := blankSpans(src, spans)
+		tree2, err := parser.ParseCtx(ctx, nil, blanked)
 		if err == nil {
 			defer tree2.Close()
 			ft2 := normalizeExplicitBackingFields(flattenTree(tree2.RootNode()), content)
-			ft = graftAnnotatedDeclarations(ctx, parser, src, ft, ft2, chains)
+			var semis2 []uint32
+			if ft2.Flags[0]&flatNodeFlagError != 0 {
+				// `@A class H { object O { val x = 1 } }` reaches the grammar
+				// bug only once its annotation is blanked.
+				ft2, _, semis2 = closeSameLineBodies(ctx, parser, ft2, blanked, content)
+			}
+			if grafted := graftAnnotatedDeclarations(ctx, parser, src, ft, ft2, chains); grafted != ft {
+				ft = grafted
+				bodySemis = append(bodySemis, semis2...)
+			}
 		}
 	}
 	ft = unwrapClassBodyErrors(ft)
 	if rw != nil {
 		ft = rw.repairTree(ctx, parser, ft)
 	}
+	trimInsertedSemicolons(ft, bodySemis)
 	if len(breaks) > 0 || rw != nil {
 		restorePositions(ft, content)
 	}

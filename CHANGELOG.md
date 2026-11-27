@@ -22,6 +22,10 @@ All notable changes to Krit will be documented in this file.
   its inputs' hashes in the model, and krit warns, naming the file, when the build no longer matches. A model restored under another checkout path or Gradle user home is rebased when
   loaded (new `gradleUserHome` model field). New `krit { exportTests = false }` exports and resolves only production
   source sets (#1663).
+- `UseOfNonLambdaOffsetOverload`, `UnusedBoxWithConstraintsScope` and `TextFieldBufferInternalAppend`, ports of the
+  Lint checks bundled with `androidx.compose.foundation` 1.13.0, under their Lint IDs. Their findings match the Lint
+  CLI running that release's `lint.jar` on the inputs under `internal/rules/testdata/androidx_compose_foundation/`
+  (#1438, #1439, #1440).
 - `ExperimentalAnnotationRetention` and `WrongRequiresOptIn`, ports of the declaration checks bundled with
   `androidx.annotation:annotation-experimental` 1.6.0, under their Lint IDs. Their findings match the Lint CLI running
   that release's `lint.jar` on the inputs under `internal/rules/testdata/androidx_annotation_experimental/` (#1317,
@@ -68,6 +72,11 @@ All notable changes to Krit will be documented in this file.
   part of the analysis cache key. The Bazel rules pass them from `--@krit//:min_sdk_version` /
   `--@krit//:target_sdk_version`, and an `android_binary`'s own `krit_aspect` action from its `manifest_values`, since
   Bazel builds often declare the levels only there (#1682).
+- `LifecycleCurrentStateInComposition`, `ViewModelConstructorInComposable`, `TestLifecycleOwnerInCoroutine` and
+  `RepeatOnLifecycleWrongUsage`, ports of the Lint checks bundled with `androidx.lifecycle` 2.11.1, under their Lint
+  IDs, checked against the Lint CLI running those releases' `lint.jar` (`internal/rules/testdata/androidx_lifecycle/`).
+  `TestLifecycleOwnerInCoroutine` follows the detector source, as the CLI reports nothing for it against the released
+  classes (#1453, #1454, #1455, #1456).
 - `UnusedSharedTransitionModifierParameter`, `ConstantContentStateKeyInItemsCall`,
   `DisallowLookaheadAnimationVisualDebug` and `ArcAnimationSpecTypeIssue`, the remaining Lint checks bundled with
   `androidx.compose.animation` 1.13.0, under their Lint IDs and checked against the Lint CLI running those releases'
@@ -81,6 +90,11 @@ All notable changes to Krit will be documented in this file.
   with `androidx.compose.animation` 1.13.0 (`animation-android`, `animation-core-android`), under their Lint IDs.
   Their findings match the Lint CLI running those releases' `lint.jar` on the inputs under
   `internal/rules/testdata/androidx_compose_animation/` (#1307, #1308, #1309, #1313).
+- `StringEscaping`, `InvalidNavigation`, `ValidRestrictions` and `RelativeClassResolution`, ports of Android Lint
+  32.4.1's `StringEscapeDetector`, `StartDestinationDetector`, `RestrictionsDetector` and
+  `RelativeClassAttributeDetector` under their Lint IDs and severities. Findings match Lint on 17 recorded project
+  fixtures (one documented column divergence). `scripts/lint-parity-record.sh` gains a standalone mode that runs Lint
+  32.4.1's own CLI for fixtures whose resources AGP refuses to compile (#1270, #1267, #1253, #1249).
 - `UnusedMaterialScaffoldPaddingParameter`, `UnusedMaterial3ScaffoldPaddingParameter`, `ConflictingOnColor` and
   `UsingMaterialAndMaterial3Libraries`, ports of the Lint checks bundled with `androidx.compose.material` 1.13.0 and
   `androidx.compose.material3` 1.5.0, under their Lint IDs. Their findings match the Lint CLI running those releases'
@@ -248,6 +262,10 @@ All notable changes to Krit will be documented in this file.
   negative. `UnsanitizedFilenameFromContentProvider` follows a `Cursor` display-name column through
   `getString` and local variables within one function, including lambdas and local functions, and reports the value
   where it reaches a `java.io.File` constructor before any other call uses it.
+- `BindsTypeMismatch` and `DoNotCallProviders`, the cross-file slack-lints 0.11.1 Dagger checks, in the opt-in
+  `slack-lint` rule set for Kotlin and Java: a `@Binds` parameter that cannot be assigned to its return type, and a
+  user-code call to a `@Binds`/`@Provides`/`@Produces` method. Findings match the Lint CLI on
+  `internal/rules/testdata/slack_lint_crossfile/dagger/` (#1358, #1366).
 - `AddJavascriptInterface` no longer reports "None of the methods in the added interface ...". That finding moved to
   `JavascriptInterface`, matching Lint's split between the two issues. `@Suppress`/`@SuppressLint`/`tools:ignore`
   entries and baseline entries written for `AddJavascriptInterface` still silence the moved finding: a rule's
@@ -494,6 +512,12 @@ All notable changes to Krit will be documented in this file.
   with `--experimental`. One shared project pass serves every `MoshiUsage*` rule. A new `api.Rule.LintIssue` flag
   lets rules outside `android-lint` whose IDs are Lint issue IDs honor `lint.xml` and Gradle `lint { disable }`
   (#1391, #1392, #1393, #1394, #1397).
+- `DenyListedApi` and `DenyListedBlockingApi`, slack-lints 0.11.1's `DenyListedApiDetector`, in the opt-in
+  `slack-lint` rule set for Kotlin and Java. They report the detector's built-in list (RxJava 3 `hide()` and blocking
+  calls, `java.util.Date`/`Calendar` and `java.text.DateFormat` APIs, `LinkedList`/`Stack`/`Vector`, `runCatching`,
+  `Flow.launchIn`, dispatcher-less rx3 builders and more) once the owner is proven from imports or the receiver's type.
+  Findings match the Lint CLI on `internal/rules/testdata/slack_lint/denylist/`, except that a top-level
+  `runCatching` of the file's package shadows kotlin's (#1428, #1429).
 - `MultipleAwaitPointerEventScopes` and `ReturnFromAwaitPointerEventScope`, ported from `androidx.compose.ui:ui-android`
   1.12.1 under their Lint IDs and checked against the Lint CLI on the same inputs. The first counts
   `awaitPointerEventScope` calls within the enclosing `pointerInput` call (its own arguments, not the chain before it)
@@ -587,11 +611,26 @@ All notable changes to Krit will be documented in this file.
   project functions and constructors annotated with slack-lint-annotations' `@MustUseNamedParams`/`@RestrictCallsTo`
   through imports, packages and receiver types (overrides included), and match the Lint CLI on
   `internal/rules/testdata/slack_lint_crossfile/annotations/` (#1423, #1432, #1433).
+- `JavaOnlyDetector`, slack-lints 0.11.1's `@JavaOnly`/`@KotlinOnly` check, in the opt-in `slack-lint` rule set: in
+  Kotlin sources, a class or function annotated with both, a subclass or override of an annotated type or function
+  that does not repeat the annotation, an anonymous object or SAM lambda of a `@JavaOnly` type, and calls and
+  callable references to `@JavaOnly` functions or members of `@JavaOnly` classes, with Java declarations indexed.
+  Findings match the Lint CLI on `internal/rules/testdata/slack_lint_crossfile/javaonly/`, except that a finding on
+  a class is reported at the declaration rather than its KDoc (#1369).
 
 ### Fixed
+- A Kotlin file with a nested body closed on the same line as its last member, such as
+  `class H { companion object { val X = 1 } }` or `class H { object O { const val X = 1 } }`, lost every finding.
+  The grammar needs a separator before that `}`, and its error recovery turned the enclosing class and the rest of the
+  file into one ERROR node, so the parse-error filter dropped all of them and `@Suppress` on the class did not apply.
+  Krit now reparses such a file with a `;` in the space before the brace and keeps the result when its error region is
+  smaller. Parse-cache entries and cross-file index shards written before the fix are rebuilt (#1839).
 - `--no-cache` skips every cache that can change findings. A one-shot scan read the cross-file findings cache, so a
   stale entry replayed into the run warm results are checked against; it now skips that cache and also the cross-file
   index, resource index, file-walk and incremental oracle caches. Only the parse cache stays on (#1818).
+- Gradle plugin: with FIR on, the check tasks run the R tasks of exported Android test components
+  (`generate<Variant>UnitTestStubRFile`, `process<Variant>AndroidTestResources`). On a clean checkout FIR compiled unit
+  and instrumented tests without their own R class, so test files that use `R` were gated (#1724).
 - Gradle plugin: the configuration cache is reused after the first build that creates an Android module's R jar.
   `kritExportModel` recorded the R jar by listing `build/intermediates` while configuring, which made the directory a
   configuration input. It now records the path AGP writes the jar to, and krit looks the jar up when it loads the model
@@ -612,9 +651,20 @@ All notable changes to Krit will be documented in this file.
   `gradle/libs.versions.toml` left `InvalidFragmentVersionForActivityResult` and the Gradle catalog lookups on the
   catalog-less result until restart (#1784). CLI scans already built a fresh memo per run.
 - `UnsafeIntentLaunch` treats a receiver class registered at runtime with `Context.registerReceiver` or
-  `ContextCompat.registerReceiver`, without `RECEIVER_NOT_EXPORTED` or a broadcast permission, as an unprotected
-  component, and follows the incoming intent into helpers declared in other files: imported or same-package top-level
-  functions and members of project classes or objects (`Launcher.launch(this, intent)`) (#1623).
+  `ContextCompat.registerReceiver` as an unprotected component unless, as in Lint, its flags include
+  `RECEIVER_NOT_EXPORTED`, its filter holds only protected broadcasts, or its broadcast permission is set to a value
+  other than null, blank or a normal one such as `INTERNET`. A filter counts only when krit sees every action: one
+  with an action krit cannot evaluate does not, nor does a property or field filter, a filter registered outside a
+  function, constructor or initializer block, or a local filter used before the registration other than by
+  `addAction` (passed to a function, given to `apply`, `also`, `let`, `run` or `with`, or aliased). It also follows
+  the incoming intent into helpers declared
+  in other files: top-level functions imported (also under an alias or through a wildcard) or from the same package,
+  members brought in by member or static imports, and members of project classes, objects and companion objects
+  (`Launcher.launch(this, intent)`), including through aliased or nested imports (#1623).
+- `UnspecifiedRegisterReceiverFlag` reads the `addAction` calls of a filter built inline in the registration,
+  `registerReceiver(r, IntentFilter().apply { addAction("custom") })`, of a filter registered in a Kotlin `init`
+  block or secondary constructor or a Java constructor or initializer block, and on `this.filter`, which it skipped
+  before, so such a filter with an unprotected action is reported (#1813).
 - `ProviderReadPermissionOnly` attributes providers declared in a library module's manifest the way Lint's merged
   manifest does: they are reported only when the scan holds an application module that depends on the library,
   directly or through other modules, by project dependencies in the Gradle module graph that merge a manifest (not test,
@@ -651,10 +701,6 @@ All notable changes to Krit will be documented in this file.
   another type is not taken for `Context.contentResolver`. A helper call resolves to the innermost local function,
   enclosing-class member or top-level function with that name and a matching argument count; overloads that disagree
   on the return type abstain (#1621).
-- `JavascriptInterface` reads Kotlin accessor use-site targets: a property annotated `@get:JavascriptInterface` or
-  `@set:JavascriptInterface`, or whose getter or setter carries the annotation, counts as an annotated bridge method,
-  and a private one is reported as `Must be public`, as Lint sees the accessor methods through UAST. `@field:` does
-  not count (part of #1620).
 - `JavascriptInterface` reads Kotlin accessor use-site targets: a property or primary-constructor property annotated
   `@get:`/`@set:JavascriptInterface` (including the array form `@get:[... JavascriptInterface]`), or whose getter or
   setter carries the annotation, counts as an annotated bridge method, and a protected one is reported as

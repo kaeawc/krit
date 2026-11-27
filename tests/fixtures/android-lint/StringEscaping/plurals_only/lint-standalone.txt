@@ -1,0 +1,1 @@
+AAPT rejects the unescaped apostrophes before lint runs, so this case is recorded with the standalone Lint 32.4.1 CLI.

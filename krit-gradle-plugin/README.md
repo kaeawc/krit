@@ -199,7 +199,10 @@ tasks are generators, not the compile of the analyzed source set. KSP and kapt t
 compilation's classpath as an input, though, so in a multi-module build they can still bring in
 the compiles of upstream projects. Test source sets' generated roots are
 recorded but not produced, because their KSP/kapt runs against the compiled production
-classes. Generated Android resources need no wiring of their own: AGP's R-class tasks
+classes. Their R jars are produced, though: with test source sets exported (`exportTests`,
+on by default), the check tasks also run `generate<Variant>UnitTestStubRFile` and
+`process<Variant>AndroidTestResources`, which write R classes and compile nothing.
+Generated Android resources need no wiring of their own: AGP's R-class tasks
 already depend on every `variant.sources.res` producer. Set `exportGenerated = true` to
 run the same generators for `kritExportModel` on its own, so generated sources and
 R-class jars exist on disk after export.

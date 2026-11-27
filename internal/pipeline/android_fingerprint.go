@@ -58,8 +58,54 @@ func (fps *resDirFingerprints) fingerprint(resDir string) string {
 		h.Write([]byte(manifests))
 		fp = hex.EncodeToString(h.Sum(nil))
 	}
+	// RelativeClassResolution reads the module's namespace, applicationId and plugins from its build script (and
+	// plugin aliases from the version catalog), so editing them must invalidate its findings.
+	if scripts := resDirBuildScriptFingerprint(resDir); scripts != "" {
+		h := hashutil.Hasher().New()
+		h.Write([]byte(fp))
+		h.Write([]byte("\x00build\x00"))
+		h.Write([]byte(scripts))
+		fp = hex.EncodeToString(h.Sum(nil))
+	}
 	fps.values[resDir] = fp
 	return fp
+}
+
+// resDirBuildScriptFingerprint fingerprints the build script of the module that owns resDir (`<module>/src/<set>/res`
+// or `<module>/res`) and the nearest gradle/libs.versions.toml above it, or returns "" when neither exists.
+func resDirBuildScriptFingerprint(resDir string) string {
+	module := filepath.Dir(resDir)
+	if filepath.Base(filepath.Dir(module)) == "src" {
+		module = filepath.Dir(filepath.Dir(module))
+	}
+	paths := []string{filepath.Join(module, "build.gradle.kts"), filepath.Join(module, "build.gradle")}
+	for dir, depth := module, 0; depth < 8; dir, depth = filepath.Dir(dir), depth+1 {
+		catalog := filepath.Join(dir, "gradle", "libs.versions.toml")
+		if _, err := os.Stat(catalog); err == nil {
+			paths = append(paths, catalog)
+			break
+		}
+		if parent := filepath.Dir(dir); parent == dir {
+			break
+		}
+	}
+	h := hashutil.Hasher().New()
+	memo := hashutil.Default()
+	found := false
+	for _, path := range paths {
+		hx, err := memo.HashFile(path, nil)
+		if err != nil {
+			continue
+		}
+		found = true
+		h.Write([]byte(filepath.Base(path)))
+		h.Write([]byte{0})
+		h.Write([]byte(hx))
+	}
+	if !found {
+		return ""
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 // resDirManifestFingerprint fingerprints the manifests a resource check reads for resDir: the AndroidManifest.xml of

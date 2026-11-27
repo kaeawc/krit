@@ -1,0 +1,2 @@
+- src/main/java/com/example/More.kt:12:1: JavaOnlyDetector: Type subclasses/implements KotlinOnlyBase in JavaApi.java which is annotated @KotlinOnly, it should also be annotated. # Lint's class location starts at the KDoc above it; krit reports at the declaration, so a @Suppress on the class covers the finding (as for the Dagger rules)
++ src/main/java/com/example/More.kt:13:1: JavaOnlyDetector: Type subclasses/implements KotlinOnlyBase in JavaApi.java which is annotated @KotlinOnly, it should also be annotated. # as above

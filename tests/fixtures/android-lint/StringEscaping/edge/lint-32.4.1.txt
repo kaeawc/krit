@@ -1,0 +1,5 @@
+src/main/res/values-fr/strings.xml:2:27: StringEscaping: Apostrophe not preceded by \\
+src/main/res/values/strings.xml:3:23: StringEscaping: Apostrophe not preceded by \\
+src/main/res/values/strings.xml:5:54: StringEscaping: Apostrophe not preceded by \\
+src/main/res/values/strings.xml:6:38: StringEscaping: Apostrophe not preceded by \\
+src/main/res/values/strings.xml:7:49: StringEscaping: Apostrophe not preceded by \\

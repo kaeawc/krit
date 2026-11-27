@@ -1,6 +1,7 @@
 package scanner
 
 import (
+	"fmt"
 	"path/filepath"
 	"testing"
 )
@@ -31,5 +32,22 @@ func TestDeltaMatchesFilesAcrossSpellings(t *testing.T) {
 	}
 	if got := FilterColumnsByFilePaths(&prior, map[string]bool{rel: true}); got.Len() != 1 {
 		t.Fatalf("a relative allowed path kept %d rows of the absolute A.kt, want 1", got.Len())
+	}
+}
+
+// A daemon replay resolves every relative file-table entry; with ktor's
+// table (about 2,600 files) a Getwd per entry cost tens of milliseconds.
+func BenchmarkFilePathSetFileTableMatches(b *testing.B) {
+	files := make([]string, 2620)
+	for i := range files {
+		files[i] = fmt.Sprintf("ktor-server/module%d/src/main/kotlin/File%d.kt", i%40, i)
+	}
+	set := newFilePathSet(len(files) / 2)
+	for _, f := range files[:len(files)/2] {
+		set.add(f)
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = set.fileTableMatches(files)
 	}
 }

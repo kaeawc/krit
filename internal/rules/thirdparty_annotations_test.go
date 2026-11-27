@@ -51,12 +51,11 @@ func TestSlackLintCrossFileParity(t *testing.T) {
 
 func runSlackCrossFileChecks(t *testing.T, dir string, checks []string) []string {
 	t.Helper()
-	abs, err := filepath.Abs(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
+	// The case's relative path keeps the absolute `/testdata/` directory, a test-source marker, out of the file
+	// paths, so checks that skip test sources still run.
+	abs := filepath.Clean(dir)
 	var kotlin, java, all []*scanner.File
-	err = filepath.WalkDir(abs, func(path string, d os.DirEntry, err error) error {
+	err := filepath.WalkDir(abs, func(path string, d os.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return err
 		}

@@ -24,7 +24,7 @@ import (
 //
 // divergences.txt, when present, lists where krit deliberately differs, one finding per line with ` # reason`:
 // `- finding` is a Lint line krit does not report and `+ finding` is a krit line Lint does not report. krit must
-// report exactly Lint's findings with those adjustments.
+// report exactly Lint's findings with those adjustments. A line starting with `#` is a note.
 func TestSlackLintParity(t *testing.T) {
 	root := filepath.Join("testdata", "slack_lint")
 	cases, err := os.ReadDir(root)
@@ -64,6 +64,9 @@ func slackParityExpected(t *testing.T, dir string) []string {
 	}
 	var added []string
 	for _, line := range parityLines(readOptionalParityFile(t, filepath.Join(dir, "divergences.txt"))) {
+		if strings.HasPrefix(line, "#") {
+			continue // a note on what the case leaves out
+		}
 		finding, reason, _ := strings.Cut(line, " # ")
 		if strings.TrimSpace(reason) == "" {
 			t.Errorf("divergences.txt line %q has no ` # reason`", line)

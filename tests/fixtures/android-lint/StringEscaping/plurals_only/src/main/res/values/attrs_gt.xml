@@ -1,0 +1,4 @@
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <string name="gt_quote" tools:note="1>2">don't</string>
+    <string name="gt_apostrophe" tools:note="it>'s">fine</string>
+</resources>

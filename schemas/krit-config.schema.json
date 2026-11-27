@@ -5976,6 +5976,39 @@
             }
           }
         },
+        "InvalidNavigation": {
+          "description": "No start destination specified [precision: project-structure-aware] [noisiness: normal] [capabilities: resources]\nCaveat: An included graph is looked up in the res directory being checked; one defined only in another source set or module is skipped (Lint looks across the module's source sets).",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable InvalidNavigation (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "InvalidPeriodicWorkRequestInterval": {
           "description": "Invalid interval duration [precision: ast-backed] [noisiness: normal]\nCaveat: Follows the detector source: the Android Lint CLI (9.4) running the 2.12.0 lint.jar against compiled WorkManager reported none of these intervals, so Lint-side parity could not be observed.\nCaveat: Like the detector, a Java int argument (`10` instead of `10L`) is not evaluated, and PeriodicWorkRequestBuilder\u003cW\u003e(...) is left to PeriodicWorkRequestLessThan15Min.",
           "type": "object",
@@ -9825,6 +9858,39 @@
             }
           }
         },
+        "RelativeClassResolution": {
+          "description": "Relative class names resolve to applicationId, not namespace [precision: project-structure-aware] [noisiness: normal] [capabilities: resources]\nCaveat: The namespace and applicationId come from literal `namespace` / `applicationId` assignments in the module's build script (or the manifest package); values set through variables, flavors or convention plugins are not seen, and the check is skipped without a namespace.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable RelativeClassResolution (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "RelativeOverlapResource": {
           "description": "Views in RelativeLayout may overlap [precision: project-structure-aware] [noisiness: normal] [capabilities: resources]",
           "type": "object",
@@ -9898,6 +9964,39 @@
           "properties": {
             "active": {
               "description": "Enable RemoveWorkManagerInitializer (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "RepeatOnLifecycleWrongUsage": {
+          "description": "Detects repeatOnLifecycle reached from onStart or onResume of a Fragment or Activity instead of onCreate/onViewCreated. [precision: ast-backed] [noisiness: normal]\nCaveat: Calls are followed into functions declared in the same file; Lint also follows them into other files.\nCaveat: The Fragment or Activity ancestry is proven from the file alone (a supertype imported from androidx, or a same-file base class); a base class declared in another file is not followed until the per-file cache tracks cross-file inputs (#1778).",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable RepeatOnLifecycleWrongUsage (default: true).",
               "type": "boolean",
               "default": true
             },
@@ -11409,6 +11508,39 @@
             }
           }
         },
+        "StringEscaping": {
+          "description": "Invalid string escapes [precision: project-structure-aware] [noisiness: normal] [capabilities: resources]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable StringEscaping (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "StringFormatCountResource": {
           "description": "Formatting argument types incomplete or inconsistent [precision: project-structure-aware] [noisiness: normal] [capabilities: resources]",
           "type": "object",
@@ -12078,6 +12210,39 @@
               "description": "Enable TargetNewer (default: false).",
               "type": "boolean",
               "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "TestLifecycleOwnerInCoroutine": {
+          "description": "Detects currentState set inside runTest, whose blocking setter hangs in a coroutine; use setCurrentState(). [precision: ast-backed] [noisiness: normal]\nCaveat: Follows the detector source and its tests: the Lint CLI 9.4 reported nothing for this ID against the released lifecycle-runtime-testing 2.11.1 and kotlinx-coroutines-test 1.10.2 classes.\nCaveat: As in the detector, the last assignment in the runTest body decides: `x.currentState = Lifecycle.State.X` reports, and a later assignment of another constant clears it.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable TestLifecycleOwnerInCoroutine (default: true).",
+              "type": "boolean",
+              "default": true
             },
             "excludes": {
               "description": "Glob patterns for paths to exclude from this rule.",
@@ -14386,6 +14551,39 @@
           "properties": {
             "active": {
               "description": "Enable UsingOnClickInXml (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "ValidRestrictions": {
+          "description": "Invalid Restrictions Descriptor [precision: project-structure-aware] [noisiness: normal] [capabilities: resources]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable ValidRestrictions (default: true).",
               "type": "boolean",
               "default": true
             },
@@ -19208,6 +19406,39 @@
             }
           }
         },
+        "LifecycleCurrentStateInComposition": {
+          "description": "Detects Lifecycle.currentState read in composition, which does not observe changes; use currentStateAsState(). [precision: ast-backed] [noisiness: normal]\nCaveat: The receiver must be `\u003cowner\u003e.lifecycle` or a value declared or initialized as a Lifecycle or LifecycleRegistry. Lint's quick fix (currentStateAsState().value plus an import) is not ported.\nCaveat: A lambda counts as composition only when the file proves its parameter is @Composable: a same-file declaration, a @Composable-annotated or -typed variable, or a known Compose content API (Column, Box, Scaffold, CompositionLocalProvider, lazy item content, ...).\nCaveat: Receivers must be proven by a same-file declaration or initializer; values typed only by inference across files are not checked.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable LifecycleCurrentStateInComposition (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "LocalContextConfigurationRead": {
           "description": "Detects LocalContext.current.resources.configuration reads, which are not updated when the Configuration changes. [precision: ast-backed] [noisiness: normal]\nCaveat: A Context or Resources value is followed only through same-file vals and properties initialized to LocalContext.current (or its resources).",
           "type": "object",
@@ -20099,6 +20330,39 @@
             }
           }
         },
+        "TextFieldBufferInternalAppend": {
+          "description": "Detects TextFieldBuffer.append in androidx.compose.foundation code, which drops hardware-source tracking. [precision: ast-backed] [noisiness: normal]\nCaveat: Only applies to code in androidx.compose.foundation packages, as in Lint.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable TextFieldBufferInternalAppend (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "UnnecessaryComposedModifier": {
           "description": "Detects Modifier.composed factories that call no @Composable function, which only adds cost. [precision: ast-backed] [noisiness: normal]\nCaveat: A factory that calls a function declared in another file (other than known Compose Modifier factories and Kotlin stdlib functions), reads `.current`, or reads a property of an object other than Modifier, Color, Alignment or Arrangement is assumed to call a @Composable function, so it is not reported.",
           "type": "object",
@@ -20139,6 +20403,39 @@
           "properties": {
             "active": {
               "description": "Enable UnrememberedMutableState (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "UnusedBoxWithConstraintsScope": {
+          "description": "Detects BoxWithConstraints whose content never uses the constraints, so a Box would avoid subcomposition. [precision: ast-backed] [noisiness: normal]\nCaveat: Scope use is a `this`, a read of maxWidth, maxHeight, minWidth, minHeight or constraints, a call of a same-file BoxWithConstraintsScope extension, or an invocation of a value typed with a BoxWithConstraintsScope receiver; such extensions declared in other files are not seen.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable UnusedBoxWithConstraintsScope (default: true).",
               "type": "boolean",
               "default": true
             },
@@ -20396,6 +20693,39 @@
             }
           }
         },
+        "UseOfNonLambdaOffsetOverload": {
+          "description": "Detects Modifier.offset(x, y) with State-backed arguments, where the lambda overload offset { } avoids recomposition. [precision: ast-backed] [noisiness: normal]\nCaveat: An argument is State-backed when it reads a value declared or initialized as a State, MutableState or Animatable (mutableStateOf, remember { ... }, animate*AsState, derivedStateOf, collectAsState, Animatable(...)), the .value of one, or a local delegated `by` one; values typed only in other files are not proven.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable UseOfNonLambdaOffsetOverload (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "UsingMaterialAndMaterial3Libraries": {
           "description": "Detects androidx.compose.material imports in code that also uses the incompatible material3 library. [precision: ast-backed] [noisiness: normal]\nCaveat: material3 use is proven by a material3 import in the same file, or a material3 dependency declared by the build file of the file's own Gradle module (the nearest directory with a build.gradle(.kts)); one added by a convention plugin or arriving through another project module is not seen.",
           "type": "object",
@@ -20403,6 +20733,39 @@
           "properties": {
             "active": {
               "description": "Enable UsingMaterialAndMaterial3Libraries (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "ViewModelConstructorInComposable": {
+          "description": "Detects ViewModels constructed directly in composition instead of through viewModel(). [precision: ast-backed] [noisiness: normal]\nCaveat: The constructed class must be declared in the same file and extend androidx.lifecycle.ViewModel through same-file classes and imports; a ViewModel declared in another file is not checked until the per-file cache tracks cross-file inputs (#1778).\nCaveat: A lambda counts as composition only when the file proves its parameter is @Composable: a same-file declaration, a @Composable-annotated or -typed variable, or a known Compose content API (Column, Box, Scaffold, CompositionLocalProvider, lazy item content, ...).\nCaveat: Receivers must be proven by a same-file declaration or initializer; values typed only by inference across files are not checked.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable ViewModelConstructorInComposable (default: true).",
               "type": "boolean",
               "default": true
             },
@@ -32730,6 +33093,39 @@
             }
           }
         },
+        "BindsTypeMismatch": {
+          "description": "@Binds parameter/return must be type-assignable [precision: project-structure-aware] [noisiness: normal] [capabilities: cross-file, resolver]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable BindsTypeMismatch (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "CastingViewContextToActivity": {
           "description": "Unsafe cast of `Context` to `Activity` [precision: type-aware] [noisiness: normal] [capabilities: resolver]",
           "type": "object",
@@ -32737,6 +33133,105 @@
           "properties": {
             "active": {
               "description": "Enable CastingViewContextToActivity (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "DenyListedApi": {
+          "description": "Deny-listed API [precision: type-aware] [noisiness: normal] [capabilities: resolver]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable DenyListedApi (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "DenyListedBlockingApi": {
+          "description": "Deny-listed API [precision: type-aware] [noisiness: normal] [capabilities: resolver]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable DenyListedBlockingApi (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "DoNotCallProviders": {
+          "description": "Dagger provider methods should not be called directly by user code. [precision: project-structure-aware] [noisiness: normal] [capabilities: cross-file, resolver]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable DoNotCallProviders (default: false).",
               "type": "boolean",
               "default": false
             },
@@ -33116,6 +33611,39 @@
               "items": {
                 "type": "string"
               }
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "JavaOnlyDetector": {
+          "description": "Using @JavaOnly elements in Kotlin code. [precision: project-structure-aware] [noisiness: normal] [capabilities: cross-file, resolver]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable JavaOnlyDetector (default: false).",
+              "type": "boolean",
+              "default": false
             },
             "excludes": {
               "description": "Glob patterns for paths to exclude from this rule.",

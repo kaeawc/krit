@@ -1,0 +1,2 @@
+src/main/res/values/attrs_gt.xml:2:49: StringEscaping: Apostrophe not preceded by \\
+src/main/res/values/plurals.xml:3:38: StringEscaping: Apostrophe not preceded by \\

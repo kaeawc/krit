@@ -34,7 +34,7 @@ var lexicalReuseRules = []string{
 // lexicalNeedleVersion versions what a lexical tag means: the rule slots and
 // crossRuleLexicallyIrrelevant's needles. Bump it with any change to either,
 // so tags saved under the old meaning are not read under the new one.
-const lexicalNeedleVersion = 3
+const lexicalNeedleVersion = 4
 
 // lexicalReuseKey is saved with the cross findings and must match for the
 // last-value slot to be reused: the rules the findings came from (ruleHash)
@@ -147,9 +147,11 @@ func crossRuleLexicallyIrrelevant(ruleID, _, text string) bool {
 		// The rule reads the handlers of classes extending an *Activity.
 		return !containsAny(lowerText, "activity", "onclick", "setonclicklistener")
 	case "RoomConflictStrategyReplaceOnFk":
-		return !containsAny(lowerText, "onconflictstrategy", "foreignkey", "@entity", "room")
+		// The rules' own file filters, case and all: a same-package typealias
+		// Insert or const val REPLACE passes them with no room import (#1925).
+		return !rules.RoomConflictStrategyReplaceOnFkMayMatch([]byte(text))
 	case "RoomRelationWithoutIndex":
-		return !containsAny(lowerText, "@relation", "foreignkey", "@entity", "room")
+		return !rules.RoomRelationWithoutIndexMayMatch([]byte(text))
 	case "AnvilMergeComponentEmptyScope":
 		// The rule's own file filter, case and all: any Contributes* or
 		// MergeComponent annotation, whatever package it comes from.

@@ -276,8 +276,6 @@ func (d *Dispatcher) slotsOf(rules []*api.Rule) []int32 {
 	return slots
 }
 
-// SetLibraryFacts wires project-wide library semantics into contexts created
-// by this dispatcher.
 // SetProjectRoot records the root of the scanned project for rules' path
 // heuristics (projectPath). Without it they see absolute paths.
 func (d *Dispatcher) SetProjectRoot(root string) {
@@ -295,6 +293,8 @@ func (d *Dispatcher) ProjectRoot() string {
 	return d.fileFacts.ProjectRoot()
 }
 
+// SetLibraryFacts wires project-wide library semantics into contexts created
+// by this dispatcher.
 func (d *Dispatcher) SetLibraryFacts(facts *librarymodel.Facts) {
 	if d == nil {
 		return

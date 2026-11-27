@@ -72,6 +72,15 @@ func (s *Server) analyzeCode(args analyzeArgs) ToolResult {
 	}
 	s.firNoticeFor([]string{args.Path}, args.Config)
 
+	// Rules read paths relative to the buffer's marked project root, as a
+	// CLI scan of that file does. Set it on every call: without a path, or
+	// under no marker, an earlier request's root must not linger.
+	var rootPaths []string
+	if args.Path != "" {
+		rootPaths = []string{args.Path}
+	}
+	pipeline.SetDispatcherProjectRoot(s.analyzer.Dispatcher, rootPaths)
+
 	columns, err := s.parseAndAnalyzeColumns(args.Code, args.Path)
 	if err != nil {
 		return errorResult(err.Error())

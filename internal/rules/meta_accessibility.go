@@ -56,7 +56,7 @@ func (r *ComposeRawTextLiteralRule) Meta() api.RuleDescriptor {
 			}),
 			api.StringListOption(api.StringListOptionSpec[ComposeRawTextLiteralRule]{
 				Name:        "nonProductionPathMarkers",
-				Description: "Path substrings that mark sources as not user-facing, in addition to the built-in debug, playground and sandbox markers.",
+				Description: "Path substrings that mark sources as not user-facing, in addition to the built-in debug, playground and sandbox markers. Under a marked project root they match the path relative to that root, so folders above the checkout never match; a marker written as an absolute path inside the root still matches.",
 				Apply:       func(r *ComposeRawTextLiteralRule, v []string) { r.NonProductionPathMarkers = v },
 			}),
 		},
@@ -92,7 +92,7 @@ func (r *ComposeTextFieldMissingLabelRule) Meta() api.RuleDescriptor {
 		Options: []api.ConfigOption{
 			api.StringListOption(api.StringListOptionSpec[ComposeTextFieldMissingLabelRule]{
 				Name:        "nonProductionPathMarkers",
-				Description: "Path substrings that mark sources as not user-facing, in addition to the built-in debug, playground and sandbox markers.",
+				Description: "Path substrings that mark sources as not user-facing, in addition to the built-in debug, playground and sandbox markers. Under a marked project root they match the path relative to that root, so folders above the checkout never match; a marker written as an absolute path inside the root still matches.",
 				Apply:       func(r *ComposeTextFieldMissingLabelRule, v []string) { r.NonProductionPathMarkers = v },
 			}),
 		},

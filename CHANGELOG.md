@@ -635,6 +635,16 @@ All notable changes to Krit will be documented in this file.
   a class is reported at the declaration rather than its KDoc (#1369).
 
 ### Fixed
+- Manifest rules resolve plugin aliases (`alias(<catalog>.plugins.x)`) against the catalogs Gradle builds, so they
+  tell apps from libraries correctly. That covers catalogs a settings file declares with
+  `versionCatalogs { create("<name>") { from(files(...)) } }` (any path, Kotlin or Groovy DSL) or programmatically,
+  and the default catalog renamed by `defaultLibrariesExtensionName`. An alias reads only the catalog its accessor
+  names, so `alias(tools.plugins.x)` no longer resolves against `libs.versions.toml`, and an unimported
+  `gradle/<name>.versions.toml` serves only the accessor `<name>`, when no imported catalog has that name. Version
+  catalog sources in librarymodel carry this accessor name. Warm runs and the daemon key the settings-derived source
+  list: the files, their kinds and their names. Editing a settings-declared catalog, renaming a `create(...)`, or
+  pointing `from(files(...))` at another file reruns the manifest rules. A settings edit that leaves the catalogs
+  alone doesn't (#1872).
 - The LSP, the daemon's buffer analysis and the MCP server see module build-script edits (library or application,
   minSdk, targetSdk), version-catalog `[plugins]` edits and rewritten Java imports on the next request instead of after
   a restart. Those facts are read from disk and were memoized for the life of the long-lived analyzer, which also read

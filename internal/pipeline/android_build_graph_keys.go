@@ -190,15 +190,18 @@ var manifestGradleInfoMemo runScoped[string]
 //   - the build script each manifest's module is read from (rules.ManifestBuildScript, the first of its candidates
 //     that exists, searched again every run, so creating a nearer one or deleting the one read moves the key) and that
 //     script's content;
-//   - for a script with plugin aliases, the version-catalog search of its directory (rules.VersionCatalogSearch):
-//     every directory it globbed with its gradle/*.versions.toml matches, an empty list included, so a catalog
-//     created in one moves the key;
-//   - for a script with libs. dependency aliases, the catalog sources librarymodel's discovery finds for it;
-//   - the content, or absence, of every catalog file those searches found.
+//   - for a script with plugin or libs. dependency aliases, the catalog sources librarymodel's discovery finds for it,
+//     each with its kind and accessor name (#1872). Discovery runs again every run, so a catalog created in a
+//     directory it globs, or a settings file that declares one, moves the key, and so do a settings edit that
+//     changes which files its versionCatalogs blocks import or the names they import them under, such as a
+//     create("libs") renamed, and a renamed defaultLibrariesExtensionName;
+//   - the content, or absence, of every catalog source those discoveries found: TOML files, and the settings files
+//     and settings plugins that declare catalogs programmatically.
 //
-// Scripts with no alias read no catalog, so their searches are skipped (rules.BuildScriptCatalogReads); the script's
-// own content is keyed, so adding an alias moves the key. Each directory is globbed, and each script searched, once
-// per run, across the CPUs, and the fingerprint is computed once per run for every key that folds it in.
+// Scripts with no alias read no catalog, so their discoveries are skipped (rules.BuildScriptCatalogReads); the
+// script's own content is keyed, so adding an alias moves the key. A settings edit that leaves every source list
+// alone, such as an include(...), doesn't move it. Each directory is discovered, and each script searched, once per
+// run, across the CPUs, and the fingerprint is computed once per run for every key that folds it in.
 func manifestGradleInfoFingerprint(project *android.Project) string {
 	if project == nil || len(project.ManifestPaths) == 0 {
 		return ""
@@ -223,19 +226,10 @@ func computeManifestGradleInfoFingerprint(manifests []string) string {
 			unique = append(unique, script)
 		}
 	}
-	var globbed sync.Map // directory -> its sorted gradle/*.versions.toml matches
-	glob := func(dir string) []string {
-		if matches, ok := globbed.Load(dir); ok {
-			return matches.([]string)
-		}
-		matches, _ := globbed.LoadOrStore(dir, rules.VersionCatalogGlob(dir))
-		return matches.([]string)
-	}
 	discovery := librarymodel.NewCatalogDiscovery()
 	type scriptReads struct {
-		pluginCatalogs []string // the catalog search's matches
-		library        string   // the script with librarymodel's catalog sources for it
-		libraryPaths   []string
+		library      string // the script with librarymodel's catalog sources for it
+		libraryPaths []string
 	}
 	reads := make([]scriptReads, len(unique))
 	forEachParallel(len(unique), workers, func(i int) {
@@ -244,26 +238,20 @@ func computeManifestGradleInfoFingerprint(manifests []string) string {
 		if err != nil {
 			return
 		}
-		pluginAliases, dependencyAliases := rules.BuildScriptCatalogReads(string(content))
-		if pluginAliases {
-			_, reads[i].pluginCatalogs = rules.VersionCatalogSearch(filepath.Dir(script), glob)
+		if pluginAliases, dependencyAliases := rules.BuildScriptCatalogReads(string(content)); !pluginAliases && !dependencyAliases {
+			return
 		}
-		if dependencyAliases {
-			entry := script
-			sources, _ := discovery.FindVersionCatalogSourcesForGradlePath(script)
-			for _, source := range sources {
-				entry += "\x00" + string(source.Kind) + "\x00" + source.Path
-				reads[i].libraryPaths = append(reads[i].libraryPaths, source.Path)
-			}
-			reads[i].library = entry
+		entry := script
+		sources, _ := discovery.FindVersionCatalogSourcesForGradlePath(script)
+		for _, source := range sources {
+			entry += "\x00" + string(source.Kind) + "\x00" + source.Path + "\x00" + source.Accessor
+			reads[i].libraryPaths = append(reads[i].libraryPaths, source.Path)
 		}
+		reads[i].library = entry
 	})
 	catalogSet := map[string]bool{}
 	var librarySources []string
 	for _, r := range reads {
-		for _, catalog := range r.pluginCatalogs {
-			catalogSet[catalog] = true
-		}
 		for _, catalog := range r.libraryPaths {
 			catalogSet[catalog] = true
 		}
@@ -279,17 +267,6 @@ func computeManifestGradleInfoFingerprint(manifests []string) string {
 	}
 	sort.Strings(unique)
 	writeUnscannedFileHashes(h, memo, unique, nil)
-	// Every directory a catalog search globbed, with what it found: a catalog created in one changes what is read.
-	_, _ = h.Write([]byte("catalog-search\x00"))
-	var dirs []string
-	globbed.Range(func(dir, _ any) bool {
-		dirs = append(dirs, dir.(string))
-		return true
-	})
-	sort.Strings(dirs)
-	for _, dir := range dirs {
-		_, _ = h.Write([]byte(dir + "\x00" + strings.Join(glob(dir), "\x00") + "\x01"))
-	}
 	_, _ = h.Write([]byte("catalog-sources\x00"))
 	sort.Strings(librarySources)
 	for _, entry := range librarySources {

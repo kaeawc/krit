@@ -45,6 +45,13 @@ const (
 type CatalogSource struct {
 	Path string
 	Kind CatalogSourceKind
+	// Accessor is the name build scripts reach the catalog by, as `libs` in `alias(libs.plugins.x)` (#1872). Gradle
+	// imports gradle/libs.versions.toml under the settings' defaultLibrariesExtensionName, `libs` unless renamed, and
+	// a file a settings `versionCatalogs { create("<name>") { from(files(...)) } }` block lists under that name. It is
+	// "" for any other gradle/*.versions.toml, which Gradle doesn't import, for a from(files(...)) outside a named
+	// block, and for a programmatic source, whose blocks each name their own catalog (LoadCatalogPluginsByAccessor).
+	// Discovery, merging and the catalog contents don't depend on it.
+	Accessor string
 }
 
 type CatalogCompleteness int
@@ -287,30 +294,70 @@ func FindVersionCatalogSourcesForGradlePath(gradlePath string) ([]CatalogSource,
 	return (*CatalogDiscovery)(nil).FindVersionCatalogSourcesForGradlePath(gradlePath)
 }
 
-func (c *CatalogDiscovery) catalogSourcesForDir(dir string) []CatalogSource {
-	var sources []CatalogSource
-	catalogPaths, err := filepath.Glob(filepath.Join(dir, "gradle", "*.versions.toml"))
-	if err == nil && len(catalogPaths) > 0 {
-		for _, catalogPath := range orderVersionCatalogPaths(catalogPaths) {
-			sources = append(sources, CatalogSource{Path: catalogPath, Kind: CatalogSourceMergedTOML})
-		}
-	}
-	sources = append(sources, c.settingsCatalogSources(dir)...)
-	return sources
+// settingsFile is a settings file of a directory, with its comments stripped.
+type settingsFile struct {
+	path, content string
 }
 
-func (c *CatalogDiscovery) settingsCatalogSources(dir string) []CatalogSource {
-	var sources []CatalogSource
+func readSettingsFiles(dir string) []settingsFile {
+	var files []settingsFile
 	for _, name := range []string{"settings.gradle", "settings.gradle.kts"} {
-		settingsPath := filepath.Join(dir, name)
-		content, err := os.ReadFile(settingsPath)
+		path := filepath.Join(dir, name)
+		content, err := os.ReadFile(path)
 		if err != nil {
 			continue
 		}
-		settingsContent := stripGradleComments(string(content))
-		for _, match := range settingsCatalogFileRe.FindAllStringSubmatch(settingsContent, -1) {
-			catalogPath := filepath.Clean(filepath.Join(dir, match[1]))
-			sources = append(sources, CatalogSource{Path: catalogPath, Kind: CatalogSourceSettingsTOML})
+		files = append(files, settingsFile{path: path, content: stripGradleComments(string(content))})
+	}
+	return files
+}
+
+// defaultCatalogName is the name Gradle imports gradle/libs.versions.toml under for a build with these settings
+// files: the last literal defaultLibrariesExtensionName they set, else `libs`.
+func defaultCatalogName(settings []settingsFile) string {
+	name := defaultCatalogAccessor
+	for _, file := range settings {
+		for _, match := range defaultLibrariesExtensionNameRe.FindAllStringSubmatch(file.content, -1) {
+			name = match[1]
+		}
+	}
+	return name
+}
+
+// defaultCatalogAccessor is DependencyResolutionManagement.getDefaultLibrariesExtensionName's default.
+const defaultCatalogAccessor = "libs"
+
+func (c *CatalogDiscovery) catalogSourcesForDir(dir string) []CatalogSource {
+	var sources []CatalogSource
+	settings := readSettingsFiles(dir)
+	catalogPaths, err := filepath.Glob(filepath.Join(dir, "gradle", "*.versions.toml"))
+	if err == nil && len(catalogPaths) > 0 {
+		for _, catalogPath := range orderVersionCatalogPaths(catalogPaths) {
+			source := CatalogSource{Path: catalogPath, Kind: CatalogSourceMergedTOML}
+			// Gradle imports only this one by convention; with no settings file beside it, as in a partial checkout
+			// or a fixture, it keeps the default name, as before #1872.
+			if filepath.Base(catalogPath) == "libs.versions.toml" {
+				source.Accessor = defaultCatalogName(settings)
+			}
+			sources = append(sources, source)
+		}
+	}
+	sources = append(sources, c.settingsCatalogSources(dir, settings)...)
+	return sources
+}
+
+func (c *CatalogDiscovery) settingsCatalogSources(dir string, settings []settingsFile) []CatalogSource {
+	var sources []CatalogSource
+	for _, file := range settings {
+		settingsPath, settingsContent := file.path, file.content
+		blocks := settingsCatalogBlocks(settingsContent)
+		for _, match := range settingsCatalogFileRe.FindAllStringSubmatchIndex(settingsContent, -1) {
+			catalogPath := filepath.Clean(filepath.Join(dir, settingsContent[match[2]:match[3]]))
+			sources = append(sources, CatalogSource{
+				Path:     catalogPath,
+				Kind:     CatalogSourceSettingsTOML,
+				Accessor: catalogBlockAt(blocks, match[0]),
+			})
 		}
 		if isProgrammaticVersionCatalogContent(settingsContent) {
 			sources = append(sources, CatalogSource{Path: settingsPath, Kind: CatalogSourceSettingsProgrammatic})

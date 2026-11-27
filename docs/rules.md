@@ -484,6 +484,24 @@ Cases whose resources AGP cannot compile carry `lint-standalone.txt` and are rec
   from literal assignments in the module's build script (or the manifest package); without a namespace the check is
   skipped.
 
+## Manifest rules: application or library module
+
+Manifest rules that only apply to apps, or that skip library and test modules, read the module's
+`build.gradle(.kts)`. A plugin applied through a version catalog, `alias(<catalog>.plugins.<key>)`, resolves against
+the catalog Gradle generates under that name:
+
+- `gradle/libs.versions.toml` is the `libs` catalog, or the name the settings file gives
+  `defaultLibrariesExtensionName`. Without a settings file beside it, as in a partial checkout, it is still `libs`.
+- A settings `versionCatalogs { create("<name>") { from(files("...")) } }` block (Groovy `<name> { ... }`, or a chained
+  `versionCatalogs.create("<name>")`) imports that file as `<name>`, wherever it lives. A block's programmatic
+  `plugin("<alias>", "<id>")` declarations belong to that catalog.
+- Gradle doesn't import any other `gradle/*.versions.toml` by itself. krit reads one only for an accessor that names no
+  imported catalog and matches its file name, as `deps` does for `gradle/deps.versions.toml`, because the import may sit
+  where krit can't read it, such as a settings plugin.
+
+An alias whose accessor names no catalog applies no plugin krit can see. `alias(tools.plugins.x)` never reads
+`libs`.
+
 ## Android Lint Manifest and Resource Checks (storage, themes, splash screens)
 
 Ports of Android Lint 32.4.1 checks with recorded Lint output under `tests/fixtures/android-lint/<RuleID>/`:

@@ -281,27 +281,34 @@ settings) and `--no-fir-daemon`, as `AnalyzeProjectArgs` does.
 
 ### `--delta`
 
-`--delta` is **now routed via daemon** for the current-tree scan portion.
+`--delta --no-pr-mode` is **routed via daemon** for the current-tree scan
+portion (in PR mode it stays in-process, see below).
 The CLI still owns the `git worktree add` + re-exec pass that produces the
 base-ref snapshot (daemon-side worktree management would add filesystem-
 mutating side effects to a long-lived service — explicitly out of scope).
 Once the daemon serves the current-tree scan with `IncludeColumns=true`
-the CLI applies `filterColumnsNewSince` (`internal/cli/scan/delta.go:111`)
+the CLI applies `filterColumnsNewSince` (`internal/cli/scan/delta.go`)
 locally against the deserialised `FindingColumns` and re-emits the filtered
 set via `pipeline.OutputPhase{}.Run` so format, base path, and warning
 promotion match the in-process flow. The wire addition was shared with
 `--rule-audit` / `--baseline-audit`; see "Audits that ship with the
 analysis" above for the response-shape rationale.
 
-### `--diff` (PR mode)
+### `--diff` and `--delta` (PR mode)
 
-`--diff REF` stays in-process unless `--no-pr-mode` is given (#1660). PR mode
-compiles only the modules that hold the changed Kotlin files for the type
+`--diff REF` and `--delta REF` stay in-process unless `--no-pr-mode` is
+given (#1660), and so does `--delta`'s base-ref scan (`--pr-files`). A
+delegated `--delta` would analyze the current tree whole while its base scan
+ran in PR mode, and every unchanged file's FIR verdict would differ between
+the two sides. A scan with no JVM work (`--no-fir --no-type-oracle`, or no
+Java launcher found) is routed as before, since PR mode changes nothing for
+it (`prModeRequested`). PR mode compiles only the modules that hold the changed Kotlin files for the type
 oracle and the FIR check (`runPRModules` in `internal/pipeline/index.go`),
 and the analyze-project wire carries no changed-file list. To route it, the
 wire would need the PR file list and the daemon's index phase would need to
 pass it through as `IndexInput.PRFiles`. With `--no-pr-mode` the scan is
-eligible as before and the daemon applies the `--diff` filter itself.
+eligible as before and the daemon applies the `--diff` filter itself (for
+`--delta`, the CLI filters the daemon's columns as described above).
 
 ## Rule-set filters and reproducible output
 

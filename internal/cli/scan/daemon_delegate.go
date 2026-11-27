@@ -17,6 +17,7 @@ import (
 	"github.com/kaeawc/krit/internal/daemon"
 	"github.com/kaeawc/krit/internal/firchecks"
 	"github.com/kaeawc/krit/internal/fsutil"
+	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/output"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/selfexec"
@@ -634,6 +635,26 @@ func daemonAutoStartDisabled() bool {
 	return os.Getenv("KRIT_NO_DAEMON_AUTOSTART") == "1"
 }
 
+// prModeRequested reports whether a scan runs PR mode's JVM work in-process
+// (#1660): --diff, --delta or --delta's base scan (--pr-files), without
+// --no-pr-mode, with FIR or the type oracle on and a Java launcher to run
+// them. Without JVM work PR mode changes nothing, and the scan may go to the
+// daemon as before.
+func prModeRequested(f *scanFlags) bool {
+	if *f.Diff == "" && *f.Delta == "" && *f.PRFiles == "" || *f.NoPRMode {
+		return false
+	}
+	if (!*f.Fir || *f.NoFir) && *f.NoTypeOracle {
+		return false
+	}
+	_, err := javaForPRMode()
+	return err == nil
+}
+
+// javaForPRMode finds the Java launcher PR mode's JVM work would use; tests
+// replace it.
+var javaForPRMode = oracle.JavaPath
+
 // daemonCompatibleFlags reports whether the requested flag set can be
 // served by the daemon's analyze-project verb. Modes that write files
 // or run meta commands stay on the in-process path. Order kept as
@@ -684,8 +705,9 @@ func daemonAutoStartDisabled() bool {
 // The daemon never touches user files; the file write happens with the
 // CLI's CWD and permissions, preserving the daemon's read-only invariant.
 //
-// --rule-audit, --baseline-audit, and --delta are daemon-compatible
-// too: the daemon ships post-pipeline FindingColumns on the wire
+// --rule-audit, --baseline-audit, and --delta --no-pr-mode are
+// daemon-compatible too (a PR-mode --delta runs in-process, see
+// prModeRequested): the daemon ships post-pipeline FindingColumns on the wire
 // (under AnalyzeProjectResult.Columns) when AnalyzeProjectArgs.
 // IncludeColumns is true, and the CLI runs the audit / delta filter
 // locally against the deserialized columns. --delta's worktree
@@ -726,8 +748,9 @@ func daemonCompatibleFlags(f *scanFlags) bool {
 		return false
 	}
 	// PR mode compiles only the changed files' modules in-process (#1660);
-	// the analyze-project wire carries no changed-file list.
-	if *f.Diff != "" && !*f.NoPRMode {
+	// the analyze-project wire carries no changed-file list. --delta's base
+	// scan runs in PR mode only when this side did, so it stays here too.
+	if prModeRequested(f) {
 		return false
 	}
 	// The daemon renders the JSON envelope with its own timings and cache

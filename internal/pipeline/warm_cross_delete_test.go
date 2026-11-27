@@ -132,6 +132,29 @@ func TestRunProject_WarmCrossFindingsInvalidatedByDeletedFile(t *testing.T) {
 	}
 }
 
+// A module nested in another's directory, with layouts, must not defeat the
+// warm hit: its XML was walked once per enclosing root, so the cross-file
+// meta never covered the warm run's XML list (#1917). Editing a layout still
+// recomputes.
+func TestRunProject_WarmCrossFindingsReusedWithNestedModuleLayouts(t *testing.T) {
+	h := newWarmCrossHarness(t, "CrossRule", map[string]string{
+		"app/src/main/kotlin/A.kt":                 "package test\n\nclass A\n",
+		"app/src/main/res/layout/a.xml":            "<LinearLayout/>\n",
+		"app/benchmarks/src/main/kotlin/B.kt":      "package test\n\nclass B\n",
+		"app/benchmarks/src/main/res/layout/b.xml": "<FrameLayout/>\n",
+	})
+	h.wantFindings("cold", 2, false)
+	h.wantFindings("warm", 2, true)
+	if h.calls() != 1 {
+		t.Fatalf("warm run should reuse cross findings; calls=%d want 1", h.calls())
+	}
+	h.write("app/benchmarks/src/main/res/layout/b.xml", "<FrameLayout android:id=\"@+id/b\"/>\n")
+	h.wantFindings("after layout edit", 2, false)
+	if h.calls() != 2 {
+		t.Fatalf("a layout edit must recompute cross findings; calls=%d want 2", h.calls())
+	}
+}
+
 // Java files are always indexed, even when no active rule needs Java before
 // dispatch. They must not defeat the warm hit, and deleting one must
 // invalidate it.

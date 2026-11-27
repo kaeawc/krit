@@ -62,11 +62,14 @@ func isXMLPrunedDir(base string) bool {
 	return strings.HasPrefix(base, "values")
 }
 
-func walkXMLFilesInRoot(root string) []*XMLCacheFile {
+// walkXMLFilesInRoot walks one module root. A directory below it that is
+// another root in roots is a nested module, walked from that root, so it is
+// skipped here: read from both, its files were listed twice (#1917).
+func walkXMLFilesInRoot(root string, roots map[string]bool) []*XMLCacheFile {
 	var local []*XMLCacheFile
 	_ = filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() {
-			if info != nil && info.IsDir() && isXMLPrunedDir(info.Name()) {
+			if info != nil && info.IsDir() && (isXMLPrunedDir(info.Name()) || (path != root && roots[path])) {
 				return filepath.SkipDir
 			}
 			return nil
@@ -124,7 +127,7 @@ func loadXMLFilesForCache(ktFiles []*File) []*XMLCacheFile {
 		go func(root string) {
 			defer wg.Done()
 			defer func() { <-slots }()
-			local := walkXMLFilesInRoot(root)
+			local := walkXMLFilesInRoot(root, roots)
 			if len(local) > 0 {
 				mu.Lock()
 				out = append(out, local...)

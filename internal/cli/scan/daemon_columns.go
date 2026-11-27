@@ -104,7 +104,7 @@ func runDaemonDelta(f *scanFlags, paths []string, rawColumns json.RawMessage) in
 		basePath, _ = filepath.Abs(paths[0])
 	}
 	beforeCount := cols.Len()
-	baseIDs, err := deltaBaseFindingIDsForFlags(*f.Delta, f, paths)
+	baseIDs, err := deltaBaseFindingIDsForFlags(*f.Delta, f, paths, nil)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: --delta %s: %v\n", *f.Delta, err)
 		return 2

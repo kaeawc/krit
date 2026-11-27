@@ -1279,6 +1279,23 @@ val DataMessage.hasFlag: Boolean get() = flags!! and 1 != 0
 	}
 }
 
+// #1949: only an extension on the Wire proto type itself is exempt; a List<DataMessage> receiver is a List (#1942).
+func TestUnsafeCallOnNullableType_ProtoExemptionNeedsTheProtoReceiver(t *testing.T) {
+	findings := runRuleByName(t, "UnsafeCallOnNullableType", `
+package test
+
+import com.example.protos.push.DataMessage
+
+class DataMessage(val flags: Int?)
+
+val DataMessage.hasFlag: Boolean get() = flags!! and 1 != 0
+fun List<DataMessage>.anyFlag(flags: Int?): Boolean = flags!! and 1 != 0
+`)
+	if len(findings) != 1 || findings[0].Line != 9 {
+		t.Fatalf("want one finding, on the List<DataMessage> extension (line 9), got %v", findings)
+	}
+}
+
 func TestUnsafeCallOnNullableType_PositiveUnqualifiedProtoFieldOutsideExtensionReceiver(t *testing.T) {
 	findings := runRuleByName(t, "UnsafeCallOnNullableType", `
 package test

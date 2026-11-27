@@ -791,8 +791,8 @@ All notable changes to Krit will be documented in this file.
 - `ArgInFormattedQuantityStringRes` reports `getQuantityString` on a Kotlin subclass of `Resources`, direct or
   indirect and declared in any file, and on `resources` of a Kotlin `ContextWrapper`, Activity or View subclass. The
   resolver records supertypes as written, so each is now resolved through its declaring file's imports. A lookalike
-  `Resources` stays silent. A Java subclass is still missed (#1885). The per-file cache keys a class's supertype imports,
-  so swapping only the import a supertype resolves through re-analyzes the files that use the class (#1857).
+  `Resources` stays silent. The per-file cache keys a class's supertype imports, so swapping only the import a
+  supertype resolves through re-analyzes the files that use the class (#1857).
 - `DoNotCallViewToString` no longer reports `toString()` in an extension on `List<KView>`, `Map<String, KView>` or
   `Array<KView>`: an extension receiver's type is now its own name, not the last name in its type arguments. The same
   receiver lookup feeds the Wire proto receiver exemption of `UnsafeCallOnNullableType` and `UnnecessaryNotNullOperator`
@@ -803,6 +803,14 @@ All notable changes to Krit will be documented in this file.
   `where` bound, or a typealias bound). A receiver nullable through its alias (`typealias KVN = KView?`) or its bound
   (`<T : KView?>`) is `Any?.toString()` and is not reported. The first bound also names the receiver for
   `NullableToStringCall` and the Wire proto exemption (#1949).
+- The source resolver indexes the run's Java classes as well as Kotlin's: each Java class's kind, its `final`,
+  `abstract` and `sealed` modifiers, and its supertypes, qualified through the file's single-type imports. So Kotlin
+  rules follow a class hierarchy through Java source classes: `DenyListedApi` on a receiver typed as a Java `View`
+  subclass, `DoNotCallViewToString` on a Kotlin View whose superclass is a Java class, `ArgInFormattedQuantityStringRes`
+  on a Java `Resources` subclass (from Kotlin and from Java), and `CanvasSize` in a Java custom view. A Java class is
+  open unless declared `final`, so `UnsafeCast` does not take one for a final Kotlin class. A Kotlin class keeps a
+  simple name it shares with a Java class. Java files are now parsed whenever a resolver-backed rule is active. A
+  cached Kotlin verdict follows edits to the Java classes it depends on, including an import-only swap (#1885).
 - Gradle plugin: with FIR on, the check tasks run the R tasks of exported Android test components
   (`generate<Variant>UnitTestStubRFile`, `process<Variant>AndroidTestResources`). On a clean checkout FIR compiled unit
   and instrumented tests without their own R class, so test files that use `R` were gated (#1724).

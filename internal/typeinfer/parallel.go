@@ -40,10 +40,9 @@ func IndexFileParallel(file *scanner.File) *FileTypeInfo {
 		facts := javafacts.SourceFactsForFile(file)
 		classes := make([]*ClassInfo, 0, len(facts.Classes))
 		for _, class := range facts.Classes {
-			classes = append(classes, &ClassInfo{
-				Name: class.Name, FQN: class.FQN, Supertypes: class.Supertypes, File: file.Path,
-			})
+			classes = append(classes, javaClassInfo(facts, class, file.Path))
 		}
+		sortClassInfos(classes)
 		return &FileTypeInfo{Path: file.Path, Classes: classes}
 	}
 	if file == nil || file.FlatTree == nil || file.FlatTree.Len() == 0 || file.FlatType(0) != "source_file" {
@@ -274,8 +273,12 @@ func (r *defaultResolver) mergeFileResults(results []*FileTypeInfo) {
 		// the (path-largest, FQN-largest) class — a deterministic
 		// function of the input set rather than goroutine scheduling.
 		for _, ci := range orderedClassInfos(fi.Classes) {
-			r.classes[ci.Name] = ci
-			if ci.FQN != "" {
+			// A Kotlin class keeps its simple name over a Java one, so
+			// indexing Java leaves Kotlin's simple-name lookups as they were.
+			if !kotlinKeeps(r.classes[ci.Name], ci) {
+				r.classes[ci.Name] = ci
+			}
+			if ci.FQN != "" && !kotlinKeeps(r.classFQN[ci.FQN], ci) {
 				r.classFQN[ci.FQN] = ci
 			}
 		}
@@ -384,4 +387,65 @@ func (r *defaultResolver) resolveSupertypeNames() {
 			}
 		}
 	}
+}
+
+// kotlinKeeps reports whether prev, a Kotlin class, keeps its name over ci,
+// a Java one.
+func kotlinKeeps(prev, ci *ClassInfo) bool {
+	return prev != nil && strings.HasSuffix(ci.File, ".java") && !strings.HasSuffix(prev.File, ".java")
+}
+
+// javaClassInfo is the resolver's view of a Java source class. Java's
+// defaults differ from Kotlin's: a class is open unless declared final, and
+// an interface (an annotation type included) is abstract, so a rule that
+// reads Kind and the modifier flags with Kotlin defaults in mind does not
+// take a Java class for a final one.
+func javaClassInfo(facts *javafacts.JavaFileFacts, class javafacts.JavaClassFact, path string) *ClassInfo {
+	info := &ClassInfo{
+		Name:       class.Name,
+		FQN:        class.FQN,
+		Kind:       "class",
+		Supertypes: javaSupertypeNames(facts, class.Supertypes),
+		IsSealed:   class.Sealed,
+		IsAbstract: class.Abstract,
+		IsNested:   class.Nested,
+		File:       path,
+	}
+	switch class.Kind {
+	case "interface", "annotation":
+		info.Kind = "interface"
+		info.IsAbstract = true
+	case "enum":
+		info.Kind = "enum"
+	case "record":
+		// Records are implicitly final.
+	default:
+		info.IsOpen = !class.Final && !class.Sealed
+	}
+	if class.Sealed {
+		info.Kind = "sealed " + info.Kind
+	}
+	return info
+}
+
+// javaSupertypeNames copies a Java class's written supertypes, qualifying a
+// simple name through the file's single-type imports. The copy keeps
+// resolveSupertypeNames from rewriting javafacts' cached slice, and the
+// qualified name puts the import into the class's cross-file facts, so
+// swapping only the import a supertype resolves through changes them.
+func javaSupertypeNames(facts *javafacts.JavaFileFacts, written []string) []string {
+	if len(written) == 0 {
+		return nil
+	}
+	out := make([]string, len(written))
+	for i, st := range written {
+		out[i] = st
+		if strings.Contains(st, ".") {
+			continue
+		}
+		if fqn := facts.Imports[st]; fqn != "" {
+			out[i] = fqn
+		}
+	}
+	return out
 }

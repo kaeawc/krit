@@ -179,15 +179,14 @@ fun f(k: KView) = k.toString()
 	if fmt.Sprint(lines) != "[9 14]" {
 		t.Errorf("DoNotCallViewToString: want lines 9 and 14, got %v", got)
 	}
-	// A Kotlin View whose superclass is a Java source class is a known false negative: the pipeline indexes only
-	// Kotlin files into the source resolver, so the Java class's supertypes are unknown (#1885). When #1885 lands,
-	// this case should report k.toString().
+	// A Kotlin View whose superclass is a Java source class: the resolver indexes Java classes, so k.toString()
+	// is reported (#1885).
 	got = runRuleOnSourcesWithResolverAll(t, "DoNotCallViewToString", map[string]string{
 		"JBase.java": "package com.example;\n\nimport android.content.Context;\nimport android.widget.LinearLayout;\n\npublic class JBase extends LinearLayout {\n  public JBase(Context c) { super(c); }\n}\n",
 		"KView.kt":   "package com.example\n\nimport android.content.Context\n\nclass KView(c: Context) : JBase(c) {\n  override fun toString(): String = \"k\"\n}\n\nfun f(k: KView) = k.toString()\n",
 	})
-	if len(got) != 0 {
-		t.Errorf("Java source superclass (#1885): the pipeline can't see it yet; got %v", got)
+	if len(got) != 1 || got[0].Line != 9 {
+		t.Errorf("Java source superclass (#1885): want k.toString() on line 9, got %v", got)
 	}
 }
 

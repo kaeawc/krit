@@ -127,7 +127,8 @@ func runSlackParityChecks(t *testing.T, dir string, checks []string) []string {
 		t.Fatal(err)
 	}
 	resolver := typeinfer.NewResolver()
-	resolver.IndexFilesParallel(pipelineResolverFiles(files), 1)
+	// Like IndexPhase, index Kotlin and Java sources (#1885).
+	resolver.IndexFilesParallel(files, 1)
 	var out []string
 	var project []string
 	for _, check := range checks {

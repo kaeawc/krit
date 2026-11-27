@@ -182,12 +182,11 @@ Three Android source checks prove their receiver before reporting:
   `is Activity` / `instanceof Activity` check is not reported: it is not a cast.
 - `ArgInFormattedQuantityStringRes` reports format arguments of `Resources.getQuantityString` that are not a
   `getFormattedCount()` call (in Java, also a local initialized by one). The receiver must be typed `Resources` (or a
-  Kotlin subclass, direct or indirect, with each supertype resolved through its declaring file's imports), or be
-  Android's accessor (`context.resources`, `getResources()`, an unqualified `resources`) on a Context, View or
-  Fragment, so a project's own `getQuantityString` wrapper or `Resources` lookalike is not reported. A Java subclass
-  of `Resources` is not seen yet, because the pipeline does not index Java classes into the resolver (#1885). Also
-  missed: a supertype that only an on-demand import names (`import android.content.res.*`, then `: Resources(...)`),
-  a supertype written through a typealias, and a parameter typed as a qualified nested class.
+  Kotlin or Java source subclass, direct or indirect, with each supertype resolved through its declaring file's
+  imports), or be Android's accessor (`context.resources`, `getResources()`, an unqualified `resources`) on a Context,
+  View or Fragment, so a project's own `getQuantityString` wrapper or `Resources` lookalike is not reported. Missed:
+  a supertype that only an on-demand import names (`import android.content.res.*`, then `: Resources(...)`), a
+  supertype written through a typealias, and a parameter typed as a qualified nested class.
 - `SpanMarkPointMissingMask` reports `==`/`!=` against a `Spanned` mark-point flag (`SPAN_EXCLUSIVE_EXCLUSIVE`, ...)
   whose other side does not mask with `SPAN_POINT_MARK_MASK` (a bitwise `and`/`&`; `or`/`|` does not mask). A
   parameter or local named like the flag shadows its static import. Unlike Lint, krit looks inside parentheses, so
@@ -233,8 +232,8 @@ needs the receiver's type: from the source resolver, a declared type, a construc
 RxJava 3's and subjects' and relays' `create*`), a property of a class declared in the same file, or the implicit
 receiver of `apply`/`run`/`with` or an enclosing View subclass. A class of the file's own package wins over an
 on-demand import. A receiver krit cannot type (a chained operator's result, a constructor property of a class in
-another file) is not reported, and neither is a Kotlin receiver typed as a Java source subclass of `View`: the
-pipeline does not index Java classes into the resolver yet (#1885). As in Lint 0.11.1, the list's
+another file) is not reported. A Kotlin receiver typed as a Java source subclass of `View` is a View: the resolver
+indexes Java source classes (#1885). As in Lint 0.11.1, the list's
 `ResourcesCompat.getDrawable`, `ViewPager2.setId` and `runBlocking` entries never match. Differences from Lint:
 
 - a top-level `runCatching` of the file's package (in any file, unless it is `private` to another file) shadows
@@ -291,9 +290,9 @@ Differences from Lint:
 - `DoNotMockRecordClass` also reports Java records, which Lint 0.11.1's own tests leave out pending Lint support.
 
 `DoNotCallViewToString` and `InflationInItemDecoration` port slack-lints' View checks for Kotlin and Java. They walk
-Kotlin source class hierarchies through the resolver, resolving each supertype through its declaring file's
+Kotlin and Java source class hierarchies through the resolver, resolving each supertype through its declaring file's
 imports, so a project class named `View` in another package does not count as Android's. A Java source class in the
-middle of a hierarchy ends the walk, because the pipeline does not index Java classes into the resolver yet (#1885):
+middle of a hierarchy continues the walk: the resolver indexes Java source classes (#1885):
 
 - `DoNotCallViewToString` reports a `toString()` call that resolves to an override declared in a subclass of
   `android.view.View`, including an inherited override and an unqualified call inside the class or in a plain lambda

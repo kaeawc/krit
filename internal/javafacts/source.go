@@ -35,9 +35,18 @@ type JavaFileFacts struct {
 }
 
 type JavaClassFact struct {
-	Name        string
-	FQN         string
-	Package     string
+	Name    string
+	FQN     string
+	Package string
+	// Kind is the declaration keyword: "class", "interface", "enum",
+	// "record" or "annotation".
+	Kind string
+	// Final, Abstract and Sealed mirror the declaration's modifiers.
+	Final    bool
+	Abstract bool
+	Sealed   bool
+	// Nested reports a member type of another type.
+	Nested      bool
 	Supertypes  []string
 	Annotations []string
 	Methods     map[string][]JavaMethodFact
@@ -262,12 +271,25 @@ func addClassFact(file *scanner.File, facts *JavaFileFacts, node uint32) {
 		Name:        name,
 		FQN:         fqn,
 		Package:     facts.Package,
+		Kind:        javaDeclarationKinds[file.FlatType(node)],
+		Final:       file.FlatHasModifier(node, "final"),
+		Abstract:    file.FlatHasModifier(node, "abstract"),
+		Sealed:      file.FlatHasModifier(node, "sealed"),
+		Nested:      owner != "",
 		Supertypes:  javaHeaderSupertypes(file.FlatNodeText(node)),
 		Annotations: javaAnnotations(javaDeclarationHeader(file.FlatNodeText(node))),
 		Methods:     make(map[string][]JavaMethodFact),
 		Fields:      make(map[string]JavaFieldFact),
 	}
 	facts.Classes[name] = classFact
+}
+
+var javaDeclarationKinds = map[string]string{
+	"class_declaration":           "class",
+	"interface_declaration":       "interface",
+	"enum_declaration":            "enum",
+	"record_declaration":          "record",
+	"annotation_type_declaration": "annotation",
 }
 
 func addMethodFact(file *scanner.File, facts *JavaFileFacts, node uint32) {

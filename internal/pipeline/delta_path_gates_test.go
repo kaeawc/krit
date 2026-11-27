@@ -3,6 +3,7 @@ package pipeline
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
 
@@ -156,5 +157,48 @@ func TestRunProject_BodyOnlyEdit_DeltaKeepsFullCodeIndex(t *testing.T) {
 	}
 	if got := atomic.LoadInt64(&indexedFiles); got != 3 {
 		t.Errorf("CodeIndex.Files = %d, want 3 (whole project)", got)
+	}
+}
+
+// The dispatchDeltaPath perf entry names why the delta path declined, as
+// dispatchAffectedSetPath's does, so the perf JSON answers it without the
+// verbose log (#1833).
+func TestRunProject_DeltaPathReportsItsReason(t *testing.T) {
+	dir := t.TempDir()
+	cacheRoot := t.TempDir()
+	usePath := writeBodyEditProject(t, dir, useBefore)
+	rules := []*api.Rule{bodyEditRule()}
+	reason := func() string {
+		t.Helper()
+		tracker := perf.New(true)
+		if _, err := RunProject(context.Background(), ProjectInput{
+			Args: ProjectArgs{Config: config.NewConfig(), Paths: []string{dir}, ActiveRules: rules, Format: "json", Version: "test"},
+			Host: ProjectHostState{Tracker: tracker, FindingsBundleStore: scanner.DiskFindingsBundleStore{}, FindingsBundleCacheRoot: cacheRoot},
+		}); err != nil {
+			t.Fatalf("RunProject: %v", err)
+		}
+		entry, found := findTiming(tracker.GetTimings(), "dispatchDeltaPath")
+		if !found {
+			return "(no dispatchDeltaPath entry)"
+		}
+		return entry.Attributes["reason"]
+	}
+	reason()
+	reason()
+	if err := os.WriteFile(usePath, []byte(useAfter), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := reason(); got != replayHit {
+		t.Fatalf("body-only edit: delta reason %q, want %q", got, replayHit)
+	}
+	// Two files changed: the single-file planner declines.
+	if err := os.WriteFile(usePath, []byte(useBefore), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "Alt.kt"), []byte("package demo\n\nfun alt(): Int {\n    return fresh()\n}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := reason(); got != deltaBailPlannerDeclined {
+		t.Fatalf("two-file edit: delta reason %q, want %q", got, deltaBailPlannerDeclined)
 	}
 }

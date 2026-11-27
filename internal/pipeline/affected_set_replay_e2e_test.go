@@ -415,23 +415,33 @@ func TestRunProject_AffectedSetReplay_PerFilePanicWithAnalysisCache(t *testing.T
 }
 
 // Project-scope rules must never run on a parse that misses a tracked file
-// unless warm cross findings stand in for them.
-func TestReplayProjectScope_DeclinesPartialParse(t *testing.T) {
+// unless warm cross findings stand in for them. The delta and affected-set
+// paths check before dispatching (#1833).
+func TestReplayPartialParseBail(t *testing.T) {
 	scope := api.FakeRule("Scope", api.WithNeeds(api.NeedsParsedFiles), api.WithCheck(func(*api.Context) {}))
 	args := ProjectArgs{Config: config.NewConfig(), ActiveRules: []*api.Rule{scope}}
 	parsed := IndexResult{ParseResult: ParseResult{KotlinFiles: []*scanner.File{{Path: "A.kt", Language: scanner.LangKotlin}}}}
 	tracked := map[string]string{"A.kt": "1", "B.kt": "2"}
-	prior := scanner.FindingColumns{}
-	_, _, _, reason, err := replayProjectScope(context.Background(), args, ProjectHostState{}, "test", parsed, tracked, DispatchResult{}, &prior, []string{"A.kt"})
-	if err != nil || reason != replayBailPartialParse {
-		t.Fatalf("partial parse: reason %q err %v, want %q", reason, err, replayBailPartialParse)
+	if reason := replayPartialParseBail(args, ProjectHostState{}, "test", parsed, tracked); reason != replayBailPartialParse {
+		t.Fatalf("parse missing a tracked file: reason %q, want %q", reason, replayBailPartialParse)
 	}
-	if !parseCoversTracked(parsed.ParseResult, map[string]string{"A.kt": "1"}) {
-		t.Fatal("a parse holding every tracked file must cover it")
+	complete := map[string]string{"A.kt": "1"}
+	if reason := replayPartialParseBail(args, ProjectHostState{}, "test", parsed, complete); reason != "" {
+		t.Fatalf("parse holding every tracked file: reason %q, want none", reason)
 	}
-	warm := parsed
+	// A miss-only parse is partial even when the tracked set does not show it.
+	missOnly := parsed
+	missOnly.PartialSources = true
+	if reason := replayPartialParseBail(args, ProjectHostState{}, "test", missOnly, complete); reason != replayBailPartialParse {
+		t.Fatalf("PartialSources parse: reason %q, want %q", reason, replayBailPartialParse)
+	}
+	warm := missOnly
 	warm.WarmCrossFindings = &scanner.FindingColumns{}
-	if _, _, _, reason, _ := replayProjectScope(context.Background(), args, ProjectHostState{}, "test", warm, tracked, DispatchResult{}, &prior, []string{"A.kt"}); reason == replayBailPartialParse {
-		t.Fatal("warm cross findings stand in for the project-scope rules; the replay must not decline for the partial parse")
+	if reason := replayPartialParseBail(args, ProjectHostState{}, "test", warm, tracked); reason != "" {
+		t.Fatalf("warm cross findings stand in for the project-scope rules; reason %q, want none", reason)
+	}
+	perFileOnly := ProjectArgs{Config: config.NewConfig(), ActiveRules: []*api.Rule{api.FakeRule("PerFile", api.WithNodeTypes("class_declaration"))}}
+	if reason := replayPartialParseBail(perFileOnly, ProjectHostState{}, "test", missOnly, tracked); reason != "" {
+		t.Fatalf("no project-scope rule: reason %q, want none", reason)
 	}
 }

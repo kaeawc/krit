@@ -2222,18 +2222,15 @@ func runDispatchOrLoadBundle(
 		// cacheHitDeltaBundle: no bundle replay possible, but the
 		// conservative delta planner still believes single-file
 		// dispatch + ApplyDelta against the prior bundle is safe.
-		var deltaD DispatchResult
-		var deltaC CrossFileResult
-		var deltaOK bool
-		var deltaErr error
-		var deltaTimes dispatchTimings
 		deltaStart := time.Now()
-		deltaD, deltaC, deltaOK, deltaTimes, deltaErr = tryDeltaDispatch(ctx, args, host, indexResult, parseResult, runFP, manifest)
+		deltaD, deltaC, deltaReason, deltaTimes, deltaErr := tryDeltaDispatch(ctx, args, host, indexResult, parseResult, runFP, manifest)
+		deltaOK := deltaReason == replayHit
 		deltaOutcome := "miss"
 		if deltaOK {
 			deltaOutcome = "hit"
 		}
-		perf.AddEntryDetails(tracker, "dispatchDeltaPath", time.Since(deltaStart), nil, map[string]string{"outcome": deltaOutcome})
+		// reason names why a miss fell back, as dispatchAffectedSetPath's does.
+		perf.AddEntryDetails(tracker, "dispatchDeltaPath", time.Since(deltaStart), nil, map[string]string{"outcome": deltaOutcome, "reason": deltaReason})
 		if deltaErr != nil {
 			return DispatchResult{}, CrossFileResult{}, false, dispatchTimings{}, deltaErr
 		}
@@ -3380,6 +3377,9 @@ func oracleFactsFingerprint(
 //     changed path only.
 //   - scanner.ApplyDelta(prior, replacement, [changedPath]) produces
 //     the merged FindingColumns.
+//
+// The reason is replayHit when the path fired, else why it declined; the
+// caller reports it on the dispatchDeltaPath perf entry.
 func tryDeltaDispatch(
 	ctx context.Context,
 	args ProjectArgs,
@@ -3388,31 +3388,31 @@ func tryDeltaDispatch(
 	parseResult ParseResult,
 	runFP scanner.RunFingerprint,
 	manifest deltaManifestData,
-) (DispatchResult, CrossFileResult, bool, dispatchTimings, error) {
+) (DispatchResult, CrossFileResult, string, dispatchTimings, error) {
 	if !manifest.enabled || manifest.manifestKey == "" {
-		return DispatchResult{}, CrossFileResult{}, false, dispatchTimings{}, nil
+		return DispatchResult{}, CrossFileResult{}, replayBailNoManifest, dispatchTimings{}, nil
 	}
 	if len(indexResult.ResolverInvalidated) > 0 {
 		// A declaration change in the edited file reaches other files'
 		// resolver-backed findings; replaying their prior verdicts would
 		// serve them stale (#1778).
-		return DispatchResult{}, CrossFileResult{}, false, dispatchTimings{}, nil
+		return DispatchResult{}, CrossFileResult{}, deltaBailResolverInvalidated, dispatchTimings{}, nil
 	}
 	prior, ok := loadBundleManifest(host, manifest.manifestKey)
 	if !ok {
-		return DispatchResult{}, CrossFileResult{}, false, dispatchTimings{}, nil
+		return DispatchResult{}, CrossFileResult{}, replayBailNoManifest, dispatchTimings{}, nil
 	}
 	changedPaths := diffContentHashes(prior.ContentHashes, manifest.contentHashes)
 	plan := scanner.ConservativeDeltaPlanner{}.Plan(prior.Fingerprint, runFP, changedPaths)
 	if !plan.ReusePrevious || len(plan.ChangedPaths) != 1 {
-		return DispatchResult{}, CrossFileResult{}, false, dispatchTimings{}, nil
+		return DispatchResult{}, CrossFileResult{}, deltaBailPlannerDeclined, dispatchTimings{}, nil
 	}
 	priorKey := scanner.FindingsBundleKey(prior.Fingerprint)
 	priorBundle := residentBundleLookup(host, priorKey)
 	if priorBundle == nil {
 		loaded, ok := host.FindingsBundleStore.Load(host.FindingsBundleCacheRoot, prior.Fingerprint)
 		if !ok || loaded == nil {
-			return DispatchResult{}, CrossFileResult{}, false, dispatchTimings{}, nil
+			return DispatchResult{}, CrossFileResult{}, replayBailNoBundle, dispatchTimings{}, nil
 		}
 		priorBundle = loaded
 		residentBundleStash(host, priorKey, priorBundle)
@@ -3421,7 +3421,11 @@ func tryDeltaDispatch(
 	changedPath := plan.ChangedPaths[0]
 	changedFile := findFileByPath(parseResult, changedPath)
 	if changedFile == nil {
-		return DispatchResult{}, CrossFileResult{}, false, dispatchTimings{}, nil
+		return DispatchResult{}, CrossFileResult{}, replayBailParseIncomplete, dispatchTimings{}, nil
+	}
+	// Checked before dispatching, so a decline wastes no per-file run.
+	if reason := replayPartialParseBail(args, host, "delta", indexResult, manifest.contentHashes); reason != "" {
+		return DispatchResult{}, CrossFileResult{}, reason, dispatchTimings{}, nil
 	}
 
 	// Per-file rules run on the edited file only.
@@ -3431,13 +3435,31 @@ func tryDeltaDispatch(
 	d, err := DispatchPhase{}.Run(ctx, scoped)
 	dispatchMs := time.Since(dispatchStart).Milliseconds()
 	if err != nil {
-		return DispatchResult{}, CrossFileResult{}, false, dispatchTimings{}, fmt.Errorf("dispatch (delta): %w", err)
+		return DispatchResult{}, CrossFileResult{}, "", dispatchTimings{}, fmt.Errorf("dispatch (delta): %w", err)
 	}
-	d, c, crossMs, reason, err := replayProjectScope(ctx, args, host, "delta", indexResult, manifest.contentHashes, d, priorBundle, []string{changedPath})
+	d, c, crossMs, reason, err := replayProjectScope(ctx, args, host, "delta", indexResult, d, priorBundle, []string{changedPath})
 	if err != nil || reason != "" {
-		return DispatchResult{}, CrossFileResult{}, false, dispatchTimings{}, err
+		return DispatchResult{}, CrossFileResult{}, reason, dispatchTimings{}, err
 	}
-	return d, c, true, dispatchTimings{dispatchMs: dispatchMs, crossFileMs: crossMs}, nil
+	return d, c, replayHit, dispatchTimings{dispatchMs: dispatchMs, crossFileMs: crossMs}, nil
+}
+
+// replayPartialParseBail returns replayBailPartialParse when project-scope
+// rules would replay over a parse that misses part of the project, else "".
+// Those rules are promised the complete project. With warm cross findings
+// they do not run on the parse at all. A miss-only parse (PartialSources)
+// keys no findings bundle, so no replay should meet one; the check also
+// compares the parse with the files the manifest tracks, which catches a
+// partial parse the flag does not mark. Callers check before dispatching.
+func replayPartialParseBail(args ProjectArgs, host ProjectHostState, label string, indexResult IndexResult, tracked map[string]string) string {
+	if len(projectScopeRuleIDs(args.ActiveRules)) == 0 || indexResult.WarmCrossFindings != nil {
+		return ""
+	}
+	if indexResult.PartialSources || !parseCoversTracked(indexResult.ParseResult, tracked) {
+		host.Reporter.Verbosef("verbose: %s replay declined: project-scope rules need every file parsed\n", label)
+		return replayBailPartialParse
+	}
+	return ""
 }
 
 // replayProjectScope finishes a delta or affected-set replay once the per-file
@@ -3448,17 +3470,13 @@ func tryDeltaDispatch(
 // can rest on a file outside the set (#1817). Per-file rows are replaced for
 // the replaced files only.
 //
-// The reason is "" when the merge succeeded, else why the replay declines:
-// those rules would run on a parse that misses a file the manifest tracks, or
-// a rule panicked, which leaves its regenerated rows missing while the prior
-// ones are dropped. The full path then reports the error and skips the bundle
-// save instead of caching the loss.
-func replayProjectScope(ctx context.Context, args ProjectArgs, host ProjectHostState, label string, indexResult IndexResult, tracked map[string]string, d DispatchResult, prior *scanner.FindingColumns, replaced []string) (DispatchResult, CrossFileResult, int64, string, error) {
+// Callers first check replayPartialParseBail. The reason is "" when the
+// merge succeeded, else why the replay declines: a rule panicked, which
+// leaves its regenerated rows missing while the prior ones are dropped. The
+// full path then reports the error and skips the bundle save instead of
+// caching the loss.
+func replayProjectScope(ctx context.Context, args ProjectArgs, host ProjectHostState, label string, indexResult IndexResult, d DispatchResult, prior *scanner.FindingColumns, replaced []string) (DispatchResult, CrossFileResult, int64, string, error) {
 	projectScopeIDs := projectScopeRuleIDs(args.ActiveRules)
-	if len(projectScopeIDs) > 0 && indexResult.WarmCrossFindings == nil && !parseCoversTracked(indexResult.ParseResult, tracked) {
-		host.Reporter.Verbosef("verbose: %s replay declined: project-scope rules need every file parsed\n", label)
-		return DispatchResult{}, CrossFileResult{}, 0, replayBailPartialParse, nil
-	}
 	replacedSet := make(map[string]bool, len(replaced))
 	for _, p := range replaced {
 		replacedSet[p] = true
@@ -3750,6 +3768,13 @@ const (
 	replayBailPartialParse    = "partial_parse"    // project-scope rules would run on a partial parse
 )
 
+// Delta-path decline labels, on the dispatchDeltaPath perf entry's "reason"
+// next to the replay labels the two paths share.
+const (
+	deltaBailResolverInvalidated = "resolver_invalidated" // a declaration change reaches other files' findings (#1778)
+	deltaBailPlannerDeclined     = "planner_declined"     // not a single-file, structurally stable edit
+)
+
 // affectedSetReplayEnabled reports whether the affected-set replay dispatch
 // path is turned on. Default ON: the path is #608-gated and has soaked behind
 // the flag, so it now runs by default and KRIT_AFFECTED_SET_REPLAY is an
@@ -3940,6 +3965,10 @@ func tryAffectedSetDispatch(
 	if bail != "" {
 		return DispatchResult{}, CrossFileResult{}, bail, nil
 	}
+	// Checked before dispatching, so a decline wastes no per-file run.
+	if reason := replayPartialParseBail(args, host, "affected-set", indexResult, manifest.contentHashes); reason != "" {
+		return DispatchResult{}, CrossFileResult{}, reason, nil
+	}
 
 	scoped := indexResult
 	scoped.ParseResult = scopeParseResultMulti(dispatchParse, affectedSet)
@@ -3947,7 +3976,7 @@ func tryAffectedSetDispatch(
 	if err != nil {
 		return DispatchResult{}, CrossFileResult{}, "", fmt.Errorf("dispatch (affected-set): %w", err)
 	}
-	d, c, _, reason, err := replayProjectScope(ctx, args, host, "affected-set", indexResult, manifest.contentHashes, d, priorBundle, affected)
+	d, c, _, reason, err := replayProjectScope(ctx, args, host, "affected-set", indexResult, d, priorBundle, affected)
 	if err != nil || reason != "" {
 		return DispatchResult{}, CrossFileResult{}, reason, err
 	}

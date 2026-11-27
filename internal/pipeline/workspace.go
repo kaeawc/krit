@@ -3,8 +3,10 @@ package pipeline
 import (
 	"container/list"
 	"context"
+	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -66,6 +68,9 @@ type WorkspaceState struct {
 	dependents     xfileSlot[*scanner.DependentsIndex]
 	resolver       xfileSlot[typeinfer.TypeResolver]
 	androidProject xfileSlot[*android.Project]
+	// androidProjectGen counts invalidations of androidProject, so a
+	// detection that was running when one landed is not stored (#1911).
+	androidProjectGen uint64
 
 	gradleMu       sync.Mutex
 	gradleFindings map[string]scanner.FindingColumns
@@ -759,7 +764,7 @@ func (w *WorkspaceState) InvalidateAll() {
 	w.codeIndex = xfileSlot[*scanner.CodeIndex]{}
 	w.dependents = xfileSlot[*scanner.DependentsIndex]{}
 	w.resolver = xfileSlot[typeinfer.TypeResolver]{}
-	w.androidProject = xfileSlot[*android.Project]{}
+	w.dropAndroidProjectLocked()
 	w.xfileMu.Unlock()
 	w.gradleMu.Lock()
 	w.gradleFindings = nil
@@ -926,11 +931,106 @@ func (w *WorkspaceState) InvalidateLibraryFacts() {
 	}
 	w.xfileMu.Lock()
 	w.libraryFacts = xfileSlot[*librarymodel.Facts]{}
-	w.androidProject = xfileSlot[*android.Project]{}
+	w.dropAndroidProjectLocked()
 	w.xfileMu.Unlock()
 	w.gradleMu.Lock()
 	w.gradleFindings = nil
 	w.gradleMu.Unlock()
+}
+
+// InvalidateAndroidProjectFor drops the cached Android project detection when
+// path, a file that was created, removed or renamed, changes what detection
+// finds (android.Project.ShapeChangedBy): a manifest arriving or leaving, or
+// the first file of a new src/main/res directory, whatever its type. Only a
+// build-script edit dropped the slot before (#1903). Edits, atomic saves of
+// files the project already accounts for, and files in directories detection
+// skips (hidden ones, build outputs) keep it. When no detection is cached,
+// one may be running, so it is told not to store its result.
+func (w *WorkspaceState) InvalidateAndroidProjectFor(path string) {
+	if w == nil || !android.AffectsDetection(path) || w.detectionSkips(path) {
+		return
+	}
+	exists := exactPathExists(path)
+	w.xfileMu.Lock()
+	if !w.androidProject.present || w.androidProject.value.ShapeChangedBy(path, exists) {
+		w.dropAndroidProjectLocked()
+	}
+	w.xfileMu.Unlock()
+}
+
+// InvalidateAndroidProjectUnder drops the cached Android project detection
+// when a manifest, res directory or build script it lists lies under dir,
+// which left the tree, or when no detection is cached (one may be running).
+func (w *WorkspaceState) InvalidateAndroidProjectUnder(dir string) {
+	if w == nil {
+		return
+	}
+	w.xfileMu.Lock()
+	if !w.androidProject.present || w.androidProject.value.HasPathsUnder(dir) {
+		w.dropAndroidProjectLocked()
+	}
+	w.xfileMu.Unlock()
+}
+
+// dropAndroidProjectLocked clears the Android project slot and bumps its
+// generation. The caller holds xfileMu.
+func (w *WorkspaceState) dropAndroidProjectLocked() {
+	w.androidProject = xfileSlot[*android.Project]{}
+	w.androidProjectGen++
+}
+
+// detectionSkips reports whether a directory between the repo root and path
+// is one android.DetectProject does not descend into, so a manifest there is
+// never listed and its arrival changes nothing.
+func (w *WorkspaceState) detectionSkips(path string) bool {
+	if w.repoRoot == "" {
+		return false
+	}
+	rel, err := filepath.Rel(w.repoRoot, filepath.Dir(path))
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return false
+	}
+	for _, name := range strings.Split(rel, string(filepath.Separator)) {
+		if android.DetectionSkipsDir(name) {
+			return true
+		}
+	}
+	return false
+}
+
+// exactPathExists reports whether path names an existing file. For a
+// manifest it also requires the directory entry to match the base name's
+// case, so a case-only rename on a case-insensitive filesystem
+// (AndroidManifest.xml to androidmanifest.xml) reads as the manifest leaving.
+func exactPathExists(path string) bool {
+	if _, err := os.Stat(path); err != nil {
+		return false
+	}
+	base := filepath.Base(path)
+	if base != "AndroidManifest.xml" {
+		return true
+	}
+	entries, err := os.ReadDir(filepath.Dir(path))
+	if err != nil {
+		return true
+	}
+	for _, e := range entries {
+		if e.Name() == base {
+			return true
+		}
+	}
+	return false
+}
+
+// HasAndroidProject reports whether the Android project detection is cached.
+// Used by tests.
+func (w *WorkspaceState) HasAndroidProject() bool {
+	if w == nil {
+		return false
+	}
+	w.xfileMu.Lock()
+	defer w.xfileMu.Unlock()
+	return w.androidProject.present
 }
 
 // GradleFindings memoizes per-file gradle rule findings across
@@ -1171,7 +1271,8 @@ func (w *WorkspaceState) StoreResidentResourceSourceManifest(key string, manifes
 // fingerprint must capture every input that affects detection (today
 // just the project root, since DetectProject is path-only and the
 // watcher invalidates this slot whenever a build.gradle / version
-// catalog changes). nil receiver always builds (no caching).
+// catalog changes, or a manifest or res file arrives or leaves). nil
+// receiver always builds (no caching).
 func (w *WorkspaceState) AndroidProject(fingerprint string, build func() *android.Project) *android.Project {
 	if w == nil || fingerprint == "" {
 		return build()
@@ -1182,14 +1283,19 @@ func (w *WorkspaceState) AndroidProject(fingerprint string, build func() *androi
 		w.xfileMu.Unlock()
 		return v
 	}
+	gen := w.androidProjectGen
 	w.xfileMu.Unlock()
 
 	v := build()
 
 	w.xfileMu.Lock()
-	if w.androidProject.present && w.androidProject.fingerprint == fingerprint {
+	switch {
+	case w.androidProject.present && w.androidProject.fingerprint == fingerprint:
 		v = w.androidProject.value
-	} else {
+	case w.androidProjectGen == gen:
+		// An invalidation that landed during build() may describe a file the
+		// walk had already passed, so only a detection no invalidation
+		// overlapped is stored. This call still returns what it built.
 		w.androidProject = xfileSlot[*android.Project]{fingerprint: fingerprint, value: v, present: true}
 	}
 	w.xfileMu.Unlock()

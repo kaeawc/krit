@@ -494,8 +494,8 @@ func (r *WrongCommentTypeRule) check(ctx *api.Context) {
 
 // wctTrailsCode reports a comment that follows code on its line (`val a = 1 /* @see b */`, `val a = 1 // note`) when
 // the declaration starts on a later line: it binds to that code, as Lint's comment binding does, and so do the
-// comments after it on the same line. A comment preceded only by other comments (`/* a */ /* b */`) does not trail
-// code.
+// comments that follow it without a line break, also after one that spans lines (wctPrecedingComment drops them). A
+// comment preceded only by other comments (`/* a */ /* b */`) does not trail code.
 func wctTrailsCode(file *scanner.File, comment, decl uint32) bool {
 	start := int(file.FlatStartByte(comment))
 	lineStart := bytes.LastIndexByte(file.Content[:start], '\n') + 1

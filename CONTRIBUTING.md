@@ -50,7 +50,7 @@ changed files make it relevant:
 | `oraclefp`: `go run ./internal/devtools/oraclefpcheck` | rules, oracle, FIR checks, type inference, playground | build-verify |
 | `schema`: `schemas/krit-config.schema.json` matches `krit --generate-schema` | rules, schema, config, `cmd/krit/` | (generated file) |
 | `gomod`: `go mod tidy -diff` | go.mod / go.sum | build |
-| `test`: changed packages through `scripts/go-test.sh`, plus `./internal/rules` and `TestFirGoldenGoLines` for fixture edits | Go files, fixtures, testdata | test |
+| `test`: changed packages through `scripts/go-test.sh`, plus `./internal/rules` and `TestFirGoldenGoLines` for fixture edits, and `cmd/krit`'s `TestAndroidLintParityFixtures` (Android Lint fixtures) and `TestChangelogLintParityFixtureCounts` (those fixtures or `CHANGELOG.md`) | Go files, fixtures, testdata, `CHANGELOG.md` | test |
 | `actions`: `scripts/lint-actions.sh` | `.github/` | actionlint |
 | `docs`: `scripts/validate_mkdocs_nav.sh`, `mkdocs build --strict` if installed | docs, mkdocs.yml, docgen | Documentation |
 | `winvet`: `GOOS=windows go vet ./...` | Go files change and mingw-w64 is on PATH | windows-vet |

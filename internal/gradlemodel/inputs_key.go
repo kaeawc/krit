@@ -100,10 +100,12 @@ func hashedInputs(root string) (string, []string, error) {
 	return inputsKeyVersion + "-" + hashutil.HashHex([]byte(b.String()))[:40], lines, nil
 }
 
-// hashInput hashes one input through the process-wide memo: krit hashes the
-// same build files for other keys.
+// hashInput hashes one input from its content, not through the process-wide
+// memo. A scan loads that memo from .krit/cache/hash-memo.gob, whose entries
+// for aged build files would hide a same-size edit that kept the mtime, so the
+// stale check and the key would depend on running before the load.
 func hashInput(root, rel string) (string, error) {
-	return hashutil.Default().HashFile(filepath.Join(root, filepath.FromSlash(rel)), nil)
+	return hashutil.HashFile(filepath.Join(root, filepath.FromSlash(rel)))
 }
 
 // ModelInputs lists the files InputsKey hashes, root-relative with forward

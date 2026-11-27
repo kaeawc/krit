@@ -33,10 +33,10 @@ func TestAndroidKeys_StableAcrossJavaSemanticFactsFP(t *testing.T) {
 	}
 	cases := []stableCase{
 		{"resourceKey", func(in AndroidInput) string {
-			return in.resourceKey("/res", "fp", rules.AndroidDepLayout, android.ValuesScanStrings)
+			return in.resourceKey("/res", "fp", rules.AndroidDepLayout, android.ValuesScanStrings, false)
 		}},
 		{"resourceBundleKey", func(in AndroidInput) string {
-			return in.resourceBundleKey("merged", rules.AndroidDepLayout, android.ValuesScanStrings)
+			return in.resourceBundleKey("merged", rules.AndroidDepLayout, android.ValuesScanStrings, false)
 		}},
 		{"manifestKey", func(in AndroidInput) string {
 			return in.manifestKey("content", "bundle")
@@ -68,8 +68,8 @@ func TestAndroidKeys_StableAcrossJavaSemanticFactsFP(t *testing.T) {
 func TestAndroidKeys_RuleHashStillInvalidates(t *testing.T) {
 	a := AndroidInput{RuleHash: "rh-1", LibraryFactsFP: "lf"}
 	b := AndroidInput{RuleHash: "rh-2", LibraryFactsFP: "lf"}
-	if a.resourceKey("/res", "fp", rules.AndroidDepLayout, android.ValuesScanNone) ==
-		b.resourceKey("/res", "fp", rules.AndroidDepLayout, android.ValuesScanNone) {
+	if a.resourceKey("/res", "fp", rules.AndroidDepLayout, android.ValuesScanNone, false) ==
+		b.resourceKey("/res", "fp", rules.AndroidDepLayout, android.ValuesScanNone, false) {
 		t.Error("resourceKey did not change when RuleHash rotated")
 	}
 	if a.manifestKey("content", "bundle") == b.manifestKey("content", "bundle") {
@@ -87,8 +87,8 @@ func TestAndroidKeys_RuleHashStillInvalidates(t *testing.T) {
 func TestAndroidKeys_LibraryFactsStillInvalidates(t *testing.T) {
 	a := AndroidInput{RuleHash: "rh", LibraryFactsFP: "lf-1"}
 	b := AndroidInput{RuleHash: "rh", LibraryFactsFP: "lf-2"}
-	if a.resourceKey("/res", "fp", rules.AndroidDepLayout, android.ValuesScanNone) ==
-		b.resourceKey("/res", "fp", rules.AndroidDepLayout, android.ValuesScanNone) {
+	if a.resourceKey("/res", "fp", rules.AndroidDepLayout, android.ValuesScanNone, false) ==
+		b.resourceKey("/res", "fp", rules.AndroidDepLayout, android.ValuesScanNone, false) {
 		t.Error("resourceKey did not change when LibraryFactsFP rotated")
 	}
 }

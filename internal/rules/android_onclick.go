@@ -70,6 +70,21 @@ type onClickMethodInfo struct {
 	hasViewParam bool
 }
 
+// ResourceSourceReader is implemented by a resource rule that reads the parsed
+// sources (NeedsParsedFiles) to say whether its verdict for one res
+// directory's merged index can depend on them at all. Resource caches key on
+// the sources only for a directory some active rule reads them for; a rule
+// that reads sources without implementing it is taken to always read them.
+type ResourceSourceReader interface {
+	ReadsSourcesFor(idx *android.ResourceIndex) bool
+}
+
+// ReadsSourcesFor reports whether a layout in idx names an android:onClick
+// handler: without one, check reports nothing whatever the sources hold.
+func (r *OnClickRule) ReadsSourcesFor(idx *android.ResourceIndex) bool {
+	return idx != nil && len(collectOnClickHandlerSites(idx)) > 0
+}
+
 func (r *OnClickRule) check(ctx *api.Context) {
 	if ctx.ResourceIndex == nil || len(ctx.ParsedFiles) == 0 {
 		return

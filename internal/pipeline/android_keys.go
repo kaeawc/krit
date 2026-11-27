@@ -27,8 +27,12 @@ import (
 // resourceRuleChecks rerun on every Java edit even though the
 // resource-rule output is byte-identical. Same reasoning applies to
 // the other XML-only keys below.
-func (in AndroidInput) resourceKey(resDir, resDirFP string, deps rules.AndroidDataDependency, valueKinds android.ValuesScanKind) string {
-	sources, ok := in.resourceRulesSourceFP()
+//
+// withSources selects the entry for a res directory a resource rule reads the
+// parsed sources for (Dispatcher.ResourceReadsSources), which keys on the
+// whole source set as well; see resourceRulesSourceFP.
+func (in AndroidInput) resourceKey(resDir, resDirFP string, deps rules.AndroidDataDependency, valueKinds android.ValuesScanKind, withSources bool) string {
+	sources, ok := in.resourceRulesSourceFP(withSources)
 	if !ok {
 		return ""
 	}
@@ -46,15 +50,21 @@ func (in AndroidInput) resourceKey(resDir, resDirFP string, deps rules.AndroidDa
 }
 
 // resourceRulesSourceFP is the part of a resource-rule cache key that covers
-// the parsed sources: "" when no active resource rule reads them, else their
-// fingerprint, so a source edit that changes OnClick's verdict misses the
-// cache (#1860). ok is false when the fingerprint cannot be computed; the
-// caller then caches nothing.
-func (in AndroidInput) resourceRulesSourceFP() (string, bool) {
+// the parsed sources (#1860): "" when no active resource rule reads them.
+// Otherwise a directory's entry is either source-free, for res content no
+// rule reads the sources for, so a source edit leaves it a hit, or, with
+// withSources, keyed on the whole source set, so an edit that changes
+// OnClick's verdict misses. The source-free marker keeps those entries apart
+// from ones written before OnClick read the sources at all. ok is false when
+// the fingerprint cannot be computed; the caller then caches nothing.
+func (in AndroidInput) resourceRulesSourceFP(withSources bool) (string, bool) {
 	if !hasResourceRulesReadingSources(in.ActiveRules) {
 		return "", true
 	}
-	fp, ok := in.resourceSourceFingerprintForBundle()
+	if !withSources {
+		return "\x00sources-free", true
+	}
+	fp, ok := in.resourceRuleSources().fingerprint()
 	if !ok {
 		return "", false
 	}
@@ -160,8 +170,9 @@ func (in AndroidInput) resourceSourceKey(srcPath, srcContentHash, mergedIdxFP st
 }
 
 // resourceBundleKey: XML-only path, same reasoning as resourceKey.
-func (in AndroidInput) resourceBundleKey(mergedFP string, deps rules.AndroidDataDependency, valueKinds android.ValuesScanKind) string {
-	sources, ok := in.resourceRulesSourceFP()
+// withSources is set when a rule read the sources for any res directory.
+func (in AndroidInput) resourceBundleKey(mergedFP string, deps rules.AndroidDataDependency, valueKinds android.ValuesScanKind, withSources bool) string {
+	sources, ok := in.resourceRulesSourceFP(withSources)
 	if !ok {
 		return ""
 	}
@@ -273,7 +284,7 @@ func (in AndroidInput) androidProjectBundleFingerprint(needs androidPhaseNeeds, 
 		h.Write([]byte(sourceFP))
 		h.Write([]byte{0})
 	}
-	if hasResourceSourceRules(in.ActiveRules) || hasResourceRulesReadingSources(in.ActiveRules) {
+	if hasResourceSourceRules(in.ActiveRules) {
 		sourceFP, ok := in.resourceSourceFingerprintForBundle()
 		if !ok {
 			return "", false
@@ -282,6 +293,15 @@ func (in AndroidInput) androidProjectBundleFingerprint(needs androidPhaseNeeds, 
 		h.Write([]byte{0})
 		h.Write([]byte(sourceFP))
 		h.Write([]byte{0})
+	}
+	if hasResourceRulesReadingSources(in.ActiveRules) {
+		// The whole source set, unparsed files included: a resource rule that
+		// reads the sources sees all of them (resourceRuleSources).
+		sourceFP, ok := in.resourceRuleSources().fingerprint()
+		if !ok {
+			return "", false
+		}
+		h.Write([]byte("resource-rule-sources\x00" + sourceFP + "\x00"))
 	}
 	return hex.EncodeToString(h.Sum(nil)), true
 }

@@ -99,7 +99,7 @@ func TestAndroidPhaseBundleKeys_AreSeparatedByKind(t *testing.T) {
 	fp := "same-fingerprint"
 	keys := []string{
 		in.manifestBundleKey(fp),
-		in.resourceBundleKey(fp, 1, 1),
+		in.resourceBundleKey(fp, 1, 1, false),
 		in.gradleBundleKey(fp),
 		in.iconBundleKey(fp),
 		in.resourceSourceBundleKey(fp, fp),
@@ -122,8 +122,8 @@ func TestAndroidPhaseBundleKeys_InvalidateOnlyTheirInputs(t *testing.T) {
 	manifestB := in.manifestBundleKey("manifest-b")
 	gradleA := in.gradleBundleKey("gradle-a")
 	gradleB := in.gradleBundleKey("gradle-b")
-	resourceA := in.resourceBundleKey("res-a", 1, 1)
-	resourceB := in.resourceBundleKey("res-b", 1, 1)
+	resourceA := in.resourceBundleKey("res-a", 1, 1, false)
+	resourceB := in.resourceBundleKey("res-b", 1, 1, false)
 	if manifestA == manifestB {
 		t.Fatal("manifest bundle key did not change with manifest fingerprint")
 	}

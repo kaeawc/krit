@@ -54,6 +54,14 @@ type AndroidInput struct {
 	// the incremental findings cache. They let warm Android resource-source
 	// bundle loads avoid rehashing every source file after parse skip.
 	SourceHashes map[string]string
+	// ParseSources, when set, parses source paths SourceFiles lacks (a warm
+	// run that parsed only its cache misses), for a resource rule that reads
+	// the whole source set. Nil leaves such a rule SourceFiles alone, and its
+	// findings uncached when that is not every path.
+	ParseSources func(paths []string) ([]*scanner.File, error)
+	// ruleSources is the run's shared view of the whole source set, installed
+	// by withResourceRuleSources.
+	ruleSources *resourceRuleSources
 	// Providers is an optional async scan provider bundle. When nil,
 	// Run constructs one lazily using sysres.CPUs() workers.
 	Providers *AndroidProjectProviders
@@ -368,6 +376,9 @@ type resourceCacheStats struct {
 	hits   int
 	misses int
 	skips  int
+	// readsSources is set when a resource rule read the parsed sources for
+	// some res directory, so the resource bundle keys on them too.
+	readsSources bool
 }
 
 // runResourceDir processes one resource directory: scans layout/values as
@@ -382,7 +393,7 @@ type resourceCacheStats struct {
 func (p AndroidPhase) runResourceDir(in AndroidInput, resDir string, resDirFP string, resourceDeps rules.AndroidDataDependency, valueKinds android.ValuesScanKind, scanIcons bool, needResourceSource bool, providers *AndroidProjectProviders, collector *scanner.FindingCollector, resourceBundleCollector *scanner.FindingCollector, t *androidResourceTimings, stats *resourceCacheStats) (*android.ResourceIndex, bool) {
 	resourceCacheHit, resourceKey := p.loadCachedResourceFindings(in, resDir, resDirFP, resourceDeps, valueKinds, collector, resourceBundleCollector, stats)
 	partialIndexes, hadResourceErr := p.scanResourceIndexes(resDir, resourceDeps, valueKinds, needResourceSource, resourceCacheHit, providers, t)
-	mergedIdx, cacheable := p.mergeResourceIndexes(in, resDir, resourceKey, resourceCacheHit, partialIndexes, hadResourceErr, stats, collector, resourceBundleCollector, t)
+	mergedIdx, cacheable := p.mergeResourceIndexes(in, resDir, resDirFP, resourceDeps, valueKinds, resourceKey, resourceCacheHit, partialIndexes, hadResourceErr, stats, collector, resourceBundleCollector, t)
 	p.scanResourceIcons(in, resDir, scanIcons, providers, collector, t)
 	return mergedIdx, cacheable
 }
@@ -392,8 +403,8 @@ func (p AndroidPhase) loadCachedResourceFindings(in AndroidInput, resDir, resDir
 	if !cacheable || stats == nil || resDirFP == "" || resourceDeps&(rules.AndroidDepLayout|rules.AndroidDepValues) == 0 {
 		return false, ""
 	}
-	resourceKey = in.resourceKey(resDir, resDirFP, resourceDeps, valueKinds)
-	cached, ok := scanner.LoadAndroidFindings(in.CacheDir, resourceKey)
+	resourceKey = in.resourceKey(resDir, resDirFP, resourceDeps, valueKinds, false)
+	cached, readsSources, ok := in.loadResourceDirFindings(resDir, resDirFP, resourceDeps, valueKinds)
 	if !ok {
 		stats.misses++
 		return false, resourceKey
@@ -403,7 +414,28 @@ func (p AndroidPhase) loadCachedResourceFindings(in AndroidInput, resDir, resDir
 		resourceBundleCollector.AppendColumns(&cached)
 	}
 	stats.hits++
+	stats.readsSources = stats.readsSources || readsSources
 	return true, resourceKey
+}
+
+// loadResourceDirFindings returns a res directory's cached resource-rule
+// findings: its source-free entry, else, when a resource rule reads the parsed
+// sources, the entry keyed on them. Only one is ever written for given res
+// content (mergeResourceIndexes), so a source-free hit holds whatever the
+// sources are. readsSources reports that the sourced entry hit.
+func (in AndroidInput) loadResourceDirFindings(resDir, resDirFP string, deps rules.AndroidDataDependency, valueKinds android.ValuesScanKind) (cols scanner.FindingColumns, readsSources, ok bool) {
+	if cached, ok := scanner.LoadAndroidFindings(in.CacheDir, in.resourceKey(resDir, resDirFP, deps, valueKinds, false)); ok {
+		return cached, false, true
+	}
+	if !hasResourceRulesReadingSources(in.ActiveRules) {
+		return scanner.FindingColumns{}, false, false
+	}
+	key := in.resourceKey(resDir, resDirFP, deps, valueKinds, true)
+	if key == "" {
+		return scanner.FindingColumns{}, false, false
+	}
+	cached, ok := scanner.LoadAndroidFindings(in.CacheDir, key)
+	return cached, true, ok
 }
 
 func (p AndroidPhase) scanResourceIndexes(resDir string, resourceDeps rules.AndroidDataDependency, valueKinds android.ValuesScanKind, needResourceSource bool, resourceCacheHit bool, providers *AndroidProjectProviders, t *androidResourceTimings) (partialIndexes []*android.ResourceIndex, hadResourceErr bool) {
@@ -429,7 +461,7 @@ func (p AndroidPhase) scanResourceIndexes(resDir string, resourceDeps rules.Andr
 	return partialIndexes, hadResourceErr
 }
 
-func (p AndroidPhase) mergeResourceIndexes(in AndroidInput, resDir, resourceKey string, resourceCacheHit bool, partialIndexes []*android.ResourceIndex, hadResourceErr bool, stats *resourceCacheStats, collector *scanner.FindingCollector, resourceBundleCollector *scanner.FindingCollector, t *androidResourceTimings) (*android.ResourceIndex, bool) {
+func (p AndroidPhase) mergeResourceIndexes(in AndroidInput, resDir, resDirFP string, resourceDeps rules.AndroidDataDependency, valueKinds android.ValuesScanKind, resourceKey string, resourceCacheHit bool, partialIndexes []*android.ResourceIndex, hadResourceErr bool, stats *resourceCacheStats, collector *scanner.FindingCollector, resourceBundleCollector *scanner.FindingCollector, t *androidResourceTimings) (*android.ResourceIndex, bool) {
 	if hadResourceErr || len(partialIndexes) == 0 || in.Dispatcher == nil {
 		return nil, true
 	}
@@ -446,8 +478,23 @@ func (p AndroidPhase) mergeResourceIndexes(in AndroidInput, resDir, resourceKey 
 	}
 	installAndroidSuppression(file, in.Dispatcher.ProjectRoot())
 
+	// A directory a resource rule reads the parsed sources for gets the whole
+	// source set, and its entry keys on it; any other keeps the source-free
+	// key, so a source edit leaves it a hit (#1860).
+	sourcesComplete := true
+	raw, cacheable := in.Dispatcher.RunResource(file, mergedIdx, func() []*scanner.File {
+		files, ok := in.resourceRuleSources().sources()
+		sourcesComplete = ok
+		return files
+	})
+	cacheable = cacheable && sourcesComplete
+	if in.Dispatcher.ResourceReadsSources(mergedIdx) {
+		resourceKey = in.resourceKey(resDir, resDirFP, resourceDeps, valueKinds, true)
+		if stats != nil {
+			stats.readsSources = true
+		}
+	}
 	canCache := resourceKey != "" && stats != nil && in.CacheWriter != nil && in.CacheDir != "" && in.RuleHash != ""
-	raw, cacheable := in.Dispatcher.RunResource(file, mergedIdx, in.SourceFiles)
 	cols := filterAndroidSuppressedFindings(file, raw)
 	collector.AppendColumns(&cols)
 	if resourceBundleCollector != nil {
@@ -1198,7 +1245,7 @@ func (p AndroidPhase) runResourceSubphase(in AndroidInput, resourceDeps rules.An
 		resourceSourceIndexes, resourceBundleCacheable = p.runResourceDirs(in, resourceDeps, valueKinds, needResources && androidFindingsCacheable, needIcons, needResourceSource, providers, collector, resourceBundleCollector, &resDirFPs, &t, &resourceStats)
 		if resourceBundleCollector != nil && resourceBundleCacheable {
 			mergedResourceFP := mergedResourceIndexFingerprintWith(in.Project.ResDirs, &resDirFPs)
-			in.CacheWriter.Save(in.CacheDir, in.resourceBundleKey(mergedResourceFP, resourceDeps, valueKinds), *resourceBundleCollector.Columns())
+			in.CacheWriter.Save(in.CacheDir, in.resourceBundleKey(mergedResourceFP, resourceDeps, valueKinds, resourceStats.readsSources), *resourceBundleCollector.Columns())
 		}
 	}
 	perf.AddEntry(resourceTracker, "resourceDirScan", t.waitDur)
@@ -1264,6 +1311,7 @@ func (p AndroidPhase) runResourceDirs(in AndroidInput, resourceDeps rules.Androi
 		resourceStats.hits += r.stats.hits
 		resourceStats.misses += r.stats.misses
 		resourceStats.skips += r.stats.skips
+		resourceStats.readsSources = resourceStats.readsSources || r.stats.readsSources
 		resourceBundleCacheable = resourceBundleCacheable && r.cacheable
 		if r.idx != nil {
 			resourceSourceIndexes = append(resourceSourceIndexes, r.idx)
@@ -1335,9 +1383,7 @@ func (in AndroidInput) loadWarmResourceFindings(resourceDeps rules.AndroidDataDe
 		return resourceStats, true
 	}
 	for _, resDir := range in.Project.ResDirs {
-		resDirFP := resDirFPs.fingerprint(resDir)
-		resourceKey := in.resourceKey(resDir, resDirFP, resourceDeps, valueKinds)
-		cached, ok := scanner.LoadAndroidFindings(in.CacheDir, resourceKey)
+		cached, _, ok := in.loadResourceDirFindings(resDir, resDirFPs.fingerprint(resDir), resourceDeps, valueKinds)
 		if !ok {
 			return resourceStats, false
 		}
@@ -1345,6 +1391,22 @@ func (in AndroidInput) loadWarmResourceFindings(resourceDeps rules.AndroidDataDe
 		resourceStats.hits++
 	}
 	return resourceStats, true
+}
+
+// loadResourceBundleFindings is loadResourceDirFindings for the bundle of
+// every res directory: source-free when no rule read the sources for any.
+func (in AndroidInput) loadResourceBundleFindings(mergedFP string, deps rules.AndroidDataDependency, valueKinds android.ValuesScanKind) (scanner.FindingColumns, bool) {
+	if cached, ok := scanner.LoadAndroidFindings(in.CacheDir, in.resourceBundleKey(mergedFP, deps, valueKinds, false)); ok {
+		return cached, true
+	}
+	if !hasResourceRulesReadingSources(in.ActiveRules) {
+		return scanner.FindingColumns{}, false
+	}
+	key := in.resourceBundleKey(mergedFP, deps, valueKinds, true)
+	if key == "" {
+		return scanner.FindingColumns{}, false
+	}
+	return scanner.LoadAndroidFindings(in.CacheDir, key)
 }
 
 func (in AndroidInput) warmResourceSourceBundleFingerprint() (string, int, bool) {
@@ -1374,14 +1436,12 @@ func (p AndroidPhase) tryWarmResourceIndexBundle(in AndroidInput, resourceDeps r
 	warmCollector := scanner.NewFindingCollector(len(in.Project.ResDirs) * 8)
 	mergedResourceFP := mergedResourceIndexFingerprintWith(in.Project.ResDirs, resDirFPs)
 	if needResources && resourceDeps&(rules.AndroidDepLayout|rules.AndroidDepValues) != 0 {
-		if cached, ok := scanner.LoadAndroidFindings(in.CacheDir, in.resourceBundleKey(mergedResourceFP, resourceDeps, valueKinds)); ok {
+		if cached, ok := in.loadResourceBundleFindings(mergedResourceFP, resourceDeps, valueKinds); ok {
 			warmCollector.AppendColumns(&cached)
 			stats.hits = len(in.Project.ResDirs)
 		} else {
 			for _, resDir := range in.Project.ResDirs {
-				resDirFP := resDirFPs.fingerprint(resDir)
-				resourceKey := in.resourceKey(resDir, resDirFP, resourceDeps, valueKinds)
-				cached, ok := scanner.LoadAndroidFindings(in.CacheDir, resourceKey)
+				cached, _, ok := in.loadResourceDirFindings(resDir, resDirFPs.fingerprint(resDir), resourceDeps, valueKinds)
 				if !ok {
 					return nil, stats, false
 				}
@@ -1799,6 +1859,7 @@ func (p AndroidPhase) Run(ctx context.Context, in AndroidInput) (AndroidResult, 
 	in = in.withRtlMains()
 	in = in.withDescribedViewNames()
 	in = in.withResourceCodeRefs()
+	in = in.withResourceRuleSources()
 
 	collector := scanner.NewFindingCollector(len(in.Project.ManifestPaths)*4 + len(in.Project.ResDirs)*8 + len(in.Project.GradlePaths)*4)
 	projectPanicCount := projectRulePanicCount(in.Dispatcher)

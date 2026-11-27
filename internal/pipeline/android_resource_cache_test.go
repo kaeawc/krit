@@ -223,8 +223,8 @@ func TestResDirFingerprintCache_InvalidatesOnMetadataChange(t *testing.T) {
 // rule selection (e.g., enabling a values-aware rule) doesn't false-hit.
 func TestResourceCacheKey_DepsMaskInvalidates(t *testing.T) {
 	in := AndroidInput{RuleHash: "rh", LibraryFactsFP: "lf"}
-	a := in.resourceKey("/res", "fp", rules.AndroidDepLayout, android.ValuesScanNone)
-	b := in.resourceKey("/res", "fp", rules.AndroidDepLayout|rules.AndroidDepValues, android.ValuesScanStrings)
+	a := in.resourceKey("/res", "fp", rules.AndroidDepLayout, android.ValuesScanNone, false)
+	b := in.resourceKey("/res", "fp", rules.AndroidDepLayout|rules.AndroidDepValues, android.ValuesScanStrings, false)
 	if a == b {
 		t.Fatal("deps/valueKinds change failed to alter the cache key")
 	}

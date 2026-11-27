@@ -110,6 +110,16 @@ func NewGitIndex() *CachedIndex {
 	return index
 }
 
+// NewUncachedGitIndex is NewGitIndex without the persisted listing: every
+// run asks git. --no-cache uses it, since the persisted listing is keyed on
+// the stat of .git/index and HEAD, not their content, and a stale entry
+// would decide which files a fresh-analysis baseline scans.
+func NewUncachedGitIndex() *CachedIndex {
+	index := NewCachedIndex(GitRunner{})
+	index.untracked = GitUntrackedFiles
+	return index
+}
+
 // NewCachedIndex returns a memoizing index around runner.
 func NewCachedIndex(runner Runner) *CachedIndex {
 	return &CachedIndex{

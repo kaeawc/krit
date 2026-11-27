@@ -15,9 +15,10 @@ import (
 )
 
 // defaultScanArgs is the source-only scan the guard times: no FIR, no type
-// oracle JVM and no daemon. --no-cache only covers the incremental and FIR
-// caches, so the parse, cross-file and resource caches are off too, and
-// runKrit deletes the corpus's .krit directory before every run: each run
+// oracle JVM and no daemon. --no-cache leaves the content-keyed parse cache
+// on, so --no-parse-cache turns it off too (the cross-file and resource
+// flags are implied by --no-cache and kept for older binaries), and runKrit
+// deletes the corpus's .krit directory before every run: each run
 // is cold and cannot reuse (or invalidate) the other binary's caches.
 var defaultScanArgs = []string{
 	"--no-fir", "--no-type-oracle", "--no-daemon",

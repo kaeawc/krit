@@ -253,13 +253,22 @@ func newRunner(f *scanFlags, sess *Session) (*runner, int, bool) {
 		start:           start,
 		tracker:         tracker,
 		cpuProfileFile:  cpuProfileFile,
-		trackedFiles:    trackedfiles.NewGitIndex(),
+		trackedFiles:    newTrackedFilesIndex(*f.NoCache),
 		sess:            sess,
 		cacheFilePath:   cacheFilePath,
 	}
 	r.preloadOracleTypes()
 	r.startAnalysisCachePreload()
 	return r, 0, true
+}
+
+// newTrackedFilesIndex returns the run's git file index. Under --no-cache it
+// neither reads nor writes the persisted listing.
+func newTrackedFilesIndex(noCache bool) *trackedfiles.CachedIndex {
+	if noCache {
+		return trackedfiles.NewUncachedGitIndex()
+	}
+	return trackedfiles.NewGitIndex()
 }
 
 func resolveEffectiveFormat(f *scanFlags) string {

@@ -663,7 +663,10 @@ All notable changes to Krit will be documented in this file.
   smaller. Parse-cache entries and cross-file index shards written before the fix are rebuilt (#1839).
 - `--no-cache` skips every cache that can change findings. A one-shot scan read the cross-file findings cache, so a
   stale entry replayed into the run warm results are checked against; it now skips that cache and also the cross-file
-  index, resource index, file-walk and incremental oracle caches. Only the parse cache stays on (#1818).
+  index, resource index, file-walk, tracked-files and incremental oracle caches. With the type oracle on, every
+  `--no-cache` scan therefore runs krit-fir in full. A daemon-delegated scan forwards the oracle part too, including
+  the `KRIT_MODULE_SHARDS` module facts. The content-keyed parse cache and the content-hash memo stay on (#1818,
+  #1831).
 - Gradle plugin: with FIR on, the check tasks run the R tasks of exported Android test components
   (`generate<Variant>UnitTestStubRFile`, `process<Variant>AndroidTestResources`). On a clean checkout FIR compiled unit
   and instrumented tests without their own R class, so test files that use `R` were gated (#1724).

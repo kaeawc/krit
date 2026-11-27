@@ -881,6 +881,7 @@ func buildDaemonAnalyzeArgs(f *scanFlags, paths []string) daemon.AnalyzeProjectA
 		Fir:                       *f.Fir && !*f.NoFir,
 		NoFir:                     *f.NoFir || !*f.Fir,
 		NoTypeOracle:              *f.NoTypeOracle,
+		NoCacheOracle:             *f.NoCacheOracle,
 		GradleModel:               *f.GradleModel,
 		NoGradleModel:             *f.NoGradleModel,
 		FirPreflightPassed:        f.firPreflightPassed,

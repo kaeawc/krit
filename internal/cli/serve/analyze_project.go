@@ -9,9 +9,11 @@ import (
 	"io"
 	"os"
 	"sort"
+	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/kaeawc/krit/internal/android"
 	"github.com/kaeawc/krit/internal/cache"
 	"github.com/kaeawc/krit/internal/cacheutil"
 	"github.com/kaeawc/krit/internal/cli/clishared"
@@ -31,6 +33,7 @@ import (
 	"github.com/kaeawc/krit/internal/rules"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/sysres"
+	"github.com/kaeawc/krit/internal/trackedfiles"
 	"github.com/kaeawc/krit/internal/typeinfer"
 )
 
@@ -636,6 +639,7 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs, backend 
 			Version:             kritVersion(),
 			OracleEnabled:       !args.NoTypeOracle && (oracleDaemon != nil || args.InputTypesPath != ""),
 			NoTypeOracle:        args.NoTypeOracle,
+			NoCacheOracle:       noCacheOracle(args),
 			ShowPerf:            args.ShowPerf || args.PerfRules,
 			PerfRules:           args.PerfRules,
 			ProfileDispatch:     args.ProfileDispatch,
@@ -664,7 +668,7 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs, backend 
 			CodeIndexCache:      s.workspace.CodeIndex,
 			XMLFilesLoader:      s.workspace.XMLFiles,
 			ResolverCache:       s.workspace.Resolver,
-			AndroidProjectCache: s.workspace.AndroidProject,
+			AndroidProjectCache: s.androidProjectCache(args.NoCache, paths),
 			DaemonCaches: pipeline.DaemonCaches{
 				CodeIndexSnapshotLoader:  s.workspace.LoadCodeIndexSnapshot,
 				CodeIndexSnapshotSaver:   s.workspace.StoreCodeIndexSnapshot,
@@ -709,7 +713,7 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs, backend 
 		// The oracle daemon and the pass compile the same module; the broker
 		// lets the oracle's compile answer the pass's check too (#810).
 		in.Host.FIRCheckBroker = firchecks.NewBroker()
-		if !args.NoCache {
+		if !noCacheOracle(args) {
 			// An oracle-only request (the check served by its cache) still
 			// lets krit-fir load its bundle and answer an unchanged module
 			// without a compile (#957). The directory is the one the pass's
@@ -826,6 +830,31 @@ type diskCacheWiring struct {
 	findingsBundleRoot    string
 	manifestLoader        pipeline.FindingsBundleManifestLoader
 	manifestSaver         pipeline.FindingsBundleManifestSaver
+}
+
+// androidProjectCache returns the request's Android project detection slot.
+// The resident slot may hold a detection built from the persisted
+// tracked-files listing, which a --no-cache request neither reads nor
+// writes, so that request detects once from a fresh git listing instead.
+func (s *daemonState) androidProjectCache(noCache bool, paths []string) pipeline.AndroidProjectCache {
+	if !noCache {
+		return s.workspace.AndroidProject
+	}
+	var once sync.Once
+	var project *android.Project
+	return func(string, func() *android.Project) *android.Project {
+		once.Do(func() {
+			project = android.DetectProjectWithIndex(paths, trackedfiles.NewUncachedGitIndex())
+		})
+		return project
+	}
+}
+
+// noCacheOracle reports whether the request's oracle computes its facts
+// afresh: --no-cache-oracle, or --no-cache, which implies it as it does for
+// a one-shot scan.
+func noCacheOracle(args daemon.AnalyzeProjectArgs) bool {
+	return args.NoCacheOracle || args.NoCache
 }
 
 // resolveDiskCacheWiring computes the per-call on-disk cache pointer

@@ -512,6 +512,12 @@ All notable changes to Krit will be documented in this file.
   with `--experimental`. One shared project pass serves every `MoshiUsage*` rule. A new `api.Rule.LintIssue` flag
   lets rules outside `android-lint` whose IDs are Lint issue IDs honor `lint.xml` and Gradle `lint { disable }`
   (#1391, #1392, #1393, #1394, #1397).
+- `DenyListedApi` and `DenyListedBlockingApi`, slack-lints 0.11.1's `DenyListedApiDetector`, in the opt-in
+  `slack-lint` rule set for Kotlin and Java. They report the detector's built-in list (RxJava 3 `hide()` and blocking
+  calls, `java.util.Date`/`Calendar` and `java.text.DateFormat` APIs, `LinkedList`/`Stack`/`Vector`, `runCatching`,
+  `Flow.launchIn`, dispatcher-less rx3 builders and more) once the owner is proven from imports or the receiver's type.
+  Findings match the Lint CLI on `internal/rules/testdata/slack_lint/denylist/`, except that a top-level
+  `runCatching` of the file's package shadows kotlin's (#1428, #1429).
 - `MultipleAwaitPointerEventScopes` and `ReturnFromAwaitPointerEventScope`, ported from `androidx.compose.ui:ui-android`
   1.12.1 under their Lint IDs and checked against the Lint CLI on the same inputs. The first counts
   `awaitPointerEventScope` calls within the enclosing `pointerInput` call (its own arguments, not the chain before it)

@@ -1,0 +1,2 @@
+ComposeMultipleContentEmitters.contentEmitters = MyCard
+ComposeContentEmitterReturningValues.contentEmitters = MyCard

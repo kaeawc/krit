@@ -70,6 +70,19 @@ func registerComposeLintsRules() {
 		RuleSetName: composeLintsRuleSet, Sev: "error", Desc: "Detects ViewModels acquired with viewModel()-style factories in a composable body instead of a default parameter."}}
 	registerComposeLintsRule(injection.BaseRule, injection, []string{"function_declaration"}, composeLintsMentions("Composable"),
 		injection.check)
+
+	// The emitter rules compare every composable of a file, so they run once per file on its root node.
+	returning := &ComposeContentEmitterReturningValuesRule{BaseRule: BaseRule{RuleName: "ComposeContentEmitterReturningValues",
+		RuleSetName: composeLintsRuleSet, Sev: "error", Desc: "Detects composables that both emit content and return a value."}}
+	registerComposeLintsRule(returning.BaseRule, returning, []string{"source_file"}, composeLintsMentions("Composable"), returning.check)
+
+	multiple := &ComposeMultipleContentEmittersRule{BaseRule: BaseRule{RuleName: "ComposeMultipleContentEmitters",
+		RuleSetName: composeLintsRuleSet, Sev: "error", Desc: "Detects composables that emit content from more than one source at their top level."}}
+	registerComposeLintsRule(multiple.BaseRule, multiple, []string{"source_file"}, composeLintsMentions("Composable"), multiple.check)
+
+	nonRestartable := &ComposeNonRestartableComposableRule{BaseRule: BaseRule{RuleName: "ComposeNonRestartableComposable",
+		RuleSetName: composeLintsRuleSet, Sev: "info", Desc: "Detects composables that only delegate to another composable and could be @NonRestartableComposable."}}
+	registerComposeLintsProjectRule(nonRestartable.BaseRule, nonRestartable, nonRestartable.check)
 }
 
 // registerComposeLintsRule registers a node-dispatched port; fix, when given, is its autofix safety level.

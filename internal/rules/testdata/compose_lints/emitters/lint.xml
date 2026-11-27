@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<lint>
+    <issue id="ComposeMultipleContentEmitters">
+        <option name="content-emitters" value="MyCard" />
+    </issue>
+    <issue id="ComposeContentEmitterReturningValues">
+        <option name="content-emitters" value="MyCard" />
+    </issue>
+</lint>

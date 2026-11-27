@@ -112,10 +112,15 @@ type fileWatcher struct {
 	fdUsed   atomic.Int64
 	// dirs holds every directory the watcher has walked, so a path that
 	// is removed or renamed away can be told apart from a file once it
-	// no longer exists to stat. A directory leaves it when it is
-	// reported gone; its subdirectories stay until their own events.
-	dirsMu sync.Mutex
-	dirs   map[string]struct{}
+	// no longer exists to stat. A directory leaves it, with every
+	// subdirectory, when it is reported gone: a directory moved out of
+	// the tree delivers no events for what is inside it (#1965).
+	// children indexes dirs by parent, so forgetting one costs its
+	// subtree rather than a scan of every walked directory, which rm -rf
+	// would pay once per directory it deletes.
+	dirsMu   sync.Mutex
+	dirs     map[string]struct{}
+	children map[string]map[string]struct{}
 	// degraded is set once a watch could not be added (budget reached
 	// or backend error). The watcher then no longer sees every change
 	// under root, so CoversTree reports false for the daemon's life.
@@ -146,6 +151,7 @@ func startFileWatcherWithState(ctx context.Context, root string, state watcherSt
 		backendKind:    kindAuto,
 		fdBudget:       -1,
 		dirs:           make(map[string]struct{}),
+		children:       make(map[string]map[string]struct{}),
 	}
 	for _, opt := range opts {
 		opt(fw)
@@ -232,10 +238,23 @@ func (fw *fileWatcher) addWatch(path string) error {
 		fw.markDegraded(fmt.Errorf("%s: %w", path, err))
 		return err
 	}
-	fw.dirsMu.Lock()
-	fw.dirs[path] = struct{}{}
-	fw.dirsMu.Unlock()
+	fw.rememberDir(path)
 	return nil
+}
+
+// rememberDir records path as a walked directory.
+func (fw *fileWatcher) rememberDir(path string) {
+	fw.dirsMu.Lock()
+	defer fw.dirsMu.Unlock()
+	fw.dirs[path] = struct{}{}
+	if parent := filepath.Dir(path); parent != path {
+		siblings := fw.children[parent]
+		if siblings == nil {
+			siblings = make(map[string]struct{})
+			fw.children[parent] = siblings
+		}
+		siblings[path] = struct{}{}
+	}
 }
 
 // createdDirectory handles the creation of path when it is a directory,
@@ -270,13 +289,30 @@ func (fw *fileWatcher) createdDirectory(path string) bool {
 }
 
 // forgetDir reports whether path is a directory the watcher walked, and
-// forgets it.
+// forgets it and every walked directory under it.
 func (fw *fileWatcher) forgetDir(path string) bool {
 	fw.dirsMu.Lock()
 	defer fw.dirsMu.Unlock()
 	_, ok := fw.dirs[path]
-	delete(fw.dirs, path)
+	fw.forgetTreeLocked(path)
+	parent := filepath.Dir(path)
+	if siblings := fw.children[parent]; siblings != nil {
+		delete(siblings, path)
+		if len(siblings) == 0 {
+			delete(fw.children, parent)
+		}
+	}
 	return ok
+}
+
+// forgetTreeLocked drops path and the walked directories under it. The
+// watcher does not walk symlinked directories, so the tree is finite.
+func (fw *fileWatcher) forgetTreeLocked(path string) {
+	delete(fw.dirs, path)
+	for child := range fw.children[path] {
+		fw.forgetTreeLocked(child)
+	}
+	delete(fw.children, path)
 }
 
 // markDegraded records that the watcher no longer covers the tree,

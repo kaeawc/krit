@@ -134,3 +134,13 @@ func TestCrossFileFactsHashIgnoresWildcardImports(t *testing.T) {
 		}
 	}
 }
+
+// #1888: moving a function between top level and a class body keeps its pkg.name key and return type but changes
+// what it shadows in the package, so the name's hash must move.
+func TestCrossFileFactsHashFollowsTopLevelFunctions(t *testing.T) {
+	top := crossFileFactsOf(t, "package p\n\nfun run(): Int = 1\n\nclass Svc\n")
+	member := crossFileFactsOf(t, "package p\n\nclass Svc {\n  fun run(): Int = 1\n}\n")
+	if top.ByName["p.run"] == "" || top.ByName["p.run"] == member.ByName["p.run"] {
+		t.Errorf("p.run: top-level %q, member %q; want different non-empty hashes", top.ByName["p.run"], member.ByName["p.run"])
+	}
+}

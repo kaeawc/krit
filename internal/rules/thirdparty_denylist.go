@@ -374,7 +374,8 @@ func denyUnqualifiedOwners(ctx *api.Context, call lintCall) []string {
 // file, which wins over a default import.
 func denyPackageDeclaresFunction(ctx *api.Context, name string) bool {
 	pkg := moshiFilePackage(ctx.File)
-	return ctx.Resolver != nil && pkg != "" && ctx.Resolver.HasFunction(pkg+"."+name)
+	// A member of a class in the package is recorded under pkg.name too, but only shadows inside its class.
+	return ctx.Resolver != nil && pkg != "" && typeinfer.HasTopLevelFunction(ctx.Resolver, pkg+"."+name)
 }
 
 // denyExtensionOwners returns the packages of the listed Kotlin extension functions a qualified call can be: through
@@ -650,6 +651,9 @@ func denyFieldHits(ctx *api.Context, idx uint32) []denyHit {
 	if parent, ok := file.FlatParent(idx); ok && file.FlatType(parent) == "call_expression" && file.FlatFirstChild(parent) == idx {
 		return nil
 	}
+	if hits, ok := denyImplicitPropertyWriteHits(ctx, idx); ok {
+		return hits
+	}
 	recv := file.FlatFirstChild(idx)
 	selector := denySelectorNode(file, idx)
 	if recv == 0 || selector == 0 {
@@ -669,6 +673,29 @@ func denyFieldHits(ctx *api.Context, idx uint32) []denyHit {
 		return []denyHit{{slackDenyListedAPI, msg, selector}}
 	}
 	return nil
+}
+
+// denyImplicitPropertyWriteHits matches an unqualified Kotlin property write, `timeInMillis = t` inside
+// `cal.apply { }`, against the implicit receiver's listed setters; ok is false when idx is not one. A local or
+// parameter of that name is what the write assigns instead.
+func denyImplicitPropertyWriteHits(ctx *api.Context, idx uint32) ([]denyHit, bool) {
+	file := ctx.File
+	if file.Language != scanner.LangKotlin || file.FlatType(idx) != "directly_assignable_expression" || file.FlatNamedChildCount(idx) != 1 {
+		return nil, false
+	}
+	id := file.FlatFirstChild(idx)
+	if file.FlatType(id) != "simple_identifier" {
+		return nil, false
+	}
+	name := file.FlatNodeText(id)
+	if slackLocallyShadowed(file, idx, name) {
+		return nil, true
+	}
+	owner := denyImplicitReceiverType(ctx, idx)
+	if msg, ok := denyAllMemberOwners[owner]; ok && denyDeclaresProperty(owner, name) {
+		return []denyHit{{slackDenyListedAPI, msg, id}}, true
+	}
+	return nil, true
 }
 
 // denyDeclaredMethods are the public methods each of denyAllMemberOwners declares (JDK 17). Lint matches the class

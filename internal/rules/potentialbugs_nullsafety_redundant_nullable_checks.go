@@ -421,6 +421,24 @@ func flatSameFileNullableToStringExtensionMatches(file *scanner.File, receiverTy
 	return matched
 }
 
+// flatTypeNameIdentifier returns the last identifier of a type's own name, skipping its type arguments: `KView` for
+// `com.ex.KView`, and `List`, not `KView`, for `List<KView>`.
+func flatTypeNameIdentifier(file *scanner.File, idx uint32) string {
+	switch file.FlatType(idx) {
+	case "simple_identifier", "type_identifier":
+		return file.FlatNodeText(idx)
+	case "type_arguments":
+		return ""
+	}
+	last := ""
+	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+		if name := flatTypeNameIdentifier(file, child); name != "" {
+			last = name
+		}
+	}
+	return last
+}
+
 func flatFunctionReceiverTypeInfo(file *scanner.File, fn uint32) (string, bool) {
 	if file == nil || fn == 0 || file.FlatType(fn) != "function_declaration" {
 		return "", false
@@ -431,10 +449,10 @@ func flatFunctionReceiverTypeInfo(file *scanner.File, fn uint32) (string, bool) 
 		switch file.FlatType(child) {
 		case "nullable_type":
 			nullable = true
-			name = flatLastIdentifierInNode(file, child)
+			name = flatTypeNameIdentifier(file, child)
 		case "user_type", "type_identifier":
 			if name == "" {
-				name = flatLastIdentifierInNode(file, child)
+				name = flatTypeNameIdentifier(file, child)
 			}
 		case ".":
 			return name, nullable

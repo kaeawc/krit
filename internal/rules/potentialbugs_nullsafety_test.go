@@ -1554,6 +1554,22 @@ fun display(user: User?) {
 	}
 }
 
+// A nullable toString() extension on List<User>? is List's, not User's: the receiver's type arguments don't name it
+// (#1926).
+func TestNullableToStringCall_ExtensionOnTypeArgumentIsNotTheReceiver(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "NullableToStringCall", `
+package test
+class User
+fun List<User>?.toString(): String = ""
+fun display(user: User?) {
+    val text = user.toString()
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("want user.toString() reported despite List<User>?.toString(), got %d findings", len(findings))
+	}
+}
+
 func TestNullableToStringCall_NegativeResolvedCustomTarget(t *testing.T) {
 	findings := runRuleByNameWithCallTarget(t, "NullableToStringCall", `
 package test

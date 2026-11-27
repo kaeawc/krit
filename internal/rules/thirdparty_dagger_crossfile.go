@@ -44,8 +44,10 @@ var daggerGeneratedAnnotations = []string{"javax.annotation.Generated", "javax.a
 
 // daggerProvider is a project method carrying a provider annotation.
 type daggerProvider struct {
-	name  string
-	owner string // FQN of the declaring class (a companion's members belong to its class)
+	name      string
+	owner     string // FQN of the declaring class (a companion's members belong to its class)
+	arity     slackArity
+	overloads []slackArity // same-named methods of the same class body
 }
 
 // emitDaggerProviderCalls emits the run's DoNotCallProviders findings, computed once per CodeIndex.
@@ -56,7 +58,7 @@ func emitDaggerProviderCalls(ctx *api.Context) {
 	}
 	// The test-source check reads paths relative to the project root, so the
 	// memo is per index and root.
-	findings := filefacts.StringFact(fileFactsCache(), fmt.Sprintf("%p|%s", index, projectRoot(ctx)), slotDaggerProviderCalls, func() []mockFinding {
+	findings := filefacts.StringFact(ctx.Facts, fmt.Sprintf("%p|%s", index, projectRoot(ctx)), slotDaggerProviderCalls, func() []mockFinding {
 		return analyzeDaggerProviderCalls(ctx, index, ctx.Resolver)
 	})
 	for _, f := range findings {
@@ -84,13 +86,16 @@ func analyzeDaggerProviderCalls(ctx *api.Context, index *scanner.CodeIndex, reso
 	if len(byName) == 0 {
 		return nil
 	}
-	names := make([][]byte, 0, len(byName))
+	h := newSlackHier(index)
+	names := make([]string, 0, len(byName))
 	for name := range byName {
-		names = append(names, []byte(name))
+		names = append(names, name)
 	}
+	// Only files that mention a provider's name can call one.
+	files := h.candidateFiles(names)
 	var out []mockFinding
-	for _, file := range index.Files {
-		if file == nil || file.FlatTree == nil || isProjectTestFile(ctx, file.Path) || !slackMentionsAny(file.Content, names) {
+	for _, file := range files {
+		if file == nil || file.FlatTree == nil || isProjectTestFile(ctx, file.Path) {
 			continue
 		}
 		visit := func(idx uint32) {
@@ -103,7 +108,7 @@ func analyzeDaggerProviderCalls(ctx *api.Context, index *scanner.CodeIndex, reso
 				return
 			}
 			for _, p := range byName[call.Name] {
-				if daggerCallTargets(file, call, p, index, resolver) {
+				if daggerCallTargets(file, call, p, h, resolver) {
 					if !daggerInGeneratedClass(file, idx) {
 						out = append(out, mockFinding{file: file, node: idx, msg: daggerDoNotCallProvidersMessage})
 					}
@@ -151,14 +156,20 @@ func daggerCollectProviders(file *scanner.File) []daggerProvider {
 					name = file.FlatNodeText(id)
 				}
 			}
-			out = append(out, daggerProvider{name: name, owner: owner})
+			out = append(out, daggerProvider{name: name, owner: owner, arity: slackArityOf(file, fn),
+				overloads: slackOverloadArities(file, fn, name, false)})
 		})
 	}
 	return out
 }
 
 // daggerCallTargets reports whether a Kotlin call or Java method invocation resolves to the provider method.
-func daggerCallTargets(file *scanner.File, call lintCall, p daggerProvider, index *scanner.CodeIndex, resolver typeinfer.TypeResolver) bool {
+func daggerCallTargets(file *scanner.File, call lintCall, p daggerProvider, h *slackHier, resolver typeinfer.TypeResolver) bool {
+	index := h.index
+	decl := slackAnnotatedDecl{name: p.name, owner: p.owner, arity: p.arity, overloads: p.overloads}
+	if !slackArityPicks(file, call, decl) {
+		return false
+	}
 	if file.Language == scanner.LangKotlin {
 		if call.ReceiverNode == 0 {
 			// `with(Module) { provide() }`, `Module.run { provide() }`: the scope lambda's receiver is the call's.
@@ -166,7 +177,7 @@ func daggerCallTargets(file *scanner.File, call lintCall, p daggerProvider, inde
 				return slackClassFQN(index, file, recv) == p.owner
 			}
 		}
-		return slackCallTargets(file, call, slackAnnotatedDecl{name: p.name, owner: p.owner}, index, resolver)
+		return slackCallTargets(file, call, decl, h, resolver)
 	}
 	if call.ReceiverNode == 0 || call.ReceiverText == "this" {
 		class, ok := flatEnclosingAncestor(file, call.Idx, "class_declaration", "interface_declaration", "enum_declaration")
@@ -184,7 +195,7 @@ func daggerCallTargets(file *scanner.File, call lintCall, p daggerProvider, inde
 		} else if pkg := moshiFilePackage(file); pkg != "" {
 			self = pkg + "." + name
 		}
-		return slackTypeExtends(index, self, p.owner)
+		return slackTypeExtends(h, self, p.owner)
 	}
 	// A Kotlin object's or companion's member called from Java: `Module.INSTANCE.m()`, `Module.Companion.m()`.
 	recv := strings.Join(strings.Fields(call.ReceiverText), "")
@@ -194,7 +205,7 @@ func daggerCallTargets(file *scanner.File, call lintCall, p daggerProvider, inde
 	}
 	if file.FlatType(call.ReceiverNode) == "identifier" {
 		if fqn := slackClassFQN(index, file, daggerJavaVariableType(file, call.ReceiverNode)); fqn != "" {
-			return slackTypeExtends(index, fqn, p.owner)
+			return slackTypeExtends(h, fqn, p.owner)
 		}
 	}
 	if resolver != nil {
@@ -204,7 +215,7 @@ func daggerCallTargets(file *scanner.File, call lintCall, p daggerProvider, inde
 					continue
 				}
 				if _, indexed := index.SymbolByFQN(name); indexed || name == p.owner {
-					return slackTypeExtends(index, name, p.owner)
+					return slackTypeExtends(h, name, p.owner)
 				}
 			}
 		}
@@ -215,9 +226,17 @@ func daggerCallTargets(file *scanner.File, call lintCall, p daggerProvider, inde
 // daggerInGeneratedClass reports whether the innermost class around idx is annotated @Generated.
 func daggerInGeneratedClass(file *scanner.File, idx uint32) bool {
 	class, ok := flatEnclosingAncestor(file, idx, "class_declaration", "object_declaration", "interface_declaration",
-		"enum_declaration", "companion_object", "object_literal")
+		"enum_declaration", "companion_object", "object_literal", "class_body")
 	if !ok {
 		return false
+	}
+	if file.FlatType(class) == "class_body" {
+		parent, _ := file.FlatParent(class)
+		if file.FlatType(parent) == "object_creation_expression" {
+			// A Java anonymous class is the innermost class, and it carries no annotation.
+			return false
+		}
+		class = parent
 	}
 	anns := moshiAnnotationsOf(file, class)
 	for _, fqn := range daggerGeneratedAnnotations {
@@ -323,7 +342,7 @@ func emitDaggerBindsTypeMismatch(ctx *api.Context) {
 	if index == nil || len(index.Files) == 0 {
 		return
 	}
-	findings := filefacts.StringFact(fileFactsCache(), fmt.Sprintf("%p", index), slotDaggerBindsMismatch, func() []mockFinding {
+	findings := filefacts.StringFact(ctx.Facts, fmt.Sprintf("%p", index), slotDaggerBindsMismatch, func() []mockFinding {
 		return analyzeDaggerBindsTypeMismatch(index)
 	})
 	for _, f := range findings {
@@ -339,6 +358,7 @@ func emitDaggerBindsTypeMismatch(ctx *api.Context) {
 }
 
 func analyzeDaggerBindsTypeMismatch(index *scanner.CodeIndex) []mockFinding {
+	h := newSlackHier(index)
 	var out []mockFinding
 	for _, file := range index.Files {
 		if file == nil || file.FlatTree == nil || !bytes.Contains(file.Content, []byte("Binds")) {
@@ -346,7 +366,7 @@ func analyzeDaggerBindsTypeMismatch(index *scanner.CodeIndex) []mockFinding {
 		}
 		for _, kind := range []string{"function_declaration", "method_declaration"} {
 			file.FlatWalkNodes(0, kind, func(fn uint32) {
-				if daggerBindsMismatched(index, file, fn) {
+				if daggerBindsMismatched(h, file, fn) {
 					out = append(out, mockFinding{file: file, node: fn, msg: daggerBindsTypeMismatchMessage})
 				}
 			})
@@ -359,7 +379,7 @@ func analyzeDaggerBindsTypeMismatch(index *scanner.CodeIndex) []mockFinding {
 // issue) and whose parameter type the source proves is not assignable to its return type: the return type is a
 // project class, and the parameter type is a project class whose project supertypes never reach it, or a library
 // type, which cannot implement a project type.
-func daggerBindsMismatched(index *scanner.CodeIndex, file *scanner.File, fn uint32) bool {
+func daggerBindsMismatched(h *slackHier, file *scanner.File, fn uint32) bool {
 	if moshiFindAnnotation(file, moshiAnnotationsOf(file, fn), fqcnDaggerBinds) == nil {
 		return false
 	}
@@ -376,14 +396,17 @@ func daggerBindsMismatched(index *scanner.CodeIndex, file *scanner.File, fn uint
 	if retGeneric || retText == "" || paramText == "" {
 		return false
 	}
-	retFQN := slackClassFQN(index, file, retText)
+	retFQN, _ := h.slackTypeNameKind(file, fn, retText)
 	if retFQN == "" {
 		return false
 	}
-	if paramFQN := slackClassFQN(index, file, paramText); paramFQN != "" {
-		return !slackTypeExtends(index, paramFQN, retFQN)
+	paramFQN, library := h.slackTypeNameKind(file, fn, paramText)
+	if paramFQN == "" {
+		// A library type cannot implement a project type; a name krit cannot place (a typealias) abstains.
+		return library
 	}
-	return daggerIsLibraryType(file, paramText)
+	extends, complete := slackTypeExtendsKnown(h, paramFQN, retFQN)
+	return !extends && complete
 }
 
 // daggerBindsTypes returns a @Binds method's only parameter's type node and its return type node, or 0s.
@@ -456,13 +479,3 @@ var daggerLibraryTypes = map[string]bool{"String": true, "CharSequence": true, "
 	"Byte": true, "Double": true, "Float": true, "Boolean": true, "Char": true, "Any": true, "Number": true, "Unit": true,
 	"List": true, "MutableList": true, "Set": true, "MutableSet": true, "Map": true, "MutableMap": true,
 	"Collection": true, "Iterable": true, "Object": true, "Integer": true, "Character": true, "Runnable": true}
-
-// daggerIsLibraryType reports whether a type name that is not a project class is shown to be a library type: a
-// built-in name, written in full, or imported.
-func daggerIsLibraryType(file *scanner.File, text string) bool {
-	if daggerLibraryTypes[text] || strings.Contains(text, ".") {
-		return true
-	}
-	_, imported := lintImportsOf(file).bySimple[text]
-	return imported
-}

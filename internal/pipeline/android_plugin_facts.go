@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -17,40 +16,13 @@ import (
 	"github.com/kaeawc/krit/internal/sysres"
 )
 
-// modulePluginPatterns match the plugin declarations of a build script: Android plugin ids, `id("...")` and
-// `alias(libs.plugins....)`. Each starts with a literal, which regexp finds without trying every position; an `id`
-// counts only at a word boundary (modulePlugins).
-var modulePluginPatterns = []*regexp.Regexp{
-	regexp.MustCompile(`com\.android\.[a-z-]+`),
-	regexp.MustCompile(`id\s*\(?\s*["'][^"']+["']`),
-	regexp.MustCompile(`alias\s*\(\s*[\w.]+\s*\)`),
-}
-
-// modulePlugins returns the plugin declarations modulePluginPatterns find in a build script.
-func modulePlugins(content string) []string {
-	var plugins []string
-	for i, pattern := range modulePluginPatterns {
-		for _, loc := range pattern.FindAllStringIndex(content, -1) {
-			if i == 1 && loc[0] > 0 && isGradleWordByte(content[loc[0]-1]) {
-				continue
-			}
-			plugins = append(plugins, content[loc[0]:loc[1]])
-		}
-	}
-	return plugins
-}
-
-func isGradleWordByte(c byte) bool {
-	return c == '_' || c >= '0' && c <= '9' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z'
-}
-
-// modulePluginsFingerprint hashes the plugins every build script of the project applies. Per-file rules such as
-// AnnotateVersionCheck decide from the module's plugin whether it is a library, which the file's own content hash
-// does not cover, so switching a module between application and library must change their cache keys. Other build
-// script edits (dependencies, versions) leave it unchanged. A plugin applied through a version-catalog alias counts as
-// the id the catalogs librarymodel's discovery finds resolve it to (rules.BuildScriptPluginIDs), so a catalog edit
-// that changes the id moves the key and a version bump does not. Scripts are spelled relative to the directory all of
-// them share, so the same checkout at another absolute path keys its caches the same (#1662).
+// modulePluginsFingerprint hashes the plugins every build script of the project applies, as rules.ModulePluginIDs reads
+// them: by id and through version-catalog aliases, without comments. Per-file rules such as AnnotateVersionCheck decide
+// from the module's plugins whether it is a library, which the file's own content hash does not cover, so switching a
+// module between application and library must change their cache keys. Other build script edits (dependencies,
+// versions) leave it unchanged, and so does a catalog edit that leaves every plugin id alone. Scripts are spelled
+// relative to the directory all of them share, so the same checkout at another absolute path keys its caches the same
+// (#1662).
 func modulePluginsFingerprint(project *android.Project) string {
 	if project == nil || len(project.GradlePaths) == 0 {
 		return ""
@@ -87,13 +59,9 @@ func modulePluginsFingerprint(project *android.Project) string {
 		if err != nil {
 			return
 		}
-		content := string(data)
-		plugins := modulePlugins(content)
+		plugins := rules.ModulePluginIDs(discovery, load, filepath.Dir(paths[i]), string(data))
 		if len(plugins) == 0 {
 			return
-		}
-		for _, id := range rules.BuildScriptPluginIDs(discovery, load, filepath.Dir(paths[i]), content) {
-			plugins = append(plugins, "="+id)
 		}
 		sort.Strings(plugins)
 		lines[i] = fsutil.RelSlash(root, paths[i]) + "|" + strings.Join(plugins, ",") + "\n"
@@ -106,4 +74,60 @@ func modulePluginsFingerprint(project *android.Project) string {
 		return ""
 	}
 	return hashutil.HashHex([]byte(b.String()))[:16]
+}
+
+// withScanModuleScripts returns project with the build script of each scan path's own module added to its GradlePaths,
+// for the per-file cache key. A scan below a module root, such as lib/src/main/java, holds no build script, yet
+// per-file rules read the module's plugins and SDK levels from it, so the key must cover it. A scan at or above every
+// module root lists those scripts already and gets project back unchanged, so its key stays as it was.
+func withScanModuleScripts(project *android.Project, scanPaths []string) *android.Project {
+	seen := map[string]bool{}
+	if project != nil {
+		for _, path := range project.GradlePaths {
+			seen[path] = true
+		}
+	}
+	var extra []string
+	for _, path := range scanPaths {
+		if script := scanPathModuleScript(path); script != "" && !seen[script] {
+			seen[script] = true
+			extra = append(extra, script)
+		}
+	}
+	if len(extra) == 0 {
+		return project
+	}
+	with := &android.Project{}
+	if project != nil {
+		*with = *project
+	}
+	with.GradlePaths = append(append([]string(nil), with.GradlePaths...), extra...)
+	return with
+}
+
+// scanPathModuleScript returns the build script of the module a scan path lies in: the first build.gradle.kts or
+// build.gradle at or above it, as the rules find a file's module (workModuleRoot). "" when there is none.
+func scanPathModuleScript(path string) string {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return ""
+	}
+	dir := abs
+	if info, err := os.Stat(abs); err != nil || !info.IsDir() {
+		dir = filepath.Dir(abs)
+	}
+	for depth := 0; depth < 24; depth++ {
+		for _, name := range []string{"build.gradle.kts", "build.gradle"} {
+			script := filepath.Join(dir, name)
+			if info, err := os.Stat(script); err == nil && !info.IsDir() {
+				return script
+			}
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	return ""
 }

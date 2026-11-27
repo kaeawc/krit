@@ -107,13 +107,13 @@ func TestProjectFactsCoverModulePlugins(t *testing.T) {
 	}
 	project := &android.Project{GradlePaths: []string{script}}
 	write("plugins { id(\"com.android.application\") }\ndependencies { implementation(\"a:b:1\") }\n")
-	app := withProjectFacts("rules", project, "")
+	app := withProjectFacts("rules", project, "", nil)
 	write("plugins { id(\"com.android.application\") }\ndependencies { implementation(\"a:b:2\") }\n")
-	if withProjectFacts("rules", project, "") != app {
+	if withProjectFacts("rules", project, "", nil) != app {
 		t.Fatal("a dependency edit changed the per-file cache key")
 	}
 	write("plugins { alias(libs.plugins.android.library) }\ndependencies { implementation(\"a:b:2\") }\n")
-	if withProjectFacts("rules", project, "") == app {
+	if withProjectFacts("rules", project, "", nil) == app {
 		t.Fatal("switching to the library plugin did not change the per-file cache key")
 	}
 }

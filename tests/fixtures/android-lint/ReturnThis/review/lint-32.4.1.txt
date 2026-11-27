@@ -1,0 +1,5 @@
+src/main/java/com/example/JReview.java:13:9: ReturnThis: This method should `return this` (because it has been annotated with `@ReturnThis`)
+src/main/java/com/example/JReview.java:31:9: ReturnThis: This method should `return this` (because it has been annotated with `@ReturnThis`)
+src/main/java/com/example/Review.kt:20:5: ReturnThis: This method should `return this` (because it has been annotated with `@ReturnThis`)
+src/main/java/com/example/Review.kt:38:5: ReturnThis: This method should `return this` (because it has been annotated with `@ReturnThis`)
+src/main/java/com/example/Review.kt:9:15: ReturnThis: This method should `return this` (because it has been annotated with `@ReturnThis`)

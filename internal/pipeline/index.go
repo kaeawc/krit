@@ -735,7 +735,7 @@ func indexAnalysisRuleHash(ruleHash string, in IndexInput, result *IndexResult) 
 	if project == nil {
 		return ruleHash
 	}
-	return withProjectFacts(ruleHash, project, facts.Fingerprint())
+	return withProjectFacts(ruleHash, project, facts.Fingerprint(), in.cacheIdentityPaths())
 }
 
 // computeRuleHash ensures result.RuleHash is set, deriving it from the

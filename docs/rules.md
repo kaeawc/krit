@@ -576,16 +576,20 @@ Ports of Android Lint 32.4.1 checks with recorded Lint output under `tests/fixtu
 - `VisibleForTests` is a Lint alias of `VisibleForTestingCallerInNonTest`: `@SuppressLint("VisibleForTests")`,
   `tools:ignore`, `lint.xml` and baseline entries for the Lint ID apply to krit's rule.
 - `ReturnThis` (error, Kotlin and Java) reports each `return` of something other than `this` (and a non-`this`
-  expression body) in a method annotated `@ReturnThis`, or overriding a same-file method that is. Labeled returns,
-  nested functions, Java lambdas and inner classes are skipped.
+  expression body) in a method annotated `@ReturnThis`, or overriding one with the same parameter types in a
+  same-file class or interface, through any of its supertypes. A non-local `return` from a Kotlin lambda counts, as it
+  leaves the method; labeled returns, nested functions, Java lambdas and inner classes are skipped.
 - `UseSdkSuppress` (error, test sources) reports `@RequiresApi` on a public test method (`@Test`, or `test*` in a
   `TestCase`) or a test class (a `TestCase` or a class with `@Test` methods).
 - `AnnotateVersionCheck` (warning, Android library modules) reports a public method whose body is a single
   `SDK_INT >= N` / `> N` check (or an `if` calling a lambda parameter), and a public field (Java, or Kotlin `@JvmField`
   / `const`) initialized with one, that lacks `@ChecksSdkIntAtLeast`, with the arguments Lint suggests; an existing
-  annotation with another level is reported as a discrepancy. A module is a library when its build script applies
-  `com.android.library` (by id, through a convention plugin whose id ends in `library`, or through a version-catalog
-  alias) and no application plugin; commented-out plugins don't count.
+  annotation with another level is reported as a discrepancy. A bare `SDK_INT` counts only when it is the imported
+  `Build.VERSION.SDK_INT`, not a parameter, local or member of that name, and a field in a shared Java declaration is
+  reported at its own name. A module is a library when its build script applies `com.android.library` or a
+  convention plugin whose id ends in `.library` or `-library` (by id, or through a version-catalog alias) and no such
+  application plugin; commented-out plugins and other strings, such as a `project(":core-application")` dependency,
+  don't count.
 
 ## AndroidX Library Lint Checks
 

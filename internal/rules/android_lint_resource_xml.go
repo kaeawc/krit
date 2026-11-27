@@ -813,18 +813,11 @@ func gradleWithoutComments(content string) string {
 // moduleAppliesApplicationPlugin reports a build script that applies the Android application plugin, by id or
 // through a version-catalog alias.
 func moduleAppliesApplicationPlugin(module, content string) bool {
-	return appliesAndroidPlugin(content, "application", catalogPluginIDs(module, content))
-}
-
-// appliesAndroidPlugin reports whether a build script applies com.android.<kind>: by id, by a convention plugin whose
-// id ends in <kind>, or through a catalog alias that ids (catalogPluginIDs) resolves to it.
-func appliesAndroidPlugin(content, kind string, ids []string) bool {
-	id := "com.android." + kind
-	if strings.Contains(content, id) || containsPluginSuffix(content, kind) {
+	if strings.Contains(content, "com.android.application") || containsPluginSuffix(content, "application") {
 		return true
 	}
-	for _, resolved := range ids {
-		if resolved == id || strings.HasPrefix(resolved, id+".") {
+	for _, id := range catalogPluginIDs(module, content) {
+		if id == "com.android.application" || strings.HasPrefix(id, "com.android.application.") {
 			return true
 		}
 	}

@@ -5,10 +5,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/filefacts"
+	"github.com/kaeawc/krit/internal/lazyre"
+	"github.com/kaeawc/krit/internal/librarymodel"
 	"github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -121,8 +124,9 @@ func (r *ReturnThisRule) check(ctx *api.Context) {
 	if file.Language != scanner.LangJava && file.FlatType(body) == "function_body" &&
 		strings.HasPrefix(strings.TrimSpace(file.FlatNodeText(body)), "=") {
 		if expr := file.FlatNamedChild(body, 0); expr != 0 && file.FlatType(expr) != "this_expression" {
-			// Lint reports the implicit return at the whole declaration, annotations included.
-			ctx.Emit(lintFindingAtNode(ctx, fn, "", msg))
+			// Lint reports the implicit return at the whole declaration, annotations included, and so the comments
+			// directly above it, which the Kotlin parser attaches to the declaration.
+			ctx.Emit(lintFindingAtNode(ctx, returnThisLeadingComment(file, fn), "", msg))
 		}
 		return
 	}
@@ -153,31 +157,127 @@ func returnThisApplies(ctx *api.Context, fn uint32) bool {
 	if !isOverride {
 		return false
 	}
-	name := recyclerName(file, fn)
+	name, params := recyclerName(file, fn), returnThisParamTypes(file, fn)
 	cls := recyclerEnclosingClass(file, fn)
-	seen := map[uint32]bool{}
-	for depth := 0; cls != 0 && depth < 8 && !seen[cls]; depth++ {
-		seen[cls] = true
-		var next uint32
-		for _, ref := range lintDirectSupertypeRefs(file, cls) {
-			decl := lintSameFileClass(file, ref.simple)
-			if decl == 0 || decl == cls {
-				continue
-			}
-			if body, ok := file.FlatFindChild(decl, "class_body"); ok {
-				for m := file.FlatFirstChild(body); m != 0; m = file.FlatNextSib(m) {
-					if t := file.FlatType(m); (t == "function_declaration" || t == "method_declaration") && recyclerName(file, m) == name {
-						if _, ok := annotationNamed(file, m, returnThisFQN); ok {
-							return true
-						}
-					}
+	if cls == 0 {
+		return false
+	}
+	// Every supertype a class names counts, breadth first, as far as eight levels up.
+	seen := map[uint32]bool{cls: true}
+	level := []uint32{cls}
+	for depth := 0; depth < 8 && len(level) > 0; depth++ {
+		var next []uint32
+		for _, c := range level {
+			for _, simple := range returnThisSupertypes(file, c) {
+				// A Java interface is an interface_declaration; Kotlin parses every class and interface as a class.
+				decl := lintSameFileClassOrObjectJS(file, simple)
+				if decl == 0 || seen[decl] {
+					continue
 				}
+				seen[decl] = true
+				if returnThisDeclares(file, decl, name, params) {
+					return true
+				}
+				next = append(next, decl)
 			}
-			next = decl
 		}
-		cls = next
+		level = next
 	}
 	return false
+}
+
+// returnThisSupertypes returns the simple names of the direct supertypes of a class or interface: for Java the
+// superclass and the interfaces it implements, or that an interface extends.
+func returnThisSupertypes(file *scanner.File, cls uint32) []string {
+	var names []string
+	for _, ref := range lintDirectSupertypeRefs(file, cls) {
+		names = append(names, ref.simple)
+	}
+	if file.Language != scanner.LangJava {
+		return names
+	}
+	for _, kind := range []string{"super_interfaces", "extends_interfaces"} {
+		list, ok := file.FlatFindChild(cls, kind)
+		if !ok {
+			continue
+		}
+		if types, ok := file.FlatFindChild(list, "type_list"); ok {
+			list = types
+		}
+		for t := file.FlatFirstChild(list); t != 0; t = file.FlatNextSib(t) {
+			switch file.FlatType(t) {
+			case "type_identifier", "scoped_type_identifier", "generic_type":
+				name := file.FlatNodeText(t)
+				if i := strings.Index(name, "<"); i >= 0 {
+					name = name[:i]
+				}
+				names = append(names, androidSimpleName(strings.TrimSpace(name)))
+			}
+		}
+	}
+	return names
+}
+
+// returnThisDeclares reports a method of the class or interface annotated @ReturnThis with the name and parameter
+// types given: an override of an overload with other parameters doesn't inherit the annotation.
+func returnThisDeclares(file *scanner.File, decl uint32, name string, params []string) bool {
+	for _, kind := range []string{"class_body", "interface_body"} {
+		body, ok := file.FlatFindChild(decl, kind)
+		if !ok {
+			continue
+		}
+		for m := file.FlatFirstChild(body); m != 0; m = file.FlatNextSib(m) {
+			if t := file.FlatType(m); (t == "function_declaration" || t == "method_declaration") && recyclerName(file, m) == name &&
+				slices.Equal(returnThisParamTypes(file, m), params) {
+				if _, ok := annotationNamed(file, m, returnThisFQN); ok {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// returnThisParamTypes returns the declared type of each parameter, whitespace removed: a Kotlin parameter's type
+// after its name, a Java formal parameter's type before it.
+func returnThisParamTypes(file *scanner.File, fn uint32) []string {
+	params := recyclerParams(file, fn)
+	types := make([]string, 0, len(params))
+	for _, p := range params {
+		name := recyclerParamNameNode(file, p)
+		var typ strings.Builder
+		for c := file.FlatFirstChild(p); c != 0; c = file.FlatNextSib(c) {
+			if c == name || !file.FlatIsNamed(c) {
+				continue
+			}
+			switch file.FlatType(c) {
+			case "modifiers", "parameter_modifiers", "annotation", "marker_annotation", "line_comment", "block_comment", "multiline_comment":
+				continue
+			}
+			typ.WriteString(strings.Join(strings.Fields(file.FlatNodeText(c)), ""))
+		}
+		types = append(types, typ.String())
+	}
+	return types
+}
+
+// returnThisLeadingComment returns the first of the comments right above a declaration, with no blank line between
+// them and it, or the declaration itself.
+func returnThisLeadingComment(file *scanner.File, decl uint32) uint32 {
+	start := decl
+	for prev, ok := file.FlatPrevSibling(start); ok; prev, ok = file.FlatPrevSibling(prev) {
+		switch file.FlatType(prev) {
+		case "line_comment", "multiline_comment", "block_comment":
+		default:
+			return start
+		}
+		gap := file.Content[file.FlatEndByte(prev):file.FlatStartByte(start)]
+		if bytes.Count(gap, []byte("\n")) > 1 {
+			return start
+		}
+		start = prev
+	}
+	return start
 }
 
 // returnThisVisit calls visit for each return that targets the function: labeled returns, nested functions, Java
@@ -343,12 +443,14 @@ func (r *AnnotateVersionCheckRule) check(ctx *api.Context) {
 	atLeast, code, param := versionCheckAPI(file, right, op == ">=")
 	switch file.FlatType(parent) {
 	case "property_declaration", "variable_declarator":
-		decl := parent
+		decl, at := parent, uint32(0)
 		if file.FlatType(parent) == "variable_declarator" {
+			// `boolean ALWAYS = true, SUPPORTED = SDK_INT >= 26;` is reported at the field the check initializes.
 			decl, _ = file.FlatParent(parent)
+			at = recyclerParamNameNode(file, parent)
 		}
 		if atLeast > 0 && versionCheckFieldIsPublic(file, decl) {
-			r.report(ctx, decl, atLeast, "field", "ChecksSdkIntAtLeast(api="+code+")")
+			r.report(ctx, decl, at, atLeast, "field", "ChecksSdkIntAtLeast(api="+code+")")
 		}
 	case "jump_expression", "return_statement", "function_body":
 		fn := versionCheckSingleStatementMethod(file, parent)
@@ -374,7 +476,7 @@ func (r *AnnotateVersionCheckRule) reportMethod(ctx *api.Context, fn uint32, atL
 	}
 	switch {
 	case atLeast > 0:
-		r.report(ctx, fn, atLeast, "method", "@ChecksSdkIntAtLeast(api="+code+suffix+")")
+		r.report(ctx, fn, 0, atLeast, "method", "@ChecksSdkIntAtLeast(api="+code+suffix+")")
 	case param >= 0:
 		if _, ok := annotationNamed(file, fn, checksSdkIntAtLeastFQN); !ok {
 			ctx.Emit(lintFindingAtNode(ctx, versionCheckNameNode(file, fn), "",
@@ -383,8 +485,9 @@ func (r *AnnotateVersionCheckRule) reportMethod(ctx *api.Context, fn uint32, atL
 	}
 }
 
-// report emits the missing-annotation finding, or the discrepancy finding when the annotation names another level.
-func (r *AnnotateVersionCheckRule) report(ctx *api.Context, decl uint32, atLeast int, kind, args string) {
+// report emits the missing-annotation finding at at (the declaration's name when 0), or the discrepancy finding when
+// the annotation names another level.
+func (r *AnnotateVersionCheckRule) report(ctx *api.Context, decl, at uint32, atLeast int, kind, args string) {
 	file := ctx.File
 	if ann, ok := annotationNamed(file, decl, checksSdkIntAtLeastFQN); ok {
 		if declared, ok := versionCheckAnnotationAPI(file, ann); ok && declared != atLeast {
@@ -392,7 +495,10 @@ func (r *AnnotateVersionCheckRule) report(ctx *api.Context, decl uint32, atLeast
 		}
 		return
 	}
-	ctx.Emit(lintFindingAtNode(ctx, versionCheckNameNode(file, decl), "", "This "+kind+" should be annotated with `"+args+"`"))
+	if at == 0 {
+		at = versionCheckNameNode(file, decl)
+	}
+	ctx.Emit(lintFindingAtNode(ctx, at, "", "This "+kind+" should be annotated with `"+args+"`"))
 }
 
 // versionCheckComparison splits a Kotlin comparison or a Java relational binary expression.
@@ -422,9 +528,57 @@ func versionCheckIsSdkInt(file *scanner.File, n uint32) bool {
 	case "VERSION.SDK_INT":
 		return lintTypeRefMatches(file, "VERSION", "android.os.Build.VERSION")
 	case "SDK_INT":
-		return lintImportsOf(file).bySimple["SDK_INT"] == "android.os.Build.VERSION.SDK_INT"
+		return lintImportsOf(file).bySimple["SDK_INT"] == "android.os.Build.VERSION.SDK_INT" && !versionCheckSdkIntShadowed(file, n)
 	}
 	return false
+}
+
+// versionCheckSdkIntShadowed reports a bare SDK_INT that names a local, a parameter of an enclosing function or
+// lambda, or a property or field of an enclosing class: each wins over an imported name in Kotlin and Java alike.
+func versionCheckSdkIntShadowed(file *scanner.File, use uint32) bool {
+	const name = "SDK_INT"
+	if lintLocalDeclarationBefore(file, use, name) != 0 {
+		return true
+	}
+	for n, ok := file.FlatParent(use); ok; n, ok = file.FlatParent(n) {
+		switch file.FlatType(n) {
+		case "function_declaration", "method_declaration", "constructor_declaration", "anonymous_function", "secondary_constructor":
+			for _, p := range recyclerParams(file, n) {
+				if recyclerName(file, p) == name {
+					return true
+				}
+			}
+		case "lambda_literal", "lambda_expression":
+			if strings.Contains(versionCheckLambdaParamsText(file, n), name) {
+				return true
+			}
+		case "class_body":
+			for m := file.FlatFirstChild(n); m != 0; m = file.FlatNextSib(m) {
+				switch file.FlatType(m) {
+				case "property_declaration":
+					if vd, ok := file.FlatFindChild(m, "variable_declaration"); ok && lintDeclaredName(file, vd) == name {
+						return true
+					}
+				case "field_declaration":
+					for vd := file.FlatFirstChild(m); vd != 0; vd = file.FlatNextSib(vd) {
+						if file.FlatType(vd) == "variable_declarator" && recyclerName(file, vd) == name {
+							return true
+						}
+					}
+				}
+			}
+		}
+	}
+	return false
+}
+
+// versionCheckLambdaParamsText returns the parameter list of a Kotlin or Java lambda, the text before its arrow.
+func versionCheckLambdaParamsText(file *scanner.File, lambda uint32) string {
+	text := file.FlatNodeText(lambda)
+	if i := strings.Index(text, "->"); i >= 0 {
+		return strings.TrimPrefix(strings.TrimSpace(text[:i]), "{")
+	}
+	return ""
 }
 
 // versionCheckInLibrary reports a file in an Android library module, where Lint asks for the annotation; an app
@@ -434,12 +588,14 @@ func versionCheckInLibrary(file *scanner.File) bool {
 	if root == "" {
 		return false
 	}
-	return filefacts.StringFact(fileFactsCache(), root, slotVersionCheckLibrary, func() bool {
+	// The verdict reads the build script and catalogs on disk, so it lasts one request: the LSP, the daemon and MCP
+	// keep the cache across requests, and a module switched to the application plugin must stop reporting.
+	return filefacts.RequestFact(fileFactsCache(), root, slotVersionCheckLibrary, func() bool {
 		return readModuleIsLibrary(root)
 	})
 }
 
-// slotVersionCheckLibrary memoizes versionCheckInLibrary per module directory for one run.
+// slotVersionCheckLibrary memoizes versionCheckInLibrary per module directory for one request.
 const slotVersionCheckLibrary = "lintVersionCheckLibrary"
 
 func readModuleIsLibrary(root string) bool {
@@ -448,10 +604,37 @@ func readModuleIsLibrary(root string) bool {
 		if err != nil {
 			continue
 		}
-		// Only the plugins count, without comments, and the version-catalog aliases resolve once for both checks.
-		content := gradleWithoutComments(string(data))
-		ids := catalogPluginIDs(root, content)
-		return appliesAndroidPlugin(content, "library", ids) && !appliesAndroidPlugin(content, "application", ids)
+		ids := ModulePluginIDs(catalogDiscovery(fileFactsCache()), LoadCatalogPluginTables, root, string(data))
+		return appliesAndroidPlugin(ids, "library") && !appliesAndroidPlugin(ids, "application")
+	}
+	return false
+}
+
+// modulePluginIDPattern matches a plugin a build script applies by id: `id("x")`, `id 'x'`, `apply(plugin = "x")` and
+// `apply plugin: 'x'`.
+var modulePluginIDPattern = lazyre.New(`\b(?:id|apply\s*\(?\s*plugin\s*[:=])\s*\(?\s*["']([^"']+)["']`)
+
+// ModulePluginIDs returns the ids of the plugins a module's build script applies: by id, and through version-catalog
+// aliases resolved by BuildScriptPluginIDs. Comments don't count, and neither do other strings, such as a dependency
+// on project(":core-application"). The pipeline folds the result into the per-file cache key, so a rule that reads a
+// module's plugins must read them through this function.
+func ModulePluginIDs(discovery *librarymodel.CatalogDiscovery, load func([]librarymodel.CatalogSource) CatalogPluginTables, moduleDir, buildScript string) []string {
+	code := gradleWithoutComments(buildScript)
+	var ids []string
+	for _, m := range modulePluginIDPattern.Re().FindAllStringSubmatch(code, -1) {
+		ids = append(ids, m[1])
+	}
+	return append(ids, BuildScriptPluginIDs(discovery, load, moduleDir, code)...)
+}
+
+// appliesAndroidPlugin reports a plugin id that is com.android.<kind> or one of its sub-plugins, or a convention plugin
+// whose id ends in .<kind> or -<kind>, such as nowinandroid.android.library.
+func appliesAndroidPlugin(ids []string, kind string) bool {
+	for _, id := range ids {
+		if id == kind || strings.HasSuffix(id, "."+kind) || strings.HasSuffix(id, "-"+kind) ||
+			strings.HasPrefix(id, "com.android."+kind+".") {
+			return true
+		}
 	}
 	return false
 }
@@ -612,11 +795,7 @@ func versionCheckStatements(file *scanner.File, block uint32) uint32 {
 // versionCheckLambdaParam handles `if (SDK_INT >= N) { param.call() }` as the body of a function: it returns the index
 // of the lambda-typed parameter called first in the branch and the function.
 func versionCheckLambdaParam(file *scanner.File, ifNode uint32) (int, uint32) {
-	stmts := versionCheckIfBody(file, ifNode)
-	if stmts == 0 {
-		return -1, 0
-	}
-	first := trimSkipParens(file, file.FlatNamedChild(stmts, 0))
+	first := trimSkipParens(file, versionCheckIfFirstStatement(file, ifNode))
 	recv := ""
 	switch file.FlatType(first) {
 	case "call_expression", "method_invocation":
@@ -646,18 +825,36 @@ func versionCheckLambdaParam(file *scanner.File, ifNode uint32) (int, uint32) {
 	return -1, 0
 }
 
-func versionCheckIfBody(file *scanner.File, ifNode uint32) uint32 {
+// versionCheckIfFirstStatement returns the first statement of an if's then branch, with or without braces. A Java
+// expression statement counts as its expression, so `r.run();` is the call.
+func versionCheckIfFirstStatement(file *scanner.File, ifNode uint32) uint32 {
+	if file.Language == scanner.LangJava {
+		// An if_statement's named children are the condition, the consequence and the alternative.
+		then := file.FlatNamedChild(ifNode, 1)
+		if file.FlatType(then) == "block" {
+			then = versionCheckFirstStatement(file, then)
+		}
+		if file.FlatType(then) == "expression_statement" {
+			then = file.FlatNamedChild(then, 0)
+		}
+		return then
+	}
 	for c := file.FlatFirstChild(ifNode); c != 0; c = file.FlatNextSib(c) {
-		switch file.FlatType(c) {
-		case "control_structure_body":
+		if file.FlatType(c) == "control_structure_body" {
 			if b, ok := file.FlatFindChild(c, "statements"); ok {
-				return b
+				return versionCheckFirstStatement(file, b)
 			}
+			return versionCheckFirstStatement(file, c)
+		}
+	}
+	return 0
+}
+
+// versionCheckFirstStatement returns the first named child of a block that is not a comment.
+func versionCheckFirstStatement(file *scanner.File, block uint32) uint32 {
+	for c := file.FlatFirstChild(block); c != 0; c = file.FlatNextSib(c) {
+		if t := file.FlatType(c); file.FlatIsNamed(c) && t != "line_comment" && t != "block_comment" && t != "multiline_comment" {
 			return c
-		case "block":
-			return c
-		case "expression_statement":
-			return ifNode
 		}
 	}
 	return 0

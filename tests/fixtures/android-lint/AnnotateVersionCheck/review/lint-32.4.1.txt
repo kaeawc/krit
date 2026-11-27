@@ -1,0 +1,9 @@
+src/main/java/com/example/JReview.java:14:24: AnnotateVersionCheck: This method should be annotated with `@ChecksSdkIntAtLeast(api=android.os.Build.VERSION_CODES.S, lambda=0)`
+src/main/java/com/example/JReview.java:18:24: AnnotateVersionCheck: This method should be annotated with `@ChecksSdkIntAtLeast(api=android.os.Build.VERSION_CODES.S, lambda=0)`
+src/main/java/com/example/JReview.java:26:24: AnnotateVersionCheck: This method should be annotated with `@ChecksSdkIntAtLeast(api=android.os.Build.VERSION_CODES.S, lambda=0)`
+src/main/java/com/example/JReview.java:34:48: AnnotateVersionCheck: This field should be annotated with `ChecksSdkIntAtLeast(api=android.os.Build.VERSION_CODES.O)`
+src/main/java/com/example/JReview.java:40:20: AnnotateVersionCheck: This method should be annotated with `@ChecksSdkIntAtLeast(api=android.os.Build.VERSION_CODES.O_MR1)`
+src/main/java/com/example/JReview.java:8:24: AnnotateVersionCheck: This method should be annotated with `@ChecksSdkIntAtLeast(api=android.os.Build.VERSION_CODES.S, lambda=0)`
+src/main/java/com/example/Review.kt:15:9: AnnotateVersionCheck: This method should be annotated with `@ChecksSdkIntAtLeast(api=android.os.Build.VERSION_CODES.S, lambda=0)`
+src/main/java/com/example/Review.kt:25:9: AnnotateVersionCheck: This method should be annotated with `@ChecksSdkIntAtLeast(api=android.os.Build.VERSION_CODES.P)`
+src/main/java/com/example/Review.kt:7:9: AnnotateVersionCheck: This method should be annotated with `@ChecksSdkIntAtLeast(api=android.os.Build.VERSION_CODES.S, lambda=0)`

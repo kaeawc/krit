@@ -666,6 +666,11 @@ All notable changes to Krit will be documented in this file.
   now built once per run. A 2,000-file project with an override per file went from 37.9 s to 0.6 s.
   `JavaOnlyDetector` matches an override by parameter count, so `override fun on(x: Int)` is not reported against
   `@JavaOnly fun on()` (#1899).
+- `DenyListedApi`: a member function of a class in the file's package no longer silences unqualified calls across
+  the package (a `Button` subclass overriding `setOnClickListener`, a class with its own `runCatching`); only a
+  top-level function shadows the listed one. The type index records which functions are top-level (cache version 21),
+  and a warm run follows a function moving between top level and a class body in another file. An unqualified
+  property write inside `cal.apply { }` (`timeInMillis = t`) is now reported (#1888).
 - Warm runs follow version-catalog edits for every manifest rule. Manifest rules read whether a module is an app or a
   library from its build script's `alias(libs.plugins...)` entries, resolved through `gradle/*.versions.toml`, and
   whether it uses the SplashScreen library from its `libs.` dependency aliases, resolved through the catalogs the

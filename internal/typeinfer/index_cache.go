@@ -35,7 +35,8 @@ const (
 	// Bumped to 19 when class bodies gained initializer scopes for primary-constructor parameters (#1673).
 	// Bumped to 20 when ParamInfo gained Vararg and Annotations and top-level
 	// FunctionDecls with annotated parameters gained Params.
-	typeIndexCacheVersion = 20
+	// Bumped to 21 when FunctionDecls gained TopLevel (#1888).
+	typeIndexCacheVersion = 21
 )
 
 var (

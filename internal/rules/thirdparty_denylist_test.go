@@ -319,3 +319,50 @@ class Tappable(c: Context) : View(c) {
 		})
 	}
 }
+
+// #1888: a member function of a class in the file's package is not a top-level function, so it shadows nothing
+// outside its class; an implicit-receiver property write in apply; a constructor property of a class in another file;
+// and an indexed Map<String, Button> read.
+func TestDenyListedApiPostMergeVerification(t *testing.T) {
+	for _, tc := range []struct {
+		name, rule string
+		sources    map[string]string
+		want       int
+	}{
+		{"same-package member setOnClickListener", "DenyListedApi", map[string]string{
+			"Fancy.kt": "package com.ex\n\nimport android.content.Context\nimport android.view.View\nimport android.widget.Button\n\nclass Fancy(c: Context) : Button(c) {\n  override fun setOnClickListener(l: View.OnClickListener?) {}\n}\n",
+			"Other.kt": "package com.ex\n\nimport android.content.Context\nimport android.view.View\n\nclass Other(c: Context) : View(c) {\n  init {\n    setOnClickListener(null)\n  }\n}\n",
+		}, 1},
+		{"same-package member runCatching", "DenyListedApi", map[string]string{
+			"Svc.kt": "package com.ex\n\nclass Svc {\n  fun runCatching(block: () -> Int): Int = block()\n}\n",
+			"Use.kt": "package com.ex\n\nfun f() = runCatching { 1 }\n",
+		}, 1},
+		{"same-package top-level runCatching still shadows", "DenyListedApi", map[string]string{
+			"Fns.kt": "package com.ex\n\nfun <T> runCatching(block: () -> T): T = block()\n",
+			"Use.kt": "package com.ex\n\nfun f() = runCatching { 1 }\n",
+		}, 0},
+		{"implicit-receiver property write", "DenyListedApi", map[string]string{
+			"C.kt": "package com.ex\n\nimport java.util.Calendar\n\nfun f() {\n  Calendar.getInstance().apply { timeInMillis = 5 }\n}\n",
+		}, 2},
+		{"implicit write shadowed by a local, or on another receiver", "DenyListedApi", map[string]string{
+			"C.kt": "package com.ex\n\nimport java.util.Calendar\n\nclass Clock {\n  var timeInMillis = 0L\n}\n\n" +
+				"fun f(cal: Calendar) {\n  Clock().apply { timeInMillis = 5 }\n  cal.apply {\n    var timeInMillis = 0L\n    timeInMillis = 5\n  }\n}\n",
+		}, 0},
+		// A known false negative: the resolver records body members only, so a constructor property of a class in
+		// another file has no type here. Recording them would change member lookups for every resolver rule.
+		{"constructor property of a class in another file (known false negative)", "DenyListedApi", map[string]string{
+			"B.kt":   "package com.ex\n\nimport android.widget.Button\n\nclass Binding(val root: Button)\n",
+			"Use.kt": "package com.ex\n\nfun clear(b: Binding) {\n  b.root.setOnClickListener(null)\n}\n",
+		}, 0},
+		{"indexed Map<String, Button>", "DenyListedApi", map[string]string{
+			"Use.kt": "package com.ex\n\nimport android.widget.Button\n\nfun clear(m: Map<String, Button>) {\n  m[\"x\"]?.setOnClickListener(null)\n}\n",
+		}, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := runRuleOnSourcesWithResolverAll(t, tc.rule, tc.sources)
+			if len(got) != tc.want {
+				t.Errorf("want %d findings, got %v", tc.want, got)
+			}
+		})
+	}
+}

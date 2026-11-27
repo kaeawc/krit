@@ -144,6 +144,30 @@ func ParamAnnotationsOf(r TypeResolver) ParamAnnotationIndex {
 	return nil
 }
 
+// TopLevelFunctionIndex answers whether a top-level source function has an
+// FQN. HasFunction also answers for members, which the resolver records under
+// pkg.name too.
+type TopLevelFunctionIndex interface {
+	HasTopLevelFunction(fqn string) bool
+}
+
+// HasTopLevelFunction reports whether r, or the source resolver it wraps,
+// indexes a top-level function fqn. A resolver without the index answers
+// HasFunction.
+func HasTopLevelFunction(r TypeResolver, fqn string) bool {
+	for cur := r; cur != nil; {
+		if t, ok := cur.(TopLevelFunctionIndex); ok {
+			return t.HasTopLevelFunction(fqn)
+		}
+		w, ok := cur.(interface{ Fallback() TypeResolver })
+		if !ok {
+			break
+		}
+		cur = w.Fallback()
+	}
+	return r != nil && r.HasFunction(fqn)
+}
+
 // ImportTable maps simple names to FQNs for a single file.
 type ImportTable struct {
 	Explicit map[string]string // import com.foo.Bar → "Bar" → "com.foo.Bar"

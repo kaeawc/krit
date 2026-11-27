@@ -227,7 +227,8 @@ declaration could shadow them:
 `withId()`, `View.setOnClickListener(null)`, `Flow.launchIn()`, the kotlinx-coroutines-rx3 builders called without a
 dispatcher, `runCatching`, the `LinkedList`, `Stack` and `Vector` constructors, and every method, constructor and
 static field of `java.util.Date`, `java.util.Calendar` and `java.text.DateFormat`/`SimpleDateFormat`, including
-static field imports and Kotlin property access and writes (`date.time`, `cal.timeInMillis = t`). An instance call
+static field imports and Kotlin property access and writes (`date.time`, `cal.timeInMillis = t`, and
+`timeInMillis = t` inside `cal.apply { }`). An instance call
 needs the receiver's type: from the source resolver, a declared type, a constructor or static factory (including
 RxJava 3's and subjects' and relays' `create*`), a property of a class declared in the same file, or the implicit
 receiver of `apply`/`run`/`with` or an enclosing View subclass. A class of the file's own package wins over an

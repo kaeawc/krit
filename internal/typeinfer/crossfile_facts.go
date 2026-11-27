@@ -173,7 +173,12 @@ func (f crossFileFrags) addFunctions(info *FileTypeInfo) {
 	for key, decls := range info.FunctionDecls {
 		for _, d := range decls {
 			if !d.FileLocal {
-				f.add(key, "decl", d.Type)
+				// Whether it is top-level decides what it shadows (HasTopLevelFunction).
+				kind := "decl"
+				if d.TopLevel {
+					kind = "topdecl"
+				}
+				f.add(key, kind, d.Type)
 			}
 		}
 	}

@@ -45,6 +45,53 @@ func TestAndroidProjectDropsADetectionAnInvalidationOverlapped(t *testing.T) {
 	}
 }
 
+// The watcher invalidates from its own goroutine: build() blocks, the invalidation lands on another goroutine, then
+// build() returns. Its result is returned but not cached, and a detection with no invalidation during it is cached.
+func TestAndroidProjectDropsADetectionAConcurrentInvalidationOverlapped(t *testing.T) {
+	root := t.TempDir()
+	manifest := filepath.Join(root, "app", "src", "main", "AndroidManifest.xml")
+	w := NewWorkspaceState(root)
+
+	detect := func(invalidate bool) *android.Project {
+		started, release := make(chan struct{}), make(chan struct{})
+		built := &android.Project{}
+		got := make(chan *android.Project, 1)
+		go func() {
+			got <- w.AndroidProject("fp", func() *android.Project {
+				close(started)
+				<-release
+				return built
+			})
+		}()
+		<-started
+		if invalidate {
+			done := make(chan struct{})
+			go func() {
+				w.InvalidateAndroidProjectFor(manifest)
+				close(done)
+			}()
+			<-done
+		}
+		close(release)
+		if v := <-got; v != built {
+			t.Fatal("the detection was not returned to its caller")
+		}
+		return built
+	}
+
+	detect(true)
+	if w.HasAndroidProject() {
+		t.Fatal("a detection a concurrent invalidation overlapped was cached")
+	}
+	kept := detect(false)
+	if !w.HasAndroidProject() {
+		t.Fatal("a detection no invalidation overlapped was not cached")
+	}
+	if got := w.AndroidProject("fp", func() *android.Project { return &android.Project{} }); got != kept {
+		t.Fatal("the cached detection was not reused")
+	}
+}
+
 // A file event that cannot change detection (a Kotlin source, or a manifest in a directory detection skips) leaves
 // a running detection free to store its result.
 func TestAndroidProjectKeepsADetectionUnrelatedEventsOverlapped(t *testing.T) {

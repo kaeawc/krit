@@ -2,6 +2,7 @@ package scan
 
 import (
 	"encoding/json"
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -27,13 +28,16 @@ func TestDaemonCompatibleFlags_OracleArgsAllowed(t *testing.T) {
 		{"--sample-rule", func(f *scanFlags) { *f.SampleRule = "MyRule" }, true},
 		{"--output-types", func(f *scanFlags) { *f.OutputTypes = "/tmp/out.json" }, true},
 		// PR mode (#1660) compiles the changed files' modules in-process,
-		// for --delta's base scan (--pr-files) as well.
+		// for --delta's base scan (--pr-files) as well, when it has JVM work.
 		{"--delta", func(f *scanFlags) { *f.Delta = "main" }, false},
+		{"--delta --no-fir --no-type-oracle", func(f *scanFlags) { *f.Delta = "main"; *f.NoFir = true; *f.NoTypeOracle = true }, true},
+		{"--delta --no-fir (the oracle still runs)", func(f *scanFlags) { *f.Delta = "main"; *f.NoFir = true }, false},
 		{"--delta --no-pr-mode", func(f *scanFlags) { *f.Delta = "main"; *f.NoPRMode = true }, true},
 		{"--pr-files", func(f *scanFlags) { *f.PRFiles = "/tmp/pr-files.txt" }, false},
 		{"--diff", func(f *scanFlags) { *f.Diff = "main" }, false},
 		{"--diff --no-pr-mode", func(f *scanFlags) { *f.Diff = "main"; *f.NoPRMode = true }, true},
 	}
+	stubJavaForPRMode(t, nil)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			f := freshScanFlags(t)
@@ -43,6 +47,21 @@ func TestDaemonCompatibleFlags_OracleArgsAllowed(t *testing.T) {
 			}
 		})
 	}
+	// Without a Java launcher PR mode has no JVM work: the daemon may serve it.
+	stubJavaForPRMode(t, errors.New("no java"))
+	f := freshScanFlags(t)
+	*f.Delta = "main"
+	if !daemonCompatibleFlags(f) {
+		t.Error("--delta without Java stays off the daemon")
+	}
+}
+
+// stubJavaForPRMode makes prModeRequested find (err == nil) or miss Java.
+func stubJavaForPRMode(t *testing.T, err error) {
+	t.Helper()
+	old := javaForPRMode
+	javaForPRMode = func() (string, error) { return "/usr/bin/java", err }
+	t.Cleanup(func() { javaForPRMode = old })
 }
 
 // TestDaemonCompatibleFlags_OracleBackendForwardedNotBypassed pins

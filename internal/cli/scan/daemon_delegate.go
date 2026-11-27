@@ -17,6 +17,7 @@ import (
 	"github.com/kaeawc/krit/internal/daemon"
 	"github.com/kaeawc/krit/internal/firchecks"
 	"github.com/kaeawc/krit/internal/fsutil"
+	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/output"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/selfexec"
@@ -634,11 +635,25 @@ func daemonAutoStartDisabled() bool {
 	return os.Getenv("KRIT_NO_DAEMON_AUTOSTART") == "1"
 }
 
-// prModeRequested reports whether a scan runs in PR mode (#1660): --diff,
-// --delta or --delta's base scan (--pr-files), without --no-pr-mode.
+// prModeRequested reports whether a scan runs PR mode's JVM work in-process
+// (#1660): --diff, --delta or --delta's base scan (--pr-files), without
+// --no-pr-mode, with FIR or the type oracle on and a Java launcher to run
+// them. Without JVM work PR mode changes nothing, and the scan may go to the
+// daemon as before.
 func prModeRequested(f *scanFlags) bool {
-	return (*f.Diff != "" || *f.Delta != "" || *f.PRFiles != "") && !*f.NoPRMode
+	if *f.Diff == "" && *f.Delta == "" && *f.PRFiles == "" || *f.NoPRMode {
+		return false
+	}
+	if (!*f.Fir || *f.NoFir) && *f.NoTypeOracle {
+		return false
+	}
+	_, err := javaForPRMode()
+	return err == nil
 }
+
+// javaForPRMode finds the Java launcher PR mode's JVM work would use; tests
+// replace it.
+var javaForPRMode = oracle.JavaPath
 
 // daemonCompatibleFlags reports whether the requested flag set can be
 // served by the daemon's analyze-project verb. Modes that write files

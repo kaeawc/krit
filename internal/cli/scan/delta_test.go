@@ -1,13 +1,18 @@
 package scan
 
 import (
+	"encoding/json"
+	"flag"
+	"io"
 	"maps"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
+	"github.com/kaeawc/krit/internal/fsutil"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -36,23 +41,32 @@ func TestMapPathToWorktree(t *testing.T) {
 }
 
 // PR mode under --delta (#1660): the base scan gets the current side's
-// files, mapped into its worktree, before the scan paths.
-func TestDeltaBaseScanArgsCarryThePRModeFiles(t *testing.T) {
+// files, mapped into its worktree, and the forwarded model, before the scan
+// paths.
+func TestDeltaBaseScanArgsCarryThePRModeFilesAndModel(t *testing.T) {
 	f := freshScanFlags(t)
 	*f.Verbose = true
-	args := deltaSnapshotArgsForFlags(f, []string{"/repo/app"}, "/repo", "/tmp/base", "/tmp/list/pr-files.txt")
-	at := slices.Index(args, "--pr-files")
-	if at < 0 || at+1 >= len(args) || args[at+1] != "/tmp/list/pr-files.txt" {
-		t.Fatalf("args lack --pr-files: %v", args)
+	args := deltaSnapshotArgsForFlags(f, []string{"/repo/app"}, "/repo", "/tmp/base",
+		baseScanInputs{PRFileList: "/tmp/list/pr-files.txt", GradleModel: "/tmp/list/model/gradle-model"})
+	for flag, want := range map[string]string{"--pr-files": "/tmp/list/pr-files.txt", "--gradle-model": "/tmp/list/model/gradle-model"} {
+		at := slices.Index(args, flag)
+		if at < 0 || at+1 >= len(args) || args[at+1] != want {
+			t.Fatalf("args lack %s %s: %v", flag, want, args)
+		}
 	}
 	if !slices.Contains(args, "-v") {
 		t.Fatalf("a verbose --delta does not ask the base scan for its log: %v", args)
 	}
-	if last := args[len(args)-1]; last != "/tmp/base/app" || at > len(args)-2 {
+	if last := args[len(args)-1]; last != "/tmp/base/app" {
 		t.Fatalf("scan path must come last, after the flags: %v", args)
 	}
-	if args := deltaSnapshotArgsForFlags(freshScanFlags(t), nil, "/repo", "/tmp/base", ""); slices.Contains(args, "--pr-files") || slices.Contains(args, "-v") {
+	if args := deltaSnapshotArgsForFlags(freshScanFlags(t), nil, "/repo", "/tmp/base", baseScanInputs{}); slices.Contains(args, "--pr-files") || slices.Contains(args, "-v") || slices.Contains(args, "--gradle-model") {
 		t.Fatalf("whole-repository base scan args = %v", args)
+	}
+	noModel := freshScanFlags(t)
+	*noModel.NoGradleModel = true
+	if args := deltaSnapshotArgsForFlags(noModel, nil, "/repo", "/tmp/base", baseScanInputs{}); !slices.Contains(args, "--no-gradle-model") {
+		t.Fatalf("--no-gradle-model is not passed on: %v", args)
 	}
 
 	dir := t.TempDir()
@@ -70,64 +84,282 @@ func TestDeltaBaseScanArgsCarryThePRModeFiles(t *testing.T) {
 	}
 }
 
-// The Gradle model is untracked, so the base worktree gets the current
-// one, unless the base ref commits its own or the model would not rebase.
-func TestDeltaCopiesTheGradleModelIntoTheBaseWorktree(t *testing.T) {
-	repo, tmp := t.TempDir(), t.TempDir()
-	write := func(path, body string) {
-		t.Helper()
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	write(filepath.Join(repo, "settings.gradle.kts"), "")
-	write(filepath.Join(repo, ".krit", "gradle-model", "model.json"), `{"schema":2}`)
-	read := func(path string) string {
-		t.Helper()
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return ""
-		}
-		return string(data)
-	}
-	copied := filepath.Join(tmp, ".krit", "gradle-model", "model.json")
+// deltaModelFixture is a checkout with a model under .krit/<name> whose
+// project lists a source dir, a generated source dir and an R.jar, and a
+// worktree that has the source dir but none of the build outputs.
+type deltaModelFixture struct {
+	repo, tmp, scratch string
+}
 
-	if err := copyGradleModelToWorktree(freshScanFlags(t), []string{repo}, repo, tmp); err != nil {
+func newDeltaModelFixture(t *testing.T, name string) deltaModelFixture {
+	t.Helper()
+	root := t.TempDir()
+	fx := deltaModelFixture{repo: filepath.Join(root, "repo"), tmp: filepath.Join(root, "base"), scratch: filepath.Join(root, "scratch")}
+	for _, d := range []string{
+		"repo/app/src/main/kotlin", "repo/app/build/generated/ksp/main/kotlin", "repo/app/build/intermediates",
+		"base/app/src/main/kotlin", "scratch",
+	} {
+		if err := os.MkdirAll(filepath.Join(root, filepath.FromSlash(d)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeFile(t, filepath.Join(fx.repo, "settings.gradle.kts"), "")
+	writeFile(t, filepath.Join(fx.repo, "app/build/intermediates/R.jar"), "jar")
+	model := map[string]any{"schema": 2, "rootDir": fx.repo, "futureField": map[string]any{"kept": true}, "projects": []any{map[string]any{
+		"path": ":app", "dir": filepath.Join(fx.repo, "app"),
+		"sourceSets": []any{map[string]any{
+			"name": "main", "sourceDirs": []any{filepath.Join(fx.repo, "app/src/main/kotlin")},
+			"generatedSourceDirs": []any{filepath.Join(fx.repo, "app/build/generated/ksp/main/kotlin")},
+			"generatedClasspath":  []any{filepath.Join(fx.repo, "app/build/intermediates/R.jar")},
+			"classpath":           []any{"/gradle/caches/lib.jar"},
+		}},
+	}}}
+	data, err := json.Marshal(model)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if got := read(copied); got != `{"schema":2}` {
-		t.Fatalf("copied model = %q", got)
+	writeFile(t, filepath.Join(fx.repo, ".krit", name, "model.json"), string(data))
+	writeFile(t, filepath.Join(fx.repo, ".krit", name, "inputs.stamp"), "stamp")
+	return fx
+}
+
+type forwardedSet struct {
+	SourceDirs          []string `json:"sourceDirs"`
+	GeneratedSourceDirs []string `json:"generatedSourceDirs"`
+	GeneratedClasspath  []string `json:"generatedClasspath"`
+	Classpath           []string `json:"classpath"`
+}
+
+type forwardedModel struct {
+	RootDir     string         `json:"rootDir"`
+	FutureField map[string]any `json:"futureField"`
+	Projects    []struct {
+		Dir        string         `json:"dir"`
+		SourceSets []forwardedSet `json:"sourceSets"`
+	} `json:"projects"`
+}
+
+func readForwardedModel(t *testing.T, path string) forwardedModel {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("forwarded model: %v", err)
 	}
+	var m forwardedModel
+	if err := json.Unmarshal(data, &m); err != nil {
+		t.Fatal(err)
+	}
+	if len(m.Projects) != 1 || len(m.Projects[0].SourceSets) != 1 {
+		t.Fatalf("forwarded model shape: %s", data)
+	}
+	return m
+}
+
+// The base scan gets the current model with the base ref's inputs rebased
+// into the worktree and the build outputs the worktree lacks kept at this
+// checkout's (review of #1941: R.jar and KSP output were rebased to paths
+// that did not exist).
+func TestDeltaForwardsTheModelWithInputsRebasedAndOutputsKept(t *testing.T) {
+	for _, name := range []string{"gradle-model", "bazel-model"} {
+		t.Run(name, func(t *testing.T) {
+			fx := newDeltaModelFixture(t, name)
+			got, err := forwardModelToBase(freshScanFlags(t), []string{fx.repo}, fx.repo, fx.tmp, fx.scratch)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != (baseModel{Forwarded: true}) {
+				t.Fatalf("a discovered model is found by discovery on both sides: %+v", got)
+			}
+			m := readForwardedModel(t, filepath.Join(fx.tmp, ".krit", name, "model.json"))
+			set := m.Projects[0].SourceSets[0]
+			switch {
+			case m.RootDir != filepath.ToSlash(fx.tmp), m.Projects[0].Dir != filepath.ToSlash(filepath.Join(fx.tmp, "app")):
+				t.Errorf("root %q, project dir %q: not rebased into the worktree", m.RootDir, m.Projects[0].Dir)
+			case set.SourceDirs[0] != filepath.ToSlash(filepath.Join(fx.tmp, "app/src/main/kotlin")):
+				t.Errorf("source dir %q is not the base ref's", set.SourceDirs[0])
+			case set.GeneratedSourceDirs[0] != filepath.ToSlash(filepath.Join(fx.repo, "app/build/generated/ksp/main/kotlin")),
+				set.GeneratedClasspath[0] != filepath.ToSlash(filepath.Join(fx.repo, "app/build/intermediates/R.jar")):
+				t.Errorf("build outputs %v %v do not point at this checkout's", set.GeneratedSourceDirs, set.GeneratedClasspath)
+			case set.Classpath[0] != "/gradle/caches/lib.jar":
+				t.Errorf("a path outside the repository changed: %q", set.Classpath[0])
+			case m.FutureField["kept"] != true:
+				t.Errorf("an unknown field was dropped: %v", m.FutureField)
+			}
+			if data, err := os.ReadFile(filepath.Join(fx.tmp, ".krit", name, "inputs.stamp")); err != nil || string(data) != "stamp" {
+				t.Errorf("other model files are not copied: %q %v", data, err)
+			}
+		})
+	}
+}
+
+// An output the worktree has (a committed generated dir) is the base ref's.
+func TestDeltaForwardedModelPrefersTheWorktreesOutput(t *testing.T) {
+	fx := newDeltaModelFixture(t, "gradle-model")
+	if err := os.MkdirAll(filepath.Join(fx.tmp, "app/build/generated/ksp/main/kotlin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := forwardModelToBase(freshScanFlags(t), []string{fx.repo}, fx.repo, fx.tmp, fx.scratch); err != nil {
+		t.Fatal(err)
+	}
+	set := readForwardedModel(t, filepath.Join(fx.tmp, ".krit", "gradle-model", "model.json")).Projects[0].SourceSets[0]
+	if want := filepath.ToSlash(filepath.Join(fx.tmp, "app/build/generated/ksp/main/kotlin")); set.GeneratedSourceDirs[0] != want {
+		t.Fatalf("generated dir = %q, want the worktree's %q", set.GeneratedSourceDirs[0], want)
+	}
+}
+
+func TestDeltaModelForwardingCases(t *testing.T) {
 	// A model the base ref commits is its own.
-	write(copied, `{"schema":2,"base":true}`)
-	if err := copyGradleModelToWorktree(freshScanFlags(t), []string{repo}, repo, tmp); err != nil {
-		t.Fatal(err)
+	fx := newDeltaModelFixture(t, "gradle-model")
+	own := filepath.Join(fx.tmp, ".krit", "gradle-model", "model.json")
+	writeFile(t, own, `{"schema":2,"base":true}`)
+	if got, err := forwardModelToBase(freshScanFlags(t), []string{fx.repo}, fx.repo, fx.tmp, fx.scratch); err != nil || !got.Forwarded {
+		t.Fatalf("base-committed model: %+v %v", got, err)
 	}
-	if got := read(copied); got != `{"schema":2,"base":true}` {
-		t.Fatalf("the base ref's model was overwritten: %q", got)
+	if data, _ := os.ReadFile(own); string(data) != `{"schema":2,"base":true}` {
+		t.Fatalf("the base ref's model was overwritten: %s", data)
 	}
 
+	// --no-gradle-model forwards nothing.
+	fx = newDeltaModelFixture(t, "gradle-model")
 	noModel := freshScanFlags(t)
 	*noModel.NoGradleModel = true
-	other := t.TempDir()
-	if err := copyGradleModelToWorktree(noModel, []string{repo}, repo, other); err != nil {
-		t.Fatal(err)
+	if got, err := forwardModelToBase(noModel, []string{fx.repo}, fx.repo, fx.tmp, fx.scratch); err != nil || got != (baseModel{}) {
+		t.Fatalf("--no-gradle-model: %+v %v", got, err)
 	}
-	if _, err := os.Stat(filepath.Join(other, ".krit")); err == nil {
+	if _, err := os.Stat(filepath.Join(fx.tmp, ".krit")); err == nil {
 		t.Fatal("--no-gradle-model copied a model")
 	}
-	// A model outside the repository is read as written; it is not copied.
-	outside := freshScanFlags(t)
-	*outside.GradleModel = filepath.Join(t.TempDir(), ".krit", "gradle-model")
-	write(filepath.Join(*outside.GradleModel, "model.json"), `{}`)
-	if err := copyGradleModelToWorktree(outside, []string{repo}, repo, other); err != nil {
+
+	// --gradle-model, here outside the repository, is copied outside the
+	// worktree and passed explicitly, so neither side discovers it.
+	fx = newDeltaModelFixture(t, "gradle-model")
+	explicit := freshScanFlags(t)
+	*explicit.GradleModel = filepath.Join(t.TempDir(), "exported")
+	if err := os.CopyFS(*explicit.GradleModel, os.DirFS(filepath.Join(fx.repo, ".krit", "gradle-model"))); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(other, ".krit")); err == nil {
-		t.Fatal("a model outside the repository was copied")
+	got, err := forwardModelToBase(explicit, []string{fx.repo}, fx.repo, fx.tmp, fx.scratch)
+	if err != nil || got.GradleModelArg != filepath.Join(fx.scratch, "model", "exported") || !got.Forwarded {
+		t.Fatalf("--gradle-model: %+v %v", got, err)
+	}
+	set := readForwardedModel(t, filepath.Join(got.GradleModelArg, "model.json")).Projects[0].SourceSets[0]
+	if set.SourceDirs[0] != filepath.ToSlash(filepath.Join(fx.tmp, "app/src/main/kotlin")) {
+		t.Fatalf("explicit model source dir = %q", set.SourceDirs[0])
+	}
+	if _, err := os.Stat(filepath.Join(fx.tmp, ".krit")); err == nil {
+		t.Fatal("an explicit model went where the base scan would discover it")
+	}
+
+	// No model: nothing to forward.
+	empty := t.TempDir()
+	writeFile(t, filepath.Join(empty, "settings.gradle.kts"), "")
+	if got, err := forwardModelToBase(freshScanFlags(t), []string{empty}, empty, t.TempDir(), t.TempDir()); err != nil || got != (baseModel{}) {
+		t.Fatalf("no model: %+v %v", got, err)
+	}
+}
+
+func TestIsBuildInput(t *testing.T) {
+	for path, want := range map[string]bool{
+		"build.gradle.kts": true, "app/build.gradle": true, "settings.gradle.kts": true,
+		"gradle/libs.versions.toml": true, "gradle.properties": true, "buildSrc/src/main/kotlin/Deps.kt": true,
+		"tools/build-logic/convention/src/main/kotlin/A.kt": true, "MODULE.bazel": true, "app/BUILD.bazel": true,
+		"defs.bzl": true, "app/src/main/kotlin/Build.kt": false, "README.md": false, "app/src/main/kotlin/A.kt": false,
+	} {
+		if got := isBuildInput(path); got != want {
+			t.Errorf("isBuildInput(%q) = %v, want %v", path, got, want)
+		}
+	}
+}
+
+// The base scan's wiring without a JDK (review of #1941): a fake krit stands
+// in for the base scan and checks what it gets, through the runner, so a
+// dropped PR-file list or model copy fails here and not only in the
+// JDK-gated parity test.
+func TestDeltaBaseScanGetsTheChangedFilesTheModelAndItsOwnStateDir(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo := filepath.Join(root, "repo")
+	writeFile(t, filepath.Join(repo, ".gitignore"), ".krit/\n")
+	writeFile(t, filepath.Join(repo, "settings.gradle.kts"), "include(\":app\")\n")
+	src := filepath.Join(repo, "app/src/main/kotlin/A.kt")
+	writeFile(t, src, "package a\n\nfun a() = 1\n")
+	writeFile(t, filepath.Join(repo, "app/src/main/kotlin/B.kt"), "package a\n\nfun b() = 1\n")
+	model := `{"schema":2,"rootDir":"` + repo + `","projects":[{"path":":app","dir":"` + filepath.Join(repo, "app") +
+		`","sourceSets":[{"name":"main","sourceDirs":["` + filepath.Join(repo, "app/src/main/kotlin") + `"]}]}]}`
+	writeFile(t, filepath.Join(repo, ".krit/gradle-model/model.json"), model)
+	for _, args := range [][]string{{"init", "-q"}, {"add", "-A"}, {"commit", "-qm", "base"}} {
+		cmd := exec.Command("git", append([]string{"-c", "user.email=k@example.com", "-c", "user.name=k"}, args...)...)
+		cmd.Dir = repo
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	writeFile(t, src, "package a\n\nfun a() = 2\n")
+	writeFile(t, filepath.Join(repo, "build.gradle.kts"), "// a build change\n")
+	// git diff REF lists tracked changes only, as a PR's committed files are.
+	if out, err := exec.Command("git", "-C", repo, "add", "build.gradle.kts").CombinedOutput(); err != nil {
+		t.Fatalf("git add: %v\n%s", err, out)
+	}
+
+	record := filepath.Join(root, "record.txt")
+	fake := filepath.Join(root, "krit")
+	writeFile(t, fake, "#!/bin/sh\n{\n"+
+		"  echo \"cwd=$PWD\"\n  echo \"state=$KRIT_STATE_DIR\"\n"+
+		"  while [ $# -gt 0 ]; do case \"$1\" in --pr-files) echo \"list=$(cat \"$2\" | tr '\\n' ' ')\"; shift 2;; *) shift;; esac; done\n"+
+		"  echo \"model=$(tr -d '\\n' < .krit/gradle-model/model.json)\"\n"+
+		"} > "+record+"\necho '{\"findings\":[]}'\n")
+	if err := os.Chmod(fake, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	old := deltaBaseExecutable
+	deltaBaseExecutable = func() (string, error) { return fake, nil }
+	t.Cleanup(func() { deltaBaseExecutable = old })
+	t.Setenv(fsutil.StateDirEnv, filepath.Join(root, "shared-state"))
+	t.Chdir(repo)
+
+	fs := flag.NewFlagSet("scan", flag.ContinueOnError)
+	f := registerScanFlags(fs)
+	if err := fs.Parse([]string{"--delta", "HEAD"}); err != nil {
+		t.Fatal(err)
+	}
+	r := &runner{f: f, paths: []string{repo}, files: []string{src, filepath.Join(repo, "app/src/main/kotlin/B.kt")}}
+	r.prFiles = r.prModeFiles()
+	cols := scanner.CollectFindings(nil)
+	r.allColumns = &cols
+	stderr := captureStderr(t, func() {
+		if _, err := r.filterColumnsByDelta("HEAD"); err != nil {
+			t.Fatal(err)
+		}
+	})
+	data, err := os.ReadFile(record)
+	if err != nil {
+		t.Fatalf("the base scan did not run: %v", err)
+	}
+	got := map[string]string{}
+	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+		k, v, _ := strings.Cut(line, "=")
+		got[k] = v
+	}
+	worktree := got["cwd"]
+	if worktree == "" || worktree == repo {
+		t.Fatalf("the base scan ran in %q, not a worktree", worktree)
+	}
+	if want := filepath.Join(worktree, "app/src/main/kotlin/A.kt") + " "; got["list"] != want {
+		t.Errorf("--pr-files list = %q, want only the changed file in the worktree %q", got["list"], want)
+	}
+	if !strings.Contains(got["model"], filepath.Join(worktree, "app/src/main/kotlin")) {
+		t.Errorf("the worktree's model does not name its own sources: %s", got["model"])
+	}
+	if state := got["state"]; state == "" || strings.HasPrefix(state, filepath.Join(root, "shared-state")) || strings.HasPrefix(state, worktree) {
+		t.Errorf("KRIT_STATE_DIR = %q: the base scan must get a state dir of its own", state)
+	}
+	if _, err := os.Stat(got["state"]); err == nil {
+		t.Errorf("the base scan's state dir %s outlived it", got["state"])
+	}
+	if !strings.Contains(stderr, "warning: --delta: build files changed since HEAD (build.gradle.kts)") {
+		t.Errorf("no warning that the base compiles with this checkout's model after a build change:\n%s", stderr)
 	}
 }
 
@@ -137,4 +369,26 @@ func TestForwardBaseScanLogMarksEachLine(t *testing.T) {
 	if got, want := b.String(), "--delta base: verbose: one\n--delta base: verbose: two\n"; got != want {
 		t.Fatalf("forwarded log = %q, want %q", got, want)
 	}
+}
+
+// captureStderr returns what fn writes to os.Stderr.
+func captureStderr(t *testing.T, fn func()) string {
+	t.Helper()
+	original := os.Stderr
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan string)
+	go func() {
+		data, _ := io.ReadAll(reader)
+		done <- string(data)
+	}()
+	os.Stderr = writer
+	defer func() { os.Stderr = original }()
+	fn()
+	_ = writer.Close()
+	out := <-done
+	_ = reader.Close()
+	return out
 }

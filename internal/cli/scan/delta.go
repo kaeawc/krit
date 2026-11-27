@@ -10,10 +10,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/fsutil"
 	"github.com/kaeawc/krit/internal/output"
-	"github.com/kaeawc/krit/internal/pipeline"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/selfexec"
 )
@@ -34,9 +35,9 @@ func (r *runner) filterColumnsByDelta(ref string) (scanner.FindingColumns, error
 // prFiles, when non-nil, are the files the current run analyzed in PR mode
 // (#1660). The base scan analyzes the same files, mapped into the worktree,
 // so an unchanged file keeps Go's verdict on both sides and its findings
-// compare like for like. The current run's Gradle model goes into the
-// worktree too (it is untracked, so the checkout has none), so the base
-// compiles with the same modules and classpath.
+// compare like for like. The current run's build model goes to the base scan
+// too (forwardModelToBase: it is untracked, so the checkout has none), so the
+// base compiles the same modules against this checkout's build outputs.
 func deltaBaseFindingIDsForFlags(ref string, f *scanFlags, paths []string, prFiles []string) (map[string]bool, error) {
 	repoRoot, err := gitRepoRoot()
 	if err != nil {
@@ -60,24 +61,36 @@ func deltaBaseFindingIDsForFlags(ref string, f *scanFlags, paths []string, prFil
 		_ = exec.CommandContext(context.Background(), "git", "-C", repoRoot, "worktree", "remove", "--force", tmp).Run()
 	}()
 
-	if err := copyGradleModelToWorktree(f, paths, repoRoot, tmp); err != nil && *f.Verbose {
-		fmt.Fprintf(os.Stderr, "verbose: --delta: base scan runs without the Gradle model: %v\n", err)
+	base := baseScanInputs{}
+	model, err := forwardModelToBase(f, paths, repoRoot, tmp, listDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: --delta: the base-ref scan runs without this checkout's build model (%v), so FIR and oracle verdicts can differ between the two sides; findings may be reported as new that are not\n", err)
 	}
-	listPath := ""
+	base.GradleModel = model.GradleModelArg
+	if model.Forwarded {
+		if changed, err := changedBuildInputs(ref, repoRoot); err == nil && len(changed) > 0 {
+			fmt.Fprintf(os.Stderr, "warning: --delta: build files changed since %s (%s); the base-ref scan compiles with this checkout's build model, so findings the build change causes (dependencies, compiler options, plugins) are not reported as new\n",
+				ref, strings.Join(firstN(changed, 3), ", "))
+		}
+	}
 	if prFiles != nil {
-		listPath = filepath.Join(listDir, "pr-files.txt")
-		if err := writePRFileList(listPath, prFiles, repoRoot, tmp); err != nil {
+		base.PRFileList = filepath.Join(listDir, "pr-files.txt")
+		if err := writePRFileList(base.PRFileList, prFiles, repoRoot, tmp); err != nil {
 			return nil, err
 		}
 	}
 
-	exe, err := selfexec.Executable()
+	exe, err := deltaBaseExecutable()
 	if err != nil {
 		return nil, err
 	}
-	args := deltaSnapshotArgsForFlags(f, paths, repoRoot, tmp, listPath)
+	args := deltaSnapshotArgsForFlags(f, paths, repoRoot, tmp, base)
 	cmd := exec.CommandContext(context.Background(), exe, args...)
 	cmd.Dir = tmp
+	// The base scan's project state (module compiles, PR-mode facts) is keyed
+	// by the worktree's path, so under KRIT_STATE_DIR it would outlive the
+	// worktree; it gets a directory of its own that goes with listDir.
+	cmd.Env = append(os.Environ(), fsutil.StateDirEnv+"="+filepath.Join(listDir, "state"))
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	raw, err := cmd.Output()
@@ -102,9 +115,27 @@ func deltaBaseFindingIDsForFlags(ref string, f *scanFlags, paths []string, prFil
 	return ids, nil
 }
 
-// deltaSnapshotArgsForFlags is the base scan's command line. prFileList,
-// when set, names the PR-mode file list (writePRFileList).
-func deltaSnapshotArgsForFlags(f *scanFlags, paths []string, repoRoot, tmp, prFileList string) []string {
+// deltaBaseExecutable is the krit the base scan runs; tests replace it.
+var deltaBaseExecutable = selfexec.Executable
+
+// baseScanInputs are what the base scan gets beyond the current run's flags:
+// the PR-mode file list (writePRFileList) and the --gradle-model directory
+// (forwardModelToBase), each "" when there is none.
+type baseScanInputs struct {
+	PRFileList  string
+	GradleModel string
+}
+
+// firstN is at most n of items, with a count of the rest.
+func firstN(items []string, n int) []string {
+	if len(items) <= n {
+		return items
+	}
+	return append(slices.Clone(items[:n]), fmt.Sprintf("%d more", len(items)-n))
+}
+
+// deltaSnapshotArgsForFlags is the base scan's command line.
+func deltaSnapshotArgsForFlags(f *scanFlags, paths []string, repoRoot, tmp string, base baseScanInputs) []string {
 	args := []string{
 		"--format", "json",
 		"-q",
@@ -114,10 +145,13 @@ func deltaSnapshotArgsForFlags(f *scanFlags, paths []string, repoRoot, tmp, prFi
 	if *f.Verbose {
 		args = append(args, "-v")
 	}
-	if prFileList != "" {
-		args = append(args, "--pr-files", prFileList)
+	if base.PRFileList != "" {
+		args = append(args, "--pr-files", base.PRFileList)
 	}
-	if *f.NoGradleModel && *f.GradleModel == "" {
+	switch {
+	case base.GradleModel != "":
+		args = append(args, "--gradle-model", base.GradleModel)
+	case *f.NoGradleModel:
 		args = append(args, "--no-gradle-model")
 	}
 	if *f.NoTypeInfer {
@@ -240,41 +274,6 @@ func readPRFileList(path string) (map[string]bool, error) {
 		}
 	}
 	return files, nil
-}
-
-// copyGradleModelToWorktree copies the Gradle model the current scan reads
-// into the base worktree when it lies inside the repository and the base ref
-// does not commit one of its own. The model is untracked, so a fresh checkout
-// has none: without it the base scan would compile with another classpath
-// and no modules, and PR mode could not compile the changed files' modules
-// there. Load rebases the model's root onto the worktree, as it does for a
-// model restored from a CI cache. A Bazel model, or a --gradle-model
-// directory outside the repository, is read as written, so it would point
-// the base scan at this checkout's sources; neither is copied.
-func copyGradleModelToWorktree(f *scanFlags, paths []string, repoRoot, tmp string) error {
-	if *f.NoGradleModel && *f.GradleModel == "" {
-		return nil
-	}
-	dir := pipeline.GradleModelDir(*f.GradleModel, false, firstScanPath(paths))
-	if dir == "" || filepath.Base(dir) != "gradle-model" || filepath.Base(filepath.Dir(dir)) != ".krit" {
-		return nil
-	}
-	abs, err := filepath.Abs(dir)
-	if err != nil {
-		return err
-	}
-	rel, err := filepath.Rel(repoRoot, abs)
-	if err != nil {
-		return err
-	}
-	if rel == "." || strings.HasPrefix(rel, "..") {
-		return nil
-	}
-	dest := filepath.Join(tmp, rel)
-	if _, err := os.Stat(dest); err == nil {
-		return nil
-	}
-	return os.CopyFS(dest, os.DirFS(abs))
 }
 
 // forwardBaseScanLog writes the base scan's -v output to w, each line marked

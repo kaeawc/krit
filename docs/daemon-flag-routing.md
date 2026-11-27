@@ -300,7 +300,9 @@ analysis" above for the response-shape rationale.
 given (#1660), and so does `--delta`'s base-ref scan (`--pr-files`). A
 delegated `--delta` would analyze the current tree whole while its base scan
 ran in PR mode, and every unchanged file's FIR verdict would differ between
-the two sides. PR mode compiles only the modules that hold the changed Kotlin files for the type
+the two sides. A scan with no JVM work (`--no-fir --no-type-oracle`, or no
+Java launcher found) is routed as before, since PR mode changes nothing for
+it (`prModeRequested`). PR mode compiles only the modules that hold the changed Kotlin files for the type
 oracle and the FIR check (`runPRModules` in `internal/pipeline/index.go`),
 and the analyze-project wire carries no changed-file list. To route it, the
 wire would need the PR file list and the daemon's index phase would need to

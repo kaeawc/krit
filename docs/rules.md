@@ -497,6 +497,33 @@ Cases whose resources AGP cannot compile carry `lint-standalone.txt` and are rec
   from literal assignments in the module's build script (or the manifest package); without a namespace the check is
   skipped.
 
+## Manifest rules: application or library module
+
+Manifest rules that only apply to apps, or that skip library and test modules, read the module's
+`build.gradle(.kts)`. A plugin applied through a version catalog, `alias(<catalog>.plugins.<key>)`, resolves against
+the catalog Gradle generates under that name:
+
+- `gradle/libs.versions.toml` is the `libs` catalog, or the name the settings file gives
+  `defaultLibrariesExtensionName`. Without a settings file beside it, as in a partial checkout, it is still `libs`.
+- A settings `versionCatalogs { create("<name>") { from(files("...")) } }` block (Groovy `<name> { ... }`, a chained
+  `versionCatalogs.create("<name>")`, `register` or `maybeCreate`, or a brace-less `create("<name>").from(...)`)
+  imports that file as `<name>`, wherever it lives. A block's programmatic `plugin("<alias>", "<id>")` declarations
+  belong to that catalog. An explicit `create("all")` names a catalog; Groovy's bare `all { }` configures every catalog
+  and names none.
+- Gradle doesn't import any other `gradle/*.versions.toml` by itself. krit reads one only for an accessor that names no
+  imported catalog and matches its file name, as `deps` does for `gradle/deps.versions.toml`, because the import may sit
+  where krit can't read it, such as a settings plugin. A settings block that declares a catalog of that name from
+  elsewhere, such as a published `create("deps") { from("com.example:catalog:1.0") }`, takes the name: the file then
+  serves no alias.
+- Text in settings comments and string literals, triple-quoted ones included, declares no catalog. Kotlin block
+  comments nest and Groovy's don't, so krit reads the DSL from the file name. Groovy's paren-less `from files('...')`
+  imports like `from(files(...))`.
+- Gradle rejects an unquoted dotted key in `[plugins]`, such as `android.application = { id = "..." }`: TOML reads it as
+  a nested table. krit reads no plugin from it. A quoted `"android.application"` key is one alias.
+
+An alias whose accessor names no catalog applies no plugin krit can see. `alias(tools.plugins.x)` never reads
+`libs`.
+
 ## Android Lint Manifest and Resource Checks (storage, themes, splash screens)
 
 Ports of Android Lint 32.4.1 checks with recorded Lint output under `tests/fixtures/android-lint/<RuleID>/`:

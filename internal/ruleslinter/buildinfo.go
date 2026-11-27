@@ -33,9 +33,8 @@ var BuildInfoHelpers = []string{
 	"lookupManifestGradleInfo",
 	// A directory's build script and its catalogs.
 	"readManifestGradleInfo",
-	// Version catalogs: plugin aliases (catalogPluginIDs, versionCatalogsFor) and dependency aliases.
+	// Version catalogs: plugin aliases (catalogPluginIDs) and dependency aliases.
 	"catalogPluginIDs",
-	"versionCatalogsFor",
 	"catalogDeclaresDependency",
 	// The module minSdk of a res file: its build script, then the manifest beside the res directory.
 	"resourceModuleMinSdk",

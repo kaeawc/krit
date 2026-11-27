@@ -102,12 +102,12 @@ func ReadsManifestGradleInfo(active []*api.Rule) bool {
 }
 
 // BuildScriptCatalogReads reports which version catalogs readManifestGradleInfo reads for a build script with this
-// content. pluginAliases: an alias(<catalog>.plugins.x) entry, resolved through VersionCatalogSearch from the
-// script's directory (catalogPluginIDs). dependencyAliases: a libs. accessor, resolved through librarymodel's
-// catalog discovery for the script (catalogDeclaresDependency). A script with neither reads no catalog, so cache
-// keys can skip both searches: the script's own content is keyed, so editing an alias in moves the key anyway.
+// content. pluginAliases: an alias(<catalog>.plugins.x) entry (catalogPluginIDs). dependencyAliases: a libs.
+// accessor (catalogDeclaresDependency). Both resolve through librarymodel's catalog discovery for the script, which
+// reads every ancestor's gradle/*.versions.toml and settings files. A script with neither reads no catalog, so cache
+// keys can skip the discovery: the script's own content is keyed, so editing an alias in moves the key anyway.
 func BuildScriptCatalogReads(content string) (pluginAliases, dependencyAliases bool) {
-	return len(catalogPluginAliasKeys(content)) > 0, strings.Contains(content, "libs.")
+	return len(catalogPluginAliases(content)) > 0, strings.Contains(content, "libs.")
 }
 
 // lookupManifestGradleInfo walks up from the manifest path looking for a
@@ -195,7 +195,6 @@ var (
 	gradleDensityResConfigPattern = lazyre.New(`(?s)(?:resConfigs?|resourceConfigurations)[^\n]*["'](?:ldpi|mdpi|hdpi|xhdpi|xxhdpi|xxxhdpi|tvdpi)["']`)
 	gradleVersionNamePattern      = lazyre.New(`(?m)^\s*versionName\s*=?\s*"([^"]*)"\s*$`)
 	pluginAliasCallPattern        = lazyre.New(`alias\(\s*([A-Za-z_][\w.]*)\s*\)`)
-	catalogPluginEntryPattern     = lazyre.New(`(?m)^\s*([A-Za-z0-9_.-]+)\s*=\s*\{[^}]*\bid\s*=\s*"([^"]+)"`)
 )
 
 // catalogDeclaresDependency reports a dependency on group:name declared through a version-catalog alias or bundle,
@@ -217,100 +216,72 @@ func catalogDeclaresDependency(gradlePath, content, group, name string) bool {
 	return false
 }
 
-// catalogPluginIDs resolves `alias(libs.plugins.x.y)` entries in a build script to plugin ids through the
-// project's Gradle version catalogs, so `alias(libs.plugins.android.library)` counts as com.android.library.
+// catalogPluginIDs resolves `alias(<accessor>.plugins.x.y)` entries in a build script to plugin ids through the
+// catalogs librarymodel's discovery finds for the module, the settings-declared ones included, so
+// `alias(libs.plugins.android.library)` counts as com.android.library. An alias reads only the catalog its accessor
+// names (librarymodel.CatalogPluginsByAccessor), as Gradle generates one extension per catalog (#1872).
 func catalogPluginIDs(moduleDir, buildScript string) []string {
-	keys := catalogPluginAliasKeys(buildScript)
-	if len(keys) == 0 {
+	aliases := catalogPluginAliases(buildScript)
+	if len(aliases) == 0 {
 		return nil
 	}
-	catalogs := versionCatalogsFor(moduleDir)
+	// Discovery searches from the script's directory; the file name doesn't matter.
+	sources, ok := catalogDiscovery(fileFactsCache()).FindVersionCatalogSourcesForGradlePath(filepath.Join(moduleDir, manifestBuildScriptNames[0]))
+	if !ok {
+		return nil
+	}
+	catalogs := librarymodel.LoadCatalogPluginsByAccessor(sources)
+	tables := map[string]map[string]string{}
 	var ids []string
-	for _, key := range keys {
-		for _, catalog := range catalogs {
-			if id, ok := catalog[key]; ok {
-				ids = append(ids, id)
-				break
-			}
+	for _, alias := range aliases {
+		table, seen := tables[alias.accessor]
+		if !seen {
+			table = normalizedCatalogPlugins(catalogs.Plugins(alias.accessor))
+			tables[alias.accessor] = table
+		}
+		if id, ok := table[alias.key]; ok {
+			ids = append(ids, id)
 		}
 	}
 	return ids
 }
 
-// catalogPluginAliasKeys returns the normalized catalog keys of the build script's alias(<catalog>.plugins.x) entries.
-func catalogPluginAliasKeys(buildScript string) []string {
-	var keys []string
-	for _, match := range pluginAliasCallPattern.FindAllStringSubmatch(buildScript, -1) {
-		if _, key, found := strings.Cut(match[1], ".plugins."); found {
-			keys = append(keys, normalizeCatalogKey(key))
+// normalizedCatalogPlugins maps each alias, normalized as normalizeCatalogKey does, to its plugin id. Of aliases that
+// normalize alike, which Gradle rejects as clashing accessors, the first in sorted order wins.
+func normalizedCatalogPlugins(plugins map[string]librarymodel.CatalogPlugin) map[string]string {
+	aliases := make([]string, 0, len(plugins))
+	for alias := range plugins {
+		aliases = append(aliases, alias)
+	}
+	sort.Strings(aliases)
+	table := make(map[string]string, len(aliases))
+	for _, alias := range aliases {
+		key := normalizeCatalogKey(alias)
+		if _, dup := table[key]; !dup && plugins[alias].ID != "" {
+			table[key] = plugins[alias].ID
 		}
 	}
-	return keys
+	return table
+}
+
+// catalogPluginAlias is one alias(<accessor>.plugins.<key>) entry of a build script, its key normalized.
+type catalogPluginAlias struct {
+	accessor, key string
+}
+
+// catalogPluginAliases returns the build script's alias(<accessor>.plugins.x) entries.
+func catalogPluginAliases(buildScript string) []catalogPluginAlias {
+	var aliases []catalogPluginAlias
+	for _, match := range pluginAliasCallPattern.FindAllStringSubmatch(buildScript, -1) {
+		if accessor, key, found := strings.Cut(match[1], ".plugins."); found {
+			aliases = append(aliases, catalogPluginAlias{accessor: accessor, key: normalizeCatalogKey(key)})
+		}
+	}
+	return aliases
 }
 
 func normalizeCatalogKey(key string) string {
 	return strings.ToLower(strings.NewReplacer("-", ".", "_", ".").Replace(key))
-}
-
-// versionCatalogsFor loads the plugin tables of every gradle/*.versions.toml found at or above moduleDir.
-func versionCatalogsFor(moduleDir string) []map[string]string {
-	_, matches := VersionCatalogSearch(moduleDir, VersionCatalogGlob)
-	if len(matches) == 0 {
-		return nil
-	}
-	catalogs := make([]map[string]string, 0, len(matches))
-	for _, path := range matches {
-		catalogs = append(catalogs, loadCatalogPlugins(path))
-	}
-	return catalogs
-}
-
-// VersionCatalogSearch is the version-catalog search of a module directory: it globs, through glob, the
-// directories at and above moduleDir, nearest first and at most 12, and stops at the first with a catalog. It
-// returns the directories it globbed and that directory's catalogs, nil when none was found. A cache key over the
-// rules that read catalogs hashes both: a catalog created in a globbed directory changes what is read.
-func VersionCatalogSearch(moduleDir string, glob func(dir string) []string) (searched, matches []string) {
-	dir := moduleDir
-	for range 12 {
-		searched = append(searched, dir)
-		if matches := glob(dir); len(matches) > 0 {
-			return searched, matches
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			break
-		}
-		dir = parent
-	}
-	return searched, nil
-}
-
-// VersionCatalogGlob returns, sorted, the gradle/*.versions.toml catalogs of dir.
-func VersionCatalogGlob(dir string) []string {
-	matches, _ := filepath.Glob(filepath.Join(dir, "gradle", "*.versions.toml"))
-	sort.Strings(matches)
-	return matches
-}
-
-func loadCatalogPlugins(path string) map[string]string {
-	return filefacts.RequestFact(fileFactsCache(), path, slotVersionCatalogPlugins, func() map[string]string {
-		plugins := map[string]string{}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return plugins
-		}
-		text := string(data)
-		if start := strings.Index(text, "[plugins]"); start >= 0 {
-			section := text[start+len("[plugins]"):]
-			if end := strings.Index(section, "\n["); end >= 0 {
-				section = section[:end]
-			}
-			for _, match := range catalogPluginEntryPattern.FindAllStringSubmatch(section, -1) {
-				plugins[normalizeCatalogKey(match[1])] = match[2]
-			}
-		}
-		return plugins
-	})
 }
 
 // isLibraryOrTestModuleManifest reports whether the manifest lives in a

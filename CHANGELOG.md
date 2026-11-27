@@ -657,6 +657,22 @@ All notable changes to Krit will be documented in this file.
   a class is reported at the declaration rather than its KDoc (#1369).
 
 ### Fixed
+- Manifest rules resolve plugin aliases (`alias(<catalog>.plugins.x)`) against the catalogs Gradle builds, so they
+  tell apps from libraries correctly. That covers catalogs a settings file declares with
+  `versionCatalogs { create("<name>") { from(files(...)) } }` (any path, Kotlin or Groovy DSL) or programmatically,
+  and the default catalog renamed by `defaultLibrariesExtensionName`. An alias reads only the catalog its accessor
+  names, so `alias(tools.plugins.x)` no longer resolves against `libs.versions.toml`, and an unimported
+  `gradle/<name>.versions.toml` serves only the accessor `<name>`, when no imported catalog has that name. Version
+  catalog sources in librarymodel carry this accessor name. Warm runs and the daemon key the settings-derived source
+  list: the files, their kinds and their names. Editing a settings-declared catalog, renaming a `create(...)`, or
+  pointing `from(files(...))` at another file reruns the manifest rules, and the resource rules that read the
+  module's build script, such as RelativeClassResolution and LibraryCustomView. A settings edit that leaves the
+  catalogs alone doesn't (#1872). Settings scanning skips comments and string literals, triple-quoted ones included,
+  nests Kotlin block comments, lexes string templates, and reads Groovy's paren-less `from files('...')` and the
+  brace-less `create("<name>").from(...)`. A settings block that declares a catalog krit can't read, such as a
+  published one, stops an unimported `gradle/<name>.versions.toml` of that name from serving its accessor. Programmatic
+  `library(...)`/`plugin(...)` text in a settings string literal adds no library fact, and the parsed-catalog caches
+  follow file content, not only size and mtime.
 - `--no-parse-cache` now works on a scan delegated to a daemon. The flag was not sent, so the daemon still parsed
   through its parse cache and could serve stale trees with no warning. The daemon now parses every file afresh for that
   request, skipping both its parse cache and the parsed trees it keeps in memory, and confirms the bypass in its

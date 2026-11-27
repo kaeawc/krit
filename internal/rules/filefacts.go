@@ -42,7 +42,6 @@ const (
 	slotNullSafety                  = "nullsafety"
 	slotManifestGradle              = "manifestGradle"
 	slotManifestDOM                 = "manifestDOM"
-	slotVersionCatalogPlugins       = "versionCatalogPlugins"
 	slotLintCatalogPlugins          = "lintCatalogPlugins"
 	slotSourceModuleGradle          = "sourceModuleGradle"
 	slotTestQualityMockHelpers      = "testQualityMockHelpers"

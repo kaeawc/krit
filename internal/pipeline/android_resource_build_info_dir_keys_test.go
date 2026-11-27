@@ -180,7 +180,7 @@ func TestResourceBuildInfoKeys_SharedAcrossInputCopies(t *testing.T) {
 }
 
 // A resolver shared by a run's fingerprints gives each the value a fresh one does: what it memoizes for one set of
-// lookups (a script's catalog search, the globbed directories) does not leak into another's hash (#1943).
+// lookups (a script's build script and catalog sources) does not leak into another's hash (#1943).
 func TestGradleInfoResolver_SharedMatchesFresh(t *testing.T) {
 	p, _ := rbTwoModules(t)
 	p.write("b/build.gradle.kts", rbBuildWithAlias("libs")+"dependencies { implementation(libs.x) }\n")

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/kaeawc/krit/internal/hashutil"
 	"github.com/kaeawc/krit/internal/lazyre"
 	"github.com/kaeawc/krit/internal/versioncatalog"
 )
@@ -45,6 +46,18 @@ const (
 type CatalogSource struct {
 	Path string
 	Kind CatalogSourceKind
+	// Accessor is the name build scripts reach the catalog by, as `libs` in `alias(libs.plugins.x)` (#1872). Gradle
+	// imports gradle/libs.versions.toml under the settings' defaultLibrariesExtensionName, `libs` unless renamed, and
+	// a file a settings `versionCatalogs { create("<name>") { from(files(...)) } }` block lists under that name. It is
+	// "" for any other gradle/*.versions.toml, which Gradle doesn't import, for a from(files(...)) outside a named
+	// block, and for a programmatic source, whose blocks each name their own catalog (LoadCatalogPluginsByAccessor).
+	// Discovery, merging and the catalog contents don't depend on it.
+	Accessor string
+	// Shadowed is set on a gradle/<name>.versions.toml other than libs when a settings file beside it declares a
+	// catalog called <name>, as `create("<name>") { from("com.example:catalog:1.0") }` does for a published one:
+	// build scripts reach that catalog, not this file, as <name>, so CatalogPluginsByAccessor serves no alias of
+	// <name> from this file (#1872 review). Discovery, merging and the catalog contents don't depend on it either.
+	Shadowed bool
 }
 
 type CatalogCompleteness int
@@ -68,7 +81,7 @@ var (
 	catalogVersionAccessorRe  = lazyre.New(`libs\.versions\.([A-Za-z0-9_.]+)\.get\s*\(`)
 	catalogDependencyAliasRe  = lazyre.New(`["']?([A-Za-z_][A-Za-z0-9_]*)["']?\s*\(\s*(?:platform\s*\(\s*)?libs\.([A-Za-z0-9_.]+)`)
 	unresolvedStructuralRefRe = lazyre.New(`(?m)(?:["']?[A-Za-z_][A-Za-z0-9_]*["']?\s*\(\s*(?:platform\s*\(\s*)?(?:versions\.|deps\.|project\s*\(|projects\.)|apply\s*(?:\(|from\s*=|plugin\s*:)|id\s*\(\s*["'][^"']*(?:convention|build-logic)[^"']*["']|plugins?\s*\{[^}]*\b(?:convention|build-logic)\b)`)
-	settingsCatalogFileRe     = lazyre.New(`from\s*\(\s*files\s*\(\s*["']([^"']+)["']\s*\)\s*\)`)
+	settingsCatalogFileRe     = lazyre.New(`\bfrom\s*(?:\(\s*files\s*\(\s*["']([^"']+)["']\s*\)\s*\)|files\s*\(\s*["']([^"']+)["']\s*\))`)
 	settingsLibraryRe         = lazyre.New(`library\s*\(\s*["']([^"']+)["']\s*,\s*["']([^"']+)["']\s*,\s*["']([^"']+)["']\s*\)\s*(?:\.\s*(?:version\s*\(\s*(?:"([^"]+)"|'([^']+)'|[A-Za-z0-9_.]+)\s*\)|withoutVersion\s*\(\s*\)))?`)
 	settingsPluginRe          = lazyre.New(`plugin\s*\(\s*["']([^"']+)["']\s*,\s*["']([^"']+)["']\s*\)\s*(?:\.\s*version\s*\(\s*(?:"([^"]+)"|'([^']+)'|[A-Za-z0-9_.]+)\s*\))?`)
 	settingsPluginIDRe        = lazyre.New(`id\s*\(\s*["']([A-Za-z0-9_.-]+)["']\s*\)`)
@@ -107,26 +120,40 @@ func ParseVersionCatalogContent(content string) VersionCatalog {
 	return catalog
 }
 
+// ParseSettingsVersionCatalogContent reads the library(...) and plugin(...) declarations of a Kotlin DSL settings
+// file.
 func ParseSettingsVersionCatalogContent(content string) VersionCatalog {
+	return parseSettingsVersionCatalog(content, false)
+}
+
+// parseSettingsVersionCatalog is ParseSettingsVersionCatalogContent for either DSL; groovy as isGroovyScript reports.
+func parseSettingsVersionCatalog(content string, groovy bool) VersionCatalog {
 	catalog := VersionCatalog{
 		Versions:  make(map[string]string),
 		Plugins:   make(map[string]CatalogPlugin),
 		Libraries: make(map[string]CatalogLibrary),
 		Bundles:   make(map[string][]string),
 	}
-	content = stripGradleComments(content)
-	for _, match := range settingsLibraryRe.FindAllStringSubmatch(content, -1) {
-		version := cmp.Or(match[4], match[5])
-		catalog.Libraries[match[1]] = CatalogLibrary{
-			Group:   match[2],
-			Name:    match[3],
-			Version: version,
+	content, code := stripGradleComments(content, groovy)
+	for _, match := range settingsLibraryRe.FindAllStringSubmatchIndex(content, -1) {
+		if !gradleCodeAt(code, match[0]) {
+			continue
+		}
+		group := submatches(content, match)
+		catalog.Libraries[group[1]] = CatalogLibrary{
+			Group:   group[2],
+			Name:    group[3],
+			Version: cmp.Or(group[4], group[5]),
 		}
 	}
-	for _, match := range settingsPluginRe.FindAllStringSubmatch(content, -1) {
-		catalog.Plugins[match[1]] = CatalogPlugin{
-			ID:      match[2],
-			Version: cmp.Or(match[3], match[4]),
+	for _, match := range settingsPluginRe.FindAllStringSubmatchIndex(content, -1) {
+		if !gradleCodeAt(code, match[0]) {
+			continue
+		}
+		group := submatches(content, match)
+		catalog.Plugins[group[1]] = CatalogPlugin{
+			ID:      group[2],
+			Version: cmp.Or(group[3], group[4]),
 		}
 	}
 	return catalog
@@ -140,17 +167,19 @@ func LoadVersionCatalogForGradlePath(gradlePath string) (VersionCatalog, bool) {
 	return loadVersionCatalogFromSources(sources)
 }
 
-// loadedCatalog is a parsed catalog plus the stat signature of every source it was built from.
+// loadedCatalog is a parsed catalog plus the content stamp of every source it was built from.
 type loadedCatalog struct {
 	stamps  []catalogSourceStamp
 	catalog VersionCatalog
 	ok      bool
 }
 
+// catalogSourceStamp is a catalog source's content hash, or that it is missing. The parse caches outlive an analysis
+// (a daemon keeps them), so they are keyed on content: an edit that keeps a file's size and mtime still misses (#1910
+// review round 3).
 type catalogSourceStamp struct {
-	modTime int64
-	size    int64
-	exists  bool
+	sum    [32]byte
+	exists bool
 }
 
 var (
@@ -158,11 +187,14 @@ var (
 	loadedCatalogs   = make(map[string]loadedCatalog)
 )
 
+// catalogStamps hashes each source through the shared hash memo, which the CLI and the daemon clear when an analysis
+// starts: within one analysis an unchanged stat serves the hash it already read, as for every other content key, and
+// each analysis reads each source once more.
 func catalogStamps(sources []CatalogSource) []catalogSourceStamp {
 	stamps := make([]catalogSourceStamp, len(sources))
 	for i, source := range sources {
-		if info, err := os.Stat(source.Path); err == nil {
-			stamps[i] = catalogSourceStamp{modTime: info.ModTime().UnixNano(), size: info.Size(), exists: true}
+		if sum, err := hashutil.Default().HashFileRaw(source.Path, nil); err == nil {
+			stamps[i] = catalogSourceStamp{sum: sum, exists: true}
 		}
 	}
 	return stamps
@@ -180,8 +212,8 @@ func sameCatalogStamps(a, b []catalogSourceStamp) bool {
 	return true
 }
 
-// loadVersionCatalogFromSources parses and merges the sources, reusing the previous result while every source
-// keeps the same mtime and size. Callers must treat the returned maps as read-only.
+// loadVersionCatalogFromSources parses and merges the sources, reusing the previous result while every source keeps
+// its content (catalogStamps). Callers must treat the returned maps as read-only.
 func loadVersionCatalogFromSources(sources []CatalogSource) (VersionCatalog, bool) {
 	key := catalogSourceCacheKey(sources)
 	stamps := catalogStamps(sources)
@@ -208,7 +240,7 @@ func parseVersionCatalogSources(sources []CatalogSource) (VersionCatalog, bool) 
 		var catalog VersionCatalog
 		switch source.Kind {
 		case CatalogSourceSettingsProgrammatic:
-			catalog = ParseSettingsVersionCatalogContent(string(content))
+			catalog = parseSettingsVersionCatalog(string(content), isGroovyScript(source.Path))
 		default:
 			catalog = ParseVersionCatalogContent(string(content))
 		}
@@ -224,7 +256,7 @@ func parseVersionCatalogSources(sources []CatalogSource) (VersionCatalog, bool) 
 // settings plugin that an included build provides, walks every build file under
 // that build; a nested build with includeBuild("..") walks the whole repository.
 // Without the memo that walk repeats for every Gradle file and every catalog
-// lookup. Catalog contents are still revalidated by stat stamps on load. Safe for
+// lookup. Catalog contents are still revalidated by content stamps on load. Safe for
 // concurrent use; a nil *CatalogDiscovery does not memoize.
 type CatalogDiscovery struct {
 	dirSources sync.Map // dir -> []CatalogSource
@@ -287,32 +319,88 @@ func FindVersionCatalogSourcesForGradlePath(gradlePath string) ([]CatalogSource,
 	return (*CatalogDiscovery)(nil).FindVersionCatalogSourcesForGradlePath(gradlePath)
 }
 
-func (c *CatalogDiscovery) catalogSourcesForDir(dir string) []CatalogSource {
-	var sources []CatalogSource
-	catalogPaths, err := filepath.Glob(filepath.Join(dir, "gradle", "*.versions.toml"))
-	if err == nil && len(catalogPaths) > 0 {
-		for _, catalogPath := range orderVersionCatalogPaths(catalogPaths) {
-			sources = append(sources, CatalogSource{Path: catalogPath, Kind: CatalogSourceMergedTOML})
-		}
-	}
-	sources = append(sources, c.settingsCatalogSources(dir)...)
-	return sources
+// settingsFile is a settings file of a directory, with its comments stripped, and which bytes of that content are
+// code (gradleCode).
+type settingsFile struct {
+	path, content string
+	code          []bool
 }
 
-func (c *CatalogDiscovery) settingsCatalogSources(dir string) []CatalogSource {
-	var sources []CatalogSource
+func readSettingsFiles(dir string) []settingsFile {
+	var files []settingsFile
 	for _, name := range []string{"settings.gradle", "settings.gradle.kts"} {
-		settingsPath := filepath.Join(dir, name)
-		content, err := os.ReadFile(settingsPath)
+		path := filepath.Join(dir, name)
+		content, err := os.ReadFile(path)
 		if err != nil {
 			continue
 		}
-		settingsContent := stripGradleComments(string(content))
-		for _, match := range settingsCatalogFileRe.FindAllStringSubmatch(settingsContent, -1) {
-			catalogPath := filepath.Clean(filepath.Join(dir, match[1]))
-			sources = append(sources, CatalogSource{Path: catalogPath, Kind: CatalogSourceSettingsTOML})
+		stripped, code := stripGradleComments(string(content), isGroovyScript(path))
+		files = append(files, settingsFile{path: path, content: stripped, code: code})
+	}
+	return files
+}
+
+// defaultCatalogName is the name Gradle imports gradle/libs.versions.toml under for a build with these settings
+// files: the last literal defaultLibrariesExtensionName they set, else `libs`.
+func defaultCatalogName(settings []settingsFile) string {
+	name := defaultCatalogAccessor
+	for _, file := range settings {
+		for _, match := range defaultLibrariesExtensionNameRe.FindAllStringSubmatchIndex(file.content, -1) {
+			if gradleCodeAt(file.code, match[0]) {
+				name = file.content[match[2]:match[3]]
+			}
 		}
-		if isProgrammaticVersionCatalogContent(settingsContent) {
+	}
+	return name
+}
+
+// defaultCatalogAccessor is DependencyResolutionManagement.getDefaultLibrariesExtensionName's default.
+const defaultCatalogAccessor = "libs"
+
+func (c *CatalogDiscovery) catalogSourcesForDir(dir string) []CatalogSource {
+	var sources []CatalogSource
+	settings := readSettingsFiles(dir)
+	catalogPaths, err := filepath.Glob(filepath.Join(dir, "gradle", "*.versions.toml"))
+	if err == nil && len(catalogPaths) > 0 {
+		declared := settingsDeclaredCatalogNames(settings)
+		for _, catalogPath := range orderVersionCatalogPaths(catalogPaths) {
+			source := CatalogSource{Path: catalogPath, Kind: CatalogSourceMergedTOML}
+			// Gradle imports only this one by convention; with no settings file beside it, as in a partial checkout
+			// or a fixture, it keeps the default name, as before #1872.
+			if filepath.Base(catalogPath) == "libs.versions.toml" {
+				source.Accessor = defaultCatalogName(settings)
+			} else {
+				source.Shadowed = declared[strings.TrimSuffix(filepath.Base(catalogPath), ".versions.toml")]
+			}
+			sources = append(sources, source)
+		}
+	}
+	sources = append(sources, c.settingsCatalogSources(dir, settings)...)
+	return sources
+}
+
+func (c *CatalogDiscovery) settingsCatalogSources(dir string, settings []settingsFile) []CatalogSource {
+	var sources []CatalogSource
+	for _, file := range settings {
+		settingsPath, settingsContent := file.path, file.content
+		blocks := settingsCatalogBlocks(settingsContent, file.code)
+		for _, match := range settingsCatalogFileRe.FindAllStringSubmatchIndex(settingsContent, -1) {
+			if !gradleCodeAt(file.code, match[0]) {
+				continue
+			}
+			// from(files("path")), or Groovy's paren-less from files('path').
+			path := match[2:4]
+			if path[0] < 0 {
+				path = match[4:6]
+			}
+			catalogPath := filepath.Clean(filepath.Join(dir, settingsContent[path[0]:path[1]]))
+			sources = append(sources, CatalogSource{
+				Path:     catalogPath,
+				Kind:     CatalogSourceSettingsTOML,
+				Accessor: catalogBlockAt(blocks, match[0]),
+			})
+		}
+		if isProgrammaticVersionCatalogContent(settingsContent, file.code) {
 			sources = append(sources, CatalogSource{Path: settingsPath, Kind: CatalogSourceSettingsProgrammatic})
 		}
 		sources = append(sources, c.includedSettingsPluginSources(dir, settingsContent)...)
@@ -370,7 +458,8 @@ func (c *CatalogDiscovery) binarySettingsPluginSources(includeDir string, plugin
 		if err != nil {
 			continue
 		}
-		for _, className := range settingsPluginImplementationClasses(stripGradleComments(string(content)), pluginIDs) {
+		stripped, _ := stripGradleComments(string(content), isGroovyScript(buildPath))
+		for _, className := range settingsPluginImplementationClasses(stripped, pluginIDs) {
 			if sourcePath, ok := findImplementationSource(includeDir, className); ok && isProgrammaticVersionCatalogFile(sourcePath) {
 				sources = append(sources, CatalogSource{Path: sourcePath, Kind: CatalogSourceSettingsProgrammatic})
 			}
@@ -489,12 +578,38 @@ func isProgrammaticVersionCatalogFile(path string) bool {
 	if err != nil {
 		return false
 	}
-	return isProgrammaticVersionCatalogContent(stripGradleComments(string(content)))
+	return isProgrammaticVersionCatalogContent(stripGradleComments(string(content), isGroovyScript(path)))
 }
 
-func isProgrammaticVersionCatalogContent(content string) bool {
-	return strings.Contains(content, "versionCatalogs") &&
-		(settingsLibraryRe.MatchString(content) || settingsPluginRe.MatchString(content))
+// isProgrammaticVersionCatalogContent reports whether comment-stripped content, with its code mask
+// (stripGradleComments), mentions versionCatalogs and declares a library(...) or plugin(...) in code: text in a
+// string literal counts for neither (#1937).
+func isProgrammaticVersionCatalogContent(content string, code []bool) bool {
+	return matchesInCode(versionCatalogsWordRe, content, code) &&
+		(matchesInCode(settingsLibraryRe, content, code) || matchesInCode(settingsPluginRe, content, code))
+}
+
+var versionCatalogsWordRe = lazyre.New(`versionCatalogs`)
+
+// matchesInCode reports whether re matches content at an offset that is code.
+func matchesInCode(re *lazyre.Regexp, content string, code []bool) bool {
+	for _, match := range re.FindAllStringIndex(content, -1) {
+		if gradleCodeAt(code, match[0]) {
+			return true
+		}
+	}
+	return false
+}
+
+// submatches returns the text of each group of a FindStringSubmatchIndex match, "" for a group that didn't take part.
+func submatches(content string, match []int) []string {
+	groups := make([]string, len(match)/2)
+	for n := range groups {
+		if match[2*n] >= 0 {
+			groups[n] = content[match[2*n]:match[2*n+1]]
+		}
+	}
+	return groups
 }
 
 func normalizeCatalogSourceKinds(sources []CatalogSource) {
@@ -793,71 +908,6 @@ func unresolvedCatalogAliases(content string, catalog VersionCatalog, source str
 		}
 	}
 	return aliases
-}
-
-func stripGradleComments(content string) string {
-	var out strings.Builder
-	out.Grow(len(content))
-	inQuote := rune(0)
-	escaped := false
-	inLineComment := false
-	inBlockComment := false
-	for i := 0; i < len(content); i++ {
-		ch := rune(content[i])
-		next := rune(0)
-		if i+1 < len(content) {
-			next = rune(content[i+1])
-		}
-		if inLineComment {
-			if ch == '\n' {
-				inLineComment = false
-				out.WriteRune(ch)
-			}
-			continue
-		}
-		if inBlockComment {
-			if ch == '\n' {
-				out.WriteRune(ch)
-			}
-			if ch == '*' && next == '/' {
-				inBlockComment = false
-				i++
-			}
-			continue
-		}
-		if inQuote != 0 {
-			out.WriteRune(ch)
-			if escaped {
-				escaped = false
-				continue
-			}
-			if ch == '\\' {
-				escaped = true
-				continue
-			}
-			if ch == inQuote {
-				inQuote = 0
-			}
-			continue
-		}
-		if ch == '"' || ch == '\'' {
-			inQuote = ch
-			out.WriteRune(ch)
-			continue
-		}
-		if ch == '/' && next == '/' {
-			inLineComment = true
-			i++
-			continue
-		}
-		if ch == '/' && next == '*' {
-			inBlockComment = true
-			i++
-			continue
-		}
-		out.WriteRune(ch)
-	}
-	return out.String()
 }
 
 func catalogAccessorToAlias(accessor string) string {

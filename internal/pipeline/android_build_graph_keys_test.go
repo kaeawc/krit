@@ -146,13 +146,12 @@ func TestBuildFilesFingerprint_ManifestBuildScriptsWithoutSettings(t *testing.T)
 }
 
 // Every manifest rule, ProviderReadPermissionOnly included, reads whether a module is an app from version-catalog
-// plugin aliases too, so the build-script section keys every directory the catalog search of a script with aliases
-// globs, with its gradle/*.versions.toml matches (none counts), and the matched catalogs' content. Catalogs off every
-// search don't move it (#1800 fifth review), and neither do they when no script has an alias or no manifest rule is
-// active; a manifest that needs no module graph is still searched (#1853). A script with a libs. accessor also has
-// its dependency aliases resolved through librarymodel's catalog discovery, which merges the catalogs of every
-// ancestor, so a catalog past the nearest match moves the key there.
-func TestBuildFilesFingerprint_VersionCatalogSearch(t *testing.T) {
+// plugin aliases too, so the build-script section keys the catalog sources librarymodel's discovery finds for a
+// script with aliases, and their content. Catalogs off every discovery don't move it (#1800 fifth review), and
+// neither do they when no script has an alias or no manifest rule is active; a manifest that needs no module graph is
+// still searched (#1853). Discovery merges the catalogs of every ancestor, for plugin aliases as for libs. dependency
+// aliases (#1872), so a catalog past the nearest match moves the key for either.
+func TestBuildFilesFingerprint_CatalogDiscovery(t *testing.T) {
 	const catalog = "[plugins]\nandroid-application = { id = \"com.android.application\", version = \"8.5.0\" }\n"
 	const plain = "<manifest><application/></manifest>"
 	for _, test := range []struct {
@@ -169,7 +168,7 @@ func TestBuildFilesFingerprint_VersionCatalogSearch(t *testing.T) {
 		{"root catalog edited", buildGraphKeyProvider, providerReads, "plugs", []string{"gradle/libs.versions.toml"}, "gradle/libs.versions.toml", true},
 		{"second root catalog created", buildGraphKeyProvider, providerReads, "plugs", []string{"gradle/libs.versions.toml"}, "gradle/more.versions.toml", true},
 		{"nearer module catalog created", buildGraphKeyProvider, providerReads, "plugs", []string{"gradle/libs.versions.toml"}, "app/gradle/libs.versions.toml", true},
-		{"catalog past the nearest match", buildGraphKeyProvider, providerReads, "plugs", []string{"app/gradle/libs.versions.toml", "lib/gradle/libs.versions.toml"}, "gradle/libs.versions.toml", false},
+		{"catalog past the nearest match", buildGraphKeyProvider, providerReads, "plugs", []string{"app/gradle/libs.versions.toml", "lib/gradle/libs.versions.toml"}, "gradle/libs.versions.toml", true},
 		{"catalog past the nearest match, libs. accessor", buildGraphKeyProvider, providerReads, "libs", []string{"app/gradle/libs.versions.toml", "lib/gradle/libs.versions.toml"}, "gradle/libs.versions.toml", true},
 		{"root catalog edited, libs. accessor", buildGraphKeyProvider, providerReads, "libs", []string{"gradle/libs.versions.toml"}, "gradle/libs.versions.toml", true},
 		{"catalog off every search", buildGraphKeyProvider, providerReads, "plugs", nil, "tools/gradle/libs.versions.toml", false},

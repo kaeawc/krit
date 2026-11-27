@@ -1,8 +1,11 @@
 package pipeline
 
 import (
+	"cmp"
 	"context"
+	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -341,5 +344,204 @@ func TestManifestRules_KeyOnDependencyCatalogSources(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// Plugin aliases resolve through librarymodel's catalog discovery, which reads the catalogs a settings file declares
+// and the names it declares them under (#1872). A scan of the module alone doesn't hold the settings file or the
+// catalogs, so the gradle-info fingerprint must key what discovery derives from them: editing a settings-declared
+// catalog, renaming its create("<name>") or the default catalog, pointing from(files(...)) elsewhere, or editing a
+// programmatic declaration must re-run DataExtractionRules, which skips library modules, through every key that
+// replays manifest findings. A toml no discovery reaches, and a settings edit that leaves every catalog source alone,
+// must leave the keys alone. Edits run forward only.
+func TestManifestRules_KeyOnSettingsDeclaredCatalogs(t *testing.T) {
+	const (
+		settingsRel = "settings.gradle.kts"
+		buildRel    = "app/build.gradle.kts"
+		manifestRel = "app/src/main/AndroidManifest.xml"
+		build       = "plugins {\n    alias(libs.plugins.mod)\n}\n\nandroid {\n    defaultConfig {\n        minSdk = 21\n        targetSdk = 33\n    }\n}\n"
+		manifest    = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\" package=\"com.example\">\n    <application android:allowBackup=\"false\" />\n</manifest>\n"
+	)
+	catalogOf := func(id string) string {
+		return "[plugins]\nmod = { id = \"" + id + "\", version = \"8.5.0\" }\n"
+	}
+	settingsOf := func(name, file, extra string) string {
+		return "include(\":app\")\n\ndependencyResolutionManagement {\n    versionCatalogs {\n        create(\"" + name + "\") {\n            from(files(\"" + file + "\"))\n        }\n    }\n}\n" + extra
+	}
+	programmatic := func(id string) string {
+		return "dependencyResolutionManagement {\n    versionCatalogs {\n        create(\"libs\") {\n            plugin(\"mod\", \"" + id + "\").version(\"8.5.0\")\n        }\n    }\n}\n"
+	}
+	app, library := catalogOf("com.android.application"), catalogOf("com.android.library")
+	type edit struct {
+		rel, body string
+		want      int
+		unkeyed   bool
+	}
+	rule := registeredRule(t, "DataExtractionRules")
+	for _, test := range []struct {
+		name     string
+		settings string
+		catalogs map[string]string
+		cold     int
+		edits    []edit
+		// build replaces the build script, which otherwise reaches the catalog as libs.
+		build string
+	}{
+		{"settings-declared catalog edited", settingsOf("libs", "deps/catalog.toml", ""), map[string]string{"deps/catalog.toml": app}, 1, []edit{
+			{"deps/catalog.toml", library, 0, false},
+			{"deps/catalog.toml", app + "# back to an app\n", 1, false},
+		}, ""},
+		{"create renamed", settingsOf("libs", "deps/catalog.toml", ""), map[string]string{"deps/catalog.toml": library}, 0, []edit{
+			{settingsRel, settingsOf("tools", "deps/catalog.toml", ""), 1, false},
+			{settingsRel, settingsOf("libs", "deps/catalog.toml", "// libs again\n"), 0, false},
+		}, ""},
+		{"from(files) pointed elsewhere", settingsOf("libs", "deps/catalog.toml", ""), map[string]string{"deps/catalog.toml": library, "deps/app.toml": app}, 0, []edit{
+			{settingsRel, settingsOf("libs", "deps/app.toml", ""), 1, false},
+		}, ""},
+		{"default catalog renamed", "include(\":app\")\n", map[string]string{"gradle/libs.versions.toml": library}, 0, []edit{
+			{settingsRel, "include(\":app\")\n\ndependencyResolutionManagement {\n    defaultLibrariesExtensionName = \"projectLibs\"\n}\n", 1, false},
+		}, ""},
+		{"programmatic declaration edited", programmatic("com.android.library"), nil, 0, []edit{
+			{settingsRel, programmatic("com.android.application"), 1, false},
+		}, ""},
+		// A block that declares a published deps catalog takes the name from the unimported gradle/deps.versions.toml,
+		// so the alias no longer resolves and the module is no longer a known library (#1872 review).
+		{"published catalog declared under an unimported file's name", "include(\":app\")\n", map[string]string{"gradle/deps.versions.toml": library}, 0, []edit{
+			{settingsRel, "include(\":app\")\n\ndependencyResolutionManagement {\n    versionCatalogs {\n        create(\"deps\") {\n            from(\"com.example:catalog:1.0\")\n        }\n    }\n}\n", 1, false},
+		}, strings.Replace(build, "libs.plugins", "deps.plugins", 1)},
+		{"unrelated files", settingsOf("libs", "deps/catalog.toml", ""), map[string]string{"deps/catalog.toml": library}, 0, []edit{
+			{"deps/unused.toml", app, 0, true},
+			{"gradle/notes.toml", app, 0, true},
+			{"tools/gradle/libs.versions.toml", app, 0, true},
+			{settingsRel, settingsOf("libs", "deps/catalog.toml", "include(\":other\")\n"), 0, true},
+			{"deps/catalog.toml", app, 1, false},
+		}, ""},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			p := &manifestSourceProject{t: t, dir: t.TempDir()}
+			p.write(settingsRel, test.settings)
+			p.write(buildRel, cmp.Or(test.build, build))
+			p.write(manifestRel, manifest)
+			for rel, body := range test.catalogs {
+				p.write(rel, body)
+			}
+			// A scan of the module alone: neither the settings file nor any catalog is a scanned Gradle path.
+			project := &android.Project{
+				ManifestPaths: []string{p.path(manifestRel)},
+				GradlePaths:   []string{p.path(buildRel)},
+			}
+			reads := buildFileReadersOf([]*api.Rule{rule})
+			cacheDir := filepath.Join(p.dir, ".krit", "android-findings-cache")
+			run := func(cacheDir string) int {
+				t.Helper()
+				hashutil.ResetDefault()
+				writer := scanner.NewAndroidCacheWriter(2)
+				res, err := (AndroidPhase{}).Run(context.Background(), AndroidInput{
+					Project:        project,
+					ActiveRules:    []*api.Rule{rule},
+					Dispatcher:     rules.NewDispatcher([]*api.Rule{rule}, nil),
+					RuleHash:       "test-rule-hash",
+					LibraryFactsFP: "test-lf",
+					CacheDir:       cacheDir,
+					CacheWriter:    writer,
+				})
+				if err != nil {
+					t.Fatalf("AndroidPhase.Run: %v", err)
+				}
+				if err := writer.Close(); err != nil {
+					t.Fatal(err)
+				}
+				return res.Findings.Len()
+			}
+			if got := run(""); got != test.cold {
+				t.Fatalf("cold cache-free findings = %d, want %d", got, test.cold)
+			}
+			if got := run(cacheDir); got != test.cold {
+				t.Fatalf("cold findings = %d, want %d", got, test.cold)
+			}
+			for _, e := range test.edits {
+				hashutil.ResetDefault()
+				xmlBefore := xmlInputsFingerprint(ProjectHostState{}, project, nil, reads)
+				p.write(e.rel, e.body)
+				hashutil.ResetDefault()
+				if moved := xmlInputsFingerprint(ProjectHostState{}, project, nil, reads) != xmlBefore; moved == e.unkeyed {
+					t.Errorf("edit of %s: findings-bundle XML inputs fingerprint moved = %v, want %v", e.rel, moved, !e.unkeyed)
+				}
+				if got := run(""); got != e.want {
+					t.Fatalf("edit of %s: cache-free findings = %d, want %d", e.rel, got, e.want)
+				}
+				if got := run(cacheDir); got != e.want {
+					t.Fatalf("edit of %s: warm findings = %d, cache-free %d", e.rel, got, e.want)
+				}
+			}
+		})
+	}
+}
+
+// The librarymodel caches of parsed catalog sources live for the process, as a daemon keeps them across analyses.
+// Rewriting a settings-declared catalog with content of the same length and restoring its mtime must still change the
+// next analysis's findings, cache-free and warm (#1910 review round 3).
+func TestManifestRules_SettingsDeclaredCatalogSameStatEdit(t *testing.T) {
+	const (
+		catalogRel  = "deps/catalog.toml"
+		buildRel    = "app/build.gradle.kts"
+		manifestRel = "app/src/main/AndroidManifest.xml"
+		library     = "[plugins]\nmod = { id = \"com.android.library\", version = \"8.5.0\" }\n###\n"
+		app         = "[plugins]\nmod = { id = \"com.android.application\", version = \"8.5.0\" }\n"
+	)
+	if len(library) != len(app) {
+		t.Fatalf("test catalogs differ in length: %d vs %d", len(library), len(app))
+	}
+	rule := registeredRule(t, "DataExtractionRules")
+	p := &manifestSourceProject{t: t, dir: t.TempDir()}
+	p.write("settings.gradle.kts", "dependencyResolutionManagement {\n    versionCatalogs {\n        create(\"tools\") {\n            from(files(\"deps/catalog.toml\"))\n        }\n    }\n}\n")
+	p.write(buildRel, "plugins {\n    alias(tools.plugins.mod)\n}\n\nandroid {\n    defaultConfig {\n        minSdk = 21\n        targetSdk = 33\n    }\n}\n")
+	p.write(manifestRel, "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\" package=\"com.example\">\n    <application android:allowBackup=\"false\" />\n</manifest>\n")
+	p.write(catalogRel, library)
+	info, err := os.Stat(p.path(catalogRel))
+	if err != nil {
+		t.Fatal(err)
+	}
+	project := &android.Project{
+		ManifestPaths: []string{p.path(manifestRel)},
+		GradlePaths:   []string{p.path(buildRel), p.path("settings.gradle.kts")},
+	}
+	cacheDir := filepath.Join(p.dir, ".krit", "android-findings-cache")
+	run := func(cacheDir string) int {
+		t.Helper()
+		hashutil.ResetDefault()
+		writer := scanner.NewAndroidCacheWriter(2)
+		res, err := (AndroidPhase{}).Run(context.Background(), AndroidInput{
+			Project:        project,
+			ActiveRules:    []*api.Rule{rule},
+			Dispatcher:     rules.NewDispatcher([]*api.Rule{rule}, nil),
+			RuleHash:       "test-rule-hash",
+			LibraryFactsFP: "test-lf",
+			CacheDir:       cacheDir,
+			CacheWriter:    writer,
+		})
+		if err != nil {
+			t.Fatalf("AndroidPhase.Run: %v", err)
+		}
+		if err := writer.Close(); err != nil {
+			t.Fatal(err)
+		}
+		return res.Findings.Len()
+	}
+	if got := run(""); got != 0 {
+		t.Fatalf("library catalog: cache-free findings = %d, want 0", got)
+	}
+	if got := run(cacheDir); got != 0 {
+		t.Fatalf("library catalog: warm findings = %d, want 0", got)
+	}
+	p.write(catalogRel, app)
+	if err := os.Chtimes(p.path(catalogRel), info.ModTime(), info.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	if got := run(""); got != 1 {
+		t.Fatalf("same-size, same-mtime edit to an application catalog: cache-free findings = %d, want 1", got)
+	}
+	if got := run(cacheDir); got != 1 {
+		t.Fatalf("same-size, same-mtime edit to an application catalog: warm findings = %d, want 1", got)
 	}
 }

@@ -1,1 +1,3 @@
 src/main/java/com/example/JFields.java:27:50: RecyclerView: Do not treat position as fixed; only use immediately and call `holder.getAdapterPosition()` to look it up later
+src/main/java/com/example/JThisField.java:28:50: RecyclerView: Do not treat position as fixed; only use immediately and call `holder.getAdapterPosition()` to look it up later
+src/main/java/com/example/JThisFieldKeepsLocal.java:28:56: RecyclerView: Do not treat position as fixed; only use immediately and call `holder.getAdapterPosition()` to look it up later

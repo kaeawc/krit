@@ -360,10 +360,11 @@ func recyclerDeclaresName(file *scanner.File, scope uint32, name string) bool {
 	return found
 }
 
-// recyclerAssignSides returns the simple names of an assignment's target (a name or `this.name`, or the field of a
-// Java `holder.name`) and of its value when that is a plain name. field reports a Java `holder.name` target: it
-// resolves to a field, which Lint counts as an escape. A Kotlin `holder.name` goes through the property's setter,
-// which Lint does not count (recorded in RecyclerView/field_escape).
+// recyclerAssignSides returns the simple names of an assignment's target (a name, or the field of a Java
+// `holder.name` or `this.name`) and of its value when that is a plain name. field reports a qualified Java target: it
+// resolves to a field, never to a local of the same name, and Lint counts it as an escape. A qualified Kotlin target
+// (`holder.name`, `this.name`) goes through the property's setter, which Lint does not count, so it returns no
+// target (recorded in RecyclerView/field_escape).
 func recyclerAssignSides(file *scanner.File, n uint32) (lhs, rhs string, field bool) {
 	var parts []uint32
 	for c := file.FlatFirstChild(n); c != 0; c = file.FlatNextSib(c) {
@@ -375,7 +376,6 @@ func recyclerAssignSides(file *scanner.File, n uint32) (lhs, rhs string, field b
 		return "", "", false
 	}
 	target := strings.TrimSpace(file.FlatNodeText(parts[0]))
-	target = strings.TrimPrefix(target, "this.")
 	if !lintIdentOnly(target) {
 		if file.FlatType(parts[0]) != "field_access" {
 			return "", "", false

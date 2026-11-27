@@ -71,7 +71,15 @@ func sdkGuardLevel(file *scanner.File, idx uint32) int {
 					}
 				}
 			}
-		case "function_declaration", "method_declaration", "lambda_literal", "lambda_expression", "class_body", "source_file":
+		case "ternary_expression":
+			// Java `SDK_INT >= N ? webView.call() : fallback`.
+			if parts := sdkNamedParts(file, p); len(parts) == 3 && (child == parts[1] || child == parts[2]) {
+				if lvl := sdkConditionLevel(file, parts[0], child == parts[1]); lvl > best {
+					best = lvl
+				}
+			}
+		case "function_declaration", "method_declaration", "lambda_expression", "class_body", "source_file":
+			// A Kotlin lambda does not stop the walk: Lint counts the guard around `run { webView.call() }`.
 			return best
 		}
 		child = p
@@ -80,6 +88,23 @@ func sdkGuardLevel(file *scanner.File, idx uint32) int {
 
 // sdkIfParts returns the condition, then branch and else branch nodes of a Kotlin or Java if.
 func sdkIfParts(file *scanner.File, n uint32) (cond, then, els uint32) {
+	if file.Language == scanner.LangJava {
+		// An if_statement's named children are the condition, the consequence and the alternative, whatever kind of
+		// statement each branch is (a throw, a loop, a block).
+		parts := sdkNamedParts(file, n)
+		if len(parts) < 2 {
+			return 0, 0, 0
+		}
+		cond = parts[0]
+		if file.FlatType(cond) == "parenthesized_expression" {
+			cond = file.FlatNamedChild(cond, 0)
+		}
+		then = parts[1]
+		if len(parts) > 2 {
+			els = parts[2]
+		}
+		return trimSkipParens(file, cond), then, els
+	}
 	var bodies []uint32
 	for c := file.FlatFirstChild(n); c != 0; c = file.FlatNextSib(c) {
 		switch t := file.FlatType(c); {
@@ -99,6 +124,17 @@ func sdkIfParts(file *scanner.File, n uint32) (cond, then, els uint32) {
 		els = bodies[1]
 	}
 	return trimSkipParens(file, cond), then, els
+}
+
+// sdkNamedParts returns the named children of a node, comments left out.
+func sdkNamedParts(file *scanner.File, n uint32) []uint32 {
+	var parts []uint32
+	for c := file.FlatFirstChild(n); c != 0; c = file.FlatNextSib(c) {
+		if t := file.FlatType(c); file.FlatIsNamed(c) && t != "line_comment" && t != "block_comment" && t != "multiline_comment" {
+			parts = append(parts, c)
+		}
+	}
+	return parts
 }
 
 // sdkConditionLevel evaluates a condition for the branch it guards: positive for the then branch, negated for else.
@@ -147,7 +183,12 @@ func sdkConditionLevel(file *scanner.File, cond uint32, positive bool) int {
 		return max(sdkConditionLevel(file, left, false), sdkConditionLevel(file, right, false))
 	}
 	if !versionCheckIsSdkInt(file, left) {
-		return 0
+		// `N <= SDK_INT` is `SDK_INT >= N`.
+		flipped, known := map[string]string{"<=": ">=", "<": ">", ">=": "<=", ">": "<"}[op]
+		if !known || !versionCheckIsSdkInt(file, right) {
+			return 0
+		}
+		op, left, right = flipped, right, left
 	}
 	v, ok := sdkLevelValue(file, right)
 	if !ok {
@@ -245,7 +286,7 @@ func (r *WebViewAPIAvailabilityRule) check(ctx *api.Context) {
 		return
 	}
 	m, known := webViewCompatMethods[call.Name]
-	if !known || len(call.Args)+webViewTrailingLambdas(file, ctx.Idx) != m.arity || !webViewReceiver(ctx, call, m.static) {
+	if !known || len(call.Args)+webViewTrailingLambdas(file, ctx.Idx) != m.arity || !webViewReceiver(ctx, call, m.static, m.arity) {
 		return
 	}
 	if sdkGuardLevel(file, ctx.Idx) < m.level {
@@ -254,7 +295,7 @@ func (r *WebViewAPIAvailabilityRule) check(ctx *api.Context) {
 	ctx.Emit(lintFindingAtNode(ctx, ctx.Idx, "", "Consider using `WebViewCompat."+call.Name+"` instead which will support more devices."))
 }
 
-func webViewReceiver(ctx *api.Context, call lintCall, static bool) bool {
+func webViewReceiver(ctx *api.Context, call lintCall, static bool, arity int) bool {
 	file := ctx.File
 	if static {
 		return call.ReceiverNode != 0 && (strings.TrimSpace(call.ReceiverText) == webViewFQN ||
@@ -262,13 +303,40 @@ func webViewReceiver(ctx *api.Context, call lintCall, static bool) bool {
 	}
 	if call.ReceiverNode == 0 || strings.TrimSpace(call.ReceiverText) == "this" {
 		cls := recyclerEnclosingClass(file, call.Idx)
-		return cls != 0 && lintHasSupertype(file, cls, []string{webViewFQN}, false, 0)
+		return cls != 0 && lintHasSupertype(file, cls, []string{webViewFQN}, false, 0) && !webViewSubclassDeclares(file, cls, call.Name, arity)
 	}
 	if lintReceiverIsType(ctx, call, webViewFQN) {
 		return true
 	}
 	decl := lintSameFileClass(file, lintReceiverTypeText(file, call))
-	return decl != 0 && lintHasSupertype(file, decl, []string{webViewFQN}, false, 0)
+	return decl != 0 && lintHasSupertype(file, decl, []string{webViewFQN}, false, 0) && !webViewSubclassDeclares(file, decl, call.Name, arity)
+}
+
+// webViewSubclassDeclares reports a method of that name and arity declared by the WebView subclass or a same-file
+// class between it and WebView: the call resolves to it, an override or an overload, not to android.webkit.WebView's.
+func webViewSubclassDeclares(file *scanner.File, cls uint32, name string, arity int) bool {
+	seen := map[uint32]bool{cls: true}
+	for level, depth := []uint32{cls}, 0; len(level) > 0 && depth < 8; depth++ {
+		var next []uint32
+		for _, c := range level {
+			if body, ok := file.FlatFindChild(c, "class_body"); ok {
+				for m := file.FlatFirstChild(body); m != 0; m = file.FlatNextSib(m) {
+					if t := file.FlatType(m); (t == "function_declaration" || t == "method_declaration") &&
+						recyclerName(file, m) == name && len(recyclerParams(file, m)) == arity {
+						return true
+					}
+				}
+			}
+			for _, ref := range lintDirectSupertypeRefs(file, c) {
+				if d := lintSameFileClass(file, ref.simple); d != 0 && !seen[d] {
+					seen[d] = true
+					next = append(next, d)
+				}
+			}
+		}
+		level = next
+	}
+	return false
 }
 
 // ---------------------------------------------------------------------------
@@ -299,32 +367,25 @@ func (r *EnqueueWorkRule) check(ctx *api.Context) {
 			return
 		}
 	case "then":
-		if !workIsContinuation(file, call.ReceiverNode) {
+		if !workIsContinuation(file, call.ReceiverNode, 0) {
 			return
 		}
 	case "combine":
-		if text := strings.TrimSpace(call.ReceiverText); text != "WorkContinuation" && text != workContinuationFQN {
+		if !workIsContinuationClass(file, call.ReceiverText) {
 			return
 		}
 	default:
 		return
 	}
-	fn, ok := flatEnclosingCallable(file, ctx.Idx)
-	if !ok || fn == 0 {
+	body := workEnclosingBody(file, ctx.Idx)
+	if body == 0 {
 		return
 	}
-	fnDecl := fn
-	for file.FlatType(fnDecl) != "function_declaration" && file.FlatType(fnDecl) != "method_declaration" {
-		p, ok := file.FlatParent(fnDecl)
-		if !ok {
-			return
-		}
-		fnDecl = p
-	}
-	if lintTypeRefMatches(file, workDeclaredReturnType(file, fnDecl), workContinuationFQN) {
+	if t := file.FlatType(body); (t == "function_declaration" || t == "method_declaration") &&
+		lintTypeRefMatches(file, workDeclaredReturnType(file, body), workContinuationFQN) {
 		return
 	}
-	if workReachesEnqueue(file, fnDecl, ctx.Idx) {
+	if workReachesEnqueue(file, body, ctx.Idx) {
 		return
 	}
 	name := ""
@@ -334,32 +395,63 @@ func (r *EnqueueWorkRule) check(ctx *api.Context) {
 	ctx.Emit(lintFindingAtNode(ctx, ctx.Idx, "", "WorkContinuation "+name+"not enqueued: did you forget to call `enqueue()`?"))
 }
 
+// workEnclosingBody returns the function, constructor or initializer block whose code holds the call, as Lint checks
+// each method body: Kotlin init blocks and Java constructors count.
+func workEnclosingBody(file *scanner.File, idx uint32) uint32 {
+	for n, ok := file.FlatParent(idx); ok; n, ok = file.FlatParent(n) {
+		switch file.FlatType(n) {
+		case "function_declaration", "method_declaration", "constructor_declaration", "secondary_constructor",
+			"anonymous_initializer", "static_initializer":
+			return n
+		case "class_body", "source_file":
+			return 0
+		}
+	}
+	return 0
+}
+
 // workIsManager reports a WorkManager receiver: WorkManager.getInstance(...) or a variable declared or initialized as
-// one.
+// one. The class name must resolve to androidx.work.WorkManager, not a same-named class of the project.
 func workIsManager(file *scanner.File, recv uint32) bool {
 	if recv == 0 {
 		return false
 	}
 	recv = trimSkipParens(file, recv)
-	text := strings.TrimSpace(file.FlatNodeText(recv))
-	if strings.HasPrefix(text, "WorkManager.getInstance(") || strings.HasPrefix(text, workManagerFQN+".getInstance(") {
+	if workIsGetInstance(file, recv) {
 		return true
 	}
+	text := strings.TrimSpace(file.FlatNodeText(recv))
 	if lintIdentOnly(text) {
 		if lintTypeRefMatches(file, lintDeclaredTypeText(file, recv, text), workManagerFQN) {
 			return true
 		}
-		return workLocalInitializedBy(file, recv, text, func(init string) bool {
-			return strings.HasPrefix(init, "WorkManager.getInstance(") || strings.HasPrefix(init, workManagerFQN+".getInstance(")
-		})
+		init := lintInitializerOf(file, recv, text, true)
+		return init != 0 && workIsGetInstance(file, trimSkipParens(file, init))
 	}
 	return false
 }
 
-// workIsContinuation reports a WorkContinuation receiver: a chained beginWith/beginUniqueWork/then/combine call, or a
-// variable declared or initialized as one.
-func workIsContinuation(file *scanner.File, recv uint32) bool {
-	if recv == 0 {
+// workIsGetInstance reports a WorkManager.getInstance(...) call on androidx.work.WorkManager.
+func workIsGetInstance(file *scanner.File, expr uint32) bool {
+	call, ok := lintCallAt(file, expr)
+	if !ok || call.Name != "getInstance" || call.ReceiverNode == 0 {
+		return false
+	}
+	recv := strings.Join(strings.Fields(call.ReceiverText), "")
+	return recv == workManagerFQN || (recv == "WorkManager" && lintTypeRefMatches(file, "WorkManager", workManagerFQN))
+}
+
+// workIsContinuationClass reports the WorkContinuation class itself, as the receiver of its static combine.
+func workIsContinuationClass(file *scanner.File, text string) bool {
+	text = strings.Join(strings.Fields(text), "")
+	return text == workContinuationFQN || (text == "WorkContinuation" && lintTypeRefMatches(file, "WorkContinuation", workContinuationFQN))
+}
+
+// workIsContinuation reports a WorkContinuation receiver: a beginWith/beginUniqueWork call on a WorkManager, a then
+// call on a continuation, WorkContinuation.combine, or a variable declared as one or initialized with one. depth stops
+// a variable whose initializer reads itself.
+func workIsContinuation(file *scanner.File, recv uint32, depth int) bool {
+	if recv == 0 || depth > 8 {
 		return false
 	}
 	recv = trimSkipParens(file, recv)
@@ -368,9 +460,9 @@ func workIsContinuation(file *scanner.File, recv uint32) bool {
 		case "beginWith", "beginUniqueWork":
 			return workIsManager(file, inner.ReceiverNode)
 		case "then":
-			return workIsContinuation(file, inner.ReceiverNode)
+			return workIsContinuation(file, inner.ReceiverNode, depth+1)
 		case "combine":
-			return strings.TrimSpace(inner.ReceiverText) == "WorkContinuation"
+			return workIsContinuationClass(file, inner.ReceiverText)
 		}
 		return false
 	}
@@ -378,10 +470,11 @@ func workIsContinuation(file *scanner.File, recv uint32) bool {
 	if !lintIdentOnly(text) {
 		return false
 	}
-	return lintTypeRefMatches(file, lintDeclaredTypeText(file, recv, text), workContinuationFQN) ||
-		workLocalInitializedBy(file, recv, text, func(init string) bool {
-			return strings.Contains(init, ".beginWith(") || strings.Contains(init, ".beginUniqueWork(") || strings.Contains(init, ".then(")
-		})
+	if lintTypeRefMatches(file, lintDeclaredTypeText(file, recv, text), workContinuationFQN) {
+		return true
+	}
+	init := lintInitializerOf(file, recv, text, true)
+	return init != 0 && init != recv && workIsContinuation(file, init, depth+1)
 }
 
 // workLocalInitializedBy reports a local of the enclosing function named name whose initializer text satisfies ok.
@@ -480,6 +573,10 @@ func workReachesEnqueue(file *scanner.File, fn, call uint32) bool {
 			}
 			name := file.FlatNodeText(n)
 			if !tracked[name] {
+				return
+			}
+			// A lambda parameter or local function parameter of the same name is another variable.
+			if b := lintNameBinderAt(file, n, name); b != 0 && b != fn {
 				return
 			}
 			use := n
@@ -597,12 +694,35 @@ func workScopeEnqueues(file *scanner.File, call uint32, scope string) bool {
 		recv := strings.TrimSpace(c.ReceiverText)
 		switch scope {
 		case "also", "let":
-			found = recv == param || strings.HasPrefix(recv, param+".")
+			found = (recv == param || strings.HasPrefix(recv, param+".")) && !workRebound(file, n, lambda, param)
 		default:
 			found = recv == "" || recv == "this" || strings.HasPrefix(recv, "this.")
 		}
 	})
 	return found
+}
+
+// workRebound reports a lambda between the call and the scope lambda that declares param again, or, for `it`, any
+// lambda without parameters of its own, whose implicit `it` is another value: `.also { others.forEach { it.enqueue() } }`.
+func workRebound(file *scanner.File, call, scopeLambda uint32, param string) bool {
+	for n, ok := file.FlatParent(call); ok && n != scopeLambda; n, ok = file.FlatParent(n) {
+		switch file.FlatType(n) {
+		case "lambda_literal":
+			params, has := file.FlatFindChild(n, "lambda_parameters")
+			if !has {
+				if param == "it" {
+					return true
+				}
+				continue
+			}
+			if lintParamsDeclare(file, params, param) {
+				return true
+			}
+		case "function_declaration", "anonymous_function", "class_declaration", "object_literal":
+			return true
+		}
+	}
+	return false
 }
 
 // workTrailingLambda returns the lambda passed to a call after its parentheses, or 0.
@@ -647,13 +767,7 @@ func (r *ReportShortcutUsageRule) check(ctx *api.Context) {
 		if file == nil || file.FlatTree == nil || isProjectTestFile(ctx, file.Path) || !bytes.Contains(file.Content, shortcutBytes) {
 			continue
 		}
-		root := workModuleRoot(file.Path, roots)
-		if root == "" {
-			libraryOnly = false
-		} else if !seenRoots[root] {
-			seenRoots[root] = true
-			libraryOnly = libraryOnly && readModuleIsLibrary(root)
-		}
+		calls := false
 		for _, t := range []string{"call_expression", "method_invocation"} {
 			file.FlatWalkNodes(0, t, func(n uint32) {
 				call, ok := lintCallAt(file, n)
@@ -664,13 +778,26 @@ func (r *ReportShortcutUsageRule) check(ctx *api.Context) {
 				case "pushDynamicShortcut", "reportShortcutUsed":
 					// These names are distinctive: count a usage report whatever its receiver, so an unproven one
 					// (getSystemService(...).reportShortcutUsed(id)) never turns into a false finding.
-					reported = true
+					reported, calls = true, true
 				case "setDynamicShortcuts", "addDynamicShortcuts":
 					if shortcutReceiver(file, call) {
 						sets = append(sets, site{file, n})
+						calls = true
 					}
 				}
 			})
+		}
+		// Only a module that makes shortcut calls counts toward "every module is a library"; one that merely
+		// mentions the word, in a comment or a name, does not.
+		if !calls {
+			continue
+		}
+		root := workModuleRoot(file.Path, roots)
+		if root == "" {
+			libraryOnly = false
+		} else if !seenRoots[root] {
+			seenRoots[root] = true
+			libraryOnly = libraryOnly && readModuleIsLibrary(root)
 		}
 	}
 	// Lint skips a library main project: skip only when every module with shortcut calls is a library.

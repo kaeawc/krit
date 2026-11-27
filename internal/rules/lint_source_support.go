@@ -708,12 +708,18 @@ func lintInitializerOf(file *scanner.File, scope uint32, name string, allowMutab
 	fn, hasFn := flatEnclosingCallable(file, scope)
 	var local, member uint32
 	var localRoot uint32
-	// A parameter or an earlier local of the same name hides the member declaration.
-	shadowed := lintNameIsParameterAt(file, scope, name)
+	// A parameter or an earlier local of the same name hides the member declaration. A lambda parameter or loop
+	// variable also hides the locals declared before its lambda or loop.
+	binder := lintNameBinderAt(file, scope, name)
+	shadowed := binder != 0
+	hidesLocals := binder != 0 && lintBinderIsLocalScope(file, binder)
 	consider := func(decl, init uint32, mutable bool) {
 		mutable = mutable && !allowMutable
 		inFn := hasFn && file.FlatStartByte(decl) >= file.FlatStartByte(fn) && file.FlatEndByte(decl) <= file.FlatEndByte(fn)
 		if inFn {
+			if hidesLocals && (file.FlatStartByte(decl) < file.FlatStartByte(binder) || file.FlatEndByte(decl) > file.FlatEndByte(binder)) {
+				return
+			}
 			if file.FlatStartByte(decl) < file.FlatStartByte(scope) {
 				shadowed = true
 				if !mutable && init != 0 {
@@ -765,9 +771,21 @@ func lintInitializerOf(file *scanner.File, scope uint32, name string, allowMutab
 	return 0
 }
 
-// lintNameIsParameterAt reports whether name is a parameter of a function, constructor or lambda enclosing idx.
+// lintNameIsParameterAt reports whether name is a parameter of a function, constructor or lambda enclosing idx, or
+// the variable of a Kotlin for loop whose body holds idx.
 func lintNameIsParameterAt(file *scanner.File, idx uint32, name string) bool {
-	for cur, ok := file.FlatParent(idx); ok; cur, ok = file.FlatParent(cur) {
+	return lintNameBinderAt(file, idx, name) != 0
+}
+
+// lintNameBinderAt returns the nearest function, constructor, lambda or Kotlin for loop enclosing idx that declares
+// name as a parameter or loop variable, or 0. A loop variable binds only in the loop body: `for (x in x.items)` reads
+// the outer x in its iterable.
+func lintNameBinderAt(file *scanner.File, idx uint32, name string) uint32 {
+	child := idx
+	for cur, ok := file.FlatParent(idx); ok; child, cur = cur, parentOrZero(file, cur) {
+		if cur == 0 {
+			return 0
+		}
 		var params uint32
 		switch file.FlatType(cur) {
 		case "function_declaration", "secondary_constructor", "anonymous_function":
@@ -778,14 +796,76 @@ func lintNameIsParameterAt(file *scanner.File, idx uint32, name string) bool {
 			params, _ = file.FlatFindChild(cur, "formal_parameters")
 		case "lambda_expression":
 			params = file.FlatNamedChild(cur, 0)
-		default:
-			continue
+		case "for_statement":
+			if file.FlatType(child) == "control_structure_body" && lintForDeclares(file, cur, name) {
+				return cur
+			}
 		}
 		if params != 0 && lintParamsDeclare(file, params, name) {
-			return true
+			return cur
+		}
+	}
+	return 0
+}
+
+// lintForDeclares reports whether a Kotlin for loop declares name as its variable, alone or destructured.
+func lintForDeclares(file *scanner.File, loop uint32, name string) bool {
+	for c := file.FlatFirstChild(loop); c != 0; c = file.FlatNextSib(c) {
+		switch file.FlatType(c) {
+		case "variable_declaration":
+			if lintDeclaredName(file, c) == name {
+				return true
+			}
+		case "multi_variable_declaration":
+			for v := file.FlatFirstChild(c); v != 0; v = file.FlatNextSib(v) {
+				if file.FlatType(v) == "variable_declaration" && lintDeclaredName(file, v) == name {
+					return true
+				}
+			}
 		}
 	}
 	return false
+}
+
+// lintBinderIsLocalScope reports a lambda or for loop binder: one whose parameter hides even the locals of the
+// enclosing function declared before it.
+func lintBinderIsLocalScope(file *scanner.File, binder uint32) bool {
+	switch file.FlatType(binder) {
+	case "lambda_literal", "lambda_expression", "for_statement":
+		return true
+	}
+	return false
+}
+
+// lintBinderDeclaredType returns the type a lambda or for loop binder declares for name, or "" when it declares none:
+// `{ m: Fake -> }`, `for (m: Fake in fakes)`, Java `(Fake m) -> ...`.
+func lintBinderDeclaredType(file *scanner.File, binder uint32, name string) string {
+	decls := binder
+	switch file.FlatType(binder) {
+	case "lambda_literal":
+		decls, _ = file.FlatFindChild(binder, "lambda_parameters")
+	case "lambda_expression":
+		decls = file.FlatNamedChild(binder, 0)
+	}
+	for c := file.FlatFirstChild(decls); c != 0; c = file.FlatNextSib(c) {
+		switch file.FlatType(c) {
+		case "variable_declaration":
+			if lintDeclaredName(file, c) == name {
+				return lintChildTypeText(file, c)
+			}
+		case "multi_variable_declaration":
+			for v := file.FlatFirstChild(c); v != 0; v = file.FlatNextSib(v) {
+				if file.FlatType(v) == "variable_declaration" && lintDeclaredName(file, v) == name {
+					return lintChildTypeText(file, v)
+				}
+			}
+		case "formal_parameter":
+			if id, ok := file.FlatFindChild(c, "identifier"); ok && file.FlatNodeText(id) == name {
+				return lintChildTypeText(file, c)
+			}
+		}
+	}
+	return ""
 }
 
 // lintParamsDeclare reports whether a parameter list, or a single Java lambda parameter, declares name.
@@ -1061,6 +1141,10 @@ func lintIdentOnly(s string) bool {
 // lintDeclaredTypeText returns the declared (or constructor-inferred) type of the parameter, local, or field called
 // name that is visible from scope, preferring the enclosing callable's own declarations.
 func lintDeclaredTypeText(file *scanner.File, scope uint32, name string) string {
+	// A lambda parameter or loop variable of that name is the declaration: its own type, or none known.
+	if binder := lintNameBinderAt(file, scope, name); binder != 0 && lintBinderIsLocalScope(file, binder) {
+		return lintBinderDeclaredType(file, binder, name)
+	}
 	fn, hasFn := flatEnclosingCallable(file, scope)
 	var local, outer string
 	record := func(decl uint32, typ string) {

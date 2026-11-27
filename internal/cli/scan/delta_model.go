@@ -65,6 +65,8 @@ func forwardModelToBase(f *scanFlags, paths []string, repoRoot, tmp, scratch str
 		}
 		return baseModel{GradleModelArg: dest, Forwarded: true}, nil
 	}
+	// The model's place in the repository is where the base scan discovers
+	// it, so rel uses the path as spelled, not a symlink's target.
 	rel, err := filepath.Rel(repoRoot, src)
 	if err != nil {
 		return baseModel{}, err
@@ -85,13 +87,28 @@ func forwardModelToBase(f *scanFlags, paths []string, repoRoot, tmp, scratch str
 
 // copyModelForWorktree copies the model directory src to dest, rewriting the
 // paths of its JSON files from the checkout at repoRoot to the worktree tmp.
-// Other files are copied as they are.
-func copyModelForWorktree(src, dest, repoRoot, tmp string) error {
-	return filepath.WalkDir(src, func(p string, d fs.DirEntry, err error) error {
+// Other files are copied as they are. src may be a symlink (a model kept in a
+// cache and linked into .krit): its target is copied, while src as spelled
+// still decides the checkout the model belongs to. A symlinked file inside is
+// copied through; any other entry that is not a file or directory is an
+// error, so a model that could not be copied whole is reported, and the
+// partial copy is removed so the base scan cannot discover it.
+func copyModelForWorktree(src, dest, repoRoot, tmp string) (err error) {
+	walkRoot, err := filepath.EvalSymlinks(src)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil {
+			_ = os.RemoveAll(dest)
+		}
+	}()
+	copied := 0
+	err = filepath.WalkDir(walkRoot, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		rel, err := filepath.Rel(src, p)
+		rel, err := filepath.Rel(walkRoot, p)
 		if err != nil {
 			return err
 		}
@@ -99,9 +116,18 @@ func copyModelForWorktree(src, dest, repoRoot, tmp string) error {
 		if d.IsDir() {
 			return os.MkdirAll(out, 0o755)
 		}
-		if !d.Type().IsRegular() {
-			return nil
+		if d.Type()&fs.ModeSymlink != 0 {
+			info, err := os.Stat(p)
+			if err != nil {
+				return err
+			}
+			if !info.Mode().IsRegular() {
+				return fmt.Errorf("%s: a symlink to a directory or special file in a model is not copied", p)
+			}
+		} else if !d.Type().IsRegular() {
+			return fmt.Errorf("%s: not a regular file", p)
 		}
+		copied++
 		data, err := os.ReadFile(p)
 		if err != nil {
 			return err
@@ -113,6 +139,10 @@ func copyModelForWorktree(src, dest, repoRoot, tmp string) error {
 		}
 		return os.WriteFile(out, data, 0o600)
 	})
+	if err == nil && copied == 0 {
+		err = fmt.Errorf("model %s has no files", src)
+	}
+	return err
 }
 
 // sourceModelKeys name the model fields that hold the base ref's own inputs.

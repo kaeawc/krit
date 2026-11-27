@@ -258,6 +258,32 @@ func TestDeltaModelForwardingCases(t *testing.T) {
 	}
 }
 
+// A model that cannot be copied whole is an error (so the warning fires),
+// and no partial copy is left where the base scan would discover it.
+func TestDeltaModelThatCannotBeCopiedWholeIsAnError(t *testing.T) {
+	fx := newDeltaModelFixture(t, "gradle-model")
+	if err := os.Symlink(t.TempDir(), filepath.Join(fx.repo, ".krit", "gradle-model", "linked-dir")); err != nil {
+		t.Fatal(err)
+	}
+	got, err := forwardModelToBase(freshScanFlags(t), []string{fx.repo}, fx.repo, fx.tmp, fx.scratch)
+	if err == nil || got.Forwarded {
+		t.Fatalf("forwarded a model it could not copy: %+v %v", got, err)
+	}
+	if _, err := os.Stat(filepath.Join(fx.tmp, ".krit", "gradle-model")); err == nil {
+		t.Fatal("a partial model copy was left in the worktree")
+	}
+
+	empty := newDeltaModelFixture(t, "gradle-model")
+	for _, name := range []string{"model.json", "inputs.stamp"} {
+		if err := os.Remove(filepath.Join(empty.repo, ".krit", "gradle-model", name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got, err := forwardModelToBase(freshScanFlags(t), []string{empty.repo}, empty.repo, empty.tmp, empty.scratch); err == nil || got.Forwarded {
+		t.Fatalf("an empty model directory counts as forwarded: %+v %v", got, err)
+	}
+}
+
 func TestIsBuildInput(t *testing.T) {
 	for path, want := range map[string]bool{
 		"build.gradle.kts": true, "app/build.gradle": true, "settings.gradle.kts": true,
@@ -276,6 +302,13 @@ func TestIsBuildInput(t *testing.T) {
 // dropped PR-file list or model copy fails here and not only in the
 // JDK-gated parity test.
 func TestDeltaBaseScanGetsTheChangedFilesTheModelAndItsOwnStateDir(t *testing.T) {
+	t.Run("model", func(t *testing.T) { testDeltaBaseScanWiring(t, false) })
+	// A model kept elsewhere and linked into .krit (review of #1941: WalkDir
+	// did not follow the link, so nothing was copied and nothing warned).
+	t.Run("symlinked model", func(t *testing.T) { testDeltaBaseScanWiring(t, true) })
+}
+
+func testDeltaBaseScanWiring(t *testing.T, symlinked bool) {
 	root, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -288,7 +321,19 @@ func TestDeltaBaseScanGetsTheChangedFilesTheModelAndItsOwnStateDir(t *testing.T)
 	writeFile(t, filepath.Join(repo, "app/src/main/kotlin/B.kt"), "package a\n\nfun b() = 1\n")
 	model := `{"schema":2,"rootDir":"` + repo + `","projects":[{"path":":app","dir":"` + filepath.Join(repo, "app") +
 		`","sourceSets":[{"name":"main","sourceDirs":["` + filepath.Join(repo, "app/src/main/kotlin") + `"]}]}]}`
-	writeFile(t, filepath.Join(repo, ".krit/gradle-model/model.json"), model)
+	modelDir := filepath.Join(repo, ".krit/gradle-model")
+	if symlinked {
+		modelDir = filepath.Join(root, "model-cache", "gradle-model")
+	}
+	writeFile(t, filepath.Join(modelDir, "model.json"), model)
+	if symlinked {
+		if err := os.MkdirAll(filepath.Join(repo, ".krit"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(modelDir, filepath.Join(repo, ".krit", "gradle-model")); err != nil {
+			t.Fatal(err)
+		}
+	}
 	for _, args := range [][]string{{"init", "-q"}, {"add", "-A"}, {"commit", "-qm", "base"}} {
 		cmd := exec.Command("git", append([]string{"-c", "user.email=k@example.com", "-c", "user.name=k"}, args...)...)
 		cmd.Dir = repo
@@ -357,6 +402,9 @@ func TestDeltaBaseScanGetsTheChangedFilesTheModelAndItsOwnStateDir(t *testing.T)
 	}
 	if _, err := os.Stat(got["state"]); err == nil {
 		t.Errorf("the base scan's state dir %s outlived it", got["state"])
+	}
+	if strings.Contains(stderr, "runs without this checkout's build model") {
+		t.Errorf("the model was not forwarded:\n%s", stderr)
 	}
 	if !strings.Contains(stderr, "warning: --delta: build files changed since HEAD (build.gradle.kts)") {
 		t.Errorf("no warning that the base compiles with this checkout's model after a build change:\n%s", stderr)

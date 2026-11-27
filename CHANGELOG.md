@@ -101,7 +101,7 @@ All notable changes to Krit will be documented in this file.
 - `ReturnThis`, `UseSdkSuppress` and `AnnotateVersionCheck`, ports of Android Lint 32.4.1's `ReturnThisDetector`,
   `SdkSuppressDetector` and `SdkIntDetector` (Kotlin and Java), and `VisibleForTests` as a Lint alias of
   `VisibleForTestingCallerInNonTest` (so `@SuppressLint`, baselines and a lint.xml `ignore` for `VisibleForTests`
-  also apply to the krit rule). Findings match Lint on 7 recorded project fixtures (#1256, #1261, #1260, #1255).
+  also apply to the krit rule). Findings match Lint on 9 recorded project fixtures (#1256, #1261, #1260, #1255).
 - `RecyclerView`, `FindViewByIdCast`, `RemoteViewLayout`, `DefaultUncaughtExceptionDelegation` and
   `WrongGradleMethod`, ports of Android Lint 32.4.1's `RecyclerViewDetector`, `ViewTypeDetector` (FindViewByIdCast,
   with Lint's cast fix), `RemoteViewDetector`, `UncaughtExceptionHandlerDetector` and `WrongGradleMethodDetector`

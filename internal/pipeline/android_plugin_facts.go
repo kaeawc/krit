@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/kaeawc/krit/internal/android"
+	"github.com/kaeawc/krit/internal/fsutil"
 	"github.com/kaeawc/krit/internal/hashutil"
 )
 
@@ -17,13 +18,15 @@ var modulePluginPattern = regexp.MustCompile(`com\.android\.[a-z-]+|\bid\s*\(?\s
 // modulePluginsFingerprint hashes the plugins every build script of the project applies. Per-file rules such as
 // AnnotateVersionCheck decide from the module's plugin whether it is a library, which the file's own content hash
 // does not cover, so switching a module between application and library must change their cache keys. Other build
-// script edits (dependencies, versions) leave it unchanged.
+// script edits (dependencies, versions) leave it unchanged. Scripts are spelled relative to the directory all of them
+// share, so the same checkout at another absolute path keys its caches the same (#1662).
 func modulePluginsFingerprint(project *android.Project) string {
 	if project == nil || len(project.GradlePaths) == 0 {
 		return ""
 	}
 	paths := append([]string(nil), project.GradlePaths...)
 	sort.Strings(paths)
+	root := fsutil.CommonDir(paths)
 	var b strings.Builder
 	for _, path := range paths {
 		data, err := os.ReadFile(path)
@@ -35,7 +38,7 @@ func modulePluginsFingerprint(project *android.Project) string {
 			continue
 		}
 		sort.Strings(plugins)
-		b.WriteString(path)
+		b.WriteString(fsutil.RelSlash(root, path))
 		b.WriteByte('|')
 		b.WriteString(strings.Join(plugins, ","))
 		b.WriteByte('\n')

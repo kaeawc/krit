@@ -117,3 +117,43 @@ func TestProjectFactsCoverModulePlugins(t *testing.T) {
 		t.Fatal("switching to the library plugin did not change the per-file cache key")
 	}
 }
+
+// The plugins fingerprint spells build scripts relative to the directory they share, so the same checkout at another
+// absolute path keeps its per-file cache keys (#1662), while a module's plugins still count under its own path.
+func TestModulePluginsFingerprintIgnoresCheckoutRoot(t *testing.T) {
+	fingerprint := func(root string, scripts map[string]string) string {
+		t.Helper()
+		project := &android.Project{}
+		for rel, content := range scripts {
+			path := filepath.Join(root, rel)
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			project.GradlePaths = append(project.GradlePaths, path)
+		}
+		return modulePluginsFingerprint(project)
+	}
+	scripts := map[string]string{
+		"build.gradle.kts":     "plugins { alias(libs.plugins.android.application) apply false }\n",
+		"app/build.gradle.kts": "plugins { id(\"com.android.application\") }\n",
+		"lib/build.gradle.kts": "plugins { id(\"com.android.library\") }\n",
+	}
+	first := fingerprint(filepath.Join(t.TempDir(), "one"), scripts)
+	if first == "" {
+		t.Fatal("no plugins fingerprint for a project that applies plugins")
+	}
+	if moved := fingerprint(filepath.Join(t.TempDir(), "elsewhere", "two"), scripts); moved != first {
+		t.Fatalf("the same project at another root got plugins fingerprint %s, want %s", moved, first)
+	}
+	swapped := map[string]string{
+		"build.gradle.kts":     scripts["build.gradle.kts"],
+		"app/build.gradle.kts": scripts["lib/build.gradle.kts"],
+		"lib/build.gradle.kts": scripts["app/build.gradle.kts"],
+	}
+	if fingerprint(filepath.Join(t.TempDir(), "one"), swapped) == first {
+		t.Fatal("swapping which module is the library did not change the plugins fingerprint")
+	}
+}

@@ -46,4 +46,13 @@ class ProfileViewModel {
         f ?: run { return }
         name.value = f + known
     }
+
+    // An elvis run block that does other work before it exits.
+    fun logThenReturn(input: String?) {
+        input ?: run {
+            println("missing input")
+            return
+        }
+        name.value = input
+    }
 }

@@ -84,14 +84,27 @@ type unsafeIntentScan struct {
 	classes  *lintSourceIndex
 	exported map[string]bool
 	reported map[string]bool
-	// functions indexes the project's functions and methods by name, built on first use (#1623).
-	functions map[string][]unsafeIntentFunction
+	// functions indexes the project's top-level functions and class or object members that take an Intent, by
+	// owner and name, built on first use (#1623).
+	functions map[unsafeIntentFunctionKey][]unsafeIntentFunction
 }
 
-// unsafeIntentFunction is one function or method declaration in the project.
+// unsafeIntentFunctionKey names a function by the simple name of its class or object ("" for a top-level function)
+// and its own name.
+type unsafeIntentFunctionKey struct {
+	owner, name string
+}
+
+// unsafeIntentFunction is one function or method declaration in the project, with the facts a cross-file lookup
+// compares, computed once when the index is built.
 type unsafeIntentFunction struct {
 	file *scanner.File
 	fn   uint32
+	pkg  string
+	// ownerFQN is the qualified name of the declaring class or object ("pkg.Outer.Launcher"), or "" for a top-level
+	// function.
+	ownerFQN string
+	params   int
 }
 
 func (r *UnsafeIntentLaunchRule) check(ctx *api.Context) {
@@ -635,8 +648,11 @@ func (f *unsafeIntentFlow) argument(call lintCall, index int) {
 	inner.names[param] = true
 	inner.incidentClass, inner.incidentKnown = f.incidentClass, f.incidentKnown
 	inner.run()
+	// A helper called in a branch that tests for a protected broadcast only sees that broadcast, so its launch is
+	// exempt as a direct launch there is; a returned intent is still tracked.
+	protected := inner.launched && f.checkProtectedBroadcast && f.inProtectedBroadcastBranch(call.Idx)
 	switch {
-	case inner.launched:
+	case inner.launched && !protected:
 		f.launched = true
 		if !f.incidentKnown || f.incidentClass == "" {
 			f.incidentClass, f.incidentKnown = inner.incidentClass, true
@@ -727,71 +743,163 @@ func (s *unsafeIntentScan) resolveProjectCallee(file *scanner.File, call lintCal
 	return calleeFile, callee, unsafeIntentParamFor(calleeFile, callee, call, index)
 }
 
-// resolveCrossFileCallee resolves a call to exactly one function declared in another project file.
+// resolveCrossFileCallee resolves a call to exactly one function declared in another project file:
+//   - an unqualified call to a top-level function imported explicitly (possibly under an alias), through a wildcard
+//     import, or from the caller's package, or to a member brought in by a member import (`import a.Launcher.launch`,
+//     Java's `import static`, or a static wildcard import);
+//   - `Owner.fn(...)` to a member (or companion member) of the project class or object Owner, named by an import
+//     (possibly aliased or of a nested class), from the caller's package, or through a wildcard import.
+//
+// This approximates Kotlin's resolution: an unqualified call reaches the top-level function even when an inherited
+// member with the same name, declared in another file, would win. That is rare.
 func (s *unsafeIntentScan) resolveCrossFileCallee(file *scanner.File, call lintCall) (*scanner.File, uint32) {
-	if s.functions == nil {
-		// Only a function with an Intent parameter can receive the tracked intent.
-		s.functions = map[string][]unsafeIntentFunction{}
-		for _, f := range s.ctx.ParsedFiles {
-			if f == nil || f.FlatTree == nil || scanner.IsTestFile(f.Path) || !fileFactsCache().Mentions(f, "Intent") {
-				continue
-			}
-			for _, kind := range []string{"function_declaration", "method_declaration"} {
-				f.FlatWalkNodes(0, kind, func(fn uint32) {
-					if param, _ := unsafeIntentIntentParameter(f, fn); param == 0 {
-						return
-					}
-					if name := javascriptInterfaceMemberName(f, fn); name != "" {
-						s.functions[name] = append(s.functions[name], unsafeIntentFunction{file: f, fn: fn})
-					}
-				})
+	recv := strings.TrimSpace(call.ReceiverText)
+	if call.ReceiverNode != 0 && (!lintIdentOnly(recv) || recv == "super" || recv == "this") {
+		// super.onNewIntent(intent), this@Outer.fn(...) and a.b.fn(...) do not name a helper by its owner.
+		return nil, 0
+	}
+	functions := s.functionIndex()
+	imports := lintImportsOf(file)
+	pkg := s.classes.scope(file).pkg
+	visible := func(declPkg string) bool {
+		if declPkg == pkg {
+			return true
+		}
+		for _, star := range imports.stars {
+			if star == declPkg {
+				return true
 			}
 		}
+		return false
 	}
-	imports := lintImportsOf(file)
-	pkg := filePackageName(file)
-	recv := strings.TrimSpace(call.ReceiverText)
 	var match unsafeIntentFunction
 	count := 0
-	for _, cand := range s.functions[call.Name] {
-		if cand.file == file || providerParameterCount(cand.file, cand.fn) != len(call.Args) {
-			continue
+	consider := func(cand unsafeIntentFunction, ok bool) {
+		if ok && cand.file != file && cand.params == len(call.Args) {
+			match = cand
+			count++
 		}
-		owner := lintDeclarationOwner(cand.file, cand.fn)
-		declPkg := filePackageName(cand.file)
-		switch {
-		case call.ReceiverNode == 0:
-			if owner != 0 {
-				continue
-			}
-			if full, ok := imports.bySimple[call.Name]; ok {
-				if full != implicitJoinPkg(declPkg, call.Name) {
-					continue
-				}
-			} else if declPkg != pkg {
-				continue
-			}
-		case lintIdentOnly(recv):
-			if owner == 0 || unsafeIntentDeclName(cand.file, owner) != recv {
-				continue
-			}
-			if full, ok := imports.bySimple[recv]; ok {
-				if full != implicitJoinPkg(declPkg, recv) {
-					continue
-				}
-			} else if declPkg != pkg || lintSameFileClass(file, recv) != 0 {
-				continue
-			}
-		default:
-			continue
+	}
+	// members considers the functions name declared by the class or object ownerFQN.
+	members := func(ownerFQN, name string) {
+		for _, cand := range functions[unsafeIntentFunctionKey{owner: lintLastSegment(ownerFQN), name: name}] {
+			consider(cand, cand.ownerFQN == ownerFQN)
 		}
-		match = cand
-		count++
+	}
+	switch full, imported := imports.bySimple[call.Name]; {
+	case call.ReceiverNode == 0 && imported:
+		// `import a.b.forward as relay` makes relay(...) a call to a.b.forward; `import a.Launcher.launch` (or Java's
+		// `import static`) makes launch(...) a call to a member of a.Launcher.
+		prefix, name := "", full
+		if cut := strings.LastIndexByte(full, '.'); cut >= 0 {
+			prefix, name = full[:cut], full[cut+1:]
+		}
+		for _, cand := range functions[unsafeIntentFunctionKey{name: name}] {
+			consider(cand, cand.pkg == prefix)
+		}
+		if prefix != "" {
+			members(prefix, name)
+		}
+	case call.ReceiverNode == 0:
+		for _, cand := range functions[unsafeIntentFunctionKey{name: call.Name}] {
+			consider(cand, visible(cand.pkg))
+		}
+		// A wildcard import of a class or object (Java's `import static a.Launcher.*`) brings in its members.
+		for _, star := range imports.stars {
+			members(star, call.Name)
+		}
+	default:
+		if owner, ok := imports.bySimple[recv]; ok {
+			// `import a.Launcher as L` or `import a.Outer.Launcher` names the owner's qualified name.
+			members(owner, call.Name)
+			break
+		}
+		if lintSameFileClass(file, recv) != 0 {
+			break
+		}
+		members(implicitJoinPkg(pkg, recv), call.Name)
+		for _, star := range imports.stars {
+			members(star+"."+recv, call.Name)
+		}
 	}
 	if count != 1 {
 		return nil, 0
 	}
 	return match.file, match.fn
+}
+
+// functionIndex returns the project's functions that take an Intent, keyed by owner and name, built on first use.
+// Only a function with an Intent parameter can receive the tracked intent.
+func (s *unsafeIntentScan) functionIndex() map[unsafeIntentFunctionKey][]unsafeIntentFunction {
+	if s.functions != nil {
+		return s.functions
+	}
+	s.functions = map[unsafeIntentFunctionKey][]unsafeIntentFunction{}
+	for _, f := range s.ctx.ParsedFiles {
+		if f == nil || f.FlatTree == nil || scanner.IsTestFile(f.Path) || !fileFactsCache().Mentions(f, "Intent") {
+			continue
+		}
+		pkg := s.classes.scope(f).pkg
+		for _, kind := range []string{"function_declaration", "method_declaration"} {
+			f.FlatWalkNodes(0, kind, func(fn uint32) {
+				if param, _ := unsafeIntentIntentParameter(f, fn); param == 0 {
+					return
+				}
+				name := javascriptInterfaceMemberName(f, fn)
+				owners, named := unsafeIntentFunctionOwners(f, fn)
+				if name == "" || !named {
+					return
+				}
+				entry := unsafeIntentFunction{file: f, fn: fn, pkg: pkg, params: providerParameterCount(f, fn)}
+				key := unsafeIntentFunctionKey{name: name}
+				if len(owners) > 0 {
+					key.owner = owners[len(owners)-1]
+					entry.ownerFQN = implicitJoinPkg(pkg, strings.Join(owners, "."))
+				}
+				s.functions[key] = append(s.functions[key], entry)
+			})
+		}
+	}
+	return s.functions
+}
+
+// unsafeIntentFunctionOwners returns the names of the classes, objects, interfaces, enums and records that enclose fn,
+// outermost first, or none for a top-level function. A companion object's members are members of its class, which
+// is how `Owner.fn(...)` calls them. It reports false for a function another file cannot call by name: a local
+// function (declared inside a function, lambda, initializer or accessor), a member of a local class or of an
+// anonymous object, or a member of an unnamed declaration.
+func unsafeIntentFunctionOwners(file *scanner.File, fn uint32) ([]string, bool) {
+	var owners []string
+	for cur, ok := file.FlatParent(fn); ok; cur, ok = file.FlatParent(cur) {
+		switch file.FlatType(cur) {
+		case "companion_object":
+			if len(owners) == 0 {
+				continue
+			}
+			name := unsafeIntentDeclName(file, cur)
+			if name == "" {
+				name = "Companion"
+			}
+			owners = append([]string{name}, owners...)
+		case "class_declaration", "object_declaration", "interface_declaration", "enum_declaration",
+			"record_declaration", "annotation_type_declaration":
+			name := unsafeIntentDeclName(file, cur)
+			if name == "" {
+				return nil, false
+			}
+			owners = append([]string{name}, owners...)
+		case "function_declaration", "method_declaration", "constructor_declaration", "secondary_constructor",
+			"anonymous_initializer", "static_initializer", "lambda_literal", "lambda_expression", "anonymous_function",
+			"getter", "setter", "object_literal", "object_creation_expression":
+			return nil, false
+		}
+	}
+	return owners, true
+}
+
+// lintLastSegment is the part of a qualified name after its last dot.
+func lintLastSegment(qualified string) string {
+	return qualified[strings.LastIndexByte(qualified, '.')+1:]
 }
 
 func implicitJoinPkg(pkg, name string) string {
@@ -846,8 +954,8 @@ func unsafeIntentParamFor(file *scanner.File, fn uint32, call lintCall, index in
 }
 
 // addRuntimeRegisteredReceivers adds the receiver classes registered at runtime without protection (#1623):
-// Context.registerReceiver or ContextCompat.registerReceiver with neither RECEIVER_NOT_EXPORTED nor a broadcast
-// permission, which leaves the receiver exported to other apps.
+// Context.registerReceiver or ContextCompat.registerReceiver without RECEIVER_NOT_EXPORTED, a protecting broadcast
+// permission, or a filter of only protected broadcasts, which leaves the receiver exported to other apps.
 func (s *unsafeIntentScan) addRuntimeRegisteredReceivers() {
 	for _, file := range s.ctx.ParsedFiles {
 		if file == nil || file.FlatTree == nil || scanner.IsTestFile(file.Path) ||
@@ -860,19 +968,21 @@ func (s *unsafeIntentScan) addRuntimeRegisteredReceivers() {
 				if !ok || call.Name != "registerReceiver" {
 					return
 				}
-				args := call.Args
+				// reg is the registration seen as Context.registerReceiver, without ContextCompat's context argument.
+				reg := call
 				if lintTypeRefMatches(file, call.ReceiverText, "androidx.core.content.ContextCompat") {
-					if len(args) == 0 {
+					if len(call.Args) == 0 {
 						return
 					}
-					args = args[1:]
+					reg.Args, reg.Labels = call.Args[1:], call.Labels[1:]
 				} else if !s.receiverIsContext(file, call) {
 					return
 				}
-				if len(args) < 2 || unsafeIntentRegistrationProtected(file, args[2:]) {
+				receiver := reg.Arg(0, "receiver")
+				if len(reg.Args) < 2 || receiver == 0 || unsafeIntentRegistrationProtected(file, reg) {
 					return
 				}
-				if fqn := s.receiverClassOf(file, args[0], n); fqn != "" {
+				if fqn := s.receiverClassOf(file, receiver, n); fqn != "" {
 					s.exported[fqn] = true
 				}
 			})
@@ -880,23 +990,83 @@ func (s *unsafeIntentScan) addRuntimeRegisteredReceivers() {
 	}
 }
 
-// unsafeIntentRegistrationProtected reports a registerReceiver argument list (after the receiver and filter) that
-// passes RECEIVER_NOT_EXPORTED or a broadcast permission string.
-func unsafeIntentRegistrationProtected(file *scanner.File, rest []uint32) bool {
-	for _, arg := range rest {
-		if arg == 0 {
-			continue
-		}
-		text := strings.TrimSpace(file.FlatNodeText(arg))
-		if strings.Contains(text, "RECEIVER_NOT_EXPORTED") {
+// unsafeIntentRegistrationProtected ports Lint's isRuntimeReceiverProtected for a registerReceiver call, seen as
+// Context.registerReceiver, reading its arguments by position:
+//   - registerReceiver(receiver, filter, broadcastPermission, scheduler[, flags]) is protected by a permission, as
+//     unsafeIntentPermissionProtects decides.
+//   - registerReceiver(receiver, filter[, broadcastPermission, scheduler], flags) is protected when the flags
+//     evaluate, as constants through locals and properties, to a value that includes RECEIVER_NOT_EXPORTED. As in
+//     Lint, flags that cannot be evaluated (`RECEIVER_NOT_EXPORTED or extra`) do not protect.
+//   - A null filter, or one whose actions all evaluate to protected broadcasts, only receives broadcasts other apps
+//     cannot send. A filter that cannot be traced, or has an action that cannot be evaluated, does not protect.
+func unsafeIntentRegistrationProtected(file *scanner.File, reg lintCall) bool {
+	var permission, flags uint32
+	switch len(reg.Args) {
+	case 3:
+		flags = reg.Arg(2, "flags")
+	case 4:
+		permission = reg.Arg(2, "broadcastPermission")
+	case 5:
+		permission, flags = reg.Arg(2, "broadcastPermission"), reg.Arg(4, "flags")
+	}
+	if unsafeIntentPermissionProtects(file, permission, 0) {
+		return true
+	}
+	if flags != 0 {
+		if v, ok := lintEvalInt(file, flags, receiverFlagConsts); ok && v&receiverFlagConsts[contextClass+".RECEIVER_NOT_EXPORTED"] != 0 {
 			return true
 		}
-		if v, ok := lintEvalString(file, arg); ok && v != "" {
-			return true
+	}
+	// A null argument is a keyword without a named node, so its slot holds 0.
+	filter := reg.Arg(1, "filter")
+	if filter == 0 || strings.TrimSpace(file.FlatNodeText(filter)) == "null" {
+		return true
+	}
+	// An action Krit cannot evaluate (a parameter, a constant declared in another file) may be any broadcast, so the
+	// filter is not known to hold only protected ones.
+	protected, _, inspected, unevaluated := receiverFilterActions(file, filter, reg.Idx)
+	return protected && inspected && !unevaluated
+}
+
+// unsafeIntentPermissionProtects reports whether a broadcastPermission argument protects a runtime receiver. Lint
+// evaluates it with ConstantEvaluator, following field initializers, and treats a null or blank result as
+// unprotected, as is a known normal permission (KNOWN_NORMAL_PERMISSIONS) any app can hold. So a call such as
+// getString(R.string.perm), a parameter, "" or null does not protect. A field or property reference Krit cannot read,
+// such as BuildConfig.PERM or a constant declared in another file, is one Lint evaluates through its initializer, so
+// it counts as protecting.
+func unsafeIntentPermissionProtects(file *scanner.File, arg uint32, depth int) bool {
+	if arg == 0 || depth > 4 {
+		return false
+	}
+	arg = lintSkipParensJS(file, arg)
+	text := strings.Join(strings.Fields(file.FlatNodeText(arg)), "")
+	if text == "null" {
+		return false
+	}
+	if v, ok := lintEvalString(file, arg); ok {
+		return strings.TrimSpace(v) != "" && !lintKnownNormalPermissions[v]
+	}
+	switch file.FlatType(arg) {
+	case "simple_identifier", "identifier":
+		if init := lintInitializerOf(file, arg, text, true); init != 0 {
+			return unsafeIntentPermissionProtects(file, init, depth+1)
 		}
-		if strings.Contains(text, "Manifest.permission.") || strings.Contains(text, "PERMISSION") {
-			return true
+		// A parameter, including a lambda's implicit `it`, has no value to evaluate; any other name is a field or
+		// property declared elsewhere.
+		return text != "it" && !lintNameIsParameterAt(file, arg, text)
+	case "navigation_expression", "field_access":
+		cut := strings.LastIndexByte(text, '.')
+		if cut <= 0 || !lintIdentOnly(strings.ReplaceAll(text, ".", "")) {
+			return false
 		}
+		if lintTypeRefMatches(file, text[:cut], "android.Manifest.permission") {
+			return !lintKnownNormalPermissions["android.permission."+text[cut+1:]]
+		}
+		if init := lintQualifiedConstantInitializer(file, text[:cut], text[cut+1:]); init != 0 {
+			// A constant of a class or object declared in this file (Perms.EMPTY).
+			return unsafeIntentPermissionProtects(file, init, depth+1)
+		}
+		return true
 	}
 	return false
 }

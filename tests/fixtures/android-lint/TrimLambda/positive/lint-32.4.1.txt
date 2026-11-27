@@ -1,0 +1,7 @@
+src/main/java/com/example/Trim.kt:10:12: TrimLambda: The lambda argument (`{ ch -> ch.isWhitespace() }`) is unnecessary
+src/main/java/com/example/Trim.kt:4:12: TrimLambda: The lambda argument (`{ it <= ' ' }`) is unnecessary
+src/main/java/com/example/Trim.kt:5:14: TrimLambda: The lambda argument (`{ it <= ' ' }`) is unnecessary
+src/main/java/com/example/Trim.kt:6:12: TrimLambda: The lambda argument (`{ it <= ' ' }`) is unnecessary
+src/main/java/com/example/Trim.kt:7:13: TrimLambda: The lambda argument (`{ c -> c <= ' ' }`) is unnecessary
+src/main/java/com/example/Trim.kt:8:17: TrimLambda: The lambda argument (`{ it.isWhitespace() }`) is unnecessary
+src/main/java/com/example/Trim.kt:9:17: TrimLambda: The lambda argument (`{ (it <= ' ') }`) is unnecessary

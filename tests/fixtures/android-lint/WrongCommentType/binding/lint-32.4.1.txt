@@ -1,0 +1,8 @@
+src/main/java/com/example/Bind.kt:16:8: WrongCommentType: This block comment looks like it was intended to be a KDoc comment
+src/main/java/com/example/Bind.kt:25:12: WrongCommentType: This block comment looks like it was intended to be a KDoc comment
+src/main/java/com/example/Bind.kt:28:8: WrongCommentType: This block comment looks like it was intended to be a KDoc comment
+src/main/java/com/example/Bind.kt:32:8: WrongCommentType: This block comment looks like it was intended to be a KDoc comment
+src/main/java/com/example/Bind.kt:35:8: WrongCommentType: This block comment looks like it was intended to be a KDoc comment
+src/main/java/com/example/Bind.kt:43:8: WrongCommentType: This block comment looks like it was intended to be a KDoc comment
+src/main/java/com/example/Bind.kt:4:8: WrongCommentType: This block comment looks like it was intended to be a KDoc comment
+src/main/java/com/example/Bind.kt:8:8: WrongCommentType: This block comment looks like it was intended to be a KDoc comment

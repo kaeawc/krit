@@ -27,6 +27,8 @@ type Memo struct {
 	entries map[string]memoEntry
 	hits    atomic.Uint64
 	misses  atomic.Uint64
+	// generation counts Clear calls, so run-scoped caches built beside the Memo can tell one run from the next.
+	generation atomic.Uint64
 }
 
 type memoEntry struct {
@@ -188,6 +190,17 @@ func (m *Memo) Clear() {
 	m.mu.Unlock()
 	m.hits.Store(0)
 	m.misses.Store(0)
+	m.generation.Add(1)
+}
+
+// Generation returns the number of times the Memo has been cleared. A cache scoped to one run, like the Memo itself,
+// stores the generation it was built in and is stale once Generation moves (the CLI and the daemon clear the shared
+// Memo at the start of every scan). A nil *Memo always reports 0.
+func (m *Memo) Generation() uint64 {
+	if m == nil {
+		return 0
+	}
+	return m.generation.Load()
 }
 
 // Stats returns the current hit and miss counts.

@@ -1,0 +1,1 @@
+- src/com/example/OtherFile.kt:7:14: ViewModelConstructorInComposable: Constructing a view model in a composable # ChildViewModel is declared in Compose.kt; krit proves ViewModel ancestry from the file alone, because the per-file findings cache is keyed by the file's own content (#1778)

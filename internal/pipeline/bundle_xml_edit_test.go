@@ -256,3 +256,41 @@ func TestXMLInputsFingerprint_TracksXMLInputs(t *testing.T) {
 		t.Errorf("no Kotlin roots and no Android project: fingerprint = %q, want empty", got)
 	}
 }
+
+// A library module needs no AndroidManifest.xml, so its SDK levels come only from the build script. They key the
+// bundle even when the project has no XML at all, and so does the build script for the rules that read it (#1856).
+func TestXMLInputsFingerprint_KeysSDKLevelsWithoutManifest(t *testing.T) {
+	dir := t.TempDir()
+	build := filepath.Join(dir, "app", "build.gradle.kts")
+	if err := os.MkdirAll(filepath.Dir(build), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	tick := 0
+	write := func(targetSdk string) {
+		body := "android {\n    defaultConfig {\n        minSdk = 26\n        targetSdk = " + targetSdk + "\n    }\n}\n"
+		if err := os.WriteFile(build, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		tick++
+		mtime := time.Unix(1_700_000_000+int64(tick), 0)
+		if err := os.Chtimes(build, mtime, mtime); err != nil {
+			t.Fatal(err)
+		}
+	}
+	project := &android.Project{GradlePaths: []string{build}}
+	fp := func() string { return xmlInputsFingerprint(ProjectHostState{}, project, nil, buildFileReaders{}) }
+
+	write("34")
+	base := fp()
+	if base == "" {
+		t.Fatal("a build script that declares SDK levels must key the bundle without a manifest")
+	}
+	write("33")
+	if got := fp(); got == base {
+		t.Error("a targetSdk edit in a module without a manifest did not change the fingerprint")
+	}
+	write("34")
+	if got := fp(); got != base {
+		t.Error("fingerprint did not return to base after restoring targetSdk")
+	}
+}

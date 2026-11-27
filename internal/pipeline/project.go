@@ -3207,9 +3207,10 @@ func fileSetPaths(files []*scanner.File) []string {
 // manifests and navigation graphs contribute class references to the code
 // index; manifests and res/ directories feed the Android rules), plus the
 // build scripts and version catalogs the manifest rules read next to them
-// (reads says which). It returns "" when the
-// project has no XML, which keeps the bundle key unchanged for projects
-// without XML.
+// (reads says which), and the module SDK levels. It returns "" when the
+// project has no XML, build script or SDK level, which keeps the bundle key
+// unchanged for such projects. A library module may have no manifest, so its
+// build script alone still keys the bundle (#1856).
 //
 // The class-reference XML set comes from the host's resident XMLFilesLoader
 // when wired, so a warm daemon run re-reads nothing until the watcher bumps
@@ -3231,7 +3232,9 @@ func xmlInputsFingerprint(host ProjectHostState, project *android.Project, kotli
 		manifests = append(manifests, project.ManifestPaths...)
 		resDirs = project.ResDirs
 	}
-	if len(xmlFiles) == 0 && len(manifests) == 0 && len(resDirs) == 0 {
+	sdkLevels := sdkLevelsFingerprint(project)
+	hasBuildFiles := project != nil && (len(project.GradlePaths) > 0 || len(project.ManifestPaths) > 0)
+	if len(xmlFiles) == 0 && len(manifests) == 0 && len(resDirs) == 0 && sdkLevels == "" && !hasBuildFiles {
 		return ""
 	}
 	if reads.moduleGraph && project != nil {
@@ -3259,7 +3262,7 @@ func xmlInputsFingerprint(host ProjectHostState, project *android.Project, kotli
 	}
 	// Module SDK levels come from build scripts the hashes above do not cover.
 	_, _ = h.Write([]byte{3})
-	_, _ = h.Write([]byte(sdkLevelsFingerprint(project)))
+	_, _ = h.Write([]byte(sdkLevels))
 	// Manifest rules read the res of every source set of a manifest's module (and a flat module's res), which
 	// project detection may not list in ResDirs.
 	_, _ = h.Write([]byte{4})
@@ -3272,7 +3275,7 @@ func xmlInputsFingerprint(host ProjectHostState, project *android.Project, kotli
 	// dependencies), the version catalogs their aliases resolve through, and the module graph of each manifest's
 	// build, settings file included, which can lie outside the scan paths. A Groovy build.gradle is not a source file
 	// the SourceSet hash covers (#1625, #1800, #1853).
-	if project != nil && (len(project.GradlePaths) > 0 || len(project.ManifestPaths) > 0) {
+	if hasBuildFiles {
 		_, _ = h.Write([]byte{5})
 		if fp, ok := buildFilesFingerprint(project, reads); ok {
 			_, _ = h.Write([]byte(fp))

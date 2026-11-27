@@ -292,16 +292,17 @@ middle of a hierarchy ends the walk, because the pipeline does not index Java cl
 
 - `DoNotCallViewToString` reports a `toString()` call that resolves to an override declared in a subclass of
   `android.view.View`, including an inherited override and an unqualified call inside the class or in a plain lambda
-  there. A call inside an `apply`/`run`/`with`/`build*` block, whose receiver is another object, is not reported. As in
-  Lint, a call that resolves to View's own `toString()` (a plain `View` or a framework widget) is not reported, and
-  neither is a string template. An override declared in Java is not seen, because the resolver records Kotlin members
-  only.
+  there, or an unqualified call in an extension function on that class. A call inside an `apply`/`run`/`with`/`build*`
+  block, or inside an extension function on another type (`fun String.render() = toString()`), whose receiver is
+  another object, is not reported. As in Lint, a call that resolves to View's own `toString()` (a plain `View` or a
+  framework widget) is not reported, and neither is a string template. An override declared in Java is not seen,
+  because the resolver records Kotlin members only.
 - `InflationInItemDecoration` reports, inside a class, object or anonymous class extending
   `RecyclerView.ItemDecoration` (directly, through source superclasses, or through `DividerItemDecoration` and
   `ItemTouchHelper`), an `inflate()` call on a `LayoutInflater` (a typed receiver, or a property or local initialized
-  from `LayoutInflater.from(...)`) or a static `inflate()` of a generated `…Binding` class (in a `databinding` package)
-  or a source class implementing `ViewBinding`. A class or companion object nested inside the decoration is not part
-  of it, as in Lint.
+  from `LayoutInflater.from(...)`), a static `inflate()` of a generated `…Binding` class (in a `databinding` package),
+  or a static or instance `inflate()` of a source class implementing `ViewBinding`. A class or companion object nested
+  inside the decoration is not part of it, as in Lint.
 
 `InclusiveNaming` ports `InclusiveNamingSourceCodeScanner` for Kotlin and Java. It reports nothing until its
 `blockList` option (Lint's `block-list`) lists words, for example:

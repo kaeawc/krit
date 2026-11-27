@@ -133,9 +133,36 @@ func (v ruleView) writeLimitations(b *strings.Builder) {
 	}
 	b.WriteString("## Known limitations\n\n")
 	for _, l := range v.meta.KnownLimitations {
-		fmt.Fprintf(b, "- %s\n", l)
+		fmt.Fprintf(b, "- %s\n", escapeOutsideCodeSpans(l))
 	}
 	b.WriteString("\n")
+}
+
+// escapeOutsideCodeSpans escapes the characters markdown passes through as
+// HTML, so a limitation's bare `List<T>` or `<meta-data>` renders as text
+// instead of a hidden tag. Text inside backtick code spans is left alone, as
+// markdown shows it literally there.
+func escapeOutsideCodeSpans(s string) string {
+	var b strings.Builder
+	inCode := false
+	for _, r := range s {
+		switch {
+		case r == '`':
+			inCode = !inCode
+			b.WriteRune(r)
+		case inCode:
+			b.WriteRune(r)
+		case r == '<':
+			b.WriteString("&lt;")
+		case r == '>':
+			b.WriteString("&gt;")
+		case r == '&':
+			b.WriteString("&amp;")
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 func (v ruleView) writeCompatibility(b *strings.Builder) {

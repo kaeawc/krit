@@ -221,25 +221,45 @@ func catalogDeclaresDependency(gradlePath, content, group, name string) bool {
 // `alias(libs.plugins.android.library)` counts as com.android.library. An alias reads only the catalog its accessor
 // names (librarymodel.CatalogPluginsByAccessor), as Gradle generates one extension per catalog (#1872).
 func catalogPluginIDs(moduleDir, buildScript string) []string {
+	return BuildScriptPluginIDs(catalogDiscovery(fileFactsCache()), LoadCatalogPluginTables, moduleDir, buildScript)
+}
+
+// CatalogPluginTables returns the plugins of the catalog build scripts reach as accessor, keyed by normalized alias
+// key (normalizeCatalogKey). It is not safe for concurrent use.
+type CatalogPluginTables func(accessor string) map[string]string
+
+// LoadCatalogPluginTables reads the plugins the catalog sources declare (librarymodel.LoadCatalogPluginsByAccessor)
+// and normalizes each accessor's table once.
+func LoadCatalogPluginTables(sources []librarymodel.CatalogSource) CatalogPluginTables {
+	catalogs := librarymodel.LoadCatalogPluginsByAccessor(sources)
+	tables := map[string]map[string]string{}
+	return func(accessor string) map[string]string {
+		table, seen := tables[accessor]
+		if !seen {
+			table = normalizedCatalogPlugins(catalogs.Plugins(accessor))
+			tables[accessor] = table
+		}
+		return table
+	}
+}
+
+// BuildScriptPluginIDs is catalogPluginIDs with the catalog discovery to search through, nil for an uncached one, and
+// the loader of the plugins its sources declare: LoadCatalogPluginTables, or a memo of it shared between scripts. The
+// pipeline folds its result into the cache keys of rules that read a module's plugins.
+func BuildScriptPluginIDs(discovery *librarymodel.CatalogDiscovery, load func([]librarymodel.CatalogSource) CatalogPluginTables, moduleDir, buildScript string) []string {
 	aliases := catalogPluginAliases(buildScript)
 	if len(aliases) == 0 {
 		return nil
 	}
 	// Discovery searches from the script's directory; the file name doesn't matter.
-	sources, ok := catalogDiscovery(fileFactsCache()).FindVersionCatalogSourcesForGradlePath(filepath.Join(moduleDir, manifestBuildScriptNames[0]))
+	sources, ok := discovery.FindVersionCatalogSourcesForGradlePath(filepath.Join(moduleDir, manifestBuildScriptNames[0]))
 	if !ok {
 		return nil
 	}
-	catalogs := librarymodel.LoadCatalogPluginsByAccessor(sources)
-	tables := map[string]map[string]string{}
+	tables := load(sources)
 	var ids []string
 	for _, alias := range aliases {
-		table, seen := tables[alias.accessor]
-		if !seen {
-			table = normalizedCatalogPlugins(catalogs.Plugins(alias.accessor))
-			tables[alias.accessor] = table
-		}
-		if id, ok := table[alias.key]; ok {
+		if id, ok := tables(alias.accessor)[alias.key]; ok {
 			ids = append(ids, id)
 		}
 	}

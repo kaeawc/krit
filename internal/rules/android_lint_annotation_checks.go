@@ -448,11 +448,10 @@ func readModuleIsLibrary(root string) bool {
 		if err != nil {
 			continue
 		}
-		// The cached Gradle facts resolve version-catalog plugin aliases; the application check reads the plugins
-		// alone, without comments.
+		// Only the plugins count, without comments, and the version-catalog aliases resolve once for both checks.
 		content := gradleWithoutComments(string(data))
-		info, _ := tryReadGradleInfo(root)
-		return info.isLibrary && !moduleAppliesApplicationPlugin(root, content)
+		ids := catalogPluginIDs(root, content)
+		return appliesAndroidPlugin(content, "library", ids) && !appliesAndroidPlugin(content, "application", ids)
 	}
 	return false
 }

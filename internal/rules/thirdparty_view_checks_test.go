@@ -189,3 +189,65 @@ fun f(k: KView) = k.toString()
 		t.Errorf("Java source superclass (#1885): the pipeline can't see it yet; got %v", got)
 	}
 }
+
+// CodeRabbit on #1884: an extension function's receiver, not the enclosing class, is what an unqualified
+// toString() inside it calls; and an instance inflate() declared in a source ViewBinding class counts, as in Lint.
+func TestViewChecksExtensionReceiverAndInstanceBindingInflate(t *testing.T) {
+	got := runRuleOnSourcesWithResolverAll(t, "DoNotCallViewToString", map[string]string{"KView.kt": `package com.example
+
+import android.content.Context
+import android.widget.LinearLayout
+
+class KView(c: Context) : LinearLayout(c) {
+  override fun toString(): String = "k"
+  fun String.render() = toString()
+  fun String.renderThis() = this.toString()
+  fun plain() = toString()
+}
+
+fun KView.describe() = toString()
+fun String.other() = toString()
+fun KView?.orNull() = toString()
+`})
+	var lines []int
+	for _, f := range got {
+		lines = append(lines, f.Line)
+	}
+	sort.Ints(lines)
+	if fmt.Sprint(lines) != "[10 13]" {
+		t.Errorf("DoNotCallViewToString: want lines 10 and 13, got %v", got)
+	}
+	got = runRuleOnSourcesWithResolverAll(t, "InflationInItemDecoration", map[string]string{"Deco.kt": `package com.example
+
+import android.view.View
+import androidx.recyclerview.widget.RecyclerView
+import androidx.viewbinding.ViewBinding
+
+class ManualBinding(private val v: View) : ViewBinding {
+  override fun getRoot(): View = v
+  fun inflate(): View = v
+}
+
+class Other {
+  fun inflate() {}
+}
+
+class Deco(private val binding: ManualBinding, private val other: Other, private val plain: PlainBinding) : RecyclerView.ItemDecoration() {
+  fun draw() {
+    binding.inflate()
+    other.inflate()
+    plain.inflate()
+  }
+}
+
+// An extension inflate() is the file facade's, not the ViewBinding's (#1894 review, P3).
+class PlainBinding(private val v: View) : ViewBinding {
+  override fun getRoot(): View = v
+}
+
+fun PlainBinding.inflate(): View = root
+`})
+	if len(got) != 1 || got[0].Line != 18 {
+		t.Errorf("InflationInItemDecoration: want one finding, on binding.inflate(), got %v", got)
+	}
+}

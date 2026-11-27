@@ -60,6 +60,10 @@ type ClassInfo struct {
 	Line             int
 	NameScopeStart   uint32
 	NameScopeEnd     uint32
+	// Outer is the FQN krit-fir gives the enclosing class or object, so that
+	// Outer.Name is this class's krit-fir FQN. It is empty for a top-level
+	// class and for a local one, which krit-fir does not name by a container.
+	Outer string
 }
 
 func (r *defaultResolver) recordClassScope(fqn string, info *ClassInfo) {
@@ -142,6 +146,30 @@ func ParamAnnotationsOf(r TypeResolver) ParamAnnotationIndex {
 		r = w.Fallback()
 	}
 	return nil
+}
+
+// TopLevelFunctionIndex answers whether a non-private top-level source
+// function, one other files of its package can call, has an FQN. HasFunction
+// also answers for members, which the resolver records under pkg.name too.
+type TopLevelFunctionIndex interface {
+	HasTopLevelFunction(fqn string) bool
+}
+
+// HasTopLevelFunction reports whether r, or the source resolver it wraps,
+// indexes a top-level function fqn. A resolver without the index answers
+// HasFunction.
+func HasTopLevelFunction(r TypeResolver, fqn string) bool {
+	for cur := r; cur != nil; {
+		if t, ok := cur.(TopLevelFunctionIndex); ok {
+			return t.HasTopLevelFunction(fqn)
+		}
+		w, ok := cur.(interface{ Fallback() TypeResolver })
+		if !ok {
+			break
+		}
+		cur = w.Fallback()
+	}
+	return r != nil && r.HasFunction(fqn)
 }
 
 // ImportTable maps simple names to FQNs for a single file.
@@ -466,6 +494,13 @@ func (s *ScopeTable) MarkSmartCastAfter(name string, startByte uint32) {
 	if current, ok := s.SmartCastStarts[name]; !ok || startByte < current {
 		s.SmartCastStarts[name] = startByte
 	}
+}
+
+// SourceClassFinder is an optional TypeResolver capability that finds the
+// source-declared class krit-fir names fqn: a top-level class by its FQN, a
+// nested one by its enclosing class's FQN and simple name.
+type SourceClassFinder interface {
+	SourceClass(fqn string) *ClassInfo
 }
 
 // SubtypeFinder is an optional TypeResolver capability that answers whether any indexed source

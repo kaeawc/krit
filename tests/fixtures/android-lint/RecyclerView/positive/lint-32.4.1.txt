@@ -1,0 +1,5 @@
+src/main/java/com/example/Adapters.kt:15:51: RecyclerView: Do not treat position as fixed; only use immediately and call `holder.getAdapterPosition()` to look it up later
+src/main/java/com/example/Adapters.kt:24:51: RecyclerView: Do not treat position as fixed; only use immediately and call `holder.getAdapterPosition()` to look it up later
+src/main/java/com/example/JAdapter.java:18:53: RecyclerView: Do not treat position as fixed; only use immediately and call `viewHolder.getAdapterPosition()` to look it up later
+src/main/java/com/example/JAdapter.java:25:53: RecyclerView: Do not treat position as fixed; only use immediately and call `viewHolder.getAdapterPosition()` to look it up later
+src/main/java/com/example/JAdapter.java:36:48: RecyclerView: Do not treat position as fixed; only use immediately and call `h.getAdapterPosition()` to look it up later

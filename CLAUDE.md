@@ -123,13 +123,15 @@ porting, or broadening a rule:
   cold-then-warm test that changes only the new input and compares the warm
   result with `--no-cache`. Six PRs on 2026-11-26 had this bug in review
   (#1698, #1713, #1719, #1748, #1759, #1769).
-- **`--no-cache` keeps the parse cache.** When a change touches parsing, the
-  tree-sitter grammar, or tree repair, the cold baseline is
+- **In process, `--no-cache` keeps the parse cache.** When a change touches
+  parsing, the tree-sitter grammar, or tree repair, the cold baseline is
   `--no-daemon --no-cache --no-parse-cache`. With `--no-cache` alone, the
   warm run and the baseline reuse the same cached trees, so a missing
   parse-cache version bump (such as `kotlinTreeRepairRevision` in
-  `internal/scanner/parse_cache.go`) goes unnoticed (#1912). The daemon wire
-  does not carry `--no-parse-cache`, hence `--no-daemon`.
+  `internal/scanner/parse_cache.go`) goes unnoticed (#1912). A delegated scan
+  honours both flags (#1919), but the daemon keeps the type facts, resolver
+  and code index that earlier requests built in memory, possibly from stale
+  trees, hence `--no-daemon`.
 
 Bug fixes should include the regression test that would have failed before the
 fix: lexical negatives, nested-scope negatives, local-lookalike negatives, Java

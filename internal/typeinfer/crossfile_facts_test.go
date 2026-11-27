@@ -4,6 +4,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/kaeawc/krit/internal/scanner"
 )
 
 func crossFileFactsOf(t *testing.T, src string) CrossFileFacts {
@@ -41,6 +43,16 @@ func TestCrossFileFactsHash(t *testing.T) {
 		if got := crossFileFactsOf(t, src).Hash; got == want.Hash {
 			t.Errorf("%s kept the hash", name)
 		}
+	}
+}
+
+// The oracle names a nested class by its enclosing class, so moving it to
+// another one changes what other files resolve (#1928).
+func TestCrossFileFactsHashFollowsEnclosingClass(t *testing.T) {
+	inA := crossFileFactsOf(t, "package p\n\nclass A {\n    open class Inner : View()\n}\n\nclass B\n")
+	inB := crossFileFactsOf(t, "package p\n\nclass A\n\nclass B {\n    open class Inner : View()\n}\n")
+	if inA.Hash == inB.Hash {
+		t.Fatal("moving a nested class to another enclosing class kept the hash")
 	}
 }
 
@@ -131,6 +143,33 @@ func TestCrossFileFactsHashIgnoresWildcardImports(t *testing.T) {
 		withStar := crossFileFactsOf(t, strings.Replace(src, "package p\n", "package p\n\nimport kotlin.random.*\n", 1)).Hash
 		if base != withStar {
 			t.Errorf("%s: an unrelated wildcard import changed the hash", name)
+		}
+	}
+}
+
+// #1888: moving a function between top level and a class body keeps its pkg.name key and return type but changes
+// what it shadows in the package, so the name's hash must move.
+func TestCrossFileFactsHashFollowsTopLevelFunctions(t *testing.T) {
+	top := crossFileFactsOf(t, "package p\n\nfun run(): Int = 1\n\nclass Svc\n")
+	member := crossFileFactsOf(t, "package p\n\nclass Svc {\n  fun run(): Int = 1\n}\n")
+	if top.ByName["p.run"] == "" || top.ByName["p.run"] == member.ByName["p.run"] {
+		t.Errorf("p.run: top-level %q, member %q; want different non-empty hashes", top.ByName["p.run"], member.ByName["p.run"])
+	}
+}
+
+// #1940: a private top-level function shadows nothing outside its file, so making one private must move its name's
+// hash, and HasTopLevelFunction must stop answering for it.
+func TestPrivateTopLevelFunctionIsNotACrossFileShadow(t *testing.T) {
+	public := "package p\n\nfun run(): Int = 1\n"
+	private := "package p\n\nprivate fun run(): Int = 1\n"
+	if a, b := crossFileFactsOf(t, public).ByName["p.run"], crossFileFactsOf(t, private).ByName["p.run"]; a == b {
+		t.Errorf("p.run: public %q, private %q; want different hashes", a, b)
+	}
+	for src, want := range map[string]bool{public: true, private: false} {
+		r := NewResolver()
+		r.IndexFilesParallel([]*scanner.File{parseTestFile(t, src)}, 1)
+		if got := HasTopLevelFunction(r, "p.run"); got != want {
+			t.Errorf("HasTopLevelFunction(p.run) for %q = %v, want %v", src, got, want)
 		}
 	}
 }

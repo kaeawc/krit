@@ -227,7 +227,8 @@ declaration could shadow them:
 `withId()`, `View.setOnClickListener(null)`, `Flow.launchIn()`, the kotlinx-coroutines-rx3 builders called without a
 dispatcher, `runCatching`, the `LinkedList`, `Stack` and `Vector` constructors, and every method, constructor and
 static field of `java.util.Date`, `java.util.Calendar` and `java.text.DateFormat`/`SimpleDateFormat`, including
-static field imports and Kotlin property access and writes (`date.time`, `cal.timeInMillis = t`). An instance call
+static field imports and Kotlin property access and writes (`date.time`, `cal.timeInMillis = t`, and
+`timeInMillis = t` inside `cal.apply { }`). An instance call
 needs the receiver's type: from the source resolver, a declared type, a constructor or static factory (including
 RxJava 3's and subjects' and relays' `create*`), a property of a class declared in the same file, or the implicit
 receiver of `apply`/`run`/`with` or an enclosing View subclass. A class of the file's own package wins over an
@@ -236,8 +237,10 @@ another file) is not reported, and neither is a Kotlin receiver typed as a Java 
 pipeline does not index Java classes into the resolver yet (#1885). As in Lint 0.11.1, the list's
 `ResourcesCompat.getDrawable`, `ViewPager2.setId` and `runBlocking` entries never match. Differences from Lint:
 
-- a top-level `runCatching` of the file's package (in any file) shadows kotlin's, as the Kotlin compiler resolves
-  it; Lint still reports it;
+- a top-level `runCatching` of the file's package (in any file, unless it is `private` to another file) shadows
+  kotlin's, as the Kotlin compiler resolves it; Lint still reports it. As in Kotlin, a member of an implicit receiver
+  (a View subclass's `this`, `cal.apply { }`) wins over a top-level function of the file or its package, and a local
+  declaration wins over both;
 - the detector also reports layout XML tags named after a listed constructor's class (`<java.util.LinkedList>`,
   which no real layout contains); krit does not check layouts.
 
@@ -538,6 +541,28 @@ Ports of Android Lint 32.4.1 checks with recorded Lint output under `tests/fixtu
 - `TranslucentOrientation` (warning, target SDK 26+) reports the first `android:windowIsFloating` (or un-prefixed
   `windowIsTranslucent`, matching Lint) item of a style used by an activity with a fixed portrait or landscape
   orientation, or of the application theme when such an activity has no theme. `setTheme()` calls are not followed.
+
+## Android Lint Source and Gradle Checks (adapters, views, handlers)
+
+Ports of Android Lint 32.4.1 checks with recorded Lint output under `tests/fixtures/android-lint/<RuleID>/`:
+
+- `RecyclerView` (error, Kotlin and Java) reports the `position` parameter of an adapter's `onBindViewHolder` when it
+  is assigned to a field (directly or through a local, and in Java through `holder.field`) or read inside an anonymous
+  or inner class. Lambdas do not count, as in Lint, and neither does a read of a name the inner class declares again
+  (a parameter, an earlier local, or a Java field).
+- `FindViewByIdCast` (warning, Java, autofix) reports an unqualified `findViewById`/`requireViewById` passed to a
+  generic method `<T> T m(T)` whose result is dereferenced, which needs a `(View)` cast on Java 8. Known library
+  identities (`Objects.requireNonNull`, Guava/AndroidX `checkNotNull`, `Verify.verifyNotNull`) and same-file generic
+  methods qualify.
+- `RemoteViewLayout` (error, Kotlin and Java) reports `RemoteViews(pkg, R.layout.x)` when any configuration of the
+  layout contains views RemoteViews cannot inflate (CheckBox, Switch, RadioButton and RadioGroup are allowed from
+  API 31, by the folder's `-vNN` qualifier or the minSdk). The calling module's own layout overrides a library's of
+  the same name; another module's layout is read only when the calling module has none.
+- `DefaultUncaughtExceptionDelegation` (warning, Kotlin and Java) reports `Thread.setDefaultUncaughtExceptionHandler`
+  in a module (the directory of the nearest build script) that never calls `getDefaultUncaughtExceptionHandler`.
+- `WrongGradleMethod` (error, Groovy and Kotlin DSL) reports a `dependencies` block inside a build type or product
+  flavor, naming the `<name>Implementation` configuration to use, and `firebaseAppDistribution` in a `.kts` script
+  without its import. These are the patterns Lint checks without a resolved build classpath.
 
 ## AndroidX Library Lint Checks
 

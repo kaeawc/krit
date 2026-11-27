@@ -14,8 +14,9 @@ import (
 //   - two or more top-level annotations before a modifier-led function with
 //     an empty parameter list, which the grammar reads as an expression;
 //   - a nested body closed on the same line as its last member, alone or
-//     before a ';' and more members, which turns the enclosing class and the
-//     rest of the file into an ERROR (see closeSameLineBodies).
+//     before a ';' and more members, with or without a space before the
+//     '}', which turns the enclosing class and the rest of the file into an
+//     ERROR (see closeSameLineBodies).
 //
 // Byte offsets, rows and columns in the result match content.
 func ParseKotlinFlat(ctx context.Context, parser *sitter.Parser, content []byte) (*FlatTree, error) {

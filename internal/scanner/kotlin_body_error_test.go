@@ -115,6 +115,30 @@ func TestOneLineNestedClassBodiesHaveNoErrorNodes(t *testing.T) {
 		{"';' and no member after the body", "class H { companion object { val X = 1 }; }", "property_declaration", "val X = 1"},
 		{"comment holding '}' before ';'", "class H { companion object { val X = 1 } /* } */; val y = 2 }", "property_declaration", "val y = 2"},
 		{"';' and a string holding ' }'", "class H { companion object { val X = 1 }; val s = \" }\"; val y = 2 }", "property_declaration", "val s = \" }\""},
+		// No byte before the closing brace: a ';' is inserted and the tree is
+		// mapped back to the source's offsets (#1866).
+		{"no space before either brace", "class H { companion object { val X = 1}}", "property_declaration", "val X = 1"},
+		{"no space before the inner brace", "class H { companion object { val X = 1} }", "property_declaration", "val X = 1"},
+		{"no space before the outer brace", "class H { companion object { val X = 1 }}", "property_declaration", "val X = 1"},
+		{"no space, object const property", "class H { object O { const val X = 1}}", "property_declaration", "const val X = 1"},
+		{"no space, companion function", "class H { companion object { fun g() {}}}", "function_declaration", "fun g() {}"},
+		{"no space, call initializer", "class H { companion object { val X = listOf(1)}}", "property_declaration", "val X = listOf(1)"},
+		{"no space, string initializer holding '}'", "class H { companion object { val s = \"}\"}}", "property_declaration", "val s = \"}\""},
+		{"no space, two members", "class H { companion object { val X = 1; val Y = 2}}", "property_declaration", "val Y = 2"},
+		{"no space, three levels", "class A { class B { class C { val x = 1}}}", "property_declaration", "val x = 1"},
+		{"no space, four levels", "class A { class B { class C { object D { val x = 1}}}}", "property_declaration", "val x = 1"},
+		{"mixed spacing, three levels", "class A { class B { class C { val x = 1} }}", "property_declaration", "val x = 1"},
+		{"no space, nested interface", "class H { interface I { fun f()}}", "function_declaration", "fun f()"},
+		{"no space, enum body member", "class H { enum class E { A, B; fun g() = 1}}", "function_declaration", "fun g() = 1"},
+		{"no space, object literal in a member", "class H { val o = object { val x = 1}}", "property_declaration", "val x = 1"},
+		{"no space, outer object", "object O { object P { val x = 1}}", "property_declaration", "val x = 1"},
+		{"no space, outer interface", "interface I { companion object { val X = 1}}", "property_declaration", "val X = 1"},
+		{"no space, comment before the brace", "class H { companion object { val X = 1 /* c */}}", "property_declaration", "val X = 1"},
+		{"no space, ';' and a member", "class H { companion object { val X = 1}; val y = 2 }", "property_declaration", "val y = 2"},
+		{"no space, ';' and a member, no space at the end", "class H { companion object { val X = 1}; val y = 2}", "property_declaration", "val y = 2"},
+		{"no space, ';' at three levels", "class A { class B { class C { val x = 1}; val y = 2}; val z = 3}", "property_declaration", "val z = 3"},
+		{"no space, ';' in an enum body", "enum class E { A, B; companion object { val X = 1}; fun g() = 1}", "function_declaration", "fun g() = 1"},
+		{"no space, two objects separated by ';'", "class H { object O { val X = 1}; object P { val Y = 2}}", "property_declaration", "val Y = 2"},
 	}
 	for _, tc := range tests {
 		// A later function with a body is what made recovery swallow the
@@ -136,12 +160,12 @@ func TestOneLineNestedClassBodiesHaveNoErrorNodes(t *testing.T) {
 				// where the original line does.
 				var outer uint32
 				f.FlatForEachChild(0, func(c uint32) {
-					if outer == 0 && f.FlatType(c) == "class_declaration" {
+					if typ := f.FlatType(c); outer == 0 && (typ == "class_declaration" || typ == "object_declaration") {
 						outer = c
 					}
 				})
 				if outer == 0 {
-					t.Fatalf("no top-level class_declaration; top level = %v", scriptTopLevelTypes(f))
+					t.Fatalf("no top-level class or object declaration; top level = %v", scriptTopLevelTypes(f))
 				}
 				lineEnd := strings.Index(tc.line, " // c")
 				if lineEnd < 0 {
@@ -226,16 +250,32 @@ func TestOneLineNestedClassBodyRepairKeepsRealErrors(t *testing.T) {
 		}
 	}
 
-	// Known limit (docs/kotlin-syntax-support.md): with no space before either
-	// '}' there is no byte to hold a ';', so the error stays.
-	// That holds with ';' and a member after the inner brace as well (#1866).
+	// With no space before the braces the repair inserts a ';'; a real error
+	// there is still an error (#1866).
+	for _, src := range []string{
+		"class A { object B { val x = 1 )}}\nval m = 42\n",
+		"class A { object B { val x = 1 )}; val y = 2}\nfun after() { val unused = 1 }\n",
+		"class A { object B { val x = 1}; val y = )}\nfun after() { val unused = 1 }\n",
+	} {
+		f := parseScriptForTest(t, "a.kt", src)
+		hasError := false
+		for _, flags := range f.FlatTree.Flags {
+			hasError = hasError || flags&flatNodeFlagIsError != 0
+		}
+		if !hasError {
+			t.Fatalf("broken source %q must keep its error node", src)
+		}
+	}
+
+	// The no-space forms from #1866, which used to be a known limit, recover.
 	for _, src := range []string{
 		"class H { companion object { val X = 1}}\nval m = 42\n",
 		"class H { companion object { val X = 1}; val y = 2 }\nfun after() { val unused = 1 }\n",
 	} {
 		h := parseScriptForTest(t, "c.kt", src)
-		if got := scriptTopLevelTypes(h); len(got) != 1 || got[0] != "ERROR" {
-			t.Fatalf("no-space form %q parses as %v now; update the known limit in docs/kotlin-syntax-support.md", src, got)
+		assertNoErrorNodes(t, h)
+		if got := strings.Join(scriptTopLevelTypes(h), ","); !strings.HasPrefix(got, "class_declaration,") {
+			t.Fatalf("no-space form %q parses as %v", src, got)
 		}
 	}
 
@@ -244,6 +284,11 @@ func TestOneLineNestedClassBodyRepairKeepsRealErrors(t *testing.T) {
 		"fun f() { run { val x = 1 } }\nclass H { init { val y = 2 } }\n",
 		"fun f() { run { val x = 1 }; val y = 2 }\nclass H { init { val y = 2 }; val z = 1 }\n",
 		"class H { val s = \" }\"; val t = \"\"\" } \"\"\"; val y = 2 }\nfun g() { if (true) { h() }; h() }\n",
+		// Same-line '}' with no space before it in lambdas, blocks, `when`,
+		// `if`/`else` and string templates.
+		"fun f() { run { val x = 1}}\nclass H { init { val y = 2}}\n",
+		"val l = { x: Int -> x}\nval s = \"${l(1)}\"\nval t = \"${\"}\"}\"\n",
+		"fun g(x: Int) { if (x > 0) { h()} else { k()}; when (x) { 1 -> h(); else -> k()}}\n",
 	} {
 		g := parseScriptForTest(t, "b.kt", clean)
 		assertNoErrorNodes(t, g)
@@ -265,5 +310,105 @@ func TestOneLineNestedBodiesBeforeSemicolonOnOneLine(t *testing.T) {
 	got := strings.Join(scriptTopLevelTypes(f), ",")
 	if want := "class_declaration,class_declaration,function_declaration"; got != want {
 		t.Fatalf("top level = %s, want %s", got, want)
+	}
+}
+
+// spaceBeforeBraces puts a space before every '}' that directly follows a
+// byte other than a space or '{'. The test lines hold no strings or comments.
+func spaceBeforeBraces(line string) string {
+	var b strings.Builder
+	for i := 0; i < len(line); i++ {
+		if line[i] == '}' && i > 0 && line[i-1] != ' ' && line[i-1] != '{' {
+			b.WriteByte(' ')
+		}
+		b.WriteByte(line[i])
+	}
+	return b.String()
+}
+
+// A no-space one-line nested body parses into the same tree as the form with
+// a space before each brace, which the repair already handled (#1866). The
+// nodes on later lines sit at the spaced form's offsets shifted back by the
+// added spaces, with the same rows and columns.
+func TestOneLineNestedNoSpaceBodiesMatchSpacedForm(t *testing.T) {
+	for _, line := range []string{
+		"class H { companion object { val X = 1}}",
+		"class H { companion object { val X = 1} }",
+		"class A { class B { class C { val x = 1}}}",
+		"class H { companion object { val X = 1}; val y = 2 }",
+		"class H { companion object { val X = 1}; val y = 2}",
+		"enum class E { A, B; companion object { val X = 1}; fun g() = 1}",
+		"class H { val o = object { val x = 1}}",
+		"interface I { companion object { val X = 1}}",
+		"class H { companion object { val X = 1}}; class J { object O { val Z = 1}; val w = 3}",
+	} {
+		t.Run(line, func(t *testing.T) {
+			tail := "\nfun after() { val unused = 1 }\n\nval m = 42\n"
+			spaced := spaceBeforeBraces(line)
+			if spaced == line {
+				t.Fatalf("test line %q has no brace to space", line)
+			}
+			f := parseScriptForTest(t, "a.kt", line+tail)
+			g := parseScriptForTest(t, "a.kt", spaced+tail)
+			assertNoErrorNodes(t, g)
+			assertNoErrorNodes(t, f)
+			ft, gt := f.FlatTree, g.FlatTree
+			if len(ft.Types) != len(gt.Types) {
+				t.Fatalf("%d nodes, spaced form has %d", len(ft.Types), len(gt.Types))
+			}
+			shift := uint32(len(spaced) - len(line))
+			for i := range ft.Types {
+				idx := uint32(i)
+				if f.FlatType(idx) != g.FlatType(idx) || ft.Parents[i] != gt.Parents[i] {
+					t.Fatalf("node %d is %s under %d, spaced form has %s under %d", i, f.FlatType(idx), ft.Parents[i], g.FlatType(idx), gt.Parents[i])
+				}
+				nospace := func(s string) string { return strings.ReplaceAll(s, " ", "") }
+				if got, want := f.FlatNodeText(idx), g.FlatNodeText(idx); nospace(got) != nospace(want) {
+					t.Fatalf("node %d %s text = %q, want %q", i, f.FlatType(idx), got, want)
+				}
+				if ft.StartRows[i] == 0 {
+					continue
+				}
+				if ft.StartBytes[i]+shift != gt.StartBytes[i] || ft.EndBytes[i]+shift != gt.EndBytes[i] {
+					t.Fatalf("node %d %s at [%d,%d), spaced form at [%d,%d) with shift %d", i, f.FlatType(idx), ft.StartBytes[i], ft.EndBytes[i], gt.StartBytes[i], gt.EndBytes[i], shift)
+				}
+				if ft.StartRows[i] != gt.StartRows[i] || ft.StartCols[i] != gt.StartCols[i] {
+					t.Fatalf("node %d %s at %d:%d, spaced form at %d:%d", i, f.FlatType(idx), ft.StartRows[i], ft.StartCols[i], gt.StartRows[i], gt.StartCols[i])
+				}
+			}
+		})
+	}
+}
+
+// withInsertedSemicolons and dropInsertedBytes are inverses on offsets: a node
+// ending after an inserted ';' ends before it, the ';' itself becomes zero
+// width at the brace, and offsets past every insertion move back by all of
+// them (#1866).
+func TestInsertedSemicolonOffsetsMapBack(t *testing.T) {
+	src := []byte("{ a}}x")
+	inserts := []uint32{3, 4}
+	buf := withInsertedSemicolons(src, inserts)
+	if got, want := string(buf), "{ a;};}x"; got != want {
+		t.Fatalf("buffer = %q, want %q", got, want)
+	}
+	if got := withInsertedSemicolons(src, nil); &got[0] != &src[0] {
+		t.Fatal("no inserts must return src itself")
+	}
+	// Spans in buf: "a" [2,3), first ';' [3,4), "a;" [2,4), first '}' [4,5),
+	// second ';' [5,6), second '}' [6,7), "x" [7,8), whole buffer [0,8).
+	ft := &FlatTree{
+		StartBytes: []uint32{2, 3, 2, 4, 5, 6, 7, 0},
+		EndBytes:   []uint32{3, 4, 4, 5, 6, 7, 8, 8},
+	}
+	dropInsertedBytes(ft, inserts)
+	wantStart := []uint32{2, 3, 2, 3, 4, 4, 5, 0}
+	wantEnd := []uint32{3, 3, 3, 4, 4, 5, 6, 6}
+	for i := range wantStart {
+		if ft.StartBytes[i] != wantStart[i] || ft.EndBytes[i] != wantEnd[i] {
+			t.Errorf("span %d = [%d,%d), want [%d,%d)", i, ft.StartBytes[i], ft.EndBytes[i], wantStart[i], wantEnd[i])
+		}
+	}
+	if got := newInserts([]uint32{3, 9}, []uint32{9, 5, 3, 5, 1}); len(got) != 2 || got[0] != 1 || got[1] != 5 {
+		t.Errorf("newInserts = %v, want [1 5]", got)
 	}
 }

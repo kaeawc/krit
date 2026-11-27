@@ -1194,6 +1194,57 @@ func (r *defaultResolver) ClassHierarchy(typeName string) *ClassInfo {
 	return nil
 }
 
+// SourceClass returns the source-declared class krit-fir names fqn, or nil.
+// The source index keys a nested class by package and simple name, so a
+// nested class is found under each package prefix of its enclosing class and
+// taken only when its Outer is that class.
+func (r *defaultResolver) SourceClass(fqn string) *ClassInfo {
+	if info := r.classFQN[fqn]; info != nil && !info.IsNested {
+		return info
+	}
+	if info := lastClassWhere(r.classFQNScopes[fqn], func(c *ClassInfo) bool { return !c.IsNested }); info != nil {
+		return info
+	}
+	dot := strings.LastIndexByte(fqn, '.')
+	if dot <= 0 {
+		return nil
+	}
+	outer, simple := fqn[:dot], fqn[dot+1:]
+	isNestedInOuter := func(c *ClassInfo) bool { return c.Outer == outer }
+	var buf [128]byte
+	for pkg := outer; ; {
+		key := buf[:0]
+		if pkg != "" {
+			key = append(append(key, pkg...), '.')
+		}
+		key = append(key, simple...)
+		// Indexing by string(key) does not allocate.
+		if info := r.classFQN[string(key)]; info != nil && info.Outer == outer {
+			return info
+		}
+		if info := lastClassWhere(r.classFQNScopes[string(key)], isNestedInOuter); info != nil {
+			return info
+		}
+		if pkg == "" {
+			return nil
+		}
+		if i := strings.LastIndexByte(pkg, '.'); i >= 0 {
+			pkg = pkg[:i]
+		} else {
+			pkg = ""
+		}
+	}
+}
+
+func lastClassWhere(classes []*ClassInfo, match func(*ClassInfo) bool) *ClassInfo {
+	for i := len(classes) - 1; i >= 0; i-- {
+		if match(classes[i]) {
+			return classes[i]
+		}
+	}
+	return nil
+}
+
 // HasKnownSubtypes reports whether an indexed source class lists typeName (simple or FQN) as a direct supertype.
 func (r *defaultResolver) HasKnownSubtypes(typeName string) bool {
 	return anyClassExtends(r.classFQN, typeName)

@@ -29,7 +29,7 @@ TARGET=/path/to/project
 ./krit -no-cache -perf -perf-rules -f json -q -o /tmp/krit_dogfood.json "$TARGET" || true
 ```
 
-`-no-cache` keeps the content-keyed parse cache. If the Krit change under test touches parsing, the tree-sitter grammar, or tree repair, add `-no-daemon -no-parse-cache`, or the scan can replay trees cached by the old parser (#1912).
+`-no-cache` keeps the content-keyed parse cache. If the Krit change under test touches parsing, the tree-sitter grammar, or tree repair, add `-no-daemon -no-parse-cache`, or the scan can replay trees cached by the old parser (#1912). `-no-daemon` because a running daemon keeps type facts built from earlier parses in memory.
 
 If the target's `krit.yml` is not auto-discovered, pass `--config`. The project profile drives most library-aware rule behavior — check it first:
 

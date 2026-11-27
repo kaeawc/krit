@@ -93,6 +93,11 @@ All notable changes to Krit will be documented in this file.
   with `androidx.compose.animation` 1.13.0 (`animation-android`, `animation-core-android`), under their Lint IDs.
   Their findings match the Lint CLI running those releases' `lint.jar` on the inputs under
   `internal/rules/testdata/androidx_compose_animation/` (#1307, #1308, #1309, #1313).
+- `RecyclerView`, `FindViewByIdCast`, `RemoteViewLayout`, `DefaultUncaughtExceptionDelegation` and
+  `WrongGradleMethod`, ports of Android Lint 32.4.1's `RecyclerViewDetector`, `ViewTypeDetector` (FindViewByIdCast,
+  with Lint's cast fix), `RemoteViewDetector`, `UncaughtExceptionHandlerDetector` and `WrongGradleMethodDetector`
+  (command-line patterns). Findings match Lint on 16 recorded project fixtures; `scripts/lint-parity-record.sh` now
+  records Groovy build scripts and flavored modules too (#1248, #1290, #1250, #1282, #1300).
 - `ScopedStorage`, `SelectableText`, `CustomSplashScreen`, `VectorDrawableCompat` and `TranslucentOrientation`, ports
   of Android Lint 32.4.1's `ScopedStorageDetector`, `TextViewDetector` (SelectableText), `SplashScreenDetector`,
   `VectorDrawableCompatDetector` and `TranslucentViewDetector` under their Lint IDs. Findings match Lint on 20
@@ -663,6 +668,11 @@ All notable changes to Krit will be documented in this file.
   published one, stops an unimported `gradle/<name>.versions.toml` of that name from serving its accessor. Programmatic
   `library(...)`/`plugin(...)` text in a settings string literal adds no library fact, and the parsed-catalog caches
   follow file content, not only size and mtime.
+- `--no-parse-cache` now works on a scan delegated to a daemon. The flag was not sent, so the daemon still parsed
+  through its parse cache and could serve stale trees with no warning. The daemon now parses every file afresh for that
+  request, skipping both its parse cache and the parsed trees it keeps in memory, and confirms the bypass in its
+  reply. If a daemon does not confirm it, the CLI scans in process. Later requests keep using the daemon's caches
+  (#1919).
 - MCP `analyze` (mode `android`) reports OnClick for a relative `projectPath`. The sources stayed relative while the
   res dirs were absolute, so no Activity matched its res dir's module (#1908). Rule pages now list a rule's known
   limitations, including OnClick's: a layout is checked only against Activities in its own module.
@@ -682,6 +692,15 @@ All notable changes to Krit will be documented in this file.
   now built once per run. A 2,000-file project with an override per file went from 37.9 s to 0.6 s.
   `JavaOnlyDetector` matches an override by parameter count, so `override fun on(x: Int)` is not reported against
   `@JavaOnly fun on()` (#1899).
+- `DenyListedApi`: a member function of a class in the file's package no longer silences unqualified calls across
+  the package (a `Button` subclass overriding `setOnClickListener`, a class with its own `runCatching`); only a
+  top-level function shadows the listed one. The type index records which functions are top-level (cache version 21),
+  and a warm run follows a function moving between top level and a class body in another file. An unqualified
+  property write inside `cal.apply { }` (`timeInMillis = t`) is now reported (#1888).
+- `DenyListedApi`: a `private` top-level function in another file of the package no longer silences a listed call;
+  only its own file can call it. A member of an implicit receiver now wins over a top-level function of the file or
+  its package, so `setOnClickListener(null)` inside a View subclass and `set(...)` inside `cal.apply { }` are
+  reported even when the package declares a top-level function of that name (#1940).
 - Warm runs follow version-catalog edits for every manifest rule. Manifest rules read whether a module is an app or a
   library from its build script's `alias(libs.plugins...)` entries, resolved through `gradle/*.versions.toml`, and
   whether it uses the SplashScreen library from its `libs.` dependency aliases, resolved through the catalogs the
@@ -717,18 +736,26 @@ All notable changes to Krit will be documented in this file.
   inner `}` sat alone in an ERROR node with its member just before it, so it was never a candidate and a later
   `fun after() { val unused = 1 }` lost its `UnusedVariable` finding. Parse-cache entries and cross-file index shards
   written before the fix are rebuilt (#1875).
+- The same repair covers a nested body whose `}` directly follows its last member, such as
+  `class H { companion object { val X = 1}}` or `{ val X = 1}; val y = 2 }`, which still lost every finding in the
+  file. With no space to hold the `;`, krit inserts one, reparses, and maps the tree's byte offsets, rows and columns
+  back to the source, so finding positions, `@Suppress` scopes and autofix ranges are those of the file. Parse-cache
+  entries and cross-file index shards written before the fix are rebuilt (#1866).
 - `--no-cache` skips every cache that can change findings. A one-shot scan read the cross-file findings cache, so a
   stale entry replayed into the run warm results are checked against; it now skips that cache and also the cross-file
   index, resource index, file-walk, tracked-files and incremental oracle caches. With the type oracle on, every
   `--no-cache` scan therefore runs krit-fir in full. A daemon-delegated scan forwards the oracle part too, including
   the `KRIT_MODULE_SHARDS` module facts. The content-keyed parse cache and the content-hash memo stay on (#1818,
   #1831).
-  index, resource index, file-walk and incremental oracle caches. Only the parse cache stays on (#1818).
 - `ArgInFormattedQuantityStringRes` reports `getQuantityString` on a Kotlin subclass of `Resources`, direct or
   indirect and declared in any file, and on `resources` of a Kotlin `ContextWrapper`, Activity or View subclass. The
   resolver records supertypes as written, so each is now resolved through its declaring file's imports. A lookalike
   `Resources` stays silent. A Java subclass is still missed (#1885). The per-file cache keys a class's supertype imports,
   so swapping only the import a supertype resolves through re-analyzes the files that use the class (#1857).
+- `DoNotCallViewToString` no longer reports `toString()` in an extension on `List<KView>`, `Map<String, KView>` or
+  `Array<KView>`: an extension receiver's type is now its own name, not the last name in its type arguments. The same
+  receiver lookup feeds the Wire proto receiver exemption of `UnsafeCallOnNullableType` and `UnnecessaryNotNullOperator`
+  and the same-file `toString()` extension check of `NullableToStringCall` (#1926).
 - Gradle plugin: with FIR on, the check tasks run the R tasks of exported Android test components
   (`generate<Variant>UnitTestStubRFile`, `process<Variant>AndroidTestResources`). On a clean checkout FIR compiled unit
   and instrumented tests without their own R class, so test files that use `R` were gated (#1724).

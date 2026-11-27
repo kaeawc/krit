@@ -733,6 +733,22 @@ rules:
     status: supported
     fixtures:
       - tests/fixtures/android-lint/CustomSplashScreen/positive
+  RecyclerView:
+    status: supported
+    fixtures:
+      - tests/fixtures/android-lint/RecyclerView/positive
+  FindViewByIdCast:
+    status: supported
+    fixtures:
+      - tests/fixtures/android-lint/FindViewByIdCast/positive
+  RemoteViewLayout:
+    status: supported
+    fixtures:
+      - tests/fixtures/android-lint/RemoteViewLayout/positive
+  DefaultUncaughtExceptionDelegation:
+    status: supported
+    fixtures:
+      - tests/fixtures/android-lint/DefaultUncaughtExceptionDelegation/positive
   UsableSpace:
     status: supported
     fixtures:

@@ -168,9 +168,22 @@ func TestLexicalReuseRefusesCallerEditsForJudgeableRules(t *testing.T) {
 		{"RoomConflictStrategyReplaceOnFk",
 			"interface PetDao {\n    @Insert(onConflict = OnConflictStrategy.REPLACE)\n    fun insert(pet: Pet)\n}\n",
 			"interface PetDao {\n    fun insert(pet: Pet)\n}\n"},
+		// A same-package const val REPLACE and typealias Insert: no Room
+		// spelling at all (#1925).
+		{"RoomConflictStrategyReplaceOnFk",
+			"interface PetDao {\n    @Insert(onConflict = REPLACE)\n    fun insert(pet: Pet)\n}\n",
+			"interface PetDao {\n    fun insert(pet: Pet)\n}\n"},
 		{"RoomRelationWithoutIndex",
 			"data class UserWithPets(\n    @Relation(parentColumn = \"id\", entityColumn = \"ownerId\")\n    val pets: List<Pet>,\n)\n",
 			"data class UserWithPets(val pets: List<Pet>)\n"},
+		// Use-site targets with no Room import: the rule's filter takes
+		// field:Relation and get:Relation spellings (#1938 review).
+		{"RoomRelationWithoutIndex",
+			"data class OwnerWithPets(\n    @field:Relation(parentColumn = \"id\", entityColumn = \"ownerId\")\n    val pets: List<Pet>,\n)\n",
+			"data class OwnerWithPets(val pets: List<Pet>)\n"},
+		{"RoomRelationWithoutIndex",
+			"data class OwnerWithPets(\n    @get:Relation(parentColumn = \"id\", entityColumn = \"ownerId\")\n    val pets: List<Pet>,\n)\n",
+			"data class OwnerWithPets(val pets: List<Pet>)\n"},
 		{"AnvilMergeComponentEmptyScope",
 			"import dev.zacsweers.metro.ContributesBinding\n\n@ContributesBinding(AppGraph::class)\nclass Impl : Api\n",
 			"class Impl : Api\n"},

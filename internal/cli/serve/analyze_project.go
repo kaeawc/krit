@@ -174,6 +174,7 @@ func handleAnalyzeProject(ctx context.Context, state *daemonState, raw json.RawM
 		createBaseline:  args.CreateBaseline,
 		dryRun:          args.DryRun,
 		includeColumns:  args.IncludeColumns,
+		noParseCache:    args.NoParseCache,
 		releaseLock:     state.analyzeMu.Unlock,
 	}, nil
 }
@@ -265,6 +266,7 @@ type streamingAnalyzeResponse struct {
 	createBaseline  bool
 	dryRun          bool
 	includeColumns  bool
+	noParseCache    bool
 	releaseLock     func()
 }
 
@@ -306,17 +308,18 @@ func (r *streamingAnalyzeResponse) WriteRawResponse(ctx context.Context, w io.Wr
 	xfile := r.state.workspace.CrossFileStats()
 
 	stats := daemon.AnalyzeProjectStats{
-		FilesScanned:      res.FilesScanned,
-		FindingsCount:     res.FindingsCount,
-		WallSeconds:       time.Since(r.start).Seconds(),
-		CodeIndexHit:      xfile.HasCodeIndex,
-		LibraryFactsHit:   xfile.HasLibraryFacts,
-		ResolverHit:       xfile.HasResolver,
-		DirtyFiles:        r.dirtyN,
-		Cold:              r.cold,
-		ParseHits:         res.ParseHits,
-		ParseMisses:       res.ParseMisses,
-		FindingsBundleHit: res.FindingsBundleHit,
+		FilesScanned:       res.FilesScanned,
+		FindingsCount:      res.FindingsCount,
+		WallSeconds:        time.Since(r.start).Seconds(),
+		CodeIndexHit:       xfile.HasCodeIndex,
+		LibraryFactsHit:    xfile.HasLibraryFacts,
+		ResolverHit:        xfile.HasResolver,
+		DirtyFiles:         r.dirtyN,
+		Cold:               r.cold,
+		ParseHits:          res.ParseHits,
+		ParseMisses:        res.ParseMisses,
+		ParseCacheBypassed: r.noParseCache,
+		FindingsBundleHit:  res.FindingsBundleHit,
 		PhaseTimingsMs: daemon.PhaseTimingsMs{
 			Parse:     res.PhaseTimingsMs.Parse,
 			Index:     res.PhaseTimingsMs.Index,
@@ -545,18 +548,7 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs, backend 
 	// fingerprints, so a no-cache call can reuse them without
 	// dirtying state for subsequent calls. The next analyze without
 	// NoCache resumes normal cache behavior.
-	parseCache, err := s.parseCacheFor(repoDir, cacheutil.DefaultParseCacheCapBytes)
-	if err != nil {
-		// A failed parse cache isn't fatal — RunProject tolerates
-		// nil and falls back to direct tree-sitter parses. Log via
-		// the reporter once available; for now silently degrade so
-		// the verb stays useful even when the cache directory is
-		// read-only.
-		parseCache = nil
-	}
-	if args.NoCache {
-		parseCache = nil
-	}
+	parseCache, residentFiles := s.requestParseCaches(args, repoDir)
 
 	// AnalysisCache is daemon-resident: lazy-loaded on first request,
 	// keyed by the resolved cache file path so distinct scan-path sets
@@ -662,7 +654,7 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs, backend 
 		Host: pipeline.ProjectHostState{
 			Reporter:            newVerboseReporter(args.Verbose),
 			ParseCache:          parseCache,
-			ResidentFiles:       s.workspace,
+			ResidentFiles:       residentFiles,
 			Tracker:             perfTracker,
 			LibraryFactsCache:   s.workspace.LibraryFacts,
 			CodeIndexCache:      s.workspace.CodeIndex,
@@ -731,6 +723,31 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs, backend 
 	in.Host.FirCoverage = firCoverage.Load
 	in.Host.StartFindingsPass = firStartFindingsPass(args, paths, cfg, in.Host.FIRCheckBroker, oracleDaemonMatcher(oracleDaemon), in.Host.Tracker, in.Host.Reporter, firDegraded.Store, func(c output.FirCoverage) { firCoverage.Store(&c) })
 	return in, nil
+}
+
+// requestParseCaches returns the parse cache and the resident parsed trees a
+// request parses through.
+//
+// --no-cache skips the parse cache, which is on disk. --no-parse-cache skips
+// the resident trees as well: they are filled from the parse cache, so a stale
+// entry an earlier request read would otherwise still be served (#1919). It
+// writes neither, as an in-process --no-parse-cache scan writes no parse
+// cache, and both stay as they are for later requests.
+func (s *daemonState) requestParseCaches(args daemon.AnalyzeProjectArgs, repoDir string) (*scanner.ParseCache, pipeline.ResidentFileCache) {
+	if args.NoParseCache {
+		return nil, nil
+	}
+	if args.NoCache {
+		return nil, s.workspace
+	}
+	parseCache, err := s.parseCacheFor(repoDir, cacheutil.DefaultParseCacheCapBytes)
+	if err != nil {
+		// A failed parse cache isn't fatal — RunProject tolerates nil and
+		// falls back to direct tree-sitter parses, so the verb stays useful
+		// even when the cache directory is read-only.
+		return nil, s.workspace
+	}
+	return parseCache, s.workspace
 }
 
 // applyOracleModelArgs copies the caller's Gradle-derived oracle model into

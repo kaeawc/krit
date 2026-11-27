@@ -343,9 +343,22 @@ func denyUnqualifiedOwners(ctx *api.Context, call lintCall) []string {
 	if !denyMemberNames[call.Name] && !denyMentionsAllMemberOwner(file) {
 		return nil
 	}
-	if file.Language == scanner.LangKotlin && (slackFunctionShadows(file, call.Idx, call.Name, imported) ||
-		(!imported && denyPackageDeclaresFunction(ctx, call.Name))) {
-		return nil
+	var implicit string
+	if file.Language == scanner.LangKotlin {
+		// Kotlin resolves an unqualified call to a local declaration first, then to a member of an implicit receiver
+		// (`cal.apply { set(...) }`, setOnClickListener(null) inside a View subclass), and only then to an imported
+		// or top-level function of the file or its package (#1940).
+		if slackLocalFunctionShadows(file, call.Idx, call.Name) {
+			return nil
+		}
+		if implicit = denyImplicitReceiverType(ctx, call.Idx); implicit != "" {
+			if owner := denyMethodOwner(ctx, implicit); denyHasMember(owner, call.Name) {
+				return []string{owner}
+			}
+		}
+		if slackFunctionShadows(file, call.Idx, call.Name, imported) || (!imported && denyPackageDeclaresFunction(ctx, call.Name)) {
+			return nil
+		}
 	}
 	if imported {
 		if dot := strings.LastIndexByte(full, '.'); dot > 0 && full[dot+1:] == call.Name {
@@ -356,10 +369,8 @@ func denyUnqualifiedOwners(ctx *api.Context, call lintCall) []string {
 	owners := append([]string(nil), imp.stars...)
 	switch file.Language {
 	case scanner.LangKotlin:
-		// An implicit receiver's member wins: `cal.apply { set(...) }`, or setOnClickListener(null) inside a View
-		// subclass.
-		if typ := denyImplicitReceiverType(ctx, call.Idx); typ != "" {
-			owners = append(owners, denyMethodOwner(ctx, typ))
+		if implicit != "" {
+			owners = append(owners, denyMethodOwner(ctx, implicit))
 		}
 		owners = append(owners, "kotlin")
 	case scanner.LangJava:
@@ -374,7 +385,8 @@ func denyUnqualifiedOwners(ctx *api.Context, call lintCall) []string {
 // file, which wins over a default import.
 func denyPackageDeclaresFunction(ctx *api.Context, name string) bool {
 	pkg := moshiFilePackage(ctx.File)
-	return ctx.Resolver != nil && pkg != "" && ctx.Resolver.HasFunction(pkg+"."+name)
+	// A member of a class in the package is recorded under pkg.name too, but only shadows inside its class.
+	return ctx.Resolver != nil && pkg != "" && typeinfer.HasTopLevelFunction(ctx.Resolver, pkg+"."+name)
 }
 
 // denyExtensionOwners returns the packages of the listed Kotlin extension functions a qualified call can be: through
@@ -650,6 +662,9 @@ func denyFieldHits(ctx *api.Context, idx uint32) []denyHit {
 	if parent, ok := file.FlatParent(idx); ok && file.FlatType(parent) == "call_expression" && file.FlatFirstChild(parent) == idx {
 		return nil
 	}
+	if hits, ok := denyImplicitPropertyWriteHits(ctx, idx); ok {
+		return hits
+	}
 	recv := file.FlatFirstChild(idx)
 	selector := denySelectorNode(file, idx)
 	if recv == 0 || selector == 0 {
@@ -669,6 +684,29 @@ func denyFieldHits(ctx *api.Context, idx uint32) []denyHit {
 		return []denyHit{{slackDenyListedAPI, msg, selector}}
 	}
 	return nil
+}
+
+// denyImplicitPropertyWriteHits matches an unqualified Kotlin property write, `timeInMillis = t` inside
+// `cal.apply { }`, against the implicit receiver's listed setters; ok is false when idx is not one. A local or
+// parameter of that name is what the write assigns instead.
+func denyImplicitPropertyWriteHits(ctx *api.Context, idx uint32) ([]denyHit, bool) {
+	file := ctx.File
+	if file.Language != scanner.LangKotlin || file.FlatType(idx) != "directly_assignable_expression" || file.FlatNamedChildCount(idx) != 1 {
+		return nil, false
+	}
+	id := file.FlatFirstChild(idx)
+	if file.FlatType(id) != "simple_identifier" {
+		return nil, false
+	}
+	name := file.FlatNodeText(id)
+	if slackLocallyShadowed(file, idx, name) {
+		return nil, true
+	}
+	owner := denyImplicitReceiverType(ctx, idx)
+	if msg, ok := denyAllMemberOwners[owner]; ok && denyDeclaresProperty(owner, name) {
+		return []denyHit{{slackDenyListedAPI, msg, id}}, true
+	}
+	return nil, true
 }
 
 // denyDeclaredMethods are the public methods each of denyAllMemberOwners declares (JDK 17). Lint matches the class
@@ -706,6 +744,20 @@ func denyDeclares(owner, name string) bool {
 		return true
 	}
 	return owner == "java.text.SimpleDateFormat" && denyDeclaredMethods["java.text.DateFormat"][name]
+}
+
+// denyHasMember reports whether name is a member of owner that krit knows: one of its declared methods, or a listed
+// non-top-level entry.
+func denyHasMember(owner, name string) bool {
+	if denyDeclares(owner, name) {
+		return true
+	}
+	for _, e := range denyEntries {
+		if !e.topLevel && e.owner == owner && e.member == name {
+			return true
+		}
+	}
+	return false
 }
 
 // denyDeclaresProperty reports whether a Kotlin property of owner is one of its listed getters or setters.

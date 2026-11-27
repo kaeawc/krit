@@ -2236,6 +2236,39 @@
             }
           }
         },
+        "DefaultUncaughtExceptionDelegation": {
+          "description": "Missing default uncaught exception handler delegation [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]\nCaveat: The setter's receiver must be written as Thread or java.lang.Thread; modules are the directories of the nearest build script.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable DefaultUncaughtExceptionDelegation (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "DeletedProvider": {
           "description": "Using Deleted Provider [precision: ast-backed] [noisiness: normal]",
           "type": "object",
@@ -3570,6 +3603,39 @@
               "description": "Enable FieldGetter (default: false).",
               "type": "boolean",
               "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "FindViewByIdCast": {
+          "description": "Add Explicit Cast [fixable: idiomatic] [precision: ast-backed] [noisiness: normal]\nCaveat: The surrounding method must be a known generic identity method (Objects.requireNonNull, the Guava and AndroidX checkNotNull, Verify.verifyNotNull) or declared generically in the same file.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable FindViewByIdCast (default: true).",
+              "type": "boolean",
+              "default": true
             },
             "excludes": {
               "description": "Glob patterns for paths to exclude from this rule.",
@@ -9759,6 +9825,39 @@
             }
           }
         },
+        "RecyclerView": {
+          "description": "RecyclerView Problems [precision: ast-backed] [noisiness: normal]\nCaveat: The adapter supertype is followed through same-file classes, the resolver and the known ListAdapter, PagingDataAdapter and PagedListAdapter; names are matched textually, so a local that shadows a field is not told apart.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable RecyclerView (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "RedundantLabel": {
           "description": "Redundant label on activity [precision: project-structure-aware] [noisiness: normal] [capabilities: manifest]",
           "type": "object",
@@ -9966,6 +10065,39 @@
               "description": "Enable RemoteVersion (default: false).",
               "type": "boolean",
               "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "RemoteViewLayout": {
+          "description": "Unsupported View in RemoteView [precision: project-structure-aware] [noisiness: normal] [capabilities: resources]\nCaveat: The layout is looked up in every res directory of the scan by file name, so same-named layouts of other modules are merged in; the minimum SDK is the file's module's, from its build script.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable RemoteViewLayout (default: true).",
+              "type": "boolean",
+              "default": true
             },
             "excludes": {
               "description": "Glob patterns for paths to exclude from this rule.",
@@ -16104,6 +16236,39 @@
               "description": "Enable WrongFolderResource (default: false).",
               "type": "boolean",
               "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "WrongGradleMethod": {
+          "description": "Wrong Gradle method invoked [precision: project-structure-aware] [noisiness: normal] [capabilities: gradle]\nCaveat: Only the patterns Lint checks without a resolved build classpath are ported: a dependencies block inside a build type or product flavor, and firebaseAppDistribution in a .kts script without its import. Lint in the IDE also compares receiver types.\nCaveat: Quotes, comments and braces are tracked one line at a time, so a multi-line raw string holding braces can misplace a block.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable WrongGradleMethod (default: true).",
+              "type": "boolean",
+              "default": true
             },
             "excludes": {
               "description": "Glob patterns for paths to exclude from this rule.",

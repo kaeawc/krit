@@ -3,8 +3,8 @@
 #
 #   scripts/lint-parity-record.sh tests/fixtures/android-lint/<RuleID>/<case> [IssueId,IssueId...]
 #
-# A case directory is a Gradle module (build.gradle.kts plus src/main/...). The script copies it as the :app module
-# of a throwaway project that applies AGP 9.4.1 (which bundles Lint 32.4.1), runs `lintDebug` with only the given
+# A case directory is a Gradle module (build.gradle.kts or build.gradle plus src/main/...). The script copies it as the :app module
+# of a throwaway project that applies AGP 9.4.1 (which bundles Lint 32.4.1), runs `lint` with only the given
 # issues (default: the <RuleID> directory name), and writes the findings to <case>/lint-32.4.1.txt as sorted
 # `path:line:column: ID: message` lines with paths relative to the case. cmd/krit's TestAndroidLintParityFixtures
 # replays krit on the same directory and compares. Dependencies in the fixture's build.gradle.kts are resolved, so
@@ -100,7 +100,21 @@ printf 'sdk.dir=%s\n' "$ANDROID_HOME" > "$work/local.properties"
 
 cp -r "$case_dir" "$work/app"
 rm -f "$work/app"/lint-*.txt "$work/app"/divergences.txt "$work/app"/severity.txt "$work/app"/lint-standalone.txt
-cat >> "$work/app/build.gradle.kts" <<EOF
+if [ -f "$work/app/build.gradle" ]; then
+	cat >> "$work/app/build.gradle" <<EOF
+
+android {
+    lint {
+        checkOnly '${checks//,/\', \'}'
+        abortOnError false
+        xmlReport true
+        xmlOutput file("lint-out.xml")
+        checkReleaseBuilds false
+    }
+}
+EOF
+else
+	cat >> "$work/app/build.gradle.kts" <<EOF
 
 android {
     lint {
@@ -112,6 +126,7 @@ android {
     }
 }
 EOF
+fi
 # AGP 9 rejects package= and <uses-sdk> versions in a manifest; drop them without moving any line.
 find "$work/app/src" -name AndroidManifest.xml | while read -r manifest; do
 	python3 -I - "$manifest" <<'PY'
@@ -125,8 +140,10 @@ PY
 done
 
 # Library modules order some tasks after compilation, so retry with compilation when skipping it fails.
-if ! (cd "$work" && "$gradle" -q --console=plain :app:lintDebug -x compileDebugKotlin -x compileDebugJavaWithJavac \
-	>"$work/gradle.log" 2>&1) && ! (cd "$work" && "$gradle" -q --console=plain :app:lintDebug >"$work/gradle.log" 2>&1); then
+# `lint` checks the default variant (lintDebug without flavors); with flavors the compile task names differ, so the
+# retry without -x covers them too.
+if ! (cd "$work" && "$gradle" -q --console=plain :app:lint -x compileDebugKotlin -x compileDebugJavaWithJavac \
+	>"$work/gradle.log" 2>&1) && ! (cd "$work" && "$gradle" -q --console=plain :app:lint >"$work/gradle.log" 2>&1); then
 	tail -30 "$work/gradle.log" >&2
 	exit 1
 fi

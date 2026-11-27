@@ -14,6 +14,10 @@ type FunctionDecl struct {
 	// FileLocal marks a declaration that only its own file can call: a
 	// private, local or anonymous-object function, or a member of a private class.
 	FileLocal bool
+	// TopLevel marks a function declared directly in the file, not a member
+	// or local function. Members are also recorded under pkg.name, which is
+	// not their FQN; HasTopLevelFunction skips them.
+	TopLevel bool
 	// ScopeStart and ScopeEnd bound the byte range of the file that can call a
 	// FileLocal declaration; ScopeEnd is 0 when the whole file can.
 	ScopeStart, ScopeEnd uint32
@@ -101,6 +105,17 @@ func (r *defaultResolver) HasFunction(fqn string) bool {
 	return len(r.functionDecls[fqn]) != 0 || r.functions[fqn] != nil
 }
 
+// HasTopLevelFunction implements TopLevelFunctionIndex. A private top-level
+// function is visible only in its own file, so it doesn't count (#1940).
+func (r *defaultResolver) HasTopLevelFunction(fqn string) bool {
+	for _, d := range r.functionDecls[fqn] {
+		if d.TopLevel && !d.FileLocal {
+			return true
+		}
+	}
+	return false
+}
+
 // indexFunctionFlat keeps declaration indexing on the flat path while the
 // remaining declarations work lands in its owner track.
 func (r *defaultResolver) indexFunctionFlat(funcIdx uint32, file *scanner.File, it *ImportTable, pkg string) {
@@ -122,8 +137,11 @@ func (r *defaultResolver) indexFunctionFlat(funcIdx uint32, file *scanner.File, 
 	retType := r.extractFunctionReturnTypeFlat(funcIdx, file, it)
 	decl := FunctionDecl{Type: retType}
 	decl.FileLocal, decl.ScopeStart, decl.ScopeEnd = flatDeclarationVisibility(file, funcIdx)
-	if parent, ok := file.FlatParent(funcIdx); ok && file.FlatType(parent) == "source_file" && flatFunctionHasAnnotatedParam(file, funcIdx) {
-		decl.Params = r.extractFunctionParamsFlat(funcIdx, file, it)
+	if parent, ok := file.FlatParent(funcIdx); ok && file.FlatType(parent) == "source_file" {
+		decl.TopLevel = true
+		if flatFunctionHasAnnotatedParam(file, funcIdx) {
+			decl.Params = r.extractFunctionParamsFlat(funcIdx, file, it)
+		}
 	}
 	r.addFunctionDecl(file.Path, funcName, decl)
 	if pkg != "" {

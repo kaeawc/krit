@@ -1,0 +1,64 @@
+"""The krit toolchain: krit, krit-lsp and krit-mcp for one execution platform.
+
+The module registers one toolchain per platform krit releases binaries for
+(see krit_binary.bzl), constrained on `exec_compatible_with`, so Bazel runs
+the binary built for the machine that executes each action, local or
+remote, and fetches only that platform's release archive.
+
+A root module can register its own toolchain first, for example to run a
+locally built krit:
+
+    load("@krit//:defs.bzl", "krit_toolchain")
+
+    krit_toolchain(
+        name = "krit_local",
+        krit = "@my_krit_build//:krit",
+    )
+
+    toolchain(
+        name = "krit_local_toolchain",
+        toolchain = ":krit_local",
+        toolchain_type = "@krit//toolchains:toolchain_type",
+    )
+
+and in MODULE.bazel `register_toolchains("//:krit_local_toolchain")`.
+"""
+
+KRIT_TOOLCHAIN_TYPE = Label("//toolchains:toolchain_type")
+
+_TOOLS = ["krit", "krit_lsp", "krit_mcp"]
+
+def _krit_toolchain_impl(ctx):
+    fields = {}
+    for tool in _TOOLS:
+        target = getattr(ctx.attr, tool)
+        fields[tool] = target[DefaultInfo].files_to_run if target else None
+        fields[tool + "_runfiles"] = target[DefaultInfo].default_runfiles if target else None
+    return [platform_common.ToolchainInfo(**fields)]
+
+krit_toolchain = rule(
+    implementation = _krit_toolchain_impl,
+    doc = """Declares the krit executables of one execution platform.
+
+The ToolchainInfo has `krit`, `krit_lsp` and `krit_mcp` (FilesToRunProvider,
+or None for a server the toolchain lacks) and `<tool>_runfiles`.
+""",
+    attrs = {
+        "krit": attr.label(
+            mandatory = True,
+            executable = True,
+            cfg = "exec",
+            doc = "The krit executable.",
+        ),
+        "krit_lsp": attr.label(
+            executable = True,
+            cfg = "exec",
+            doc = "The krit-lsp executable, if available.",
+        ),
+        "krit_mcp": attr.label(
+            executable = True,
+            cfg = "exec",
+            doc = "The krit-mcp executable, if available.",
+        ),
+    },
+)

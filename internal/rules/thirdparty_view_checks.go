@@ -161,7 +161,7 @@ func viewInflateIsLayoutOrBinding(ctx *api.Context, call lintCall) bool {
 	file := ctx.File
 	if last := call.ReceiverText[strings.LastIndexByte(call.ReceiverText, '.')+1:]; last != "" && last[0] >= 'A' && last[0] <= 'Z' &&
 		file.FlatType(call.ReceiverNode) != "call_expression" && file.FlatType(call.ReceiverNode) != "method_invocation" {
-		fqn := viewSourceClassFQN(ctx, denyAnyClassFQN(file, call.ReceiverText))
+		fqn := viewSourceClassFQN(ctx, denyAnyClassFQN(ctx.Resolver, file, call.ReceiverText))
 		// A source class must implement ViewBinding; the generated-binding naming is the fallback for a class krit
 		// has no source for.
 		if ctx.Resolver != nil && ctx.Resolver.ClassHierarchy(fqn) != nil {
@@ -183,7 +183,7 @@ func viewInflateIsLayoutOrBinding(ctx *api.Context, call lintCall) bool {
 func viewInflaterReceiverType(ctx *api.Context, recv uint32) string {
 	file := ctx.File
 	if t := file.FlatType(recv); t == "call_expression" || t == "method_invocation" {
-		if c, ok := lintCallAt(file, recv); ok && c.Name == "from" && denyAnyClassFQN(file, c.ReceiverText) == viewLayoutInflaterFQN {
+		if c, ok := lintCallAt(file, recv); ok && c.Name == "from" && denyAnyClassFQN(ctx.Resolver, file, c.ReceiverText) == viewLayoutInflaterFQN {
 			return viewLayoutInflaterFQN
 		}
 	}
@@ -228,7 +228,7 @@ func viewClassNodeExtends(ctx *api.Context, cls uint32, target string) bool {
 		}
 	}
 	for _, s := range supers {
-		if slackClassExtends(ctx.Resolver, viewSourceClassFQN(ctx, denyAnyClassFQN(file, s)), target) {
+		if slackClassExtends(ctx.Resolver, viewSourceClassFQN(ctx, denyAnyClassFQN(ctx.Resolver, file, s)), target) {
 			return true
 		}
 	}

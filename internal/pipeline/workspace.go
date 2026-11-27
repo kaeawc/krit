@@ -3,6 +3,7 @@ package pipeline
 import (
 	"container/list"
 	"context"
+	"os"
 	"path/filepath"
 	"sort"
 	"sync"
@@ -931,6 +932,50 @@ func (w *WorkspaceState) InvalidateLibraryFacts() {
 	w.gradleMu.Lock()
 	w.gradleFindings = nil
 	w.gradleMu.Unlock()
+}
+
+// InvalidateAndroidProjectFor drops the cached Android project detection when
+// path, a file that was created, removed or renamed, changes what detection
+// finds (android.Project.ShapeChangedBy): a manifest arriving or leaving, or
+// the first file of a new src/main/res directory. Only a build-script edit
+// dropped the slot before (#1903). Edits, and atomic saves of files the
+// project already accounts for, keep it.
+func (w *WorkspaceState) InvalidateAndroidProjectFor(path string) {
+	if w == nil {
+		return
+	}
+	_, err := os.Stat(path)
+	exists := err == nil
+	w.xfileMu.Lock()
+	if w.androidProject.present && w.androidProject.value.ShapeChangedBy(path, exists) {
+		w.androidProject = xfileSlot[*android.Project]{}
+	}
+	w.xfileMu.Unlock()
+}
+
+// InvalidateAndroidProjectUnder drops the cached Android project detection
+// when a manifest, res directory or build script it lists lies under dir,
+// which left the tree.
+func (w *WorkspaceState) InvalidateAndroidProjectUnder(dir string) {
+	if w == nil {
+		return
+	}
+	w.xfileMu.Lock()
+	if w.androidProject.present && w.androidProject.value.HasPathsUnder(dir) {
+		w.androidProject = xfileSlot[*android.Project]{}
+	}
+	w.xfileMu.Unlock()
+}
+
+// HasAndroidProject reports whether the Android project detection is cached.
+// Used by tests.
+func (w *WorkspaceState) HasAndroidProject() bool {
+	if w == nil {
+		return false
+	}
+	w.xfileMu.Lock()
+	defer w.xfileMu.Unlock()
+	return w.androidProject.present
 }
 
 // GradleFindings memoizes per-file gradle rule findings across

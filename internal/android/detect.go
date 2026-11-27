@@ -39,6 +39,57 @@ func (p *Project) IsEmpty() bool {
 	return len(p.ManifestPaths) == 0 && len(p.ResDirs) == 0 && len(p.GradlePaths) == 0 && len(p.BazelPaths) == 0
 }
 
+// ShapeChangedBy reports whether a file created or removed at path changes
+// what DetectProject finds: a manifest it does not list, a listed manifest
+// that is gone, or a file in a src/main/res directory it does not list. exists
+// says whether the file is there now. An editor's atomic save (rename, then
+// create) of a file the project already accounts for changes nothing. A nil
+// project reports true.
+func (p *Project) ShapeChangedBy(path string, exists bool) bool {
+	if p == nil {
+		return true
+	}
+	path = filepath.Clean(path)
+	if filepath.Base(path) == "AndroidManifest.xml" {
+		listed := false
+		for _, m := range p.ManifestPaths {
+			if filepath.Clean(m) == path {
+				listed = true
+				break
+			}
+		}
+		return listed != exists
+	}
+	resDir := srcMainResDir(path)
+	if resDir == "" || !exists {
+		return false
+	}
+	for _, dir := range p.ResDirs {
+		if filepath.Clean(dir) == resDir {
+			return false
+		}
+	}
+	return true
+}
+
+// HasPathsUnder reports whether a manifest, res directory or build script the
+// project lists lies in dir or below it, so that removing dir changes the
+// project. A nil project reports true.
+func (p *Project) HasPathsUnder(dir string) bool {
+	if p == nil {
+		return true
+	}
+	prefix := filepath.Clean(dir) + string(filepath.Separator)
+	for _, list := range [][]string{p.ManifestPaths, p.ResDirs, p.GradlePaths, p.BazelPaths} {
+		for _, path := range list {
+			if strings.HasPrefix(filepath.Clean(path)+string(filepath.Separator), prefix) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // DetectProject walks the given scan paths looking for Android project
 // files: AndroidManifest.xml, src/main/res/, build.gradle, build.gradle.kts.
 // It returns an Project with all discovered paths.

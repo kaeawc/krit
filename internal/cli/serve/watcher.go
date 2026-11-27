@@ -24,6 +24,12 @@ type watcherState interface {
 	InvalidateDependents()
 	InvalidateLibraryFacts()
 	InvalidateResolver()
+	// InvalidateAndroidProjectFor drops the cached Android project detection
+	// when an XML file created, removed or renamed at path changes it.
+	InvalidateAndroidProjectFor(path string)
+	// InvalidateAndroidProjectUnder drops it when the project lists a path
+	// under dir, which left the tree.
+	InvalidateAndroidProjectUnder(dir string)
 	Touch(path string)
 	// BumpSourceMTimeVersion drives the daemon-resident
 	// bundle-stats-clean memo. Called once per coalesced source-path
@@ -405,6 +411,12 @@ func (fw *fileWatcher) handle(ev backendEvent) {
 		fw.state.Touch(ev.Path)
 		fw.state.BumpSourceMTimeVersion()
 		fw.state.BumpXMLFilesVersion()
+		// A manifest or res file that arrives or leaves can change the
+		// detected project (its ManifestPaths and ResDirs), which only a
+		// build-script edit dropped before (#1903). A content edit cannot.
+		if relevant&(opCreate|opRemove|opRename) != 0 {
+			fw.state.InvalidateAndroidProjectFor(ev.Path)
+		}
 	}
 }
 
@@ -412,6 +424,7 @@ func (fw *fileWatcher) handle(ev backendEvent) {
 // extension (so most likely a directory), left the tree.
 func (fw *fileWatcher) directoryGone(path string) {
 	fw.state.BumpSourceMTimeVersion()
+	fw.state.InvalidateAndroidProjectUnder(path)
 	fw.state.InvalidateCodeIndex()
 	fw.state.InvalidateDependents()
 	fw.state.InvalidateResolver()
@@ -447,7 +460,9 @@ func (fw *fileWatcher) touchExistingSources(dir string) {
 			}
 			return nil
 		}
-		if isKotlinPath(path) || isJavaPath(path) {
+		// Manifests, resources and build scripts count too: they change the
+		// detected Android project and the library facts.
+		if isKotlinPath(path) || isJavaPath(path) || isXMLPath(path) || isLibraryConfigPath(path) {
 			fw.handle(backendEvent{Path: path, Op: opCreate})
 		}
 		return nil

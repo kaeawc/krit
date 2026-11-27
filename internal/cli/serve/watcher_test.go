@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kaeawc/krit/internal/android"
 	"github.com/kaeawc/krit/internal/librarymodel"
 	"github.com/kaeawc/krit/internal/pipeline"
 	"github.com/kaeawc/krit/internal/scanner"
@@ -34,15 +35,17 @@ type countingState struct {
 	touchCalls      atomic.Int64
 }
 
-func (c *countingState) Invalidate(path string)  { c.invalidateCalls.Add(1) }
-func (c *countingState) InvalidateCodeIndex()    {}
-func (c *countingState) InvalidateDependents()   {}
-func (c *countingState) InvalidateLibraryFacts() {}
-func (c *countingState) InvalidateResolver()     {}
-func (c *countingState) Touch(path string)       { c.touchCalls.Add(1) }
-func (c *countingState) BumpSourceMTimeVersion() { c.bumpCalls.Add(1) }
-func (c *countingState) BumpJavaSourceVersion()  { c.javaBumpCalls.Add(1) }
-func (c *countingState) BumpXMLFilesVersion()    { c.xmlBumpCalls.Add(1) }
+func (c *countingState) Invalidate(path string)               { c.invalidateCalls.Add(1) }
+func (c *countingState) InvalidateCodeIndex()                 {}
+func (c *countingState) InvalidateDependents()                {}
+func (c *countingState) InvalidateLibraryFacts()              {}
+func (c *countingState) InvalidateResolver()                  {}
+func (c *countingState) InvalidateAndroidProjectFor(string)   {}
+func (c *countingState) InvalidateAndroidProjectUnder(string) {}
+func (c *countingState) Touch(path string)                    { c.touchCalls.Add(1) }
+func (c *countingState) BumpSourceMTimeVersion()              { c.bumpCalls.Add(1) }
+func (c *countingState) BumpJavaSourceVersion()               { c.javaBumpCalls.Add(1) }
+func (c *countingState) BumpXMLFilesVersion()                 { c.xmlBumpCalls.Add(1) }
 
 // waitForCondition polls fn every 5ms up to 2s. Returns true when fn
 // turns true; false on timeout. Used to bridge the async fsnotify
@@ -263,6 +266,76 @@ func TestFileWatcher_InvalidatesLibraryFactsOnGradleChange(t *testing.T) {
 		return !s.HasLibraryFacts && !s.HasCodeIndex
 	}) {
 		t.Errorf("expected both cross-file slots to clear after gradle write, stats=%+v", ws.CrossFileStats())
+	}
+}
+
+// A manifest that arrives, in an existing directory or inside a directory
+// moved into the tree, changes the detected Android project. An edit or an
+// editor's atomic save (write a temp file, rename it over) of a manifest the
+// project already lists does not (#1903).
+func TestFileWatcher_InvalidatesAndroidProjectOnManifestArrival(t *testing.T) {
+	root := t.TempDir()
+	mainDir := filepath.Join(root, "app", "src", "main")
+	if err := os.MkdirAll(mainDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := filepath.Join(mainDir, "AndroidManifest.xml")
+	ws := pipeline.NewWorkspaceState(root)
+	detect := func(manifests ...string) {
+		ws.AndroidProject("fp", func() *android.Project { return &android.Project{ManifestPaths: manifests} })
+	}
+	detect()
+
+	w, err := startFileWatcher(context.Background(), root, ws, nil)
+	if err != nil {
+		t.Fatalf("startFileWatcher: %v", err)
+	}
+	defer w.Stop()
+
+	if err := os.WriteFile(manifest, []byte("<manifest/>\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if !waitForCondition(func() bool { return !ws.HasAndroidProject() }) {
+		t.Fatal("creating AndroidManifest.xml left the cached Android project in place")
+	}
+
+	detect(manifest)
+	if err := os.WriteFile(manifest, []byte("<manifest package=\"a\"/>\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	temp := filepath.Join(mainDir, "AndroidManifest.xml.tmp")
+	if err := os.WriteFile(temp, []byte("<manifest package=\"b\"/>\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(temp, manifest); err != nil {
+		t.Fatal(err)
+	}
+	// Edits deliver no state change to wait on, so give the watcher time to handle them.
+	time.Sleep(300 * time.Millisecond)
+	if !ws.HasAndroidProject() {
+		t.Error("editing or atomically saving a listed manifest dropped the cached Android project")
+	}
+
+	staged := filepath.Join(t.TempDir(), "debug")
+	if err := os.MkdirAll(staged, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(staged, "AndroidManifest.xml"), []byte("<manifest/>\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(staged, filepath.Join(root, "app", "src", "debug")); err != nil {
+		t.Fatal(err)
+	}
+	if !waitForCondition(func() bool { return !ws.HasAndroidProject() }) {
+		t.Fatal("moving in a directory that holds a manifest left the cached Android project in place")
+	}
+
+	detect(manifest)
+	if err := os.RemoveAll(filepath.Join(root, "app", "src", "main")); err != nil {
+		t.Fatal(err)
+	}
+	if !waitForCondition(func() bool { return !ws.HasAndroidProject() }) {
+		t.Fatal("deleting the directory of a listed manifest left the cached Android project in place")
 	}
 }
 
@@ -565,15 +638,17 @@ type chmodFilterCountingState struct {
 	bumpCalls                 atomic.Int64
 }
 
-func (c *chmodFilterCountingState) Invalidate(string)       { c.invalidateCalls.Add(1) }
-func (c *chmodFilterCountingState) InvalidateCodeIndex()    {}
-func (c *chmodFilterCountingState) InvalidateDependents()   {}
-func (c *chmodFilterCountingState) InvalidateLibraryFacts() { c.libraryFactsInvalidations.Add(1) }
-func (c *chmodFilterCountingState) InvalidateResolver()     {}
-func (c *chmodFilterCountingState) Touch(string)            {}
-func (c *chmodFilterCountingState) BumpSourceMTimeVersion() { c.bumpCalls.Add(1) }
-func (c *chmodFilterCountingState) BumpJavaSourceVersion()  {}
-func (c *chmodFilterCountingState) BumpXMLFilesVersion()    {}
+func (c *chmodFilterCountingState) Invalidate(string)                    { c.invalidateCalls.Add(1) }
+func (c *chmodFilterCountingState) InvalidateCodeIndex()                 {}
+func (c *chmodFilterCountingState) InvalidateDependents()                {}
+func (c *chmodFilterCountingState) InvalidateLibraryFacts()              { c.libraryFactsInvalidations.Add(1) }
+func (c *chmodFilterCountingState) InvalidateResolver()                  {}
+func (c *chmodFilterCountingState) InvalidateAndroidProjectFor(string)   {}
+func (c *chmodFilterCountingState) InvalidateAndroidProjectUnder(string) {}
+func (c *chmodFilterCountingState) Touch(string)                         {}
+func (c *chmodFilterCountingState) BumpSourceMTimeVersion()              { c.bumpCalls.Add(1) }
+func (c *chmodFilterCountingState) BumpJavaSourceVersion()               {}
+func (c *chmodFilterCountingState) BumpXMLFilesVersion()                 {}
 
 // TestFileWatcher_BumpsMTimeVersionOnKotlinEdit asserts the watcher
 // drives the daemon-resident stats-clean memo: a real .kt edit must
@@ -922,14 +997,16 @@ func (s *pathRecordingState) Invalidate(path string) {
 	s.paths = append(s.paths, path)
 	s.mu.Unlock()
 }
-func (s *pathRecordingState) InvalidateCodeIndex()    {}
-func (s *pathRecordingState) InvalidateDependents()   {}
-func (s *pathRecordingState) InvalidateLibraryFacts() {}
-func (s *pathRecordingState) InvalidateResolver()     {}
-func (s *pathRecordingState) Touch(string)            {}
-func (s *pathRecordingState) BumpSourceMTimeVersion() {}
-func (s *pathRecordingState) BumpJavaSourceVersion()  {}
-func (s *pathRecordingState) BumpXMLFilesVersion()    {}
+func (s *pathRecordingState) InvalidateCodeIndex()                 {}
+func (s *pathRecordingState) InvalidateDependents()                {}
+func (s *pathRecordingState) InvalidateLibraryFacts()              {}
+func (s *pathRecordingState) InvalidateResolver()                  {}
+func (s *pathRecordingState) InvalidateAndroidProjectFor(string)   {}
+func (s *pathRecordingState) InvalidateAndroidProjectUnder(string) {}
+func (s *pathRecordingState) Touch(string)                         {}
+func (s *pathRecordingState) BumpSourceMTimeVersion()              {}
+func (s *pathRecordingState) BumpJavaSourceVersion()               {}
+func (s *pathRecordingState) BumpXMLFilesVersion()                 {}
 
 func (s *pathRecordingState) snapshot() []string {
 	s.mu.Lock()

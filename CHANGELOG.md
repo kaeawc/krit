@@ -652,6 +652,16 @@ All notable changes to Krit will be documented in this file.
   for a script with aliases, every directory its catalog search globbed, with what it found, and the catalogs found.
   Catalogs no search reaches don't move the keys. On a 300-module project a no-op warm scan takes about 10 ms more
   (#1853).
+- Warm runs follow build-script and version-catalog edits for the resource rules that read them: `LibraryCustomView`,
+  `RelativeClassResolution`, `VectorDrawableCompat`, `TranslucentOrientation`, `LabelForResource`,
+  `UnusedAttributeResource`, `UnusedResources` and `UnusedIds`. The res-directory fingerprint hashed only the module's
+  build script and the nearest `gradle/libs.versions.toml` and settings script, so changing only the plugin id behind
+  `alias(deps.plugins.mod)` in `gradle/deps.versions.toml` kept reporting `LibraryCustomView` on warm CLI and daemon
+  runs while `--no-cache` did not. Those rules now declare what they read for a res directory
+  (`rules.ResourceBuildInfoReader`), and whenever one is active the per-res-directory, resource-bundle and Android
+  project-bundle keys and the findings-bundle fingerprint hash it through the fingerprint the manifest keys use,
+  computed once per run for both. Runs without such a rule, the default, no longer hash build scripts, catalogs or
+  settings scripts into the res-directory fingerprint (#1883).
 - The manifest-source cache key canonicalizes every source-file hash to one width. It mixed the analysis cache's
   16-hex hashes with the hash memo's 64-hex ones, so the same content gave different keys, and the first warm run after
   a cold one, or a res-only edit after a source edit, re-ran the manifest-source rules (#1853).

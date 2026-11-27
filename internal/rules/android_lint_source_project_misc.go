@@ -187,16 +187,16 @@ func recyclerPositionEscapes(file *scanner.File, bindClass, body uint32, positio
 			}
 			foundInner = true
 		case "assignment", "assignment_expression":
-			lhs, rhs := recyclerAssignSides(file, n)
+			lhs, rhs, field := recyclerAssignSides(file, n)
 			if lhs == "" {
 				return
 			}
 			if tracked[rhs] {
 				switch {
+				case field || fields[lhs]:
+					escapes = true
 				case locals[lhs]:
 					tracked[lhs] = true
-				case fields[lhs]:
-					escapes = true
 				}
 				return
 			}
@@ -214,7 +214,8 @@ func recyclerPositionEscapes(file *scanner.File, bindClass, body uint32, positio
 }
 
 // recyclerIsRead reports an identifier that reads a variable: not a declaration's name, a member selector or an
-// argument label, and not a name a function, lambda or loop between it and body declares again.
+// argument label, and not a name declared again between it and body: by a function, lambda, loop or catch parameter, by
+// an earlier local of an enclosing block, or by a field of an enclosing Java class.
 func recyclerIsRead(file *scanner.File, n, body uint32) bool {
 	name := file.FlatNodeText(n)
 	p, ok := file.FlatParent(n)
@@ -242,9 +243,45 @@ func recyclerIsRead(file *scanner.File, n, body uint32) bool {
 			if recyclerDeclaresName(file, cur, name) {
 				return false
 			}
+		case "statements", "block":
+			// The bind body's own locals are tracked as copies of the position, not shadows of it.
+			if parent, ok := file.FlatParent(cur); ok && parent == body {
+				continue
+			}
+			if recyclerDeclaresLocalBefore(file, cur, name, file.FlatStartByte(n)) {
+				return false
+			}
+		case "class_body":
+			// A Java field of the enclosing class shadows the name. Lint 32.4.1 still reports a read of a Kotlin
+			// object's own property of the same name (recorded in RecyclerView/shadowing), so Kotlin members do not.
+			if file.Language == scanner.LangJava && recyclerMemberNames(file, cur, nil)[name] {
+				return false
+			}
 		}
 	}
 	return true
+}
+
+// recyclerDeclaresLocalBefore reports a local variable of the block, declared before offset, named name. A
+// declaration that contains offset (its own initializer) does not count.
+func recyclerDeclaresLocalBefore(file *scanner.File, block uint32, name string, offset uint32) bool {
+	for c := file.FlatFirstChild(block); c != 0 && file.FlatEndByte(c) <= offset; c = file.FlatNextSib(c) {
+		switch file.FlatType(c) {
+		case "property_declaration":
+			if vd, ok := file.FlatFindChild(c, "variable_declaration"); ok && lintDeclaredName(file, vd) == name {
+				return true
+			}
+		case "local_variable_declaration":
+			for d := file.FlatFirstChild(c); d != 0; d = file.FlatNextSib(d) {
+				if file.FlatType(d) == "variable_declarator" {
+					if id, ok := file.FlatFindChild(d, "identifier"); ok && file.FlatNodeText(id) == name {
+						return true
+					}
+				}
+			}
+		}
+	}
+	return false
 }
 
 // recyclerDeclaresName reports a parameter (of a function, lambda, loop or catch) declared directly by scope.
@@ -281,9 +318,11 @@ func recyclerDeclaresName(file *scanner.File, scope uint32, name string) bool {
 	return found
 }
 
-// recyclerAssignSides returns the simple names of an assignment's target (a name or `this.name`) and of its value
-// when that is a plain name.
-func recyclerAssignSides(file *scanner.File, n uint32) (lhs, rhs string) {
+// recyclerAssignSides returns the simple names of an assignment's target (a name or `this.name`, or the field of a
+// Java `holder.name`) and of its value when that is a plain name. field reports a Java `holder.name` target: it
+// resolves to a field, which Lint counts as an escape. A Kotlin `holder.name` goes through the property's setter,
+// which Lint does not count (recorded in RecyclerView/field_escape).
+func recyclerAssignSides(file *scanner.File, n uint32) (lhs, rhs string, field bool) {
 	var parts []uint32
 	for c := file.FlatFirstChild(n); c != 0; c = file.FlatNextSib(c) {
 		if file.FlatIsNamed(c) {
@@ -291,22 +330,32 @@ func recyclerAssignSides(file *scanner.File, n uint32) (lhs, rhs string) {
 		}
 	}
 	if len(parts) < 2 {
-		return "", ""
+		return "", "", false
 	}
 	target := strings.TrimSpace(file.FlatNodeText(parts[0]))
 	target = strings.TrimPrefix(target, "this.")
 	if !lintIdentOnly(target) {
-		return "", ""
+		if file.FlatType(parts[0]) != "field_access" {
+			return "", "", false
+		}
+		var last uint32
+		for c := file.FlatFirstChild(parts[0]); c != 0; c = file.FlatNextSib(c) {
+			last = c
+		}
+		if last == 0 || file.FlatType(last) != "identifier" {
+			return "", "", false
+		}
+		target, field = file.FlatNodeText(last), true
 	}
 	op := strings.TrimSpace(string(file.Content[file.FlatEndByte(parts[0]):file.FlatStartByte(parts[len(parts)-1])]))
 	if op != "=" {
-		return "", ""
+		return "", "", false
 	}
 	value := strings.TrimSpace(file.FlatNodeText(parts[len(parts)-1]))
 	if !lintIdentOnly(value) {
 		value = ""
 	}
-	return target, value
+	return target, value, field
 }
 
 // recyclerLocalNames lists the local variables declared in a function body.
@@ -336,22 +385,7 @@ func recyclerFieldNames(file *scanner.File, cls uint32) map[string]bool {
 	out := map[string]bool{}
 	for depth := 0; cls != 0 && depth < 8; depth++ {
 		if body, ok := file.FlatFindChild(cls, "class_body"); ok {
-			for m := file.FlatFirstChild(body); m != 0; m = file.FlatNextSib(m) {
-				switch file.FlatType(m) {
-				case "property_declaration":
-					if vd, ok := file.FlatFindChild(m, "variable_declaration"); ok {
-						out[lintDeclaredName(file, vd)] = true
-					}
-				case "field_declaration":
-					for c := file.FlatFirstChild(m); c != 0; c = file.FlatNextSib(c) {
-						if file.FlatType(c) == "variable_declarator" {
-							if id, ok := file.FlatFindChild(c, "identifier"); ok {
-								out[file.FlatNodeText(id)] = true
-							}
-						}
-					}
-				}
-			}
+			recyclerMemberNames(file, body, out)
 		}
 		if p, ok := file.FlatFindChild(cls, "primary_constructor"); ok {
 			file.FlatWalkNodes(p, "class_parameter", func(cp uint32) {
@@ -368,6 +402,31 @@ func recyclerFieldNames(file *scanner.File, cls uint32) map[string]bool {
 			}
 		}
 		cls = next
+	}
+	return out
+}
+
+// recyclerMemberNames adds the properties and fields declared directly in a class body to out (a new map when nil)
+// and returns it.
+func recyclerMemberNames(file *scanner.File, body uint32, out map[string]bool) map[string]bool {
+	if out == nil {
+		out = map[string]bool{}
+	}
+	for m := file.FlatFirstChild(body); m != 0; m = file.FlatNextSib(m) {
+		switch file.FlatType(m) {
+		case "property_declaration":
+			if vd, ok := file.FlatFindChild(m, "variable_declaration"); ok {
+				out[lintDeclaredName(file, vd)] = true
+			}
+		case "field_declaration":
+			for c := file.FlatFirstChild(m); c != 0; c = file.FlatNextSib(c) {
+				if file.FlatType(c) == "variable_declarator" {
+					if id, ok := file.FlatFindChild(c, "identifier"); ok {
+						out[file.FlatNodeText(id)] = true
+					}
+				}
+			}
+		}
 	}
 	return out
 }
@@ -565,13 +624,26 @@ func (r *RemoteViewLayoutRule) check(ctx *api.Context) {
 	if facts := lintProjectMinSdk(ctx); facts > 0 {
 		minSdk = facts
 	}
-	found := false
-	tags := map[string]bool{}
+	// The calling module's own layout overrides a library's of the same name, so a layout from another module is
+	// read only when the calling module has none.
+	caller := remoteViewModuleDir(projectPath(ctx, file.Path))
+	var own, other []*android.Layout
 	for _, layout := range ctx.ResourceIndex.AllLayouts() {
 		if strings.TrimSuffix(filepath.Base(layout.FilePath), ".xml") != layoutName {
 			continue
 		}
-		found = true
+		if caller != "" && remoteViewModuleDir(projectPath(ctx, layout.FilePath)) == caller {
+			own = append(own, layout)
+		} else {
+			other = append(other, layout)
+		}
+	}
+	layouts := own
+	if len(layouts) == 0 {
+		layouts = other
+	}
+	tags := map[string]bool{}
+	for _, layout := range layouts {
 		folderMin := minSdk
 		if m := layoutFolderVersionRe.FindStringSubmatch(filepath.Base(filepath.Dir(layout.FilePath))); m != nil {
 			if v, err := strconv.Atoi(m[1]); err == nil && v > folderMin {
@@ -584,7 +656,7 @@ func (r *RemoteViewLayoutRule) check(ctx *api.Context) {
 			}
 		})
 	}
-	if !found || len(tags) == 0 {
+	if len(tags) == 0 {
 		return
 	}
 	sorted := make([]string, 0, len(tags))
@@ -596,7 +668,32 @@ func (r *RemoteViewLayoutRule) check(ctx *api.Context) {
 		layoutName, strings.Join(sorted, ", "))))
 }
 
-// lintProjectMinSdk returns the project's minimum SDK from the build facts, or 0 when unknown.
+// remoteViewModuleDir returns the module directory of a project-relative source or resource path, the directory
+// above its src/<set>/{java,kotlin,res} (or above a flat <module>/res), or "" when the path has neither.
+func remoteViewModuleDir(path string) string {
+	parts := strings.Split(filepath.ToSlash(filepath.Clean(path)), "/")
+	dir := func(n int) string {
+		if n == 0 {
+			return "."
+		}
+		return strings.Join(parts[:n], "/")
+	}
+	// The path is relative to the project root, so the first src/<set>/<kind> is the module's, even when a package
+	// below it has a directory named src.
+	for i := 0; i+2 < len(parts); i++ {
+		if parts[i] == "src" {
+			switch parts[i+2] {
+			case "java", "kotlin", "res":
+				return dir(i)
+			}
+		}
+	}
+	if n := len(parts); n >= 3 && parts[n-3] == "res" {
+		return dir(n - 3)
+	}
+	return ""
+}
+
 // lintProjectMinSdk returns the minSdk of the module that owns the file (the build's SDK levels, then the library
 // facts), or 0 when unknown.
 func lintProjectMinSdk(ctx *api.Context) int {

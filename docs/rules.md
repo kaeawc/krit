@@ -517,15 +517,17 @@ Ports of Android Lint 32.4.1 checks with recorded Lint output under `tests/fixtu
 Ports of Android Lint 32.4.1 checks with recorded Lint output under `tests/fixtures/android-lint/<RuleID>/`:
 
 - `RecyclerView` (error, Kotlin and Java) reports the `position` parameter of an adapter's `onBindViewHolder` when it
-  is assigned to a field (directly or through a local) or read inside an anonymous or inner class. Lambdas do not
-  count, as in Lint.
+  is assigned to a field (directly or through a local, and in Java through `holder.field`) or read inside an anonymous
+  or inner class. Lambdas do not count, as in Lint, and neither does a read of a name the inner class declares again
+  (a parameter, an earlier local, or a Java field).
 - `FindViewByIdCast` (warning, Java, autofix) reports an unqualified `findViewById`/`requireViewById` passed to a
   generic method `<T> T m(T)` whose result is dereferenced, which needs a `(View)` cast on Java 8. Known library
   identities (`Objects.requireNonNull`, Guava/AndroidX `checkNotNull`, `Verify.verifyNotNull`) and same-file generic
   methods qualify.
 - `RemoteViewLayout` (error, Kotlin and Java) reports `RemoteViews(pkg, R.layout.x)` when any configuration of the
   layout contains views RemoteViews cannot inflate (CheckBox, Switch, RadioButton and RadioGroup are allowed from
-  API 31, by the folder's `-vNN` qualifier or the minSdk).
+  API 31, by the folder's `-vNN` qualifier or the minSdk). The calling module's own layout overrides a library's of
+  the same name; another module's layout is read only when the calling module has none.
 - `DefaultUncaughtExceptionDelegation` (warning, Kotlin and Java) reports `Thread.setDefaultUncaughtExceptionHandler`
   in a module (the directory of the nearest build script) that never calls `getDefaultUncaughtExceptionHandler`.
 - `WrongGradleMethod` (error, Groovy and Kotlin DSL) reports a `dependencies` block inside a build type or product

@@ -96,7 +96,7 @@ All notable changes to Krit will be documented in this file.
 - `RecyclerView`, `FindViewByIdCast`, `RemoteViewLayout`, `DefaultUncaughtExceptionDelegation` and
   `WrongGradleMethod`, ports of Android Lint 32.4.1's `RecyclerViewDetector`, `ViewTypeDetector` (FindViewByIdCast,
   with Lint's cast fix), `RemoteViewDetector`, `UncaughtExceptionHandlerDetector` and `WrongGradleMethodDetector`
-  (command-line patterns). Findings match Lint on 13 recorded project fixtures; `scripts/lint-parity-record.sh` now
+  (command-line patterns). Findings match Lint on 16 recorded project fixtures; `scripts/lint-parity-record.sh` now
   records Groovy build scripts and flavored modules too (#1248, #1290, #1250, #1282, #1300).
 - `ScopedStorage`, `SelectableText`, `CustomSplashScreen`, `VectorDrawableCompat` and `TranslucentOrientation`, ports
   of Android Lint 32.4.1's `ScopedStorageDetector`, `TextViewDetector` (SelectableText), `SplashScreenDetector`,

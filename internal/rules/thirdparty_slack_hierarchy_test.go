@@ -76,7 +76,7 @@ func runRuleOnSourcesWithResolver(t *testing.T, ruleID string, sources map[strin
 		}
 	}
 	resolver := typeinfer.NewResolver()
-	resolver.IndexFilesParallel(files, 1)
+	resolver.IndexFilesParallel(pipelineResolverFiles(files), 1)
 	for _, r := range api.Registry {
 		if r.ID == ruleID {
 			cols := rules.NewDispatcher([]*api.Rule{r}, resolver).Run(targetFile)
@@ -93,6 +93,18 @@ func runRuleOnSourcesWithResolverAll(t *testing.T, ruleID string, sources map[st
 	var out []scanner.Finding
 	for name := range sources {
 		out = append(out, runRuleOnSourcesWithResolver(t, ruleID, sources, name)...)
+	}
+	return out
+}
+
+// pipelineResolverFiles returns the files the pipeline indexes into the source resolver. IndexPhase indexes Kotlin
+// files only, so a harness that also indexed Java would pass cases the CLI misses (#1885).
+func pipelineResolverFiles(files []*scanner.File) []*scanner.File {
+	var out []*scanner.File
+	for _, f := range files {
+		if f.Language != scanner.LangJava {
+			out = append(out, f)
+		}
 	}
 	return out
 }

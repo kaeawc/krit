@@ -60,7 +60,7 @@ Where a rewrite hides tokens, `repairTree` restores nodes afterwards.
 | line-leading `in1`, `in_` | `;` ends the previous line; the grammar reads `in` followed by a digit or `_` as the operator | none |
 | line-leading `by` after a property header | line break replaced by a space | none |
 | non-ASCII letters in unquoted identifiers | read as `a` | none |
-| a member and the `}` closing a nested body on the same line (`class H { companion object { val X = 1 } }`) | when the first parse leaves that `}` inside an ERROR node, `;` replaces the space before it and the file is reparsed; the reparse is kept only if its error region is smaller. Without it the enclosing class and the rest of the file are one ERROR node | none; node ends are trimmed before the `;` |
+| a member and the `}` closing a nested body on the same line (`class H { companion object { val X = 1 } }`, also with `;` and more members after it: `class H { companion object { val X = 1 }; val y = 2 }`) | when the first parse leaves that `}` inside an ERROR node, after a member in the same ERROR or right before it, `;` replaces the space before the `}` and the file is reparsed; the reparse is kept only if its error region is smaller. Without it the enclosing class and the rest of the file are one ERROR node | none; node ends are trimmed before the `;` |
 
 ## Rule behavior on Kotlin 2.x constructs
 
@@ -89,8 +89,9 @@ holds the oracle to the K2 compiler on smart casts the structural view cannot fo
 - A line comment between a line and a leading `as` or `in` line stops the join;
   that statement keeps recovery nodes.
 - A nested body whose `}` directly follows its last member with no space
-  (`class H { companion object { val X = 1}}`) has no byte to put a `;` in, so
-  the enclosing class and the rest of the file can still be one ERROR node.
+  (`class H { companion object { val X = 1}}`, or `{ val X = 1}; val y = 2 }`
+  before a later function) has no byte to put a `;` in, so the enclosing class
+  and the rest of the file can still be one ERROR node (#1866).
 - Soft keyword names in positions other than those listed, assignments whose
   target contains a lambda in the middle of a longer chain, `.interpolator`
   style assignments on a line that starts with `.`, and `@Annotation` runs

@@ -27,9 +27,16 @@ import (
 // recovery does not stay local. The inner ERROR takes the inner '}', the outer
 // '}' closes the inner body, and the outer class plus every declaration after
 // it in the file end up in one ERROR node. Every finding in the file is then
-// dropped by the parse-error-region filter (#1839). Unwrapping cannot fix that
-// tree, so closeSameLineBodies reparses with a ';' in the space before such a
-// brace.
+// dropped by the parse-error-region filter (#1839). When a ';' and more
+// members follow the inner body,
+//
+//	class H { companion object { val X = 1 }; val y = 2 }
+//
+// the inner '}' sits alone in an ERROR node and the member it closes is the
+// node before that ERROR (#1875). Unwrapping cannot fix either tree, so
+// closeSameLineBodies reparses with a ';' in the space before such a brace.
+// The scan is not limited to class bodies: any '}' token in an ERROR node
+// qualifies, and the error-extent check decides whether the reparse is kept.
 
 // maxSameLineBodyReparses bounds the reparses of one file. One round usually
 // fixes every brace; later rounds run when recovery hid a brace the first
@@ -37,13 +44,13 @@ import (
 const maxSameLineBodyReparses = 3
 
 // closeSameLineBodies reparses src while the tree has a '}' token inside an
-// ERROR node right after a member or another '}' on the same line, with a ';'
-// put in the space before that brace. Each round builds on the last one,
-// because an intermediate tree can be no better than the first. The best tree
-// is kept only when it shrinks the error region, so real syntax errors and
-// clean trees keep the first parse. It returns the tree, the source it was
-// parsed from, and the offsets of the inserted ';' bytes for
-// trimInsertedSemicolons.
+// ERROR node right after a named node or another '}' on the same line, with a
+// ';' put in the space before that brace (see sameLineBodyCloseSemis). Each
+// round builds on the last one, because an intermediate tree can be no better
+// than the first. The best tree is kept only when it shrinks the error region,
+// so real syntax errors and clean trees keep the first parse. It returns the
+// tree, the source it was parsed from, and the offsets of the inserted ';'
+// bytes for trimInsertedSemicolons.
 func closeSameLineBodies(ctx context.Context, parser *sitter.Parser, ft *FlatTree, src, content []byte) (*FlatTree, []byte, []uint32) {
 	best, bestSrc := ft, src
 	var bestSemis, semis []uint32
@@ -76,8 +83,10 @@ func closeSameLineBodies(ctx context.Context, parser *sitter.Parser, ft *FlatTre
 }
 
 // sameLineBodyCloseSemis returns the offsets of the spaces before each '}'
-// token that an ERROR node holds right after a named node or another '}' on
-// the same line.
+// token that an ERROR node, in any context, holds right after a named node or
+// another '}' on the same line. The node before the ERROR counts for its first
+// child, because a '}' can sit alone in an ERROR whose member is its previous
+// sibling (#1875).
 func sameLineBodyCloseSemis(ft *FlatTree, src []byte) []uint32 {
 	if ft == nil {
 		return nil
@@ -87,7 +96,7 @@ func sameLineBodyCloseSemis(ft *FlatTree, src []byte) []uint32 {
 		if flags&flatNodeFlagIsError == 0 || ft.FirstChildren[idx] == 0 {
 			continue
 		}
-		afterMember := false
+		afterMember := isNamedNonError(ft, ft.PrevSibs[idx])
 		for c := ft.FirstChildren[idx]; c != 0; c = ft.NextSibs[c] {
 			isBrace := nodeTypeName(ft.Types[c]) == "}"
 			if afterMember && isBrace {
@@ -95,10 +104,16 @@ func sameLineBodyCloseSemis(ft *FlatTree, src []byte) []uint32 {
 					at = append(at, p)
 				}
 			}
-			afterMember = isBrace || ft.Flags[c]&flatNodeFlagNamed != 0 && ft.Flags[c]&flatNodeFlagIsError == 0
+			afterMember = isBrace || isNamedNonError(ft, c)
 		}
 	}
 	return at
+}
+
+// isNamedNonError reports whether idx is a named node other than ERROR or
+// MISSING. Index 0 is the root, which is never a sibling, so it means none.
+func isNamedNonError(ft *FlatTree, idx uint32) bool {
+	return idx != 0 && ft.Flags[idx]&flatNodeFlagNamed != 0 && ft.Flags[idx]&flatNodeFlagIsError == 0
 }
 
 // spaceBeforeSameLineBrace returns the offset of the space or tab right

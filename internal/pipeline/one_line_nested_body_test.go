@@ -18,6 +18,12 @@ import (
 // returns the reported lines plus the number of findings that filter dropped.
 func runPrintlnProject(t *testing.T, src string) ([]string, int) {
 	t.Helper()
+	return runOneFileProject(t, "PrintlnInProduction", src)
+}
+
+// runOneFileProject runs one rule over one Kotlin file like runPrintlnProject.
+func runOneFileProject(t *testing.T, ruleID, src string) ([]string, int) {
+	t.Helper()
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "H.kt"), []byte(src), 0o644); err != nil {
 		t.Fatalf("write fixture: %v", err)
@@ -25,7 +31,7 @@ func runPrintlnProject(t *testing.T, src string) ([]string, int) {
 	res, err := RunProject(context.Background(), ProjectInput{Args: ProjectArgs{
 		Config:      config.NewConfig(),
 		Paths:       []string{root},
-		ActiveRules: []*api.Rule{findV2RuleForTest(t, "PrintlnInProduction")},
+		ActiveRules: []*api.Rule{findV2RuleForTest(t, ruleID)},
 		Format:      "json",
 		Version:     "test",
 	}})
@@ -51,6 +57,14 @@ func TestRunProject_OneLineNestedBodyKeepsFileFindings(t *testing.T) {
 		{"nested class", "class H { class I { val x = 1 } }"},
 		{"nested interface", "class H { interface I { fun f() } }"},
 		{"enum body", "class H { enum class E { A, B; fun g() = 1 } }"},
+		// A ';' and a member after the nested body (#1875).
+		{"';' and a member", "class H { companion object { val X = 1 }; val y = 2 }"},
+		{"' ; ' and a member", "class H { companion object { val X = 1 } ; val y = 2 }"},
+		{"';' and two members", "class H { companion object { val X = 1 }; val y = 2; fun g() = 3 }"},
+		{"member with no ';'", "class H { companion object { val X = 1 } fun g() {} }"},
+		{"';' at three levels", "class A { class B { class C { val x = 1 }; val y = 2 }; val z = 3 }"},
+		{"';' in an enum body", "enum class E { A, B; companion object { val X = 1 }; fun g() = 1 }"},
+		{"two classes on one line", "class H { companion object { val X = 1 }; val y = 2 }; class J { object O { val Z = 1 }; val w = 3 }"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -74,6 +88,47 @@ func TestRunProject_OneLineNestedBodyKeepsFileFindings(t *testing.T) {
 			t.Errorf("FindingsInErrorRegions = %d, want 0", dropped)
 		}
 	})
+
+	t.Run("finding in the member after ';'", func(t *testing.T) {
+		got, dropped := runPrintlnProject(t, "class H { companion object { val X = 1 }; fun g() = println(2) }\n")
+		if want := []string{"1:53"}; strings.Join(got, ",") != strings.Join(want, ",") {
+			t.Errorf("findings = %v, want %v", got, want)
+		}
+		if dropped != 0 {
+			t.Errorf("FindingsInErrorRegions = %d, want 0", dropped)
+		}
+	})
+}
+
+// The shapes from #1875: an unused local after a one-line nested body that is
+// followed by ';' and a member is reported, as it is when the class spans lines.
+func TestRunProject_OneLineNestedBodyBeforeSemicolonKeepsUnusedVariable(t *testing.T) {
+	after := "\nfun after() { val unused = 1 }\n"
+	for _, line := range []string{
+		"class H { companion object { val X = 1 }; val y = 2 }",
+		"class H { companion object { val X = 1 } ; val y = 2 }",
+		"class H {\n  companion object { val X = 1 }\n  val y = 2\n}",
+	} {
+		t.Run(line, func(t *testing.T) {
+			got, dropped := runOneFileProject(t, "UnusedVariable", line+after)
+			want := fmt.Sprintf("%d:19", strings.Count(line, "\n")+2)
+			if strings.Join(got, ",") != want {
+				t.Errorf("findings = %v, want [%s]", got, want)
+			}
+			if dropped != 0 {
+				t.Errorf("FindingsInErrorRegions = %d, want 0", dropped)
+			}
+		})
+	}
+}
+
+// A real syntax error after a one-line nested body still marks its region,
+// so findings inside it stay dropped.
+func TestRunProject_OneLineNestedBodyRealErrorStaysDropped(t *testing.T) {
+	_, dropped := runPrintlnProject(t, "class A { object B { fun g() = println(1) ) }; val y = 2 }\n")
+	if dropped == 0 {
+		t.Error("FindingsInErrorRegions = 0, want the println inside the broken class dropped")
+	}
 }
 
 // @Suppress on a one-line class still covers only that class: the println

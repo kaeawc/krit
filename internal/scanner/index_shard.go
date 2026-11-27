@@ -107,7 +107,8 @@ func (crossFileShardsRegistered) Stats() cacheutil.CacheStats {
 // v12: local functions, classes, objects and properties are no longer indexed.
 // v13: a file with a one-line nested class body no longer parses as one ERROR
 // node, so its classes and later declarations are indexed (#1839).
-const crossFileShardVersion = 13
+// v14: the same holds when ';' and more members follow the nested body (#1875).
+const crossFileShardVersion = 14
 
 // Per-shard bloom sizing. Every shard's bloom uses these exact
 // (m, k) parameters so they can be unioned with BloomFilter.Merge,

@@ -661,6 +661,11 @@ All notable changes to Krit will be documented in this file.
   file into one ERROR node, so the parse-error filter dropped all of them and `@Suppress` on the class did not apply.
   Krit now reparses such a file with a `;` in the space before the brace and keeps the result when its error region is
   smaller. Parse-cache entries and cross-file index shards written before the fix are rebuilt (#1839).
+- The same repair covers a one-line nested body followed by `;` and more members, such as
+  `class H { companion object { val X = 1 }; val y = 2 }` or `} ; val y = 2 }`, and two such classes on one line. The
+  inner `}` sat alone in an ERROR node with its member just before it, so it was never a candidate and a later
+  `fun after() { val unused = 1 }` lost its `UnusedVariable` finding. Parse-cache entries and cross-file index shards
+  written before the fix are rebuilt (#1875).
 - `--no-cache` skips every cache that can change findings. A one-shot scan read the cross-file findings cache, so a
   stale entry replayed into the run warm results are checked against; it now skips that cache and also the cross-file
   index, resource index, file-walk, tracked-files and incremental oracle caches. With the type oracle on, every

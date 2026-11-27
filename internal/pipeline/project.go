@@ -1553,7 +1553,7 @@ func loadWarmCrossFindings(args ProjectArgs, host ProjectHostState, warm warmAna
 	// to an earlier version (#1820), so compare the indexed Kotlin/Java paths
 	// and contents with the current ones before any reuse.
 	sourcePaths := crossIndexSourcePaths(args, warm)
-	if !meta.CoversSourcePaths(sourcePaths, warmSourceHash(warm, sourcePaths)) {
+	if !coversWarmSources(meta, sourcePaths, warm) {
 		return false, nil
 	}
 	// XML layouts, manifests and navigation graphs feed class references into
@@ -4525,9 +4525,22 @@ func warmSourceHash(warm warmAnalysisCachePlan, paths []string) func(string) str
 	}
 }
 
+// coversWarmSources reports whether meta's index was built from exactly
+// paths, at their current content. A changed path set rejects reuse without
+// reading a file, so it is checked before warmSourceHash hashes them all.
+func coversWarmSources(meta scanner.CrossFileCacheMeta, paths []string, warm warmAnalysisCachePlan) bool {
+	return meta.CoversSourcePaths(paths, nil) && meta.CoversSourcePaths(paths, warmSourceHash(warm, paths))
+}
+
+// testHookHashSourceFiles, when set by a test, sees every hashSourceFiles batch.
+var testHookHashSourceFiles func(paths []string)
+
 // hashSourceFiles returns hashSourceFile for each of paths, hashed on
 // GOMAXPROCS workers.
 func hashSourceFiles(paths []string) map[string]string {
+	if testHookHashSourceFiles != nil {
+		testHookHashSourceFiles(paths)
+	}
 	hashes := make([]string, len(paths))
 	workers := runtime.GOMAXPROCS(0)
 	if workers > len(paths) {

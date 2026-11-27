@@ -100,7 +100,7 @@ All notable changes to Krit will be documented in this file.
   records Groovy build scripts and flavored modules too (#1248, #1290, #1250, #1282, #1300).
 - `ScopedStorage`, `SelectableText`, `CustomSplashScreen`, `VectorDrawableCompat` and `TranslucentOrientation`, ports
   of Android Lint 32.4.1's `ScopedStorageDetector`, `TextViewDetector` (SelectableText), `SplashScreenDetector`,
-  `VectorDrawableCompatDetector` and `TranslucentViewDetector` under their Lint IDs. Findings match Lint on 20
+  `VectorDrawableCompatDetector` and `TranslucentViewDetector` under their Lint IDs. Findings match Lint on 23
   recorded project fixtures (#1259, #1273, #1266, #1288, #1279).
 - `StringEscaping`, `InvalidNavigation`, `ValidRestrictions` and `RelativeClassResolution`, ports of Android Lint
   32.4.1's `StringEscapeDetector`, `StartDestinationDetector`, `RestrictionsDetector` and
@@ -152,7 +152,7 @@ All notable changes to Krit will be documented in this file.
   WebP and XML previews, round/square drawable folders, suppression and lookalike receivers (#1275, #1276, #1277).
 - `WearableConfigurationAction`, `WearableActionDuplicate`, `WatchFaceForAndroidX`, `WearBackNavigation` and
   `WearMaterialTheme`, ports of Android Lint 32.4.1's Wear OS watch face configuration, swipe-to-dismiss and
-  Compose `MaterialTheme` checks under their Lint IDs, severities and messages. Their findings match Lint on 22
+  Compose `MaterialTheme` checks under their Lint IDs, severities and messages. Their findings match Lint on 24
   recorded project fixtures, `tools:ignore` and `@file:Suppress` included. `scripts/lint-parity-record.sh` records
   what Lint (AGP 9.4.1) reports for a fixture module, and `TestAndroidLintParityFixtures` replays krit on every
   recorded fixture (#1291, #1292, #1293, #1294, #1295).

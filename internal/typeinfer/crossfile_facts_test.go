@@ -4,6 +4,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/kaeawc/krit/internal/scanner"
 )
 
 func crossFileFactsOf(t *testing.T, src string) CrossFileFacts {
@@ -142,5 +144,22 @@ func TestCrossFileFactsHashFollowsTopLevelFunctions(t *testing.T) {
 	member := crossFileFactsOf(t, "package p\n\nclass Svc {\n  fun run(): Int = 1\n}\n")
 	if top.ByName["p.run"] == "" || top.ByName["p.run"] == member.ByName["p.run"] {
 		t.Errorf("p.run: top-level %q, member %q; want different non-empty hashes", top.ByName["p.run"], member.ByName["p.run"])
+	}
+}
+
+// #1940: a private top-level function shadows nothing outside its file, so making one private must move its name's
+// hash, and HasTopLevelFunction must stop answering for it.
+func TestPrivateTopLevelFunctionIsNotACrossFileShadow(t *testing.T) {
+	public := "package p\n\nfun run(): Int = 1\n"
+	private := "package p\n\nprivate fun run(): Int = 1\n"
+	if a, b := crossFileFactsOf(t, public).ByName["p.run"], crossFileFactsOf(t, private).ByName["p.run"]; a == b {
+		t.Errorf("p.run: public %q, private %q; want different hashes", a, b)
+	}
+	for src, want := range map[string]bool{public: true, private: false} {
+		r := NewResolver()
+		r.IndexFilesParallel([]*scanner.File{parseTestFile(t, src)}, 1)
+		if got := HasTopLevelFunction(r, "p.run"); got != want {
+			t.Errorf("HasTopLevelFunction(p.run) for %q = %v, want %v", src, got, want)
+		}
 	}
 }

@@ -453,9 +453,6 @@ func (r *WrongCommentTypeRule) check(ctx *api.Context) {
 		strings.Contains(text, "(non-Javadoc)") {
 		return
 	}
-	if wctTrailsCode(file, comment) {
-		return
-	}
 	if !strings.ContainsAny(text, "@[") {
 		return
 	}
@@ -495,19 +492,18 @@ func (r *WrongCommentTypeRule) check(ctx *api.Context) {
 		Fix:     &scanner.Fix{ByteMode: true, StartByte: cs, EndByte: cs + 2, Replacement: "/**"}})
 }
 
-// wctTrailsCode reports a comment that ends a line of code (`val a = 1 /* @see b */`): it binds to that code, not to
-// the declaration on the next line, as Lint's comment binding does.
-func wctTrailsCode(file *scanner.File, comment uint32) bool {
-	start, end := int(file.FlatStartByte(comment)), int(file.FlatEndByte(comment))
+// wctTrailsCode reports a comment that follows code on its line (`val a = 1 /* @see b */`, `val a = 1 // note`) when
+// the declaration starts on a later line: it binds to that code, as Lint's comment binding does, and so do the
+// comments after it on the same line. A comment preceded only by other comments (`/* a */ /* b */`) does not trail
+// code.
+func wctTrailsCode(file *scanner.File, comment, decl uint32) bool {
+	start := int(file.FlatStartByte(comment))
 	lineStart := bytes.LastIndexByte(file.Content[:start], '\n') + 1
-	if len(bytes.TrimSpace(file.Content[lineStart:start])) == 0 {
+	before := bytes.TrimSpace(file.Content[lineStart:start])
+	if len(before) == 0 || bytes.HasSuffix(before, []byte("*/")) {
 		return false
 	}
-	rest := file.Content[end:]
-	if nl := bytes.IndexByte(rest, '\n'); nl >= 0 {
-		rest = rest[:nl]
-	}
-	return len(bytes.TrimSpace(rest)) == 0
+	return bytes.IndexByte(file.Content[file.FlatEndByte(comment):file.FlatStartByte(decl)], '\n') >= 0
 }
 
 // wctIsMember reports the declarations Lint visits as UClass, UMethod and UField: classes, objects, functions,
@@ -545,8 +541,9 @@ func wctIsMember(file *scanner.File, decl uint32) bool {
 
 // wctPrecedingComment returns the comment Lint inspects for the declaration. Kotlin binds the run of comments
 // right before a declaration (line comments too, blank lines allowed) into it and Lint takes the first; Java's
-// backwards walk takes the nearest. tree-sitter attaches such comments to the end of whatever precedes them (a
-// package header, the import list, the previous declaration), so trailing descendants count too.
+// backwards walk takes the nearest. The run stops at a comment that trails code (`val x = 1 // note`), which binds
+// to that code instead. tree-sitter attaches such comments to the end of whatever precedes them (a package header,
+// the import list, the previous declaration), so trailing descendants count too.
 func wctPrecedingComment(file *scanner.File, decl uint32) uint32 {
 	var run []uint32
 	nextStart := file.FlatStartByte(decl)
@@ -555,6 +552,15 @@ func wctPrecedingComment(file *scanner.File, decl uint32) uint32 {
 		switch file.FlatType(cur) {
 		case "multiline_comment", "block_comment", "line_comment":
 			if strings.TrimSpace(string(file.Content[file.FlatEndByte(cur):nextStart])) != "" {
+				cur = 0
+				continue
+			}
+			if wctTrailsCode(file, cur, decl) {
+				// The comments after it on its line bind to the same code.
+				row := file.FlatRow(cur)
+				for len(run) > 0 && file.FlatRow(run[len(run)-1]) == row {
+					run = run[:len(run)-1]
+				}
 				cur = 0
 				continue
 			}

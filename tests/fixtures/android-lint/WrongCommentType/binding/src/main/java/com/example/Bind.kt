@@ -43,3 +43,20 @@ abstract class Abs {
     /* @return abstract property */
     abstract val abs: Int
 }
+
+class Trailing {
+    val x = 1 // trailing
+    /* @see Bind */
+    fun afterTrailingLine(): Int = 1
+
+    val y = 2 /* @return trailing block */
+    fun afterTrailingBlock(): Int = 1
+
+    val z = 3 // trailing
+    // plain line
+    /* @return after trailing then line */
+    fun afterTrailingThenLine(): Int = 1
+
+    val w = 4 /* plain */ /* @return same line as code */
+    fun afterTwoTrailing(): Int = 1
+}

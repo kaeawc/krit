@@ -311,7 +311,7 @@ Findings and rule-dependent derived data. A different build never reads these:
 
 | Cache | Holds | Key inputs | Invalidated by |
 |---|---|---|---|
-| `cache/` (per-file analysis) | Per-file rule findings | File content hash and git blob ID, rule hash, oracle fact hash | Rule hash: rules, config, build, oracle jar, and project facts (module SDK levels, Gradle library facts) |
+| `cache/` (per-file analysis) | Per-file rule findings | File content hash and git blob ID, rule hash, oracle fact hash; paths are stored relative to the repository, so it survives a move to another checkout path | Rule hash: rules, config, build, oracle jar, and project facts (module SDK levels, Gradle library facts) |
 | `findings-bundle-cache/` | Whole-run findings and delta manifests | Run fingerprint: rule hash, source set, cross-file structure, oracle facts, Gradle paths and library facts, compiler settings, XML inputs (manifests, resources, module SDK levels) | Any fingerprint field |
 | `cross-findings-cache/` | Cross-file rule findings | Cross-file index fingerprint, rule hash | Index fingerprint (sources, XML inputs, build), rule hash |
 | `cross-file-cache/` | Cross-file symbol and reference index | Source and XML content hashes, build, bloom library version | `CrossFileCacheVersion`, the shard version, the build |
@@ -374,6 +374,34 @@ to restore (a CI cache restored by prefix, or a checkout or pull between two
 runs): a file that changed between the commits has another blob ID and is
 re-analyzed. Dirty, unmerged, `--assume-unchanged`, skip-worktree, symlinked
 and submodule paths fall back to the stat and content-hash check.
+
+`cache/` in a repository's default location (`.krit/cache`) stores paths under
+the repository relative to it and re-roots them on load, and its file name
+and rule hash are computed from repository-relative paths, so a `.krit/`
+restored into a checkout at another absolute path (another CI agent's
+workspace) still hits for unchanged files, when the repository has a project
+marker (a VCS root, a krit config or Gradle settings). That is safe because no
+verdict depends on the folders above such a root: rule path heuristics,
+test-source detection and per-rule `excludes` globs read the root-relative
+path (`projectPath`, `scanner.RootRelativePath`), and a CLI test scans one tree
+at two roots and requires the same findings. The few shared classifiers that
+still see absolute paths (`/src/test/`, `/samples/`, `-test-utils/`, ...) are
+covered by `cache.rulePathMarkers`, kept in sync with the rules by a test: a
+cache moved from or to a root containing such a segment is discarded instead.
+A cache under `--cache-dir` keeps absolute paths.
+
+Some common checkout roots hold such a segment, so a cache restored there is
+rebuilt rather than relocated:
+
+| Checkout root | Segment |
+|---|---|
+| AWS CodeBuild `/codebuild/output/src…/src/github.com/…` | `/src/` |
+| Bitbucket Pipelines `/opt/atlassian/pipelines/agent/build` | `/build/` |
+| a developer clone under `~/src/…` | `/src/` |
+| a repository folder such as `latest-app`, `test-infra`, `sample-app` | `test`, `sample` |
+
+GitHub Actions (`/home/runner/work/<repo>/<repo>`), GitLab (`/builds/<group>/<project>`), Jenkins workspaces
+(`<job>`, `<job>@2`), CircleCI (`~/project`) and Buildkite agent roots relocate.
 
 If a scan with the default cache disagrees with `--no-cache`, that is a bug in
 a key: run `krit --clear-cache` to recover, then report which cache held the

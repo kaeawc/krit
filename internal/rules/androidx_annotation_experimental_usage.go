@@ -336,7 +336,7 @@ func axlOptInCheck(ctx *api.Context, rule BaseRule, warning bool) {
 		return
 	}
 	for _, file := range files {
-		if scanner.IsTestFile(file.Path) || !axlFileMentionsAny(file, m.names) {
+		if isProjectTestFile(ctx, file.Path) || !axlFileMentionsAny(file, m.names) {
 			continue
 		}
 		for _, kind := range []string{"call_expression", "method_invocation", "object_creation_expression"} {

@@ -97,7 +97,7 @@ func (r *UnsafeCallOnNullableTypeRule) check(ctx *api.Context) {
 	// Skip test sources — tests use `!!` freely on setup fixtures;
 	// a NullPointerException there is just a failed test, not a runtime
 	// bug affecting production.
-	if isAndroidTestSupportArtifactSource(file.Path) {
+	if isAndroidTestSupportArtifactSource(projectPath(ctx, file.Path)) {
 		return
 	}
 	// Skip @Preview / sample / fixture functions — these are UI tooling

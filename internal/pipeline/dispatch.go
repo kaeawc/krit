@@ -204,6 +204,12 @@ func (d DispatchPhase) Run(ctx context.Context, in IndexResult) (DispatchResult,
 	}
 
 	dispatcher := rules.NewDispatcher(in.ActiveRules, in.Resolver)
+	// The same root the per-file cache relocates against, so a relocated
+	// entry's verdicts match a fresh scan at the new root. Only a marked
+	// root counts: without one, Find falls back to the scanned directory,
+	// which can be the very source folder (src/, a Bazel package) whose
+	// name a path heuristic needs, and the cache is not relocated.
+	SetDispatcherProjectRoot(dispatcher, in.Paths)
 	dispatcher.SetLibraryFacts(in.LibraryFacts)
 	dispatcher.SetJavaSemanticFacts(in.JavaSemanticFacts)
 	dispatcher.SetRuleTiming(!in.SkipRuleTiming)

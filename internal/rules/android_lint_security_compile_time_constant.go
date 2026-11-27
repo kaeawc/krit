@@ -41,7 +41,7 @@ func (r *CompileTimeConstantRule) checkProject(ctx *api.Context) {
 	files = append([]*scanner.File(nil), files...)
 	sort.SliceStable(files, func(i, j int) bool { return files[i].Path < files[j].Path })
 	for _, file := range files {
-		if file == nil || file.FlatTree == nil || scanner.IsTestFile(file.Path) || !ctcFileGate(file, ctx.Resolver) {
+		if file == nil || file.FlatTree == nil || isProjectTestFile(ctx, file.Path) || !ctcFileGate(file, ctx.Resolver) {
 			continue
 		}
 		sub := *ctx

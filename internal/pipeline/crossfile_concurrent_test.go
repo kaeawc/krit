@@ -60,7 +60,7 @@ class Foo {}
 	rule := api.FakeRule("SemanticCross", api.WithNeeds(api.NeedsCrossFile|api.NeedsParsedFiles|api.NeedsResolver))
 	javaSourceIndex := javaSourceIndexForParsedFiles(parsedFiles)
 
-	ctx := buildCrossRuleContext(rule, index, parsedFiles, resolver, nil, javaSourceIndex, dst, false)
+	ctx := buildCrossRuleContext(rule, index, parsedFiles, resolver, nil, nil, javaSourceIndex, dst, false)
 
 	if ctx.CodeIndex != index {
 		t.Fatal("CodeIndex was not wired for NeedsCrossFile")
@@ -89,12 +89,12 @@ func TestBuildCrossRuleContext_PlumbsThoroughFlag(t *testing.T) {
 	rule := api.FakeRule("Cross", api.WithNeeds(api.NeedsCrossFile))
 	dst := scanner.NewFindingCollector(0)
 
-	balanced := buildCrossRuleContext(rule, nil, nil, nil, nil, nil, dst, false)
+	balanced := buildCrossRuleContext(rule, nil, nil, nil, nil, nil, nil, dst, false)
 	if balanced.AtThoroughDepth {
 		t.Errorf("balanced context must have AtThoroughDepth=false")
 	}
 
-	thorough := buildCrossRuleContext(rule, nil, nil, nil, nil, nil, dst, true)
+	thorough := buildCrossRuleContext(rule, nil, nil, nil, nil, nil, nil, dst, true)
 	if !thorough.AtThoroughDepth {
 		t.Errorf("thorough context must have AtThoroughDepth=true")
 	}
@@ -127,7 +127,7 @@ func TestRunConcurrentCrossRules_FindingEquivalence(t *testing.T) {
 		workers := workers
 		t.Run(fmt.Sprintf("workers=%d", workers), func(t *testing.T) {
 			dst := scanner.NewFindingCollector(0)
-			runConcurrentCrossRules(context.Background(), rules, nil, nil, nil, nil, nil, dst, workers, nil, false)
+			runConcurrentCrossRules(context.Background(), rules, nil, nil, nil, nil, nil, nil, dst, workers, nil, false)
 			got := *dst.Columns()
 
 			if got.Len() != serialCols.Len() {
@@ -154,7 +154,7 @@ func TestRunConcurrentCrossRules_RecoversFromPanics(t *testing.T) {
 	}))
 	rules := []*api.Rule{good, bad, good, bad}
 	dst := scanner.NewFindingCollector(0)
-	runConcurrentCrossRules(context.Background(), rules, nil, nil, nil, nil, nil, dst, 4, nil, false)
+	runConcurrentCrossRules(context.Background(), rules, nil, nil, nil, nil, nil, nil, dst, 4, nil, false)
 	if got := dst.Columns().Len(); got != 2 {
 		t.Fatalf("Len=%d want 2 (two Good invocations survive two Bad panics)", got)
 	}
@@ -174,7 +174,7 @@ func TestRunConcurrentCrossRules_HonoursContextCancel(t *testing.T) {
 		}))
 	}
 	dst := scanner.NewFindingCollector(0)
-	runConcurrentCrossRules(ctx, rules, nil, nil, nil, nil, nil, dst, 4, nil, false)
+	runConcurrentCrossRules(ctx, rules, nil, nil, nil, nil, nil, nil, dst, 4, nil, false)
 	// We allow up to one rule per worker to observe the cancelled ctx
 	// after dispatch; the critical property is that not all rules run.
 	if int(ran.Load()) >= len(rules) {
@@ -190,7 +190,7 @@ func TestRunConcurrentCrossRules_SingleRuleFallsBackToSerial(t *testing.T) {
 		ctx.EmitAt(1, 1, "solo")
 	}))
 	dst := scanner.NewFindingCollector(0)
-	runConcurrentCrossRules(context.Background(), []*api.Rule{r}, nil, nil, nil, nil, nil, dst, 4, nil, false)
+	runConcurrentCrossRules(context.Background(), []*api.Rule{r}, nil, nil, nil, nil, nil, nil, dst, 4, nil, false)
 	if got := dst.Columns().Len(); got != 1 {
 		t.Fatalf("Len=%d want 1", got)
 	}
@@ -218,7 +218,7 @@ func TestRunConcurrentCrossRules_PanicRecordedInErrors(t *testing.T) {
 			}
 			dst := scanner.NewFindingCollector(0)
 			var errs []rules.DispatchError
-			runConcurrentCrossRules(context.Background(), ruleSet, nil, nil, nil, nil, nil, dst, 4, &errs, false)
+			runConcurrentCrossRules(context.Background(), ruleSet, nil, nil, nil, nil, nil, nil, dst, 4, &errs, false)
 			if len(errs) != tc.n {
 				t.Fatalf("errs=%d want %d (%v)", len(errs), tc.n, errs)
 			}
@@ -257,7 +257,7 @@ func makeConcurrentRules(n int) []*api.Rule {
 func runCrossRulesSerial(rules []*api.Rule) scanner.FindingColumns {
 	dst := scanner.NewFindingCollector(0)
 	for _, r := range rules {
-		rctx := buildCrossRuleContext(r, nil, nil, nil, nil, nil, dst, false)
+		rctx := buildCrossRuleContext(r, nil, nil, nil, nil, nil, nil, dst, false)
 		r.Check(rctx)
 	}
 	return *dst.Columns()

@@ -245,7 +245,7 @@ func registerCoroutinesInjectDispatcher() {
 		Needs: api.NeedsTypeInfo | api.NeedsOracleCallTargets,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
-			if scanner.IsTestFile(file.Path) {
+			if isProjectTestFile(ctx, file.Path) {
 				return
 			}
 			if first := file.FlatChild(idx, 0); first != 0 && file.FlatType(first) == "call_expression" {
@@ -793,7 +793,7 @@ func registerCoroutinesChannelReceiveWithoutClose() {
 				return
 			}
 			// Receivers launched in a cancellable scope end with it, and test channels die with the test.
-			if scanner.IsTestFile(file.Path) || isTestDoubleClassName(file, classDecl) ||
+			if isProjectTestFile(ctx, file.Path) || isTestDoubleClassName(file, classDecl) ||
 				channelReceivesAllScopeBound(file, 0, propName) {
 				return
 			}
@@ -900,7 +900,7 @@ func registerCoroutinesCoroutineScopeCreatedButNeverCancelled() {
 				return
 			}
 			// A test fake hands its scope out through the interface, so the test owns the cancellation.
-			if coroutineScopeEscapesFake(file, classDecl) {
+			if coroutineScopeEscapesFake(ctx, file, classDecl) {
 				return
 			}
 			if coroutineScopeResetInTeardown(file, classDecl, propName) {
@@ -923,8 +923,8 @@ var coroutineFakeClassPrefixes = []string{"Fake", "Test", "Stub", "Dummy", "Noop
 
 // coroutineScopeEscapesFake reports a scope property in a class named like a test fake, or in a test
 // source or a `test` package. The test owns the cancellation, whatever the property visibility.
-func coroutineScopeEscapesFake(file *scanner.File, classDecl uint32) bool {
-	if scanner.IsTestFile(file.Path) || strings.Contains(filepath.ToSlash(file.Path), "/test/") {
+func coroutineScopeEscapesFake(ctx *api.Context, file *scanner.File, classDecl uint32) bool {
+	if isProjectTestFile(ctx, file.Path) || strings.Contains(filepath.ToSlash(projectPath(ctx, file.Path)), "/test/") {
 		return true
 	}
 	name := extractIdentifierFlat(file, classDecl)
@@ -1218,7 +1218,7 @@ func registerCoroutinesMutableStateInObject() {
 					return
 				}
 				propName := extractIdentifierFlat(file, propIdx)
-				if mutableStateInObjectShouldSkip(file, idx, propIdx, propText, propName) {
+				if mutableStateInObjectShouldSkip(ctx, file, idx, propIdx, propText, propName) {
 					return
 				}
 				ctx.EmitAt(declLine(file, propIdx), declCol(file, propIdx),
@@ -1242,7 +1242,7 @@ func registerCoroutinesStateFlowMutableLeak() {
 			if !stateFlowMutableLeakHasKotlinxEvidence(file, propText) {
 				return
 			}
-			if scanner.IsTestFile(file.Path) || file.FlatHasAncestorOfType(idx, "function_body") {
+			if isProjectTestFile(ctx, file.Path) || file.FlatHasAncestorOfType(idx, "function_body") {
 				return
 			}
 			if file.FlatHasModifier(idx, "private") || file.FlatHasModifier(idx, "protected") ||

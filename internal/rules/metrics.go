@@ -188,8 +188,8 @@ func metricCounterAlsoIncrementedPositively(file *scanner.File, idx uint32) bool
 }
 
 // metricNameInTestCode reports whether the call sits in a test source set, a test class or an @Test function.
-func metricNameInTestCode(file *scanner.File, idx uint32) bool {
-	if scanner.IsTestFile(file.Path) {
+func metricNameInTestCode(ctx *api.Context, file *scanner.File, idx uint32) bool {
+	if isProjectTestFile(ctx, file.Path) {
 		return true
 	}
 	for cur, ok := file.FlatParent(idx); ok; cur, ok = file.FlatParent(cur) {

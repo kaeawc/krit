@@ -115,7 +115,7 @@ func (r *UnsafeIntentLaunchRule) check(ctx *api.Context) {
 		return
 	}
 	for _, file := range ctx.ParsedFiles {
-		if file == nil || scanner.IsTestFile(file.Path) {
+		if file == nil || isProjectTestFile(ctx, file.Path) {
 			continue
 		}
 		s.scanFile(file)
@@ -836,7 +836,7 @@ func (s *unsafeIntentScan) functionIndex() map[unsafeIntentFunctionKey][]unsafeI
 	}
 	s.functions = map[unsafeIntentFunctionKey][]unsafeIntentFunction{}
 	for _, f := range s.ctx.ParsedFiles {
-		if f == nil || f.FlatTree == nil || scanner.IsTestFile(f.Path) || !fileFactsCache().Mentions(f, "Intent") {
+		if f == nil || f.FlatTree == nil || isProjectTestFile(s.ctx, f.Path) || !fileFactsCache().Mentions(f, "Intent") {
 			continue
 		}
 		pkg := s.classes.scope(f).pkg
@@ -958,7 +958,7 @@ func unsafeIntentParamFor(file *scanner.File, fn uint32, call lintCall, index in
 // permission, or a filter of only protected broadcasts, which leaves the receiver exported to other apps.
 func (s *unsafeIntentScan) addRuntimeRegisteredReceivers() {
 	for _, file := range s.ctx.ParsedFiles {
-		if file == nil || file.FlatTree == nil || scanner.IsTestFile(file.Path) ||
+		if file == nil || file.FlatTree == nil || isProjectTestFile(s.ctx, file.Path) ||
 			!fileFactsCache().Mentions(file, "registerReceiver") {
 			continue
 		}

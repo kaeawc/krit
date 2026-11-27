@@ -43,7 +43,7 @@ func registerAndroidLintSourceTextChecks() {
 // lintSkipTestSources wraps a Lint port's check so it skips test sources, as Lint does unless checkTestSources is on.
 func lintSkipTestSources(check func(*api.Context)) func(*api.Context) {
 	return func(ctx *api.Context) {
-		if ctx.File != nil && scanner.IsTestFile(ctx.File.Path) {
+		if ctx.File != nil && isProjectTestFile(ctx, ctx.File.Path) {
 			return
 		}
 		check(ctx)

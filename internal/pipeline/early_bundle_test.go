@@ -116,7 +116,7 @@ func TestBundleFingerprintRefusesSkippedParse(t *testing.T) {
 	args := ProjectArgs{Version: "test"}
 	parseResult := ParseResult{
 		KotlinFiles:    []*scanner.File{{Path: "/repo/Foo.kt", Language: scanner.LangKotlin}},
-		ContentSkipped: true,
+		PartialSources: true,
 	}
 
 	if got := previewPostParseBundleHit(args, host, parseResult); got != nil || store.loadCalls != 0 {
@@ -125,7 +125,7 @@ func TestBundleFingerprintRefusesSkippedParse(t *testing.T) {
 	if _, ok := computeRunFingerprint(args, host, parseResult, IndexResult{}); ok {
 		t.Error("computeRunFingerprint accepted a skipped parse")
 	}
-	parseResult.ContentSkipped = false
+	parseResult.PartialSources = false
 	if _, ok := computeRunFingerprint(args, host, parseResult, IndexResult{}); !ok {
 		t.Error("computeRunFingerprint refused a parsed run")
 	}

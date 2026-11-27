@@ -1,7 +1,8 @@
 name: Publish to Bazel Central Registry
 
-# Opens a pull request against bazelbuild/bazel-central-registry that adds
-# the `krit` module (bazel/ in this repository) at the tagged version. The
+# Pushes a branch to kaeawc/bazel-central-registry that adds the `krit`
+# module (bazel/ in this repository) at the tagged version, and prints a link
+# that opens the pull request against bazelbuild/bazel-central-registry. The
 # templates live in .bcr/bazel/ and .bcr/config.yml points moduleRoots at
 # bazel/. See docs/release.md#bazel-central-registry.
 #
@@ -91,6 +92,11 @@ jobs:
       tag_name: ${{ needs.check.outputs.tag_name }}
       registry_fork: kaeawc/bazel-central-registry
       attest: false
-      draft: false
+      # BCR_PUBLISH_TOKEN is a fine-grained token limited to the fork, and
+      # fine-grained tokens cannot open pull requests against a public
+      # repository the owner does not own. The run's "Open pull request
+      # manually" step prints the link instead; open it as a draft and mark it
+      # ready, which BCR takes as the maintainer's approval.
+      open_pull_request: false
     secrets:
       publish_token: ${{ secrets.BCR_PUBLISH_TOKEN }}

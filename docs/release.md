@@ -139,7 +139,7 @@ shows to the `jasonpearson.dev` DNS zone.
 | `SONATYPE_USERNAME` | Sonatype Central Portal user token name (**not** the portal account email). Generate from the Central Portal "Account → Generate User Token" page. |
 | `SONATYPE_PASSWORD` | Paired Central Portal user token password. |
 | `GRADLE_PUBLISH_KEY` / `GRADLE_PUBLISH_SECRET` | Optional. Gradle Plugin Portal API key pair (plugins.gradle.org → your account → API Keys). Without them the Plugin Portal step is skipped; the plugin is still on Maven Central. `scripts/release/set-maven-central-secrets.sh` copies them from `gradle.publish.key` / `gradle.publish.secret` when the properties file has both. |
-| `BCR_PUBLISH_TOKEN` | Optional, for `publish-bcr.yml`. Classic PAT with `repo` and `workflow` scopes that can push to `kaeawc/bazel-central-registry` (a fork of `bazelbuild/bazel-central-registry`). Without it a tag push skips the BCR publish with a warning. |
+| `BCR_PUBLISH_TOKEN` | Optional, for `publish-bcr.yml`. Fine-grained token owned by `kaeawc`, limited to `kaeawc/bazel-central-registry` (a fork of `bazelbuild/bazel-central-registry`), with Contents and Workflows read and write. Without it a tag push skips the BCR publish with a warning. |
 
 When any of the four is missing, a tag push skips the publish with a
 warning naming them (the tag's other workflows are unaffected); a manual
@@ -325,16 +325,38 @@ registry entry only needs the module's source archive. Nothing from Maven
 Central is involved. `publish-bcr.yml` runs bazel-contrib's
 `publish-to-bcr` reusable workflow on stable tags. It reads the templates
 in `.bcr/bazel/` (`.bcr/config.yml` sets `moduleRoots: ["bazel"]`), sets
-the module version from the tag, and opens a pull request from
-`kaeawc/bazel-central-registry` against `bazelbuild/bazel-central-registry`.
+the module version from the tag, and pushes the entry to a branch of
+`kaeawc/bazel-central-registry`. A maintainer then opens the pull request
+against `bazelbuild/bazel-central-registry` from the link the run prints
+(see [Opening the registry pull request](#opening-the-registry-pull-request)).
 BCR CI then runs `.bcr/bazel/presubmit.yml`, which builds the
 `bazel/e2e` test module against the new version.
 
 One-time setup:
 
 1. Fork `bazelbuild/bazel-central-registry` to `kaeawc/bazel-central-registry`.
-2. Create a classic PAT with `repo` and `workflow` scopes and save it as
-   the `BCR_PUBLISH_TOKEN` repository secret.
+2. Create a fine-grained personal access token: resource owner `kaeawc`,
+   repository access "Only select repositories" with
+   `kaeawc/bazel-central-registry`, and the repository permissions Contents
+   and Workflows set to read and write. Save it as the `BCR_PUBLISH_TOKEN`
+   repository secret. Workflows write lets the push carry upstream commits
+   that change the registry's own workflow files.
+
+A fine-grained token cannot open a pull request against a public
+repository its owner does not own, so the workflow runs publish-to-bcr with
+`open_pull_request: false`. A classic token with the `repo` scope could open
+it, but that scope reaches every repository the owner can access.
+
+### Opening the registry pull request
+
+Each run ends with an "Open pull request manually" step in the `publish`
+job whose log prints a `https://github.com/bazelbuild/bazel-central-registry/compare/...`
+link with the title and body filled in. A maintainer listed in
+`.bcr/bazel/metadata.template.json` opens it while signed in as themselves,
+creates the pull request as a draft, and then marks it ready for review:
+BCR takes "ready for review" from the pull request's author, when the author
+is a module maintainer, as that maintainer's approval, which GitHub otherwise
+does not allow on one's own pull request.
 
 The source archive is the release asset `krit-bazel-<tag>.tar.gz`, which
 `release.yml` builds with `scripts/release/bazel-source-archive.sh`
@@ -378,6 +400,8 @@ runs these steps:
    cut before the source archive was added (v0.4.0 and older) do not.
    Either wait for the next stable tag, whose Release run triggers
    `publish-bcr.yml`, or dispatch `publish-bcr.yml` with that `tag_name`.
+   Open the registry pull request from the link the run prints (see
+   [Opening the registry pull request](#opening-the-registry-pull-request)).
 3. On the registry pull request (opened from
    `kaeawc/bazel-central-registry`), check that the entry
    `modules/krit/<version>/` has `MODULE.bazel` with the release version,

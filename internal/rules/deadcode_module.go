@@ -99,7 +99,7 @@ func (r *ModuleDeadCodeRule) check(ctx *api.Context) {
 			if isGradleBuildScript(sym.File) {
 				continue
 			}
-			if shouldSkipSymbolWithFile(sym, filesByPath[sym.File]) {
+			if shouldSkipSymbolWithFile(ctx, sym, filesByPath[sym.File]) {
 				continue
 			}
 			if sym.Visibility == "private" {

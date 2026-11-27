@@ -319,7 +319,7 @@ func ignoredReturnValueIsFlowBuilderName(name string) bool {
 	}
 }
 
-func ignoredReturnValueIsTestSetupSideEffectCall(file *scanner.File, idx uint32, funcName string) bool {
+func ignoredReturnValueIsTestSetupSideEffectCall(ctx *api.Context, file *scanner.File, idx uint32, funcName string) bool {
 	if file == nil || idx == 0 || !ignoredReturnValueTestSetupSideEffectCalls[funcName] {
 		return false
 	}
@@ -332,7 +332,7 @@ func ignoredReturnValueIsTestSetupSideEffectCall(file *scanner.File, idx uint32,
 		return false
 	}
 	body, _ := file.FlatFindChild(fn, "function_body")
-	return body != 0 && testingQualityBodyHasAssertionOrVerification(file, body)
+	return body != 0 && testingQualityBodyHasAssertionOrVerification(ctx, file, body)
 }
 
 func ignoredReturnValueLooksLikeTestSubjectReceiver(receiver string) bool {

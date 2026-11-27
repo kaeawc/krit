@@ -40,7 +40,7 @@ func (r *LayoutInflationRule) Confidence() float64 { return api.ConfidenceHigh }
 
 func (r *LayoutInflationRule) check(ctx *api.Context) {
 	file := ctx.File
-	if flatCallExpressionName(file, ctx.Idx) != "inflate" || scanner.IsTestFile(file.Path) {
+	if flatCallExpressionName(file, ctx.Idx) != "inflate" || isProjectTestFile(ctx, file.Path) {
 		return
 	}
 	if layoutInflationResultUnused(file, ctx.Idx) {

@@ -10,7 +10,6 @@ import (
 
 	"github.com/kaeawc/krit/internal/android"
 	api "github.com/kaeawc/krit/internal/rules/api"
-	"github.com/kaeawc/krit/internal/scanner"
 )
 
 // ---------------------------------------------------------------------------
@@ -81,7 +80,7 @@ func (r *AllowBackupManifestRule) check(ctx *api.Context) {
 		return
 	}
 	// Skip variant manifests — they merge into main and inherit attributes.
-	if isNonMainManifestPath(m.Path) {
+	if isNonMainManifestPath(projectPath(ctx, m.Path)) {
 		return
 	}
 	if isLibraryOrTestModuleManifest(m.Path) {
@@ -90,7 +89,7 @@ func (r *AllowBackupManifestRule) check(ctx *api.Context) {
 	app := m.Application
 	if app.AllowBackup == nil {
 		// An overlay manifest only contributes attributes to the app manifest it merges into.
-		if isManifestOverlay(m) {
+		if isManifestOverlay(ctx, m) {
 			return
 		}
 		// Backup rules show the developer decided what is backed up, so the default is not accidental.
@@ -115,8 +114,8 @@ func (r *AllowBackupManifestRule) check(ctx *api.Context) {
 
 // isManifestOverlay reports whether a manifest merges into the app's real manifest
 // instead of standing alone: it declares no components, carries a tools:node merge
-// marker on <application>, or lives under a bazel directory.
-func isManifestOverlay(m *Manifest) bool {
+// marker on <application>, or lives under a bazel directory of the project.
+func isManifestOverlay(ctx *api.Context, m *Manifest) bool {
 	app := m.Application
 	if app == nil {
 		return false
@@ -124,7 +123,7 @@ func isManifestOverlay(m *Manifest) bool {
 	if app.ToolsNode != "" {
 		return true
 	}
-	for _, segment := range strings.Split(strings.ReplaceAll(m.Path, "\\", "/"), "/") {
+	for _, segment := range strings.Split(strings.ReplaceAll(projectPath(ctx, m.Path), "\\", "/"), "/") {
 		if segment == "bazel" {
 			return true
 		}
@@ -149,7 +148,7 @@ func (r *DebuggableManifestRule) check(ctx *api.Context) {
 		return
 	}
 	// Test and variant manifests do not ship in the release artifact.
-	if isTestManifestPath(m.Path) {
+	if isTestManifestPath(ctx, m.Path) {
 		return
 	}
 	app := m.Application
@@ -336,9 +335,10 @@ func isDebugManifestPath(path string) bool {
 	return strings.Contains(segment, "debug") || segment == "androidtest" || segment == "test"
 }
 
-// isTestManifestPath is shared by security rules.
-func isTestManifestPath(path string) bool {
-	return isNonMainManifestPath(path) || scanner.IsTestFile(path)
+// isTestManifestPath reports a variant or test manifest, judged by its
+// project-relative path (projectPath); shared by security rules.
+func isTestManifestPath(ctx *api.Context, path string) bool {
+	return isNonMainManifestPath(projectPath(ctx, path)) || isProjectTestFile(ctx, path)
 }
 
 func networkSecurityConfigResourceName(ref string) (string, bool) {
@@ -408,7 +408,7 @@ func (r *CleartextTrafficRule) check(ctx *api.Context) {
 		return
 	}
 	// Debug and other variant manifests do not ship the production configuration.
-	if isNonMainManifestPath(m.Path) || isLibraryOrTestModuleManifest(m.Path) {
+	if isNonMainManifestPath(projectPath(ctx, m.Path)) || isLibraryOrTestModuleManifest(m.Path) {
 		return
 	}
 	if m.Application.UsesCleartextTraffic != nil && *m.Application.UsesCleartextTraffic {
@@ -437,7 +437,7 @@ func (r *BackupRulesRule) check(ctx *api.Context) {
 		return
 	}
 	// Variant manifests merge into the main one, which owns the backup configuration.
-	if isNonMainManifestPath(m.Path) || isLibraryOrTestModuleManifest(m.Path) {
+	if isNonMainManifestPath(projectPath(ctx, m.Path)) || isLibraryOrTestModuleManifest(m.Path) {
 		return
 	}
 	app := m.Application
@@ -482,7 +482,7 @@ func (r *InsecureBaseConfigurationManifestRule) check(ctx *api.Context) {
 		return
 	}
 	// Skip variant manifests.
-	if isNonMainManifestPath(m.Path) {
+	if isNonMainManifestPath(projectPath(ctx, m.Path)) {
 		return
 	}
 	if isLibraryOrTestModuleManifest(m.Path) {
@@ -561,7 +561,7 @@ func (r *NetworkSecurityConfigDebugOverridesRule) check(ctx *api.Context) {
 	if m == nil || m.Application == nil || m.Application.NetworkSecurityConfig == "" {
 		return
 	}
-	if isNonMainManifestPath(m.Path) || isLibraryOrTestModuleManifest(m.Path) {
+	if isNonMainManifestPath(projectPath(ctx, m.Path)) || isLibraryOrTestModuleManifest(m.Path) {
 		return
 	}
 	resourceName, ok := networkSecurityConfigResourceName(m.Application.NetworkSecurityConfig)

@@ -343,7 +343,7 @@ func (r *EmptyKotlinFileRule) check(ctx *api.Context) {
 	// Skip Spotless / format-tool template files (e.g. spotless/copyright.kt
 	// spotless/copyright.kts). These are copyright-header templates with a
 	// .kt/.kts extension for syntax highlighting, not real Kotlin source.
-	if isSpotlessTemplateFile(file.Path) {
+	if isSpotlessTemplateFile(projectPath(ctx, file.Path)) {
 		return
 	}
 	explained := false

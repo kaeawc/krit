@@ -264,7 +264,7 @@ func (r *ProviderReadPermissionOnlyRule) check(ctx *api.Context) {
 		library := manifestIsLibrary(m)
 		for _, app := range m.Root.ChildrenByTag("application") {
 			for _, provider := range app.ChildrenByTag("provider") {
-				finding, ok := r.checkProvider(m, provider, classes)
+				finding, ok := r.checkProvider(ctx, m, provider, classes)
 				if !ok {
 					continue
 				}
@@ -519,7 +519,7 @@ func providerQualifiedName(m *manifest.Manifest, name string) string {
 
 // checkProvider returns the finding for a provider protected only by android:readPermission whose class implements a
 // write method.
-func (r *ProviderReadPermissionOnlyRule) checkProvider(m *manifest.Manifest, provider *manifest.Node,
+func (r *ProviderReadPermissionOnlyRule) checkProvider(ctx *api.Context, m *manifest.Manifest, provider *manifest.Node,
 	classes *lintSourceIndex) (scanner.Finding, bool) {
 	read, ok := provider.Attr("android:readPermission")
 	if !ok {
@@ -532,7 +532,7 @@ func (r *ProviderReadPermissionOnlyRule) checkProvider(m *manifest.Manifest, pro
 		return scanner.Finding{}, false
 	}
 	fqn, cls := lintManifestClass(m, provider.AttrValue("android:name"), classes)
-	if cls == nil || scanner.IsTestFile(cls.file.Path) || !classes.extendsTarget(cls, contentProviderClasses) {
+	if cls == nil || isProjectTestFile(ctx, cls.file.Path) || !classes.extendsTarget(cls, contentProviderClasses) {
 		return scanner.Finding{}, false
 	}
 	methods := providerImplementedWriteMethods(cls.file, cls.idx)

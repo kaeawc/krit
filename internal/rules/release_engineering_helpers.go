@@ -386,7 +386,7 @@ func isDebugSourceFile(path string) bool {
 // resources, instrumentation utilities, …).
 func isAndroidTestSupportArtifactSource(path string) bool {
 	normalized := filepath.ToSlash(strings.ToLower(path))
-	if isTestSupportFile(normalized) {
+	if isTestSupportFile(nil, normalized) {
 		return true
 	}
 	for _, marker := range []string{
@@ -449,7 +449,9 @@ var testFrameworkModuleTokens = map[string]bool{
 // whose name says it integrates a test framework or holds benchmarks, where
 // test-framework imports in main code are the point: a directory before
 // src/, or the source set right after it (kotlinx-coroutines-debug's
-// src/junit/junit5), tokenized on '-', '_' and '.'.
+// src/junit/junit5), tokenized on '-', '_' and '.'. Callers pass the
+// project-relative path (projectPath), so the checkout's own folders, such as
+// a clone named junit-tools, do not count.
 func isTestFrameworkModulePath(path string) bool {
 	original := strings.Split(filepath.ToSlash(path), "/")
 	segments := strings.Split(filepath.ToSlash(strings.ToLower(path)), "/")

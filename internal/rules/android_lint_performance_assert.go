@@ -41,7 +41,7 @@ func registerPerformanceLintRule(rule AndroidRule, impl any, confidence float64,
 		ID: rule.RuleName, Category: rule.RuleSetName, Description: rule.Description(), Sev: api.Severity(rule.Sev),
 		NodeTypes: nodeTypes, Languages: languages, Confidence: confidence, Implementation: impl,
 		Check: func(ctx *api.Context) {
-			if ctx.File != nil && scanner.IsTestFile(ctx.File.Path) {
+			if ctx.File != nil && isProjectTestFile(ctx, ctx.File.Path) {
 				return
 			}
 			inner(ctx)
@@ -73,7 +73,7 @@ var kotlinOptionalInitArrays = map[string]bool{
 func (r *UnnecessaryArrayInitRule) check(ctx *api.Context) {
 	file := ctx.File
 	// Lint does not analyze test sources by default.
-	if scanner.IsTestFile(file.Path) || perfIsTrailingLambdaInner(file, ctx.Idx) {
+	if isProjectTestFile(ctx, file.Path) || perfIsTrailingLambdaInner(file, ctx.Idx) {
 		return
 	}
 	call := perfKotlinCall(file, ctx.Idx)

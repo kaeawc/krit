@@ -70,7 +70,7 @@ func (r *UnsafeLifecycleWhenUsageRule) Meta() api.RuleDescriptor {
 // check mirrors NonNullableMutableLiveDataDetector for `live.value = x`, `live.setValue(x)` and `live.postValue(x)`.
 func (r *NullSafeMutableLiveDataRule) check(ctx *api.Context) {
 	file, node := ctx.File, ctx.Idx
-	if scanner.IsTestFile(file.Path) {
+	if scanner.IsTestFile(projectPath(ctx, file.Path)) {
 		return
 	}
 	var receiver, arg uint32
@@ -488,7 +488,7 @@ var axlSuspendLambdaFunctions = map[string]bool{
 // access, at the call. Like LifecycleWhenVisitor, the search skips suspend lambdas and nested declarations.
 func (r *UnsafeLifecycleWhenUsageRule) check(ctx *api.Context) {
 	file, node := ctx.File, ctx.Idx
-	if scanner.IsTestFile(file.Path) || acrIsInnerCallOfTrailingLambda(file, node) {
+	if scanner.IsTestFile(projectPath(ctx, file.Path)) || acrIsInnerCallOfTrailingLambda(file, node) {
 		return
 	}
 	written, _, hasReceiver := acrCallCallee(file, node)

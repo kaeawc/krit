@@ -1,9 +1,12 @@
 package librarymodel
 
 import (
+	"bytes"
 	"encoding/json"
+	"path/filepath"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/fsutil"
 	"github.com/kaeawc/krit/internal/hashutil"
 )
 
@@ -28,15 +31,65 @@ func (f *Facts) Fingerprint() string {
 	// struct definition). Maps are sorted by encoding/json. The Facts
 	// graph contains only structs, slices, primitives, and string maps,
 	// so this is stable without a custom encoder.
-	data, err := json.Marshal(f)
+	data, err := json.Marshal(f.relocatable())
 	if err != nil {
 		buf = append(buf, "|err:"...)
 		buf = append(buf, err.Error()...)
 		return hashutil.HashHex(buf)
 	}
+	if base := f.Profile.InputBase; base != "" {
+		// Every JSON string naming a path under the build files' shared
+		// directory (dependency sources, catalogs, source roots) is spelled
+		// relative to it.
+		if quoted, err := json.Marshal(base + string(filepath.Separator)); err == nil {
+			data = bytes.ReplaceAll(data, quoted[:len(quoted)-1], []byte(`"./`))
+		}
+	}
 	buf = append(buf, '|')
 	buf = append(buf, data...)
 	return hashutil.HashHex(buf)
+}
+
+// relocatable returns f with the paths in its Java source profile spelled
+// relative to the directory they share (the source roots together, each
+// classpath list on its own), so the fingerprint stays the same when the
+// whole checkout, or GRADLE_USER_HOME, moves to another absolute path
+// (#1662). f is not modified.
+func (f *Facts) relocatable() *Facts {
+	j := f.Profile.Java
+	sources := [][]string{j.SourceRoots, j.TestSourceRoots, j.AndroidTestSourceRoots, j.GeneratedSourceRoots}
+	var all []string
+	for _, list := range sources {
+		all = append(all, list...)
+	}
+	if len(all) == 0 && len(j.ClasspathCandidates) == 0 && len(j.BootClasspathCandidates) == 0 {
+		if f.Profile.InputBase == "" {
+			return f
+		}
+		out := *f
+		out.Profile.InputBase = ""
+		return &out
+	}
+	rel := func(base string, paths []string) []string {
+		if base == "" || len(paths) == 0 {
+			return paths
+		}
+		out := make([]string, len(paths))
+		for i, p := range paths {
+			out[i] = fsutil.RelSlash(base, p)
+		}
+		return out
+	}
+	base := fsutil.CommonDir(all)
+	out := *f
+	out.Profile.InputBase = "" // Fingerprint relativizes against it
+	out.Profile.Java.SourceRoots = rel(base, j.SourceRoots)
+	out.Profile.Java.TestSourceRoots = rel(base, j.TestSourceRoots)
+	out.Profile.Java.AndroidTestSourceRoots = rel(base, j.AndroidTestSourceRoots)
+	out.Profile.Java.GeneratedSourceRoots = rel(base, j.GeneratedSourceRoots)
+	out.Profile.Java.ClasspathCandidates = rel(classpathBase(j.ClasspathCandidates), j.ClasspathCandidates)
+	out.Profile.Java.BootClasspathCandidates = rel(classpathBase(j.BootClasspathCandidates), j.BootClasspathCandidates)
+	return &out
 }
 
 // Facts is the version/profile-aware semantic model consumed by rules.
@@ -186,4 +239,22 @@ func stringIn(value string, values []string) bool {
 		}
 	}
 	return false
+}
+
+// classpathBase is the directory a classpath list is spelled relative to:
+// the entries' common directory, one level higher when an entry sits right in
+// it. Each jar then keeps at least its own folder, which in a Gradle cache is
+// the jar's content hash; a one-jar list would otherwise collapse to the bare
+// file name, and another version of that jar would fingerprint the same.
+func classpathBase(paths []string) string {
+	base := fsutil.CommonDir(paths)
+	if base == "" {
+		return ""
+	}
+	for _, p := range paths {
+		if filepath.Dir(filepath.Clean(p)) == base {
+			return filepath.Dir(base)
+		}
+	}
+	return base
 }

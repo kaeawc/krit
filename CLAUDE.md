@@ -91,6 +91,11 @@ porting, or broadening a rule:
 - Require receiver/owner proof for common method names and local lookalikes:
   `System.out/err`, Android `Context`/`Activity`/`Service`, lifecycle methods,
   database APIs, logging APIs, and ignored-return fallbacks.
+- Path heuristics read `projectPath(ctx, file.Path)`, the path relative to
+  the scanned project's root, never directory names above it. The per-file
+  cache moves verdicts to checkouts at other absolute paths (#1662, #1814);
+  `TestFindingsIgnoreFoldersAboveTheProjectRoot` scans one tree at two roots
+  and fails when a rule's findings differ.
 - Stop body walks at real scope boundaries such as nested functions, lambdas,
   anonymous functions, classes/objects, and local declarations that can shadow
   names.

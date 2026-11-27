@@ -72,6 +72,15 @@ func (s *Server) analyzeCode(args analyzeArgs) ToolResult {
 	}
 	s.firNoticeFor([]string{args.Path}, args.Config)
 
+	// Rules read paths relative to the buffer's marked project root, as a
+	// CLI scan of that file does. Set it on every call: without a path, or
+	// under no marker, an earlier request's root must not linger.
+	var rootPaths []string
+	if args.Path != "" {
+		rootPaths = []string{args.Path}
+	}
+	pipeline.SetDispatcherProjectRoot(s.analyzer.Dispatcher, rootPaths)
+
 	columns, err := s.parseAndAnalyzeColumns(args.Code, args.Path)
 	if err != nil {
 		return errorResult(err.Error())
@@ -131,6 +140,9 @@ func (s *Server) analyzeProject(args analyzeArgs) ToolResult {
 	collector := scanner.NewFindingCollector(len(files) * 8)
 	var perFile []fileResult
 
+	// Rules read paths relative to the project's marked root, as a CLI scan
+	// of the same paths does.
+	pipeline.SetDispatcherProjectRoot(s.analyzer.Dispatcher, args.Paths)
 	s.analyzer.Dispatcher.BeginRequest()
 	for _, f := range files {
 		fileColumns, _ := s.analyzer.Dispatcher.RunColumnsWithStats(f)
@@ -314,6 +326,7 @@ func (s *Server) analyzeAndroid(args analyzeArgs) ToolResult {
 
 	libraryFacts := librarymodel.FactsForProfile(librarymodel.ProfileFromProject(proj))
 	dispatcher := rules.NewDispatcher(api.Registry, nil)
+	pipeline.SetDispatcherProjectRoot(dispatcher, []string{args.ProjectPath})
 	dispatcher.SetLibraryFacts(libraryFacts)
 
 	if scope == "manifest" || scope == "all" {

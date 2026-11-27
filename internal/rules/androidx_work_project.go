@@ -61,7 +61,7 @@ type workProject struct {
 func workProjectFiles(ctx *api.Context) []*scanner.File {
 	files := make([]*scanner.File, 0, len(ctx.ParsedFiles))
 	for _, f := range ctx.ParsedFiles {
-		if f != nil && f.FlatTree != nil && !scanner.IsTestFile(f.Path) &&
+		if f != nil && f.FlatTree != nil && !isProjectTestFile(ctx, f.Path) &&
 			(f.Language == scanner.LangKotlin || f.Language == scanner.LangJava) {
 			files = append(files, f)
 		}

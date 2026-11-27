@@ -41,7 +41,7 @@ func (r *RemoveWorkManagerInitializerRule) check(ctx *api.Context) {
 			continue
 		}
 		// Lint honors a suppression on the Application class itself.
-		if workSuppressedAt(c, r.RuleName, r.RuleSetName) {
+		if workSuppressedAt(ctx, c, r.RuleName, r.RuleSetName) {
 			continue
 		}
 		root := workModuleRoot(c.file.Path, roots)
@@ -132,11 +132,11 @@ func workFirstNamed(n *manifest.Node, tag, name string) *manifest.Node {
 }
 
 // workSuppressedAt reports whether the class declaration carries a suppression of the rule.
-func workSuppressedAt(c *workClass, ruleID, ruleSet string) bool {
+func workSuppressedAt(ctx *api.Context, c *workClass, ruleID, ruleSet string) bool {
 	file := c.file
 	filter := file.Suppression
 	if filter == nil {
-		filter = scanner.BuildSuppressionFilter(file, nil, allRuleExcludes(), "").WithRuleAliases(AllSuppressionAliases())
+		filter = scanner.BuildSuppressionFilterAt(file, nil, allRuleExcludes(), "", projectRoot(ctx)).WithRuleAliases(AllSuppressionAliases())
 		file.Suppression = filter
 		file.SuppressionIdx = filter.Annotations()
 	}

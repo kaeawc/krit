@@ -260,7 +260,7 @@ func (r *HardcodedTextRule) check(ctx *api.Context) {
 		return
 	}
 	// Tests and Compose previews carry sample copy that is never shown to users.
-	if scanner.IsTestFile(file.Path) || hardcodedTextInPreview(file, idx) {
+	if isProjectTestFile(ctx, file.Path) || hardcodedTextInPreview(file, idx) {
 		return
 	}
 	for child := file.FlatFirstChild(args); child != 0; child = file.FlatNextSib(child) {
@@ -380,7 +380,7 @@ var pemBodyRe = lazyre.New(`[A-Za-z0-9+/]{60,}`)
 func (r *PrivateKeyRule) check(ctx *api.Context) {
 	file := ctx.File
 	// Test sources are not packaged, and tests embed throwaway keys on purpose.
-	if scanner.IsTestFile(file.Path) {
+	if isProjectTestFile(ctx, file.Path) {
 		return
 	}
 	var st lineScanState

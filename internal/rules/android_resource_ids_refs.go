@@ -182,9 +182,9 @@ func (r *InvalidResourceFolderResourceRule) check(ctx *api.Context) {
 	for _, layout := range idx.AllLayouts() {
 		path := layout.FilePath
 		// Extract the folder name from the path: look for res/<folder>/file.xml
-		resIdx := strings.Index(path, "res/")
+		resIdx := strings.LastIndex(path, "res/")
 		if resIdx < 0 {
-			resIdx = strings.Index(path, "res\\")
+			resIdx = strings.LastIndex(path, "res\\")
 		}
 		if resIdx < 0 {
 			continue

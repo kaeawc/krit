@@ -18,7 +18,7 @@ func registerStyleExpressionsExtraRules() {
 			NodeTypes: []string{"lambda_literal"}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
-				if scanner.IsTestFile(file.Path) || isGradleBuildScript(file.Path) {
+				if isProjectTestFile(ctx, file.Path) || isGradleBuildScript(file.Path) {
 					return
 				}
 				// detekt: a lambda is multiline with two statements or more, or one statement that spans lines.

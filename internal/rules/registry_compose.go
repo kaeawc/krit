@@ -687,7 +687,7 @@ func registerComposeSideEffectInComposition() {
 				return
 			}
 			// Test doubles and test sources are not production composition.
-			if composeIsTestSourceOrFake(file, fn) {
+			if composeIsTestSourceOrFake(ctx, file, fn) {
 				return
 			}
 			if !composeAssignmentIsDirectFunctionBodyStatement(file, idx, fn) {

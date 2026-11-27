@@ -259,3 +259,48 @@ func TestKnownLimitationsEscapeHTMLOutsideCodeSpans(t *testing.T) {
 		t.Fatalf("limitations section:\n%s\nwant line:\n%s", b.String(), want)
 	}
 }
+
+// Code spans are found the way CommonMark finds them, and everything outside
+// them is escaped (#1927).
+func TestEscapeOutsideCodeSpansPairsBacktickRuns(t *testing.T) {
+	for _, tc := range []struct{ name, in, want string }{
+		{"bare angle brackets", "Provider<T> & <meta-data>", "Provider&lt;T&gt; &amp; &lt;meta-data&gt;"},
+		{"single-backtick span", "use `List<T>` here", "use `List<T>` here"},
+		{"double-backtick span", "use ``List<T>`` here", "use ``List<T>`` here"},
+		{"double-backtick span holding a backtick", "``a ` <b>`` and <c>", "``a ` <b>`` and &lt;c&gt;"},
+		{"unmatched backtick is literal", "` then List<T>", "` then List&lt;T&gt;"},
+		{"runs of different lengths do not pair", "``x` <y>", "``x` &lt;y&gt;"},
+		{"escaped backtick opens nothing", "\\` then List<T> `code<a>`", "\\` then List&lt;T&gt; `code<a>`"},
+		{"backslash-escaped angle bracket stays", "\\<b>", "\\<b&gt;"},
+	} {
+		if got := escapeOutsideCodeSpans(tc.in); got != tc.want {
+			t.Errorf("%s: escapeOutsideCodeSpans(%q) = %q, want %q", tc.name, tc.in, got, tc.want)
+		}
+	}
+}
+
+// Rule descriptions are escaped too: ProviderInsteadOfLazy's names
+// Provider<T>, which mkdocs dropped as an HTML tag (#1927).
+func TestGenerateEscapesRuleDescription(t *testing.T) {
+	page := read(t, filepath.Join(generate(t), "di-hygiene", "provider-instead-of-lazy.md"))
+	if want := "Detects Provider&lt;T&gt; constructor params"; !strings.Contains(page, want) {
+		t.Errorf("provider-instead-of-lazy page lacks %q:\n%s", want, page)
+	}
+	// The category index lists the same description.
+	if index := read(t, filepath.Join(generate(t), "di-hygiene", "index.md")); !strings.Contains(index, "Detects Provider&lt;T&gt; constructor params") {
+		t.Errorf("di-hygiene index lists the description unescaped")
+	}
+}
+
+// Option descriptions are escaped inside the configuration table.
+func TestWriteConfigEscapesOptionDescriptions(t *testing.T) {
+	v := ruleView{
+		rule: &api.Rule{ID: "R", Category: "style"},
+		meta: api.RuleDescriptor{Options: []api.ConfigOption{{Name: "types", Description: "Types such as List<T> | `Map<K, V>`"}}},
+	}
+	var b strings.Builder
+	v.writeConfig(&b)
+	if want := "Types such as List&lt;T&gt; \\| `Map<K, V>`"; !strings.Contains(b.String(), want) {
+		t.Fatalf("configuration table:\n%s\nwant a cell with %q", b.String(), want)
+	}
+}

@@ -108,7 +108,8 @@ func (crossFileShardsRegistered) Stats() cacheutil.CacheStats {
 // v13: a file with a one-line nested class body no longer parses as one ERROR
 // node, so its classes and later declarations are indexed (#1839).
 // v14: the same holds when ';' and more members follow the nested body (#1875).
-const crossFileShardVersion = 14
+// v15: and when no space precedes the nested body's closing braces (#1866).
+const crossFileShardVersion = 15
 
 // Per-shard bloom sizing. Every shard's bloom uses these exact
 // (m, k) parameters so they can be unioned with BloomFilter.Merge,

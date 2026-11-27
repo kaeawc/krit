@@ -25,6 +25,9 @@ type ExtensionFuncInfo struct {
 type defaultResolver struct {
 	// fileInfos keeps each merged file's FileTypeInfo (FileTypeInfoOf).
 	fileInfos map[string]*FileTypeInfo
+	// javaClasses holds, per Java file, the copies of its classes the
+	// resolver serves, whose supertypes resolveJavaSupertypes resolves.
+	javaClasses map[string][]*ClassInfo
 	// Per-file import tables
 	imports map[string]*ImportTable // file path -> import table
 	// Per-file scope tables (top-level declarations)

@@ -30,6 +30,11 @@ type FileTypeInfo struct {
 	Extensions    []*ExtensionFuncInfo // extension functions
 	// SuspendFunctions lists the sorted names of functions declared `suspend` in the file.
 	SuspendFunctions []string
+	// JavaPackage and JavaWildcardImports are a Java file's package and
+	// on-demand imports, which decide what its classes' unqualified
+	// supertypes name (resolveJavaSupertypes).
+	JavaPackage         string
+	JavaWildcardImports []string
 }
 
 // IndexFileParallel extracts type info from a single file without
@@ -38,12 +43,17 @@ type FileTypeInfo struct {
 func IndexFileParallel(file *scanner.File) *FileTypeInfo {
 	if file != nil && file.Language == scanner.LangJava {
 		facts := javafacts.SourceFactsForFile(file)
-		classes := make([]*ClassInfo, 0, len(facts.Classes))
-		for _, class := range facts.Classes {
+		classes := make([]*ClassInfo, 0, len(facts.Declared))
+		for _, class := range facts.Declared {
 			classes = append(classes, javaClassInfo(facts, class, file.Path))
 		}
 		sortClassInfos(classes)
-		return &FileTypeInfo{Path: file.Path, Classes: classes}
+		var stars []string
+		if len(facts.WildcardImports) > 0 {
+			stars = append(stars, facts.WildcardImports...)
+			sort.Strings(stars)
+		}
+		return &FileTypeInfo{Path: file.Path, Classes: classes, JavaPackage: facts.Package, JavaWildcardImports: stars}
 	}
 	if file == nil || file.FlatTree == nil || file.FlatTree.Len() == 0 || file.FlatType(0) != "source_file" {
 		return nil
@@ -158,7 +168,7 @@ func (r *defaultResolver) IndexFilesParallelWithTracker(files []*scanner.File, w
 	results := make([]*FileTypeInfo, len(files))
 	r.runTracked(tracker, "perFileExtraction", func() { r.extractFilesParallel(files, workers, results) })
 	r.runTracked(tracker, "mergeIndexedData", func() { r.mergeFileResults(results) })
-	r.runTracked(tracker, "resolveSupertypes", r.resolveSupertypeNames)
+	r.runTracked(tracker, "resolveSupertypes", r.resolveSupertypes)
 }
 
 // IndexFilesParallelCachedWithTracker indexes files through the per-file
@@ -171,7 +181,7 @@ func (r *defaultResolver) IndexFilesParallelCachedWithTracker(files []*scanner.F
 		hits, misses = r.extractFilesParallelCached(files, workers, cacheDir, results)
 	})
 	r.runTracked(tracker, "mergeIndexedData", func() { r.mergeFileResults(results) })
-	r.runTracked(tracker, "resolveSupertypes", r.resolveSupertypeNames)
+	r.runTracked(tracker, "resolveSupertypes", r.resolveSupertypes)
 	return hits, misses
 }
 
@@ -244,6 +254,42 @@ func (r *defaultResolver) extractFilesParallelCached(files []*scanner.File, work
 	return int(hitCount.Load()), int(missCount.Load())
 }
 
+// mergeClasses adds fi's classes to the simple-name and FQN maps.
+//
+// Classes merge in canonical FQN order. Last-write-wins on short-name
+// collisions is preserved, but the "winner" is the (path-largest,
+// FQN-largest) class — a deterministic function of the input set rather
+// than goroutine scheduling.
+func (r *defaultResolver) mergeClasses(fi *FileTypeInfo) {
+	java := strings.HasSuffix(fi.Path, ".java")
+	if java {
+		if r.javaClasses == nil {
+			r.javaClasses = make(map[string][]*ClassInfo)
+		}
+		r.javaClasses[fi.Path] = nil
+	}
+	for _, ci := range orderedClassInfos(fi.Classes) {
+		if java {
+			// The resolver serves a copy whose supertypes
+			// resolveJavaSupertypes resolves against the merged classes; fi
+			// keeps them as written, so a cached FileTypeInfo never carries
+			// another run's resolution.
+			c := *ci
+			c.Supertypes = append([]string(nil), ci.Supertypes...)
+			ci = &c
+			r.javaClasses[fi.Path] = append(r.javaClasses[fi.Path], ci)
+		}
+		// A Kotlin class keeps its simple name over a Java one, so indexing
+		// Java leaves Kotlin's simple-name lookups as they were.
+		if !kotlinKeeps(r.classes[ci.Name], ci) {
+			r.classes[ci.Name] = ci
+		}
+		if ci.FQN != "" && !kotlinKeeps(r.classFQN[ci.FQN], ci) {
+			r.classFQN[ci.FQN] = ci
+		}
+	}
+}
+
 func (r *defaultResolver) mergeFileResults(results []*FileTypeInfo) {
 	// `results` is slot-indexed by the parallel extraction step, so its
 	// ordering matches the caller's `files` argument. To make the merge
@@ -268,20 +314,7 @@ func (r *defaultResolver) mergeFileResults(results []*FileTypeInfo) {
 		r.imports[fi.Path] = fi.ImportTable
 		r.scopes[fi.Path] = fi.RootScope
 
-		// Iterate classes in canonical FQN order. Last-write-wins on
-		// short-name collisions is preserved, but the "winner" is now
-		// the (path-largest, FQN-largest) class — a deterministic
-		// function of the input set rather than goroutine scheduling.
-		for _, ci := range orderedClassInfos(fi.Classes) {
-			// A Kotlin class keeps its simple name over a Java one, so
-			// indexing Java leaves Kotlin's simple-name lookups as they were.
-			if !kotlinKeeps(r.classes[ci.Name], ci) {
-				r.classes[ci.Name] = ci
-			}
-			if ci.FQN != "" && !kotlinKeeps(r.classFQN[ci.FQN], ci) {
-				r.classFQN[ci.FQN] = ci
-			}
-		}
+		r.mergeClasses(fi)
 		for _, ci := range orderedClassInfos(fi.ClassScopes) {
 			if ci.FQN != "" {
 				if r.classFQNScopes == nil {
@@ -379,6 +412,9 @@ func sortedKeysResolved(m map[string]*ResolvedType) []string {
 
 func (r *defaultResolver) resolveSupertypeNames() {
 	for _, ci := range r.classes {
+		if strings.HasSuffix(ci.File, ".java") {
+			continue
+		}
 		for i, st := range ci.Supertypes {
 			if !strings.Contains(st, ".") {
 				if info, ok := r.classes[st]; ok && info.FQN != "" {
@@ -387,6 +423,63 @@ func (r *defaultResolver) resolveSupertypeNames() {
 			}
 		}
 	}
+}
+
+// resolveSupertypes qualifies the merged classes' supertypes: Kotlin's
+// through the simple-name map, Java's with javac's lookup order.
+func (r *defaultResolver) resolveSupertypes() {
+	r.resolveSupertypeNames()
+	r.resolveJavaSupertypes()
+}
+
+// resolveJavaSupertypes resolves each merged Java class's unqualified
+// supertypes as javac does: a member type of an enclosing class, then a
+// class of the same package, then one an on-demand import names. A name
+// none of them declares stays as written, unless a source class elsewhere
+// has that simple name and the file has no on-demand import: then it is
+// qualified with the file's package, so a simple-name lookup can't take an
+// unrelated class of another package (a Kotlin k.A for Java j.B extends A).
+func (r *defaultResolver) resolveJavaSupertypes() {
+	for path, classes := range r.javaClasses {
+		fi := r.fileInfos[path]
+		if fi == nil {
+			continue
+		}
+		for _, ci := range classes {
+			for i, st := range ci.Supertypes {
+				if !strings.Contains(st, ".") {
+					ci.Supertypes[i] = r.resolveJavaSupertype(ci, fi, st)
+				}
+			}
+		}
+	}
+}
+
+func (r *defaultResolver) resolveJavaSupertype(ci *ClassInfo, fi *FileTypeInfo, name string) string {
+	for scope := ci.FQN; ; {
+		dot := strings.LastIndexByte(scope, '.')
+		if dot < 0 {
+			break
+		}
+		scope = scope[:dot]
+		if r.classFQN[scope+"."+name] != nil {
+			return scope + "." + name
+		}
+	}
+	if fi.JavaPackage == "" && r.classFQN[name] != nil {
+		return name
+	}
+	for _, pkg := range fi.JavaWildcardImports {
+		if r.classFQN[pkg+"."+name] != nil {
+			return pkg + "." + name
+		}
+	}
+	if len(fi.JavaWildcardImports) == 0 && fi.JavaPackage != "" && r.classes[name] != nil {
+		if _, javaLang := KotlinAutoImports[name]; !javaLang {
+			return fi.JavaPackage + "." + name
+		}
+	}
+	return name
 }
 
 // kotlinKeeps reports whether prev, a Kotlin class, keeps its name over ci,
@@ -409,6 +502,8 @@ func javaClassInfo(facts *javafacts.JavaFileFacts, class javafacts.JavaClassFact
 		IsSealed:   class.Sealed,
 		IsAbstract: class.Abstract,
 		IsNested:   class.Nested,
+		IsInner:    class.Inner,
+		Outer:      class.Outer,
 		File:       path,
 	}
 	switch class.Kind {

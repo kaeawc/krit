@@ -25,7 +25,13 @@ type JavaFileFacts struct {
 	Imports         map[string]string
 	StaticImports   map[string]string
 	WildcardImports []string
-	Classes         map[string]JavaClassFact
+	// Classes holds the file's type declarations by simple name; a nested
+	// class and another type's nested class of the same name share an entry.
+	Classes map[string]JavaClassFact
+	// Declared lists every type declaration in source order, so two nested
+	// classes of the same simple name stay apart. Its entries carry no
+	// methods or fields.
+	Declared []JavaClassFact
 	// codeMentions is a newline-joined haystack of qualified identifier
 	// node texts (scoped_identifier, scoped_type_identifier) collected
 	// directly from the Java AST. It excludes comments and string
@@ -45,8 +51,15 @@ type JavaClassFact struct {
 	Final    bool
 	Abstract bool
 	Sealed   bool
-	// Nested reports a member type of another type.
-	Nested      bool
+	// Nested reports a member type of another type, and Outer that type's
+	// FQN; Inner, a nested class that is not static, declared in a class,
+	// enum or record.
+	Nested bool
+	Outer  string
+	Inner  bool
+	// Supertypes lists the extends and implements clauses' types as written,
+	// without type arguments; type-parameter bounds and permits are not
+	// supertypes.
 	Supertypes  []string
 	Annotations []string
 	Methods     map[string][]JavaMethodFact
@@ -276,12 +289,81 @@ func addClassFact(file *scanner.File, facts *JavaFileFacts, node uint32) {
 		Abstract:    file.FlatHasModifier(node, "abstract"),
 		Sealed:      file.FlatHasModifier(node, "sealed"),
 		Nested:      owner != "",
-		Supertypes:  javaHeaderSupertypes(file.FlatNodeText(node)),
+		Outer:       owner,
+		Supertypes:  javaDeclarationSupertypes(file, node),
 		Annotations: javaAnnotations(javaDeclarationHeader(file.FlatNodeText(node))),
 		Methods:     make(map[string][]JavaMethodFact),
 		Fields:      make(map[string]JavaFieldFact),
 	}
+	classFact.Inner = classFact.Nested && classFact.Kind == "class" && !file.FlatHasModifier(node, "static") && javaEnclosedByClass(file, node)
 	facts.Classes[name] = classFact
+	facts.Declared = append(facts.Declared, classFact)
+}
+
+// javaEnclosedByClass reports whether a type declaration's innermost enclosing type is a class, enum or record. A
+// member type of an interface or annotation is implicitly static.
+func javaEnclosedByClass(file *scanner.File, node uint32) bool {
+	for parent, ok := file.FlatParent(node); ok; parent, ok = file.FlatParent(parent) {
+		switch file.FlatType(parent) {
+		case "class_declaration", "enum_declaration", "record_declaration":
+			return true
+		case "interface_declaration", "annotation_type_declaration":
+			return false
+		}
+	}
+	return false
+}
+
+// javaDeclarationSupertypes returns a type declaration's supertypes from its superclass, super_interfaces and
+// extends_interfaces clauses, as written and without type arguments.
+func javaDeclarationSupertypes(file *scanner.File, node uint32) []string {
+	var out []string
+	for child := file.FlatFirstChild(node); child != 0; child = file.FlatNextSib(child) {
+		switch file.FlatType(child) {
+		case "superclass", "super_interfaces", "extends_interfaces":
+			file.FlatWalkAllNodes(child, func(n uint32) {
+				if p, ok := file.FlatParent(n); !ok || (p != child && file.FlatType(p) != "type_list") {
+					return
+				}
+				if name := javaTypeName(file, n); name != "" {
+					out = append(out, name)
+				}
+			})
+		}
+	}
+	return strutil.UniqueTrimmed(out)
+}
+
+// javaTypeName returns a type node's name without type arguments or annotations: `Foo` for `Foo<T>`, `a.b.Foo` for a
+// qualified type; "" for a node that is not a type.
+func javaTypeName(file *scanner.File, n uint32) string {
+	switch file.FlatType(n) {
+	case "type_identifier":
+		return file.FlatNodeText(n)
+	case "scoped_type_identifier":
+		var parts []string
+		for c := file.FlatFirstChild(n); c != 0; c = file.FlatNextSib(c) {
+			if name := javaTypeName(file, c); name != "" {
+				parts = append(parts, name)
+			}
+		}
+		return strings.Join(parts, ".")
+	case "generic_type":
+		for c := file.FlatFirstChild(n); c != 0; c = file.FlatNextSib(c) {
+			if name := javaTypeName(file, c); name != "" {
+				return name
+			}
+		}
+	case "annotated_type":
+		var last string
+		for c := file.FlatFirstChild(n); c != 0; c = file.FlatNextSib(c) {
+			if name := javaTypeName(file, c); name != "" {
+				last = name
+			}
+		}
+		return last
+	}
+	return ""
 }
 
 var javaDeclarationKinds = map[string]string{
@@ -378,43 +460,6 @@ func enclosingJavaClassName(file *scanner.File, node uint32) (string, bool) {
 		}
 	}
 	return "", false
-}
-
-func javaHeaderSupertypes(text string) []string {
-	header := javaDeclarationHeader(text)
-	var out []string
-	for _, marker := range []string{" extends ", " implements "} {
-		idx := strings.Index(header, marker)
-		if idx < 0 {
-			continue
-		}
-		rest := header[idx+len(marker):]
-		if next := strings.Index(rest, " implements "); next >= 0 {
-			rest = rest[:next]
-		}
-		start, depth := 0, 0
-		for i := 0; i < len(rest); i++ {
-			switch rest[i] {
-			case '<':
-				depth++
-			case '>':
-				if depth > 0 {
-					depth--
-				}
-			case ',':
-				if depth == 0 {
-					if typ := normalizeJavaTypeName(rest[start:i]); typ != "" {
-						out = append(out, typ)
-					}
-					start = i + 1
-				}
-			}
-		}
-		if typ := normalizeJavaTypeName(rest[start:]); typ != "" {
-			out = append(out, typ)
-		}
-	}
-	return strutil.UniqueTrimmed(out)
 }
 
 func javaAnnotations(text string) []string {

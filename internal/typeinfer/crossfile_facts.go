@@ -74,6 +74,7 @@ func (info *FileTypeInfo) CrossFileFacts() CrossFileFacts {
 	}
 	f := crossFileFrags{}
 	f.addClasses(info.Classes, info.ImportTable)
+	f.addJavaWildcards(info)
 	for name, subs := range info.SealedSubs {
 		f.add(name, "sealed", subs)
 	}
@@ -164,6 +165,25 @@ func supertypeImports(ci *ClassInfo, imports *ImportTable) map[string]string {
 		named[head] = target
 	}
 	return named
+}
+
+// addJavaWildcards records a Java file's on-demand imports under each class with an unqualified supertype: they
+// decide which class that supertype names (resolveJavaSupertype), so adding or removing one changes what lookups of
+// the class see. Kotlin's on-demand imports are left out: the resolver never resolves through them.
+func (f crossFileFrags) addJavaWildcards(info *FileTypeInfo) {
+	if len(info.JavaWildcardImports) == 0 {
+		return
+	}
+	for _, ci := range info.Classes {
+		if ci == nil || !slices.ContainsFunc(ci.Supertypes, func(s string) bool { return !strings.Contains(s, ".") }) {
+			continue
+		}
+		name := ci.FQN
+		if name == "" {
+			name = ci.Name
+		}
+		f.add(name, "javaStars", info.JavaWildcardImports)
+	}
 }
 
 // addFunctions records the functions, extensions and suspend functions

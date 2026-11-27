@@ -74,26 +74,38 @@ class Example extends Base implements Runnable, Closeable {
 	}
 }
 
-func TestJavaHeaderSupertypes_GenericArguments(t *testing.T) {
+func TestJavaDeclarationSupertypes(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
-		header string
+		source string
+		class  string
 		want   []string
 	}{
-		{"type argument is not a supertype", "class Foo implements TriFunc<String, X509TrustManager, String> {}", []string{"TriFunc"}},
-		{"nested type arguments", "class Foo extends Base implements Map<String, List<X509TrustManager>> {}", []string{"Base", "Map"}},
-		{"mixed supertypes", "class Foo implements A, B<C, D>, E {}", []string{"A", "B", "E"}},
-		{"plain supertypes unchanged", "class Foo extends Base implements Runnable, Closeable {}", []string{"Base", "Runnable", "Closeable"}},
+		{"type argument is not a supertype", "class Foo implements TriFunc<String, X509TrustManager, String> {}", "Foo", []string{"TriFunc"}},
+		{"nested type arguments", "class Foo extends Base implements Map<String, List<X509TrustManager>> {}", "Foo", []string{"Base", "Map"}},
+		{"mixed supertypes", "class Foo implements A, B<C, D>, E {}", "Foo", []string{"A", "B", "E"}},
+		{"plain supertypes unchanged", "class Foo extends Base implements Runnable, Closeable {}", "Foo", []string{"Base", "Runnable", "Closeable"}},
+		{"qualified supertype", "class Foo extends android.widget.ImageView {}", "Foo", []string{"android.widget.ImageView"}},
+		// #1950 review: a type-parameter bound is not a supertype, and the real superclass after it is kept.
+		{"bounded type parameter", "class Gen<T extends Comparable<T>> extends ImageView implements Runnable {}", "Gen", []string{"ImageView", "Runnable"}},
+		{"bound only", "class JBox<T extends View, U> {}", "JBox", nil},
+		{"permits is not a supertype", "sealed interface S extends Base permits A, B {}", "S", []string{"Base"}},
+		{"annotation string", "@Ann(\"extends X implements Y\") class Foo extends Base {}", "Foo", []string{"Base"}},
+		{"interface extends", "interface I extends Comparable<I>, Runnable {}", "I", []string{"Comparable", "Runnable"}},
+		{"enum implements", "enum E implements Runnable { X; public void run() {} }", "E", []string{"Runnable"}},
+		{"record implements", "record R(int x) implements Runnable { public void run() {} }", "R", []string{"Runnable"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := javaHeaderSupertypes(tc.header); !reflect.DeepEqual(got, tc.want) {
-				t.Fatalf("javaHeaderSupertypes(%q) = %v, want %v", tc.header, got, tc.want)
+			file := parseJavaSource(t, "Foo.java", "package test;\n\n"+tc.source+"\n")
+			got := SourceFactsForFile(file).Classes[tc.class].Supertypes
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("%s supertypes = %v, want %v", tc.class, got, tc.want)
 			}
 		})
 	}
 }
 
-func TestJavaHeaderSupertypes_AnnotatedTypeArgument(t *testing.T) {
+func TestJavaDeclarationSupertypes_AnnotatedTypeArgument(t *testing.T) {
 	file := parseJavaSource(t, "Foo.java", `
 package test;
 @interface Marker { String value(); }
@@ -110,8 +122,8 @@ class Foo implements TriFunc<@Marker(value = "a,b") String, X509TrustManager, St
 	if !strings.Contains(header, `@Marker(value = "a,b") String`) {
 		t.Fatalf("annotated type argument absent from Java declaration header: %q", header)
 	}
-	if got, want := javaHeaderSupertypes(header), []string{"TriFunc"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("javaHeaderSupertypes(%q) = %v, want %v", header, got, want)
+	if got, want := SourceFactsForFile(file).Classes["Foo"].Supertypes, []string{"TriFunc"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("Foo supertypes = %v, want %v", got, want)
 	}
 }
 

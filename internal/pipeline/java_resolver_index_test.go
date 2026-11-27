@@ -89,3 +89,53 @@ func TestRunProject_KotlinRulesSeeJavaSourceSupertypes(t *testing.T) {
 		t.Fatalf("after JBase extends LinearLayout again: warm %q, --no-cache %q, want %q", warm, cold, want)
 	}
 }
+
+// testdata/java_resolver holds one project per directory: Kotlin and Java sources and an expected.txt listing the
+// findings ("File.kt:line Rule", sorted) RunProject reports with CanvasSize, the rule the #1950 review's repros
+// misfired. Each runs from a copy, so no cache is written into the tree.
+func TestRunProject_JavaResolverFixtures(t *testing.T) {
+	var active []*api.Rule
+	for _, r := range api.Registry {
+		if r.ID == "CanvasSize" {
+			active = append(active, r)
+		}
+	}
+	if len(active) != 1 {
+		t.Fatal("CanvasSize not registered")
+	}
+	cases, err := os.ReadDir(filepath.Join("testdata", "java_resolver"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range cases {
+		if !c.IsDir() {
+			continue
+		}
+		t.Run(c.Name(), func(t *testing.T) {
+			src := filepath.Join("testdata", "java_resolver", c.Name())
+			dir := t.TempDir()
+			if err := os.CopyFS(dir, os.DirFS(src)); err != nil {
+				t.Fatal(err)
+			}
+			want, err := os.ReadFile(filepath.Join(src, "expected.txt"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			res, err := RunProject(context.Background(), ProjectInput{
+				Args: ProjectArgs{Config: config.NewConfig(), Paths: []string{dir}, ActiveRules: active, Format: "json", Version: "test"},
+			})
+			if err != nil {
+				t.Fatalf("RunProject: %v", err)
+			}
+			var got []string
+			for _, f := range res.FinalFindings.Findings() {
+				rel, _ := filepath.Rel(dir, f.File)
+				got = append(got, fmt.Sprintf("%s:%d %s", filepath.ToSlash(rel), f.Line, f.Rule))
+			}
+			sort.Strings(got)
+			if g, w := strings.Join(got, "\n"), strings.TrimSpace(string(want)); g != w {
+				t.Errorf("findings:\n%s\nwant:\n%s", g, w)
+			}
+		})
+	}
+}

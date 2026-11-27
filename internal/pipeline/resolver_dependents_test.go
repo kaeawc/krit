@@ -257,6 +257,26 @@ func TestResolverRuleCacheFollowsJavaSupertypes(t *testing.T) {
 			h.write("JBase.java", javaBase)
 			h.wantWarmMatchesCold("import swapped back")
 
+			// Only an on-demand import decides what the unqualified Widget
+			// names: none (j.Widget, not indexed), p.* (a View) or q.*.
+			starred := func(imp string) string {
+				return strings.Replace(javaBase, "import p.Widget;", imp, 1)
+			}
+			h.write("JBase.java", starred(""))
+			if got, _ := h.run(false); strings.Join(got, "\n") != "Widget.kt: Widget is a View" {
+				t.Fatalf("with no import, --no-cache findings = %v, want only Widget.kt", got)
+			}
+			h.wantWarmMatchesCold("supertype import removed")
+			h.write("JBase.java", starred("import p.*;"))
+			if got, _ := h.run(false); strings.Join(got, "\n") != strings.Join(want, "\n") {
+				t.Fatalf("with import p.*, --no-cache findings = %v, want %v", got, want)
+			}
+			h.wantWarmMatchesCold("on-demand import p.* added")
+			h.write("JBase.java", starred("import q.*;"))
+			h.wantWarmMatchesCold("on-demand import swapped to q.*")
+			h.write("JBase.java", starred(""))
+			h.wantWarmMatchesCold("on-demand import removed")
+
 			if err := os.Remove(filepath.Join(h.dir, "JBase.java")); err != nil {
 				t.Fatal(err)
 			}

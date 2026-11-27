@@ -804,13 +804,18 @@ All notable changes to Krit will be documented in this file.
   (`<T : KView?>`) is `Any?.toString()` and is not reported. The first bound also names the receiver for
   `NullableToStringCall` and the Wire proto exemption (#1949).
 - The source resolver indexes the run's Java classes as well as Kotlin's: each Java class's kind, its `final`,
-  `abstract` and `sealed` modifiers, and its supertypes, qualified through the file's single-type imports. So Kotlin
-  rules follow a class hierarchy through Java source classes: `DenyListedApi` on a receiver typed as a Java `View`
-  subclass, `DoNotCallViewToString` on a Kotlin View whose superclass is a Java class, `ArgInFormattedQuantityStringRes`
-  on a Java `Resources` subclass (from Kotlin and from Java), and `CanvasSize` in a Java custom view. A Java class is
-  open unless declared `final`, so `UnsafeCast` does not take one for a final Kotlin class. A Kotlin class keeps a
-  simple name it shares with a Java class. Java files are now parsed whenever a resolver-backed rule is active. A
-  cached Kotlin verdict follows edits to the Java classes it depends on, including an import-only swap (#1885).
+  `abstract` and `sealed` modifiers, and its supertypes, resolved as javac resolves them (a single-type import, a
+  member type of an enclosing class, the file's package, then an on-demand import), so an unimported name never takes
+  a same-named class of another package. So Kotlin rules follow a class hierarchy through Java source classes:
+  `DenyListedApi` on a receiver typed as a Java `View` subclass, `DoNotCallViewToString` on a Kotlin View whose
+  superclass is a Java class, `ArgInFormattedQuantityStringRes` on a Java `Resources` subclass (from Kotlin and from
+  Java), and `CanvasSize` in a Java custom view. A Java class is open unless declared `final`, so `UnsafeCast` does
+  not take one for a final Kotlin class, and a Kotlin class keeps a simple name it shares with a Java class. Java
+  supertypes now come from the `extends` and `implements` clauses, so a type-parameter bound (`class Box<T extends
+  View>`), a `permits` list or an annotation's string is no longer read as one, for every rule that reads Java class
+  facts; nested classes of the same simple name in two outer classes are both indexed (type-index cache version 23).
+  Java files are now parsed whenever a resolver-backed rule is active. A cached Kotlin verdict follows edits to the
+  Java classes it depends on, including a swapped or added import (#1885).
 - Gradle plugin: with FIR on, the check tasks run the R tasks of exported Android test components
   (`generate<Variant>UnitTestStubRFile`, `process<Variant>AndroidTestResources`). On a clean checkout FIR compiled unit
   and instrumented tests without their own R class, so test files that use `R` were gated (#1724).

@@ -112,8 +112,9 @@ def load(jars):
             if n.endswith('.class') and not n.endswith('module-info.class'):
                 try:
                     info = parse(z.read(n))
-                except Exception:
-                    continue
+                except (ValueError, IndexError, TypeError, struct.error) as e:
+                    # A skipped class would leave its composables out while its package still counts as scanned.
+                    raise SystemExit('%s: cannot parse %s: %s' % (jar, n, e))
                 out[info['name']] = info
     return out
 
@@ -132,7 +133,15 @@ EXTRA_UNSTABLE = ['android.app.Activity', 'android.app.Application', 'android.ap
 
 
 def plain(name):
-    return re.sub(r'-[A-Za-z0-9_]+$', '', name)  # strip inline-class mangling
+    # Strip inline-class mangling: the suffix from the first '-' (FloatingActionButton-X-lF), whose hash may
+    # itself contain '-'. Kotlin names cannot contain '-' without backticks.
+    return name.split('-', 1)[0]
+
+
+def synthetic_class(base):
+    # Compiler-generated classes: composable lambda singletons, lambdas and anonymous classes.
+    return (base.startswith('ComposableSingletons') or
+            any(part.isdigit() or part.startswith('lambda') for part in base.split('$')[1:]))
 
 
 def composables(classes):
@@ -142,13 +151,15 @@ def composables(classes):
         if pkg:
             pkgs.add(pkg)
         base = n.rsplit('/', 1)[-1]
+        if synthetic_class(base):
+            continue
         for m in c['methods']:
             if COMPOSABLE not in m['annotations']:
                 continue
             kind = 2 if READ_ONLY in m['annotations'] else 1
             name = plain(m['name'])
-            if name.startswith('access$') or name in ('<init>', '<clinit>'):
-                continue
+            if '$' in name or name in ('<init>', '<clinit>', ''):
+                continue  # access$, $lambda$1, $default bridges and other synthetic methods
             names = [name]
             if re.match(r'get[A-Z]', name):
                 names.append(name[3].lower() + name[4:])

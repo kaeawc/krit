@@ -80,10 +80,29 @@ var composeLintsStateFactories = map[string]bool{"mutableStateOf": true, "derive
 
 // composeLintsUsageClassifier classifies calls and reads against the cross-file index and the library tables.
 type composeLintsUsageClassifier struct {
-	index *scanner.CodeIndex
-	files map[string]*scanner.File
-	nodes map[*scanner.File]map[int]uint32
-	memo  map[string]composeLintsUsage
+	index     *scanner.CodeIndex
+	files     map[string]*scanner.File
+	packages  map[string]bool // packages the project declares, built on first use
+	symbols   map[composeLintsSymbolKey]composeLintsUsage
+	receivers map[composeLintsNodeKey]composeLintsReceivers
+	wildcards map[*scanner.File][]string
+	pkgs      map[*scanner.File]string
+	// aliasNames and aliasIndex hold the project's top-level type aliases, by simple name and by FQN, built on
+	// first use.
+	aliasNames map[string]bool
+	aliasIndex composeLintsTypeAliases
+}
+
+// composeLintsNodeKey identifies a node of a file.
+type composeLintsNodeKey struct {
+	file *scanner.File
+	node uint32
+}
+
+// composeLintsSymbolKey identifies a project declaration.
+type composeLintsSymbolKey struct {
+	file  string
+	start int
 }
 
 func newComposeLintsUsageClassifier(index *scanner.CodeIndex) *composeLintsUsageClassifier {
@@ -93,36 +112,59 @@ func newComposeLintsUsageClassifier(index *scanner.CodeIndex) *composeLintsUsage
 			files[f.Path] = f
 		}
 	}
-	return &composeLintsUsageClassifier{index: index, files: files, nodes: map[*scanner.File]map[int]uint32{},
-		memo: map[string]composeLintsUsage{}}
+	return &composeLintsUsageClassifier{index: index, files: files, pkgs: map[*scanner.File]string{},
+		symbols:   map[composeLintsSymbolKey]composeLintsUsage{},
+		receivers: map[composeLintsNodeKey]composeLintsReceivers{}, wildcards: map[*scanner.File][]string{}}
 }
 
-// projectUsage classifies the project's functions and properties named name; ok is false when there are none.
-func (c *composeLintsUsageClassifier) projectUsage(name string) (composeLintsUsage, bool) {
-	if v, ok := c.memo[name]; ok {
-		return v, v != composeLintsUsage(-1)
+// isProjectPackage reports whether a project file declares pkg.
+func (c *composeLintsUsageClassifier) isProjectPackage(pkg string) bool {
+	if c.packages == nil {
+		c.packages = map[string]bool{}
+		for _, f := range c.files {
+			c.packages[c.packageOf(f)] = true
+		}
 	}
-	found := false
+	return c.packages[pkg]
+}
+
+// packageOf returns a file's package from its package_header, memoized.
+func (c *composeLintsUsageClassifier) packageOf(file *scanner.File) string {
+	pkg, ok := c.pkgs[file]
+	if !ok {
+		if header, found := file.FlatFindChild(0, "package_header"); found {
+			if id, found := file.FlatFindChild(header, "identifier"); found {
+				pkg = strings.Join(strings.Fields(file.FlatNodeText(id)), "")
+			}
+		} else if file.Language != scanner.LangKotlin {
+			pkg = filePackageName(file)
+		}
+		c.pkgs[file] = pkg
+	}
+	return pkg
+}
+
+// wildcardPackages memoizes composeLintsWildcardPackages per file.
+func (c *composeLintsUsageClassifier) wildcardPackages(file *scanner.File) []string {
+	w, ok := c.wildcards[file]
+	if !ok {
+		w = composeLintsWildcardPackages(file)
+		c.wildcards[file] = w
+	}
+	return w
+}
+
+// projectUsage classifies the project's functions and properties named name that keep accepts; ok is false when
+// there are none. Overloads that differ make it unknown.
+func (c *composeLintsUsageClassifier) projectUsage(name string, keep func(scanner.Symbol) bool) (composeLintsUsage, bool) {
+	found, mixed := false, false
 	result := composeLintsUsageNone
-	mixed := false
 	for _, sym := range c.index.SymbolsNamed(name) {
-		file := c.files[sym.File]
-		if file == nil {
+		if keep != nil && !keep(sym) {
 			continue
 		}
-		var u composeLintsUsage
-		switch sym.Kind {
-		case "function":
-			fn := c.node(file, sym.StartByte, "function_declaration")
-			if fn == 0 {
-				return c.remember(name, composeLintsUsageUnknown), true
-			}
-			u = composeLintsDeclUsage(file, fn)
-		case "property":
-			u = composeLintsPropertyUsage(file, c.node(file, sym.StartByte, "property_declaration"))
-		case "class", "object", "interface":
-			u = composeLintsUsageNone // a constructor or a type reference
-		default:
+		u, ok := c.symbolUsage(sym)
+		if !ok {
 			continue
 		}
 		if found && u != result {
@@ -130,36 +172,78 @@ func (c *composeLintsUsageClassifier) projectUsage(name string) (composeLintsUsa
 		}
 		found, result = true, u
 	}
-	if !found {
-		c.memo[name] = -1
-		return composeLintsUsageNone, false
-	}
 	if mixed {
 		result = composeLintsUsageUnknown
 	}
-	return c.remember(name, result), true
+	return result, found
 }
 
-func (c *composeLintsUsageClassifier) remember(name string, u composeLintsUsage) composeLintsUsage {
-	c.memo[name] = u
-	return u
+// symbolUsage classifies one project declaration; ok is false for kinds that are not called or read.
+func (c *composeLintsUsageClassifier) symbolUsage(sym scanner.Symbol) (composeLintsUsage, bool) {
+	file := c.files[sym.File]
+	if file == nil {
+		return composeLintsUsageNone, false
+	}
+	key := composeLintsSymbolKey{file: sym.File, start: sym.StartByte}
+	if u, ok := c.symbols[key]; ok {
+		return u, true
+	}
+	var u composeLintsUsage
+	switch sym.Kind {
+	case "function":
+		if fn := c.node(file, sym.StartByte, "function_declaration"); fn != 0 {
+			u = composeLintsDeclUsage(file, fn)
+		} else {
+			u = composeLintsUsageUnknown
+		}
+	case "property":
+		u = composeLintsPropertyUsage(file, c.node(file, sym.StartByte, "property_declaration"))
+	case "class", "object", "interface":
+		u = composeLintsUsageNone // a constructor or a type reference
+	default:
+		return composeLintsUsageNone, false
+	}
+	c.symbols[key] = u
+	return u, true
 }
 
+// composeLintsTopLevelIn keeps the top-level declarations of pkg.
+func composeLintsTopLevelIn(pkg string) func(scanner.Symbol) bool {
+	return func(s scanner.Symbol) bool { return s.Owner == "" && s.Package == pkg }
+}
+
+// composeLintsMember keeps member declarations.
+func composeLintsMember(s scanner.Symbol) bool { return s.Owner != "" }
+
+// composeLintsAgree combines the usages of candidates the call may resolve to: unknown unless they agree.
+func composeLintsAgree(us []composeLintsUsage) composeLintsUsage {
+	for _, u := range us[1:] {
+		if u != us[0] {
+			return composeLintsUsageUnknown
+		}
+	}
+	return us[0]
+}
+
+// node returns the declaration of the given kind that starts at byte start, descending from the root through the
+// nodes that contain it, or 0.
 func (c *composeLintsUsageClassifier) node(file *scanner.File, start int, kind string) uint32 {
-	byStart, ok := c.nodes[file]
-	if !ok {
-		byStart = map[int]uint32{}
-		file.FlatWalkAllNodes(0, func(n uint32) {
-			if t := file.FlatType(n); t == "function_declaration" || t == "property_declaration" {
-				byStart[int(file.FlatStartByte(n))] = n
+	for n := uint32(0); ; {
+		next := uint32(0)
+		for child := file.FlatFirstChild(n); child != 0; child = file.FlatNextSib(child) {
+			if int(file.FlatStartByte(child)) <= start && start < int(file.FlatEndByte(child)) {
+				next = child
+				break
 			}
-		})
-		c.nodes[file] = byStart
+		}
+		if next == 0 {
+			return 0
+		}
+		if int(file.FlatStartByte(next)) == start && file.FlatType(next) == kind {
+			return next
+		}
+		n = next
 	}
-	if n := byStart[start]; n != 0 && file.FlatType(n) == kind {
-		return n
-	}
-	return 0
 }
 
 // composeLintsDeclUsage is how calling a function uses the composition: OTHER for @Composable, READ_ONLY for
@@ -168,10 +252,22 @@ func composeLintsDeclUsage(file *scanner.File, fn uint32) composeLintsUsage {
 	if !acrFunctionIsComposable(file, fn) {
 		return composeLintsUsageNone
 	}
-	if composeLintsHasAnnotationNamed(file, fn, "ReadOnlyComposable") {
+	if composeLintsHasRuntimeAnnotation(file, fn, "ReadOnlyComposable") {
 		return composeLintsUsageReadOnly
 	}
 	return composeLintsUsageOther
+}
+
+// composeLintsHasRuntimeAnnotation reports whether decl carries an annotation that resolves to
+// androidx.compose.runtime.<name>, not a same-named lookalike.
+func composeLintsHasRuntimeAnnotation(file *scanner.File, decl uint32, name string) bool {
+	found := false
+	composeLintsEachAnnotation(file, decl, func(a uint32) {
+		if !found && acrAnnotationIsRuntime(file, a, name) {
+			found = true
+		}
+	})
+	return found
 }
 
 // composeLintsPropertyUsage is how reading a property uses the composition, from its getter's annotations.
@@ -183,7 +279,7 @@ func composeLintsPropertyUsage(file *scanner.File, prop uint32) composeLintsUsag
 	if getter == 0 || !acrHasComposableAnnotation(file, getter) {
 		return composeLintsUsageNone
 	}
-	if composeLintsHasAnnotationNamed(file, getter, "ReadOnlyComposable") {
+	if composeLintsHasRuntimeAnnotation(file, getter, "ReadOnlyComposable") {
 		return composeLintsUsageReadOnly
 	}
 	return composeLintsUsageOther
@@ -217,43 +313,349 @@ func (c *composeLintsUsageClassifier) importedUsage(fqn string) composeLintsUsag
 	if composeLintsScannedPackages[pkg] {
 		return composeLintsUsageOfKind(composeLintsLibraryComposableFunctions[fqn])
 	}
-	if _, ok := c.index.SymbolByFQN(fqn); ok {
-		u, _ := c.projectUsage(name)
+	if u, ok := c.projectUsage(name, func(s scanner.Symbol) bool { return s.FQN == fqn }); ok {
 		return u
 	}
 	return composeLintsUsageUnknown
 }
 
-// nameUsage classifies an unqualified function or property name used in file.
-func (c *composeLintsUsageClassifier) nameUsage(file *scanner.File, name string) composeLintsUsage {
-	facts := fileFactsCache().Imports(file)
-	if facts != nil {
+// nameUsage classifies an unqualified function or property name used at node, in Kotlin's lookup order: an explicit
+// import, the file's package, star imports, then default imports (kotlin stdlib). Members of implicit receivers
+// (an extension receiver, an enclosing class, a lambda's receiver) take part too, and a receiver whose type krit
+// cannot see makes a name it cannot place unknown.
+func (c *composeLintsUsageClassifier) nameUsage(file *scanner.File, node uint32, name string) composeLintsUsage {
+	if facts := fileFactsCache().Imports(file); facts != nil {
 		if fqn, ok := facts.Aliases[name]; ok {
 			return c.importedUsage(fqn)
 		}
 	}
-	if u, ok := c.projectUsage(name); ok {
-		return u
-	}
-	if facts != nil {
-		for wildcard := range facts.Wildcards {
-			pkg := strings.TrimSuffix(wildcard, ".*")
-			if composeLintsScannedPackages[pkg] {
-				if kind := composeLintsLibraryComposableFunctions[pkg+"."+name]; kind != 0 {
-					return composeLintsUsageOfKind(kind)
-				}
-				continue
+	result, found := c.topLevelUsage(file, name)
+	receivers := c.implicitReceivers(file, node)
+	if receivers.any {
+		var candidates []composeLintsUsage
+		if u, ok := c.projectUsage(name, composeLintsMember); ok {
+			candidates = append(candidates, u)
+		}
+		if kind := composeLintsLibraryComposableMembers[name]; kind != 0 {
+			candidates = append(candidates, composeLintsUsageOfKind(kind))
+		}
+		if len(candidates) > 0 {
+			if found {
+				candidates = append(candidates, result)
 			}
-			return composeLintsUsageUnknown // an unscanned package may declare it
+			result, found = composeLintsAgree(candidates), true
+		}
+		if receivers.unknown && result != composeLintsUsageOther {
+			return composeLintsUsageUnknown // a member of a type krit cannot see may take the name
 		}
 	}
-	return composeLintsUsageNone // a default import (kotlin stdlib)
+	if !found {
+		return composeLintsUsageNone // a default import (kotlin stdlib)
+	}
+	return result
+}
+
+// topLevelUsage classifies name among the top-level declarations visible in file without an explicit import: the
+// file's package, then the star-imported packages. found is false when neither declares it.
+func (c *composeLintsUsageClassifier) topLevelUsage(file *scanner.File, name string) (composeLintsUsage, bool) {
+	if u, ok := c.projectUsage(name, composeLintsTopLevelIn(c.packageOf(file))); ok {
+		return u, true
+	}
+	var candidates []composeLintsUsage
+	unscanned := false
+	for _, pkg := range c.wildcardPackages(file) {
+		if u, ok := c.projectUsage(name, composeLintsTopLevelIn(pkg)); ok {
+			candidates = append(candidates, u)
+			continue
+		}
+		switch {
+		case composeLintsScannedPackages[pkg]:
+			if kind := composeLintsLibraryComposableFunctions[pkg+"."+name]; kind != 0 {
+				candidates = append(candidates, composeLintsUsageOfKind(kind))
+			}
+		case !c.isProjectPackage(pkg):
+			unscanned = true
+		}
+	}
+	switch {
+	case unscanned:
+		return composeLintsUsageUnknown, true // a package krit has not scanned may declare it
+	case len(candidates) == 0:
+		return composeLintsUsageNone, false
+	}
+	return composeLintsAgree(candidates), true
+}
+
+// composeLintsReceivers describes the implicit receivers in scope at a node.
+type composeLintsReceivers struct {
+	any     bool // an extension receiver, an enclosing class or object, or a lambda (which may have a receiver)
+	unknown bool // one of them is, or extends, a type krit has not scanned
+}
+
+func (c *composeLintsUsageClassifier) implicitReceivers(file *scanner.File, node uint32) composeLintsReceivers {
+	for p, ok := file.FlatParent(node); ok; p, ok = file.FlatParent(p) {
+		switch file.FlatType(p) {
+		case "lambda_literal", "function_declaration", "getter", "setter", "class_declaration", "object_declaration",
+			"object_literal":
+			return c.receiversOf(file, p)
+		}
+	}
+	return composeLintsReceivers{}
+}
+
+// receiversOf returns the implicit receivers inside scope: its own and those of the scopes around it, memoized.
+func (c *composeLintsUsageClassifier) receiversOf(file *scanner.File, scope uint32) composeLintsReceivers {
+	key := composeLintsNodeKey{file: file, node: scope}
+	if r, ok := c.receivers[key]; ok {
+		return r
+	}
+	r := c.implicitReceivers(file, scope)
+	switch file.FlatType(scope) {
+	case "lambda_literal":
+		r.any = true
+	case "function_declaration":
+		if t := composeLintsReceiverType(file, scope); t != 0 {
+			r.any = true
+			if !c.typeKnown(file, t, composeLintsTypeParameters(file, scope), 0) {
+				r.unknown = true
+			}
+		}
+	case "getter", "setter":
+		if prop := composeLintsAccessorProperty(file, scope); prop != 0 {
+			if t := composeLintsReceiverType(file, prop); t != 0 {
+				r.any = true
+				if !c.typeKnown(file, t, nil, 0) {
+					r.unknown = true
+				}
+			}
+		}
+	case "class_declaration", "object_declaration", "object_literal":
+		r.any = true
+		if !c.supertypesKnown(file, scope, 0) {
+			r.unknown = true
+		}
+	}
+	c.receivers[key] = r
+	return r
+}
+
+// typeKnown reports whether every member a type node may contribute is visible to krit: a project class whose
+// supertypes are known, a type from a scanned library, a function type, a type parameter or a default-imported
+// kotlin type.
+func (c *composeLintsUsageClassifier) typeKnown(file *scanner.File, t uint32, typeParams map[string]bool, depth int) bool {
+	for t != 0 {
+		switch file.FlatType(t) {
+		case "function_type":
+			return true
+		case "nullable_type", "parenthesized_type":
+			t = file.FlatNamedChild(t, 0)
+		case "user_type":
+			name := composeLintsTypeText(file, t)
+			if typeParams[name] {
+				return true
+			}
+			if c.isAliasName(name[strings.LastIndex(name, ".")+1:]) && depth < 8 {
+				if alias, ok := c.aliasIndex[c.aliasIndex.resolve(file, name)]; ok {
+					return c.typeKnown(alias.file, composeLintsTypeAliasTarget(alias.file, alias.decl), nil, depth+1)
+				}
+			}
+			if fqn := c.typeFQN(file, name); fqn != "" {
+				return c.classKnown(fqn, depth)
+			}
+			return c.starImportsKnown(file) // a default import or a type from a star-imported package
+		default:
+			return false
+		}
+	}
+	return false
+}
+
+// classKnown reports whether a class FQN's members are visible to krit: a project class whose supertypes are
+// known, or a class of a scanned library, the project's packages, the Android SDK or the JDK.
+func (c *composeLintsUsageClassifier) classKnown(fqn string, depth int) bool {
+	if sym, ok := c.index.SymbolByFQN(fqn); ok && composeLintsClassLike(sym.Kind) {
+		f := c.files[sym.File]
+		if f == nil || f.Language != scanner.LangKotlin || depth > 8 {
+			return true
+		}
+		decl := c.node(f, sym.StartByte, "class_declaration")
+		if decl == 0 {
+			decl = c.node(f, sym.StartByte, "object_declaration")
+		}
+		return decl == 0 || c.supertypesKnown(f, decl, depth+1)
+	}
+	// Walk outward through class segments only (a.b.Outer.Inner), so a subpackage of a scanned package
+	// (androidx.compose.material.icons under androidx.compose.material) is not mistaken for it.
+	for pkg := fqn; strings.Contains(pkg, "."); {
+		dot := strings.LastIndex(pkg, ".")
+		if !acrFirstRuneIsUpper(pkg[dot+1:]) {
+			return false
+		}
+		pkg = pkg[:dot]
+		// Project packages are scanned (enum entries and nested declarations included); Android SDK and JDK
+		// classes declare no composables.
+		if composeLintsScannedPackages[pkg] || c.isProjectPackage(pkg) || composeLintsPlatformPackage(pkg+".") {
+			return true
+		}
+	}
+	return false
+}
+
+func composeLintsClassLike(kind string) bool {
+	return kind == "class" || kind == "object" || kind == "interface"
+}
+
+// typeFQN resolves a type name to a project class or an imported FQN: an import, a class in the file's package,
+// a qualified name, or a class of a star-imported project package. It returns "" for a default import or a type
+// from a star-imported library.
+func (c *composeLintsUsageClassifier) typeFQN(file *scanner.File, name string) string {
+	head, rest, qualified := strings.Cut(name, ".")
+	if facts := fileFactsCache().Imports(file); facts != nil && facts.Aliases[head] != "" {
+		if qualified {
+			return facts.Aliases[head] + "." + rest
+		}
+		return facts.Aliases[head]
+	}
+	if sym, ok := c.index.SymbolByFQN(composeLintsJoin(c.packageOf(file), name)); ok && composeLintsClassLike(sym.Kind) {
+		return sym.FQN
+	}
+	if qualified {
+		return name
+	}
+	for _, pkg := range c.wildcardPackages(file) {
+		if sym, ok := c.index.SymbolByFQN(pkg + "." + name); ok && composeLintsClassLike(sym.Kind) {
+			return sym.FQN
+		}
+	}
+	return ""
+}
+
+// starImportsKnown reports whether every star-imported package of file is one krit can see into.
+func (c *composeLintsUsageClassifier) starImportsKnown(file *scanner.File) bool {
+	for _, pkg := range c.wildcardPackages(file) {
+		if !composeLintsScannedPackages[pkg] && !c.isProjectPackage(pkg) && !composeLintsPlatformPackage(pkg+".") {
+			return false
+		}
+	}
+	return true
+}
+
+// isAliasName reports whether a project file declares a top-level type alias with this simple name.
+func (c *composeLintsUsageClassifier) isAliasName(name string) bool {
+	if c.aliasNames == nil {
+		c.aliasNames, c.aliasIndex = map[string]bool{}, composeLintsTypeAliases{}
+		for _, f := range c.index.Files {
+			if f == nil || f.FlatTree == nil || f.Language != scanner.LangKotlin {
+				continue
+			}
+			for child := f.FlatFirstChild(0); child != 0; child = f.FlatNextSib(child) {
+				if f.FlatType(child) == "type_alias" {
+					alias := acrDeclarationName(f, child)
+					c.aliasNames[alias] = true
+					c.aliasIndex[composeLintsJoin(c.packageOf(f), alias)] = composeLintsAnnotationClass{file: f, decl: child}
+				}
+			}
+		}
+	}
+	return c.aliasNames[name]
+}
+
+// supertypesKnown reports whether every supertype of a class, object or object literal is known.
+func (c *composeLintsUsageClassifier) supertypesKnown(file *scanner.File, decl uint32, depth int) bool {
+	known := true
+	for spec := file.FlatFirstChild(decl); spec != 0 && known; spec = file.FlatNextSib(spec) {
+		if file.FlatType(spec) != "delegation_specifier" {
+			continue
+		}
+		ut := file.FlatFirstChild(spec)
+		if t := file.FlatType(ut); t == "constructor_invocation" || t == "explicit_delegation" {
+			ut = file.FlatFirstChild(ut)
+		}
+		known = ut != 0 && c.typeKnown(file, ut, nil, depth)
+	}
+	return known
+}
+
+// composeLintsAccessorProperty returns the property a getter or setter belongs to: its parent, or the property
+// before it when tree-sitter detaches an accessor on its own line.
+func composeLintsAccessorProperty(file *scanner.File, accessor uint32) uint32 {
+	if parent, ok := file.FlatParent(accessor); ok && file.FlatType(parent) == "property_declaration" {
+		return parent
+	}
+	for prev, ok := file.FlatPrevSibling(accessor); ok; prev, ok = file.FlatPrevSibling(prev) {
+		switch file.FlatType(prev) {
+		case "property_declaration":
+			return prev
+		case "getter", "setter", "line_comment", "multiline_comment":
+			continue
+		}
+		return 0
+	}
+	return 0
+}
+
+// receiverKnown reports whether the receiver of a qualified call or read has a type krit can see. Receivers whose
+// type krit does not infer (a call result, a chain) count as known.
+func (c *composeLintsUsageClassifier) receiverKnown(file *scanner.File, scope composeLintsScope, receiver uint32) bool {
+	if receiver == 0 || file.FlatType(receiver) != "simple_identifier" {
+		return true
+	}
+	name := file.FlatNodeText(receiver)
+	if decl := composeLintsLocalDecl(file, scope, receiver, name); decl != 0 {
+		var t uint32
+		switch file.FlatType(decl) {
+		case "parameter", "class_parameter":
+			t = composeLintsDeclaredTypeAny(file, decl)
+		case "property_declaration":
+			if v, ok := file.FlatFindChild(decl, "variable_declaration"); ok {
+				t = composeLintsDeclaredTypeAny(file, v)
+			}
+		}
+		return t == 0 || c.typeKnown(file, t, nil, 0)
+	}
+	if !acrFirstRuneIsUpper(name) {
+		return true
+	}
+	// A type, object or enum entry reference (Widgets.render(), VendorBadge.render()): unknown only when it comes
+	// from a library krit has not scanned.
+	if facts := fileFactsCache().Imports(file); facts != nil && facts.Aliases[name] != "" {
+		fqn := facts.Aliases[name]
+		if _, ok := c.index.SymbolByFQN(fqn); ok {
+			return true
+		}
+		return c.classKnown(fqn, 0)
+	}
+	if len(c.index.SymbolsNamed(name)) > 0 {
+		return true
+	}
+	return c.starImportsKnown(file) // the file's package or a default import otherwise
+}
+
+// projectObjectMemberUsage classifies Receiver.name where Receiver is a project class or object visible in file (in
+// its package or imported) that declares name itself; ok is false otherwise (an inherited member, an extension).
+func (c *composeLintsUsageClassifier) projectObjectMemberUsage(file *scanner.File, scope composeLintsScope, receiver uint32, name string) (composeLintsUsage, bool) {
+	if receiver == 0 || file.FlatType(receiver) != "simple_identifier" {
+		return composeLintsUsageNone, false
+	}
+	owner := file.FlatNodeText(receiver)
+	if !acrFirstRuneIsUpper(owner) || composeLintsLocalDecl(file, scope, receiver, owner) != 0 {
+		return composeLintsUsageNone, false
+	}
+	fqn := composeLintsJoin(c.packageOf(file), owner)
+	if facts := fileFactsCache().Imports(file); facts != nil && facts.Aliases[owner] != "" {
+		fqn = facts.Aliases[owner]
+	}
+	sym, ok := c.index.SymbolByFQN(fqn)
+	if !ok || (sym.Kind != "object" && sym.Kind != "class") {
+		return composeLintsUsageNone, false
+	}
+	return c.projectUsage(name, func(s scanner.Symbol) bool { return s.Owner == sym.FQN })
 }
 
 // memberUsage classifies a selector name of a qualified call or read. A receiver that is an imported library class
 // or object is looked up in that class's members; otherwise krit does not know the receiver type and classifies
-// the name across the project and the libraries.
-func (c *composeLintsUsageClassifier) memberUsage(file *scanner.File, receiver uint32, name string) composeLintsUsage {
+// the name across the project and the libraries, abstaining when the receiver's type is one krit cannot see.
+func (c *composeLintsUsageClassifier) memberUsage(file *scanner.File, scope composeLintsScope, receiver uint32, name string) composeLintsUsage {
 	facts := fileFactsCache().Imports(file)
 	if facts != nil {
 		if fqn, ok := facts.Aliases[name]; ok {
@@ -267,30 +669,28 @@ func (c *composeLintsUsageClassifier) memberUsage(file *scanner.File, receiver u
 			}
 		}
 	}
+	if u, ok := c.projectObjectMemberUsage(file, scope, receiver, name); ok {
+		return u
+	}
 	result := composeLintsUsageNone
-	if u, ok := c.projectUsage(name); ok {
+	if u, ok := c.projectUsage(name, nil); ok {
 		result = u
 	}
 	if kind := composeLintsLibraryComposableMembers[name]; kind != 0 {
 		result = composeLintsMergeUsage(result, composeLintsUsageOfKind(kind))
 	}
-	if result == composeLintsUsageNone && facts != nil {
-		for wildcard := range facts.Wildcards {
-			if pkg := strings.TrimSuffix(wildcard, ".*"); !composeLintsScannedPackages[pkg] && !c.projectPackage(pkg) {
-				return composeLintsUsageUnknown
-			}
+	if result != composeLintsUsageNone {
+		return result
+	}
+	for _, pkg := range c.wildcardPackages(file) {
+		if !composeLintsScannedPackages[pkg] && !c.isProjectPackage(pkg) {
+			return composeLintsUsageUnknown // an unscanned package may declare the extension
 		}
+	}
+	if !c.receiverKnown(file, scope, receiver) {
+		return composeLintsUsageUnknown
 	}
 	return result
-}
-
-func (c *composeLintsUsageClassifier) projectPackage(pkg string) bool {
-	for _, f := range c.files {
-		if filePackageName(f) == pkg {
-			return true
-		}
-	}
-	return false
 }
 
 // composeLintsScope is the function (or getter or lambda) being classified: its parameters and locals.
@@ -337,7 +737,7 @@ func (c *composeLintsUsageClassifier) callUsage(file *scanner.File, scope compos
 		if decl := composeLintsLocalDecl(file, scope, callee, name); decl != 0 {
 			return composeLintsInvokedValueUsage(file, decl)
 		}
-		return c.nameUsage(file, name)
+		return c.nameUsage(file, callee, name)
 	case "navigation_expression":
 		suffix, ok := file.FlatFindChild(callee, "navigation_suffix")
 		if !ok {
@@ -355,7 +755,7 @@ func (c *composeLintsUsageClassifier) callUsage(file *scanner.File, scope compos
 		if decl := composeLintsLocalDecl(file, scope, callee, name); decl != 0 && file.FlatType(decl) == "parameter" {
 			return composeLintsInvokedValueUsage(file, decl)
 		}
-		return c.memberUsage(file, file.FlatFirstChild(callee), name)
+		return c.memberUsage(file, scope, file.FlatFirstChild(callee), name)
 	case "parenthesized_expression", "lambda_literal", "this_expression":
 		return composeLintsUsageUnknown
 	}
@@ -375,17 +775,90 @@ func (c *composeLintsUsageClassifier) readUsage(file *scanner.File, scope compos
 		return composeLintsUsageNone // `::class` and the like
 	case "current":
 		// CompositionLocal.current is read-only; Locals are named Local* by convention (CompositionLocalNaming).
-		if file.FlatType(receiver) == "simple_identifier" && strings.HasPrefix(file.FlatNodeText(receiver), "Local") {
-			return composeLintsUsageReadOnly
+		if file.FlatType(receiver) == "simple_identifier" && strings.HasPrefix(file.FlatNodeText(receiver), "Local") &&
+			composeLintsLocalDecl(file, scope, receiver, file.FlatNodeText(receiver)) == 0 {
+			if u, ok := c.compositionLocalRead(file, file.FlatNodeText(receiver)); ok {
+				return u
+			}
 		}
 	case "value":
-		return composeLintsValueReadUsage(file, scope, receiver)
+		return c.valueReadUsage(file, scope, receiver)
 	}
 	if root, selectors := composeLintsChain(file, nav); root != 0 && file.FlatType(root) == "simple_identifier" &&
 		file.FlatNodeText(root) == "androidx" {
 		return c.importedUsage("androidx." + strings.Join(selectors, "."))
 	}
-	return c.memberUsage(file, receiver, name)
+	return c.memberUsage(file, scope, receiver, name)
+}
+
+// compositionLocalRead classifies LocalX.current by what LocalX resolves to: a CompositionLocal from a scanned
+// library or the project is a read-only read; a project declaration that is not one is classified as a member read
+// (ok false); a name from a package krit has not scanned is unknown.
+func (c *composeLintsUsageClassifier) compositionLocalRead(file *scanner.File, name string) (composeLintsUsage, bool) {
+	project := func(keep func(scanner.Symbol) bool) (composeLintsUsage, bool, bool) {
+		for _, sym := range c.index.SymbolsNamed(name) {
+			if !keep(sym) {
+				continue
+			}
+			f := c.files[sym.File]
+			if f == nil || sym.Kind != "property" {
+				return composeLintsUsageNone, false, true // an object or class named Local*: classify `current`
+			}
+			if composeLintsIsCompositionLocalDecl(f, c.node(f, sym.StartByte, "property_declaration")) {
+				return composeLintsUsageReadOnly, true, true
+			}
+			return composeLintsUsageNone, false, true
+		}
+		return composeLintsUsageNone, false, false
+	}
+	if facts := fileFactsCache().Imports(file); facts != nil {
+		if fqn, ok := facts.Aliases[name]; ok {
+			if u, ok, found := project(func(s scanner.Symbol) bool { return s.FQN == fqn }); found {
+				return u, ok
+			}
+			if dot := strings.LastIndex(fqn, "."); dot > 0 && composeLintsScannedPackages[fqn[:dot]] {
+				return composeLintsUsageReadOnly, true
+			}
+			return composeLintsUsageUnknown, true
+		}
+	}
+	if u, ok, found := project(composeLintsTopLevelIn(c.packageOf(file))); found {
+		return u, ok
+	}
+	scanned := false
+	for _, pkg := range c.wildcardPackages(file) {
+		if u, ok, found := project(composeLintsTopLevelIn(pkg)); found {
+			return u, ok
+		}
+		if !composeLintsScannedPackages[pkg] {
+			return composeLintsUsageUnknown, true
+		}
+		scanned = true
+	}
+	if scanned {
+		return composeLintsUsageReadOnly, true
+	}
+	return composeLintsUsageUnknown, true
+}
+
+// composeLintsIsCompositionLocalDecl reports whether a property is a CompositionLocal: created by a
+// *compositionLocalOf factory or typed as a CompositionLocal.
+func composeLintsIsCompositionLocalDecl(file *scanner.File, prop uint32) bool {
+	if prop == 0 {
+		return false
+	}
+	if v, ok := file.FlatFindChild(prop, "variable_declaration"); ok {
+		if t := composeLintsDeclaredTypeAny(file, v); t != 0 {
+			return strings.HasSuffix(composeLintsTypeSimpleName(file, t), "CompositionLocal")
+		}
+	}
+	init := composeLintsUnwrapParens(file, composeLintsPropertyInitializer(file, prop))
+	if init == 0 || file.FlatType(init) != "call_expression" {
+		return false
+	}
+	name := composeLintsCalleeName(file, init)
+	return name == "compositionLocalOf" || name == "staticCompositionLocalOf" ||
+		name == "compositionLocalWithComputedDefaultOf"
 }
 
 // nameReadUsage classifies a bare name read: a delegated local, or a top-level property with a composable getter.
@@ -414,23 +887,11 @@ func (c *composeLintsUsageClassifier) nameReadUsage(file *scanner.File, scope co
 	}
 	name := strings.TrimPrefix(file.FlatNodeText(id), "$")
 	if decl := composeLintsLocalDecl(file, scope, id, name); decl != 0 {
-		return composeLintsDelegatedReadUsage(file, scope, decl)
+		return c.delegatedReadUsage(file, scope, decl)
 	}
 	if !acrFirstRuneIsUpper(name) && !strings.Contains(name, "_") {
 		// A lowercase name that is not a local: a property (top-level or member of an implicit receiver).
-		if u, ok := c.projectUsage(name); ok {
-			return u
-		}
-		facts := fileFactsCache().Imports(file)
-		if facts != nil {
-			if fqn, ok := facts.Aliases[name]; ok {
-				return c.importedUsage(fqn)
-			}
-		}
-		if kind := composeLintsLibraryComposableMembers[name]; kind != 0 {
-			return composeLintsUsageOfKind(kind)
-		}
-		return composeLintsUsageNone
+		return c.nameUsage(file, id, name)
 	}
 	// A capitalized name read is an object, class or CompositionLocal reference (MaterialTheme in
 	// MaterialTheme.colorScheme), not a call of the same-named composable function.
@@ -509,6 +970,18 @@ func composeLintsInvokedValueUsage(file *scanner.File, decl uint32) composeLints
 		}
 		return composeLintsUsageUnknown
 	case "property_declaration":
+		if v, ok := file.FlatFindChild(decl, "variable_declaration"); ok {
+			// The declared type decides: `val draw: @Composable () -> Unit = {}` invokes a composable lambda.
+			if acrComposableFunctionType(file, v) != 0 {
+				return composeLintsUsageOther
+			}
+			if t := composeLintsDeclaredTypeAny(file, v); t != 0 {
+				if file.FlatType(t) == "function_type" || file.FlatType(t) == "nullable_type" {
+					return composeLintsUsageNone
+				}
+				return composeLintsUsageUnknown
+			}
+		}
 		init := composeLintsUnwrapParens(file, composeLintsPropertyInitializer(file, decl))
 		switch {
 		case init != 0 && file.FlatType(init) == "lambda_literal":
@@ -522,7 +995,7 @@ func composeLintsInvokedValueUsage(file *scanner.File, decl uint32) composeLints
 
 // composeLintsDelegatedReadUsage classifies reading a local or parameter by name: a `by` delegate over a State
 // uses the composition (compose-lints' isDelegatedStateRead), `by lazy` does not.
-func composeLintsDelegatedReadUsage(file *scanner.File, scope composeLintsScope, decl uint32) composeLintsUsage {
+func (c *composeLintsUsageClassifier) delegatedReadUsage(file *scanner.File, scope composeLintsScope, decl uint32) composeLintsUsage {
 	if file.FlatType(decl) != "property_declaration" {
 		return composeLintsUsageNone
 	}
@@ -540,14 +1013,14 @@ func composeLintsDelegatedReadUsage(file *scanner.File, scope composeLintsScope,
 		}
 		return composeLintsUsageUnknown // classified as a call too; a non-composable call may still return a State
 	case "simple_identifier":
-		return composeLintsValueReadUsage(file, scope, expr)
+		return c.valueReadUsage(file, scope, expr)
 	}
 	return composeLintsUsageUnknown
 }
 
-// composeLintsValueReadUsage classifies `receiver.value` or delegating to receiver: OTHER for a Compose State,
-// NONE for a provably different type, unknown otherwise.
-func composeLintsValueReadUsage(file *scanner.File, scope composeLintsScope, receiver uint32) composeLintsUsage {
+// valueReadUsage classifies `receiver.value` or delegating to receiver: OTHER for a Compose State, NONE for a type
+// that resolves to a known non-State library type, unknown otherwise.
+func (c *composeLintsUsageClassifier) valueReadUsage(file *scanner.File, scope composeLintsScope, receiver uint32) composeLintsUsage {
 	if file.FlatType(receiver) != "simple_identifier" {
 		return composeLintsUsageUnknown
 	}
@@ -576,11 +1049,39 @@ func composeLintsValueReadUsage(file *scanner.File, scope composeLintsScope, rec
 		return composeLintsUsageUnknown
 	case composeLintsStateTypes[name]:
 		return composeLintsUsageOther
-	case name == "StateFlow" || name == "MutableStateFlow" || name == "LiveData" || name == "MutableLiveData" ||
-		name == "Result" || name == "Lazy":
+	case composeLintsNonStateValueTypes[c.valueTypeFQN(file, name)]:
 		return composeLintsUsageNone
 	}
 	return composeLintsUsageUnknown
+}
+
+// composeLintsNonStateValueTypes have a `value` that does not read the composition.
+var composeLintsNonStateValueTypes = map[string]bool{"kotlin.Result": true, "kotlin.Lazy": true,
+	"kotlinx.coroutines.flow.StateFlow": true, "kotlinx.coroutines.flow.MutableStateFlow": true,
+	"androidx.lifecycle.LiveData": true, "androidx.lifecycle.MutableLiveData": true}
+
+// valueTypeFQN resolves a value's type name: an import, a project class, a star-imported scanned package that
+// names one of composeLintsNonStateValueTypes, or a default-imported kotlin type.
+func (c *composeLintsUsageClassifier) valueTypeFQN(file *scanner.File, name string) string {
+	if facts := fileFactsCache().Imports(file); facts != nil && facts.Aliases[name] != "" {
+		return facts.Aliases[name]
+	}
+	if fqn := c.typeFQN(file, name); fqn != "" {
+		return fqn // a project class
+	}
+	unscanned := false
+	for _, pkg := range c.wildcardPackages(file) {
+		switch {
+		case composeLintsNonStateValueTypes[pkg+"."+name]:
+			return pkg + "." + name
+		case !composeLintsScannedPackages[pkg] && !c.isProjectPackage(pkg):
+			unscanned = true // star imports win over default imports
+		}
+	}
+	if !unscanned && (name == "Result" || name == "Lazy") {
+		return "kotlin." + name
+	}
+	return name
 }
 
 // composeLintsIsComposableLambda reports whether a prefix_expression is `@Composable { ... }`.
@@ -599,14 +1100,39 @@ func composeLintsIsComposableLambda(file *scanner.File, prefix uint32) bool {
 	return false
 }
 
-// composeLintsHasSlotParameter reports whether a function takes a @Composable function-typed parameter.
-func composeLintsHasSlotParameter(file *scanner.File, fn uint32) bool {
+// hasSlotParameter reports whether a function takes a @Composable function-typed parameter, directly or through a
+// project type alias (`typealias Slot = @Composable () -> Unit`).
+func (c *composeLintsUsageClassifier) hasSlotParameter(file *scanner.File, fn uint32) bool {
 	for _, p := range composeLintsParams(file, fn) {
-		if acrComposableFunctionType(file, p.node) != 0 {
+		if acrComposableFunctionType(file, p.node) != 0 || c.isComposableAlias(file, composeLintsDeclaredTypeAny(file, p.node), 0) {
 			return true
 		}
 	}
 	return false
+}
+
+func (c *composeLintsUsageClassifier) isComposableAlias(file *scanner.File, t uint32, depth int) bool {
+	if t != 0 && file.FlatType(t) == "nullable_type" {
+		t = file.FlatNamedChild(t, 0)
+	}
+	if t == 0 || file.FlatType(t) != "user_type" || depth > 8 {
+		return false
+	}
+	simple := ""
+	for child := file.FlatFirstChild(t); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) == "type_identifier" {
+			simple = file.FlatNodeText(child)
+		}
+	}
+	if !c.isAliasName(simple) {
+		return false
+	}
+	alias, ok := c.aliasIndex[c.aliasIndex.resolve(file, composeLintsTypeText(file, t))]
+	if !ok {
+		return false
+	}
+	return acrComposableFunctionType(alias.file, alias.decl) != 0 ||
+		c.isComposableAlias(alias.file, composeLintsTypeAliasTarget(alias.file, alias.decl), depth+1)
 }
 
 // composeLintsIsContractDeclaration mirrors compose-lints' isContractDeclaration: a non-top-level member of an
@@ -655,7 +1181,7 @@ func composeLintsComposableTargets(index *scanner.CodeIndex, visit func(composeL
 			case "function_declaration":
 				annotation := composeLintsComposableAnnotation(file, n)
 				if annotation == 0 || acrIsLocalDeclaration(file, n) || composeLintsIsContractDeclaration(file, n) ||
-					composeLintsHasSlotParameter(file, n) {
+					classifier().hasSlotParameter(file, n) {
 					return
 				}
 				body, _ := file.FlatFindChild(n, "function_body")
@@ -671,7 +1197,7 @@ func composeLintsComposableTargets(index *scanner.CodeIndex, visit func(composeL
 					}
 				}
 				visit(composeLintsComposableTarget{file: file, decl: n, annotation: annotation,
-					usage: classifier().usageOf(file, scope, roots...), readOnly: composeLintsHasAnnotationNamed(file, n, "ReadOnlyComposable")})
+					usage: classifier().usageOf(file, scope, roots...), readOnly: composeLintsHasRuntimeAnnotation(file, n, "ReadOnlyComposable")})
 			case "getter":
 				var annotation uint32
 				composeLintsEachAnnotation(file, n, func(a uint32) {
@@ -683,9 +1209,13 @@ func composeLintsComposableTargets(index *scanner.CodeIndex, visit func(composeL
 				if annotation == 0 || body == 0 {
 					return
 				}
+				// Accessors take their modifiers (override, open) from the property.
+				if prop := composeLintsAccessorProperty(file, n); prop != 0 && composeLintsIsContractDeclaration(file, prop) {
+					return
+				}
 				visit(composeLintsComposableTarget{file: file, decl: n, annotation: annotation,
 					usage:    classifier().usageOf(file, composeLintsScope{params: map[string]uint32{}, root: n}, body),
-					readOnly: composeLintsHasAnnotationNamed(file, n, "ReadOnlyComposable")})
+					readOnly: composeLintsHasRuntimeAnnotation(file, n, "ReadOnlyComposable")})
 			case "prefix_expression":
 				if !composeLintsIsComposableLambda(file, n) {
 					return
@@ -716,25 +1246,73 @@ func (r *ComposeRedundantComposableRule) check(ctx *api.Context) {
 	})
 }
 
-// ignored applies the ignore-annotated option.
+// ignored applies the ignore-annotated option: an ignored annotation on the declaration or lambda, or, as in
+// compose-lints, on the object whose Unit `operator fun invoke` this is.
 func (r *ComposeRedundantComposableRule) ignored(t composeLintsComposableTarget) bool {
-	if len(r.IgnoreAnnotated) == 0 || t.lambda {
+	if len(r.IgnoreAnnotated) == 0 {
 		return false
 	}
-	found := false
-	composeLintsEachAnnotation(t.file, t.decl, func(a uint32) {
-		text := composeLintsAnnotationTypeText(t.file, a)
-		fqn := text
-		if facts := fileFactsCache().Imports(t.file); facts != nil && facts.Aliases[text] != "" {
-			fqn = facts.Aliases[text]
-		}
-		for _, ignored := range r.IgnoreAnnotated {
-			if fqn == ignored {
-				found = true
+	if t.lambda {
+		for child := t.file.FlatFirstChild(t.decl); child != 0; child = t.file.FlatNextSib(child) {
+			if t.file.FlatType(child) == "annotation" && r.ignoredAnnotation(t.file, child) {
+				return true
 			}
+		}
+		return false
+	}
+	if r.hasIgnoredAnnotation(t.file, t.decl) {
+		return true
+	}
+	if t.file.FlatType(t.decl) != "function_declaration" || acrDeclarationName(t.file, t.decl) != "invoke" ||
+		!acrFunctionHasModifier(t.file, t.decl, "operator") || acrFunctionReturnKind(t.file, t.decl) != acrReturnUnit {
+		return false
+	}
+	body, ok := t.file.FlatParent(t.decl)
+	if !ok || t.file.FlatType(body) != "class_body" {
+		return false
+	}
+	owner, ok := t.file.FlatParent(body)
+	return ok && t.file.FlatType(owner) == "object_declaration" && r.hasIgnoredAnnotation(t.file, owner)
+}
+
+func (r *ComposeRedundantComposableRule) hasIgnoredAnnotation(file *scanner.File, decl uint32) bool {
+	found := false
+	composeLintsEachAnnotation(file, decl, func(a uint32) {
+		if !found && r.ignoredAnnotation(file, a) {
+			found = true
 		}
 	})
 	return found
+}
+
+// ignoredAnnotation reports whether an annotation resolves to an ignore-annotated FQN: written out, imported,
+// declared in the file's package, or from a star-imported package.
+func (r *ComposeRedundantComposableRule) ignoredAnnotation(file *scanner.File, a uint32) bool {
+	text := composeLintsAnnotationTypeText(file, a)
+	if text == "" {
+		return false
+	}
+	head, rest, qualified := strings.Cut(text, ".")
+	candidates := []string{text}
+	if facts := fileFactsCache().Imports(file); facts != nil && facts.Aliases[head] != "" {
+		candidates = []string{facts.Aliases[head]}
+		if qualified {
+			candidates[0] += "." + rest
+		}
+	} else {
+		candidates = append(candidates, composeLintsJoin(filePackageName(file), text))
+		for _, pkg := range composeLintsWildcardPackages(file) {
+			candidates = append(candidates, pkg+"."+text)
+		}
+	}
+	for _, candidate := range candidates {
+		for _, ignored := range r.IgnoreAnnotated {
+			if candidate == ignored {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (r *ComposeReadOnlyComposableRule) check(ctx *api.Context) {

@@ -2,6 +2,7 @@ package rules
 
 import (
 	"bytes"
+	"sort"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/rules/api"
@@ -59,19 +60,22 @@ const (
 
 // composeLintsClasses indexes the project's class, interface, enum and object declarations by FQN.
 type composeLintsClasses struct {
-	decls   map[string]composeLintsAnnotationClass
-	aliases composeLintsTypeAliases
-	memo    map[string]composeLintsStability
+	decls     map[string]composeLintsAnnotationClass
+	aliases   composeLintsTypeAliases
+	memo      map[string]composeLintsStability
+	wildcards map[*scanner.File][]string
+	pkgs      map[*scanner.File]string
 }
 
 func newComposeLintsClasses(files []*scanner.File) *composeLintsClasses {
 	c := &composeLintsClasses{decls: map[string]composeLintsAnnotationClass{}, aliases: newComposeLintsTypeAliases(files),
-		memo: map[string]composeLintsStability{}}
+		memo: map[string]composeLintsStability{}, wildcards: map[*scanner.File][]string{}, pkgs: map[*scanner.File]string{}}
 	for _, file := range files {
 		if file == nil || file.FlatTree == nil || file.Language != scanner.LangKotlin {
 			continue
 		}
 		pkg := filePackageName(file)
+		c.pkgs[file] = pkg
 		var walk func(parent uint32, prefix string)
 		walk = func(parent uint32, prefix string) {
 			for child := file.FlatFirstChild(parent); child != 0; child = file.FlatNextSib(child) {
@@ -106,21 +110,37 @@ func (c *composeLintsClasses) resolve(file *scanner.File, name string) string {
 			return fqn
 		}
 	}
-	if candidate := composeLintsJoin(filePackageName(file), name); c.decls[candidate].file != nil || c.aliases[candidate].file != nil {
+	pkg, ok := c.pkgs[file]
+	if !ok {
+		pkg = filePackageName(file)
+		c.pkgs[file] = pkg
+	}
+	if candidate := composeLintsJoin(pkg, name); c.decls[candidate].file != nil || c.aliases[candidate].file != nil {
 		return candidate
 	}
 	if c.decls[name].file != nil {
 		return name
 	}
-	if facts != nil && !qualified {
-		for wildcard := range facts.Wildcards {
-			candidate := strings.TrimSuffix(wildcard, "*") + name
+	if !qualified {
+		wildcards, ok := c.wildcards[file]
+		if !ok {
+			wildcards = composeLintsWildcardPackages(file)
+			c.wildcards[file] = wildcards
+		}
+		for _, pkg := range wildcards {
+			candidate := pkg + "." + name
 			if c.decls[candidate].file != nil || c.aliases[candidate].file != nil {
 				return candidate
 			}
 		}
-	}
-	if !qualified {
+		// Library types krit knows by FQN: the Compose stability annotations and the stability tables' types.
+		for _, pkg := range wildcards {
+			candidate := pkg + "." + name
+			if composeLintsRuntimeStabilityAnnotations[candidate] || composeLintsStableLibraryTypes[candidate] ||
+				composeLintsUnstableLibraryTypes[candidate] {
+				return candidate
+			}
+		}
 		if composeLintsKnownStableTypes["kotlin."+name] || composeLintsKnownUnstableTypes["kotlin."+name] {
 			return "kotlin." + name
 		}
@@ -194,22 +214,24 @@ func (c *composeLintsClasses) classStability(fqn string, depth int) composeLints
 }
 
 func (c *composeLintsClasses) declStability(file *scanner.File, decl uint32, depth int) composeLintsStability {
-	if file.FlatHasChildOfType(decl, "enum") || acrFunctionHasModifier(file, decl, "value") ||
-		composeLintsHasAnnotationNamed(file, decl, "JvmInline") {
+	if file.FlatHasChildOfType(decl, "enum") || composeLintsIsFunInterface(file, decl) {
 		return composeLintsStable
 	}
-	stable := false
+	stable, unresolved := false, false
 	composeLintsEachAnnotation(file, decl, func(a uint32) {
 		if stable {
 			return
 		}
 		text := composeLintsAnnotationTypeText(file, a)
 		fqn := c.resolve(file, text)
-		if fqn == acrRuntimePackage+".Stable" || fqn == acrRuntimePackage+".Immutable" {
+		switch fqn {
+		case acrRuntimePackage + ".Stable", acrRuntimePackage + ".Immutable", "java.lang.FunctionalInterface",
+			"FunctionalInterface": // java.lang is default-imported
 			stable = true
-			return
+		case "Stable", "Immutable":
+			unresolved = true // from a star import krit cannot resolve
 		}
-		if marker, ok := c.decls[fqn]; ok && composeLintsHasAnnotationNamed(marker.file, marker.decl, "StableMarker") {
+		if marker, ok := c.decls[fqn]; ok && composeLintsHasRuntimeAnnotation(marker.file, marker.decl, "StableMarker") {
 			stable = true
 		}
 	})
@@ -217,6 +239,9 @@ func (c *composeLintsClasses) declStability(file *scanner.File, decl uint32, dep
 		return composeLintsStable
 	}
 	result := composeLintsUnstable
+	if unresolved {
+		result = composeLintsStabilityUnknown
+	}
 	for spec := file.FlatFirstChild(decl); spec != 0; spec = file.FlatNextSib(spec) {
 		if file.FlatType(spec) != "delegation_specifier" {
 			continue
@@ -237,7 +262,73 @@ func (c *composeLintsClasses) declStability(file *scanner.File, decl uint32, dep
 			result = composeLintsStabilityUnknown
 		}
 	}
+	if acrFunctionHasModifier(file, decl, "value") || acrFunctionHasModifier(file, decl, "inline") {
+		// As in compose-lints, a value class is as stable as its underlying type.
+		switch c.valueClassUnderlyingStability(file, decl, depth) {
+		case composeLintsStable:
+			return composeLintsStable
+		case composeLintsStabilityUnknown:
+			result = composeLintsStabilityUnknown
+		}
+	}
 	return result
+}
+
+// valueClassUnderlyingStability classifies a value class's single constructor property type; compose-lints assumes
+// stable when there is none to read.
+func (c *composeLintsClasses) valueClassUnderlyingStability(file *scanner.File, decl uint32, depth int) composeLintsStability {
+	ctor, ok := file.FlatFindChild(decl, "primary_constructor")
+	if !ok {
+		return composeLintsStable
+	}
+	var param uint32
+	count := 0
+	file.FlatWalkNodes(ctor, "class_parameter", func(p uint32) {
+		count++
+		param = p
+	})
+	if count != 1 || depth > 8 {
+		return composeLintsStable
+	}
+	t := composeLintsDeclaredTypeAny(file, param)
+	if t == 0 {
+		return composeLintsStable
+	}
+	return c.typeStability(file, t, nil)
+}
+
+// composeLintsIsFunInterface reports whether a class declaration is a Kotlin `fun interface`. tree-sitter keeps the
+// `fun` keyword out of the tree, so it is read from the source between the modifiers and `interface`.
+func composeLintsIsFunInterface(file *scanner.File, decl uint32) bool {
+	iface, ok := file.FlatFindChild(decl, "interface")
+	if !ok {
+		return false
+	}
+	start := file.FlatStartByte(decl)
+	if mods, ok := file.FlatFindChild(decl, "modifiers"); ok {
+		start = file.FlatEndByte(mods)
+	}
+	end := file.FlatStartByte(iface)
+	return start <= end && int(end) <= len(file.Content) && strings.TrimSpace(string(file.Content[start:end])) == "fun"
+}
+
+// composeLintsRuntimeStabilityAnnotations are the Compose stability annotations, by FQN.
+var composeLintsRuntimeStabilityAnnotations = map[string]bool{acrRuntimePackage + ".Stable": true,
+	acrRuntimePackage + ".Immutable": true, acrRuntimePackage + ".StableMarker": true}
+
+// composeLintsWildcardPackages returns the packages a file star-imports, sorted, so lookups over them do not depend
+// on map order.
+func composeLintsWildcardPackages(file *scanner.File) []string {
+	facts := fileFactsCache().Imports(file)
+	if facts == nil || len(facts.Wildcards) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(facts.Wildcards))
+	for wildcard := range facts.Wildcards {
+		out = append(out, strings.TrimSuffix(wildcard, ".*"))
+	}
+	sort.Strings(out)
+	return out
 }
 
 func (r *ComposeUnstableReceiverRule) check(ctx *api.Context) {

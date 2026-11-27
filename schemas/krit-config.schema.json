@@ -19277,7 +19277,7 @@
           }
         },
         "ComposeReadOnlyComposable": {
-          "description": "Detects @Composable declarations whose composable uses are all @ReadOnlyComposable. [precision: project-structure-aware] [noisiness: normal] [capabilities: cross-file]\nCaveat: Classifies uses as ComposeRedundantComposable does; a CompositionLocal read is recognized as `Local*.current`.\nCaveat: compose-lints' autofix (add @ReadOnlyComposable) is not ported.",
+          "description": "Detects @Composable declarations whose composable uses are all @ReadOnlyComposable. [precision: project-structure-aware] [noisiness: normal] [capabilities: cross-file]\nCaveat: Classifies uses as ComposeRedundantComposable does; `Local*.current` is a CompositionLocal read when the name resolves to a scanned library or to a project `*compositionLocalOf` property, and abstains for names from other libraries.\nCaveat: compose-lints' autofix (add @ReadOnlyComposable) is not ported.",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -19310,7 +19310,7 @@
           }
         },
         "ComposeRedundantComposable": {
-          "description": "Detects @Composable declarations that use nothing from the composition. [precision: project-structure-aware] [noisiness: normal] [capabilities: cross-file]\nCaveat: Reports only what it can prove: every call and property read must resolve to a non-composable project declaration, a declaration of a scanned library (Compose, material3, lifecycle-viewmodel, kotlin-stdlib, coroutines), or a default import; anything from another library, an unknown `.value` read or an ambiguous overload makes it abstain.\nCaveat: compose-lints' autofix (remove the annotation) is not ported.",
+          "description": "Detects @Composable declarations that use nothing from the composition. [precision: project-structure-aware] [noisiness: normal] [capabilities: cross-file]\nCaveat: Reports only what it can prove: every call and property read must resolve to a non-composable project declaration, a declaration of a scanned library (Compose, material3, Glance, lifecycle-viewmodel, kotlin-stdlib, coroutines), an Android SDK or JDK member, or a default import. Anything from another library (a star import, an imported receiver type, a class extending one), an unknown `.value` read or an ambiguous overload makes it abstain.\nCaveat: compose-lints' autofix (remove the annotation) is not ported.",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -19586,7 +19586,7 @@
           }
         },
         "ComposeUnstableReceiver": {
-          "description": "Detects Unit composables whose extension receiver or containing class is not stable. [precision: project-structure-aware] [noisiness: normal] [capabilities: cross-file]\nCaveat: Project classes are stable when they, or a supertype, are enums, value classes, or annotated @Stable, @Immutable or with a @StableMarker annotation. The Lint CLI does not see these annotations on source classes and reports such receivers; krit follows compose-lints' tests and does not.\nCaveat: Library receivers are judged only for compose-lints' known stable constructs, kotlin collections and Any, and the Compose scope types in the generated tables; other library types are not reported.",
+          "description": "Detects Unit composables whose extension receiver or containing class is not stable. [precision: project-structure-aware] [noisiness: normal] [capabilities: cross-file]\nCaveat: Project classes are stable when they, or a supertype, are enums or functional interfaces (`fun interface`, @FunctionalInterface), or are annotated @Stable, @Immutable or with a @StableMarker annotation; a value class is as stable as its underlying type. The Lint CLI does not see these annotations on source classes and reports such receivers; krit follows compose-lints' tests and does not.\nCaveat: Library receivers are judged only for compose-lints' known stable constructs, kotlin collections and Any, and the Compose scope types in the generated tables; other library types are not reported.",
           "type": "object",
           "additionalProperties": false,
           "properties": {

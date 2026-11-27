@@ -190,7 +190,7 @@ func (r *ComposeUnstableReceiverRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{ID: "ComposeUnstableReceiver", RuleSet: composeLintsRuleSet, DefaultActive: false,
 		OptInReason: api.OptInReasonOpinionated,
 		KnownLimitations: []string{
-			"Project classes are stable when they, or a supertype, are enums, value classes, or annotated @Stable, @Immutable or with a @StableMarker annotation. The Lint CLI does not see these annotations on source classes and reports such receivers; krit follows compose-lints' tests and does not.",
+			"Project classes are stable when they, or a supertype, are enums or functional interfaces (`fun interface`, @FunctionalInterface), or are annotated @Stable, @Immutable or with a @StableMarker annotation; a value class is as stable as its underlying type. The Lint CLI does not see these annotations on source classes and reports such receivers; krit follows compose-lints' tests and does not.",
 			"Library receivers are judged only for compose-lints' known stable constructs, kotlin collections and Any, and the Compose scope types in the generated tables; other library types are not reported.",
 		}}
 }
@@ -199,7 +199,7 @@ func (r *ComposeRedundantComposableRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{ID: "ComposeRedundantComposable", RuleSet: composeLintsRuleSet, DefaultActive: false,
 		OptInReason: api.OptInReasonOpinionated,
 		KnownLimitations: []string{
-			"Reports only what it can prove: every call and property read must resolve to a non-composable project declaration, a declaration of a scanned library (Compose, material3, lifecycle-viewmodel, kotlin-stdlib, coroutines), or a default import; anything from another library, an unknown `.value` read or an ambiguous overload makes it abstain.",
+			"Reports only what it can prove: every call and property read must resolve to a non-composable project declaration, a declaration of a scanned library (Compose, material3, Glance, lifecycle-viewmodel, kotlin-stdlib, coroutines), an Android SDK or JDK member, or a default import. Anything from another library (a star import, an imported receiver type, a class extending one), an unknown `.value` read or an ambiguous overload makes it abstain.",
 			"compose-lints' autofix (remove the annotation) is not ported.",
 		},
 		Options: []api.ConfigOption{
@@ -215,7 +215,7 @@ func (r *ComposeReadOnlyComposableRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{ID: "ComposeReadOnlyComposable", RuleSet: composeLintsRuleSet, DefaultActive: false,
 		OptInReason: api.OptInReasonOpinionated,
 		KnownLimitations: []string{
-			"Classifies uses as ComposeRedundantComposable does; a CompositionLocal read is recognized as `Local*.current`.",
+			"Classifies uses as ComposeRedundantComposable does; `Local*.current` is a CompositionLocal read when the name resolves to a scanned library or to a project `*compositionLocalOf` property, and abstains for names from other libraries.",
 			"compose-lints' autofix (add @ReadOnlyComposable) is not ported.",
 		}}
 }

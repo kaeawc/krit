@@ -291,6 +291,8 @@ func TestFileWatcher_InvalidatesAndroidProjectOnManifestArrival(t *testing.T) {
 		t.Fatalf("startFileWatcher: %v", err)
 	}
 	defer w.Stop()
+	// app/src/main exists before the watcher starts, so only the initial walk watches it.
+	<-w.Ready()
 
 	if err := os.WriteFile(manifest, []byte("<manifest/>\n"), 0o644); err != nil {
 		t.Fatal(err)

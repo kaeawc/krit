@@ -716,6 +716,10 @@ All notable changes to Krit will be documented in this file.
   `Array<KView>`: an extension receiver's type is now its own name, not the last name in its type arguments. The same
   receiver lookup feeds the Wire proto receiver exemption of `UnsafeCallOnNullableType` and `UnnecessaryNotNullOperator`
   and the same-file `toString()` extension check of `NullableToStringCall` (#1926).
+- `DoNotCallViewToString` no longer reports `toString()` in an extension on a function type (`fun (() -> Unit).f()`)
+  declared inside a View class: the receiver is the function, not the class. It now reports one on a View written
+  through a typealias, in parentheses (`(KView).f()`) or as a type parameter's bound (`fun <T : KView> T.f()`, or a
+  `where` clause). The bound also names the receiver for `NullableToStringCall` and the Wire proto exemption (#1949).
 - Gradle plugin: with FIR on, the check tasks run the R tasks of exported Android test components
   (`generate<Variant>UnitTestStubRFile`, `process<Variant>AndroidTestResources`). On a clean checkout FIR compiled unit
   and instrumented tests without their own R class, so test files that use `R` were gated (#1724).

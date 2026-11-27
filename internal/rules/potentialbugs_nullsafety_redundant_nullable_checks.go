@@ -422,12 +422,12 @@ func flatSameFileNullableToStringExtensionMatches(file *scanner.File, receiverTy
 }
 
 // flatTypeNameIdentifier returns the last identifier of a type's own name, skipping its type arguments: `KView` for
-// `com.ex.KView`, and `List`, not `KView`, for `List<KView>`.
+// `com.ex.KView`, and `List`, not `KView`, for `List<KView>`. A function type has no class name: "".
 func flatTypeNameIdentifier(file *scanner.File, idx uint32) string {
 	switch file.FlatType(idx) {
 	case "simple_identifier", "type_identifier":
 		return file.FlatNodeText(idx)
-	case "type_arguments":
+	case "type_arguments", "function_type":
 		return ""
 	}
 	last := ""
@@ -439,28 +439,84 @@ func flatTypeNameIdentifier(file *scanner.File, idx uint32) string {
 	return last
 }
 
-func flatFunctionReceiverTypeInfo(file *scanner.File, fn uint32) (string, bool) {
+// flatFunctionReceiverType returns an extension function's receiver type with its parentheses and `?` removed,
+// whether it was nullable, and whether fn has a receiver at all.
+func flatFunctionReceiverType(file *scanner.File, fn uint32) (typ uint32, nullable, ok bool) {
 	if file == nil || fn == 0 || file.FlatType(fn) != "function_declaration" {
-		return "", false
+		return 0, false, false
 	}
-	var name string
-	var nullable bool
 	for child := file.FlatFirstChild(fn); child != 0; child = file.FlatNextSib(child) {
 		switch file.FlatType(child) {
-		case "nullable_type":
-			nullable = true
-			name = flatTypeNameIdentifier(file, child)
-		case "user_type", "type_identifier":
-			if name == "" {
-				name = flatTypeNameIdentifier(file, child)
+		case "nullable_type", "user_type", "type_identifier", "parenthesized_type", "function_type":
+			if typ == 0 {
+				typ = child
 			}
 		case ".":
-			return name, nullable
+			for typ != 0 {
+				switch file.FlatType(typ) {
+				case "nullable_type":
+					nullable = true
+				case "parenthesized_type":
+				default:
+					return typ, nullable, true
+				}
+				typ = file.FlatNamedChild(typ, 0)
+			}
+			return 0, nullable, true
 		case "function_value_parameters", "function_body":
-			return "", false
+			return 0, false, false
 		}
 	}
-	return "", false
+	return 0, false, false
+}
+
+// flatFunctionReceiverTypeInfo returns the class name of an extension function's receiver and whether it is
+// nullable. A type parameter receiver (`fun <T : KView> T.f()`, or `where T : KView`) names its first bound; a
+// function-type receiver, or no receiver, names "".
+func flatFunctionReceiverTypeInfo(file *scanner.File, fn uint32) (string, bool) {
+	typ, nullable, ok := flatFunctionReceiverType(file, fn)
+	if !ok || typ == 0 {
+		return "", nullable
+	}
+	name := flatTypeNameIdentifier(file, typ)
+	if bound := flatTypeParameterBound(file, fn, name); bound != "" {
+		name = bound
+	}
+	return name, nullable
+}
+
+// flatTypeParameterBound returns the class name of the first bound fn declares for its type parameter name, inline
+// (`<T : KView>`) or in a where clause, or "".
+func flatTypeParameterBound(file *scanner.File, fn uint32, name string) string {
+	if name == "" {
+		return ""
+	}
+	for child := file.FlatFirstChild(fn); child != 0; child = file.FlatNextSib(child) {
+		var item string
+		switch file.FlatType(child) {
+		case "type_parameters":
+			item = "type_parameter"
+		case "type_constraints":
+			item = "type_constraint"
+		default:
+			continue
+		}
+		for p := file.FlatFirstChild(child); p != 0; p = file.FlatNextSib(p) {
+			if file.FlatType(p) != item {
+				continue
+			}
+			param, ok := file.FlatFindChild(p, "type_identifier")
+			if !ok || file.FlatNodeText(param) != name {
+				continue
+			}
+			for b := file.FlatNextSib(param); b != 0; b = file.FlatNextSib(b) {
+				if t := file.FlatType(b); t == "user_type" || t == "nullable_type" || t == "parenthesized_type" {
+					return flatTypeNameIdentifier(file, b)
+				}
+			}
+		}
+	}
+	return ""
 }
 
 func flatStringTemplateInterpolationExpression(file *scanner.File, idx uint32) uint32 {

@@ -103,6 +103,19 @@ func viewSourceClassFQN(ctx *api.Context, name string) string {
 	return name
 }
 
+// viewReceiverClassFQN returns the FQN of an extension receiver's class named recv, expanding a typealias
+// (`typealias KV = KView; fun KV.f()`) through the resolver.
+func viewReceiverClassFQN(ctx *api.Context, typ uint32, recv string) string {
+	fqn := denyAnyClassFQN(ctx.Resolver, ctx.File, recv)
+	if ctx.Resolver == nil || ctx.Resolver.ClassHierarchy(fqn) != nil || ctx.File.FlatType(typ) != "user_type" {
+		return fqn
+	}
+	if t := ctx.Resolver.ResolveFlatNode(typ, ctx.File); t != nil && t.FQN != "" && ctx.Resolver.ClassHierarchy(t.FQN) != nil {
+		return t.FQN
+	}
+	return fqn
+}
+
 // viewImplicitReceiverFQN returns the FQN of the class whose `this` an unqualified call reaches: the receiver of the
 // innermost Kotlin extension function (which wins over the enclosing class), else the named enclosing class; or ""
 // when a receiver-binding Kotlin lambda, a companion or an anonymous object comes first.
@@ -113,12 +126,15 @@ func viewImplicitReceiverFQN(ctx *api.Context, idx uint32) string {
 		switch file.FlatType(p) {
 		case "function_declaration":
 			if len(names) == 0 && file.Language == scanner.LangKotlin {
-				if recv, nullable := flatFunctionReceiverTypeInfo(file, p); recv != "" {
-					// On a nullable receiver, toString() is the Any?.toString() extension, not the class's.
-					if nullable {
+				if typ, _, ok := flatFunctionReceiverType(file, p); ok {
+					// An extension's receiver is `this`, whatever the enclosing class. On a nullable receiver,
+					// toString() is the Any?.toString() extension, not the class's; a function-type receiver has
+					// no class (#1949).
+					recv, nullable := flatFunctionReceiverTypeInfo(file, p)
+					if nullable || recv == "" {
 						return ""
 					}
-					return viewSourceClassFQN(ctx, denyAnyClassFQN(ctx.Resolver, file, recv))
+					return viewSourceClassFQN(ctx, viewReceiverClassFQN(ctx, typ, recv))
 				}
 			}
 		case "lambda_literal":

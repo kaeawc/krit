@@ -425,6 +425,26 @@ Ports of Android Lint 32.4.1 source checks, with project fixtures and recorded L
   Kotlin binds the run of comments before a declaration to it and Lint reads the first, so a line comment first
   hides a tagged block comment after it; Java uses the nearest comment.
 
+## Android Lint Resource XML Checks
+
+Ports of Android Lint 32.4.1 resource checks, with recorded Lint output under `tests/fixtures/android-lint/<RuleID>/`.
+Cases whose resources AGP cannot compile carry `lint-standalone.txt` and are recorded with Lint's own CLI.
+
+- `StringEscaping` (error) runs aapt's escape scanner over the first text or CDATA node of every `<string>`, and of
+  every item of a `<string-array>` or `<plurals>`, in all values folders: an apostrophe outside double quotes and not
+  preceded by `\`, or a non-hex character in a `\u` escape. Entities are decoded first, so `&apos;` counts.
+- `InvalidNavigation` (warning) reports a `<navigation>` with children but no `app:startDestination`, one whose value
+  is not an `@id/` reference, and one whose start destination is neither a child's `android:id` nor the root id of
+  an `<include>`d graph. An include of a graph that is not in the scan's resources ends the check, as in Lint.
+- `ValidRestrictions` (fatal) validates `res/xml*/` files rooted at `<restrictions>`: required `key`, `title` and
+  `restrictionType`, unique literal keys, `entries`/`entryValues` for choice and multi-select, a `defaultValue` for
+  hidden, an `Integer.decode`-able integer default, nesting only under `bundle` and `bundle_array`, and Lint's size
+  limits.
+- `RelativeClassResolution` (fatal; warning when the applicationId equals the namespace) reports
+  `layout_behavior` or `layoutManager` values starting with `.` in layouts. The namespace and applicationId are read
+  from literal assignments in the module's build script (or the manifest package); without a namespace the check is
+  skipped.
+
 ## AndroidX Library Lint Checks
 
 Lint loads the checks bundled in an AndroidX AAR only when that AAR is on the module's classpath. Krit's ports of

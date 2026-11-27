@@ -1,0 +1,13 @@
+<restrictions xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <restriction android:key="open_empty" android:title="@string/title" android:restrictionType="bundle"></restriction>
+    <restriction android:key="missing_type" android:title="@string/title"></restriction>
+    <restriction android:key="ignored" android:title="@string/title" android:restrictionType="bundle"
+        tools:ignore="ValidRestrictions" />
+    <restriction android:key="hex" android:title="@string/title" android:restrictionType="integer"
+        android:defaultValue="#FF" />
+    <restriction android:key="octal" android:title="@string/title" android:restrictionType="integer"
+        android:defaultValue="0779" />
+    <restriction android:key="big" android:title="@string/title" android:restrictionType="integer"
+        android:defaultValue="2147483648" />
+</restrictions>

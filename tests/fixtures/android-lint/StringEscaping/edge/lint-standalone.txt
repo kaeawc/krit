@@ -1,0 +1,1 @@
+AGP 9.4.1 rejects the unescaped apostrophes and bad \\u escapes in this case's strings, so it is recorded with the standalone Lint 32.4.1 CLI.

@@ -1,0 +1,5 @@
+<navigation xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    app:startDestination="@id/nav_included">
+    <include app:graph="@navigation/nav_included" />
+</navigation>

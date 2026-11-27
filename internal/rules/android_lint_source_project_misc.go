@@ -637,7 +637,7 @@ func (r *DefaultUncaughtExceptionDelegationRule) check(ctx *api.Context) {
 	var sets []site
 	var setRoots []string
 	for _, file := range ctx.ParsedFiles {
-		if file == nil || file.FlatTree == nil || scanner.IsTestFile(file.Path) ||
+		if file == nil || file.FlatTree == nil || isProjectTestFile(ctx, file.Path) ||
 			!strings.Contains(string(file.Content), "DefaultUncaughtExceptionHandler") {
 			continue
 		}

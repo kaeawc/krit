@@ -122,11 +122,26 @@ func (r *ComposeMutableParametersRule) check(ctx *api.Context) {
 	}
 	for _, p := range composeLintsParams(file, fn) {
 		t := composeLintsDeclaredType(file, p.node)
-		if t != 0 && composeLintsMutableTypeNames[composeLintsTypeSimpleName(file, t)] {
+		if t == 0 {
+			continue
+		}
+		// A vararg parameter's type is an array, so only compose-lints' text match on the written type reports it.
+		if p.isVararg(file) {
+			if composeLintsMutableKotlinCollectionText.MatchString(file.FlatNodeText(t)) {
+				ctx.EmitAtNode(t, composeMutableParametersMessage)
+			}
+			continue
+		}
+		if composeLintsMutableTypeNames[composeLintsTypeSimpleName(file, t)] {
 			ctx.EmitAtNode(t, composeMutableParametersMessage)
 		}
 	}
 }
+
+// composeLintsMutableKotlinCollectionText is compose-lints' KnownMutableKotlinCollections, which must match the
+// whole written type.
+var composeLintsMutableKotlinCollectionText = regexp.MustCompile(
+	`^(?:MutableMap(\s)?<.*,(\s)?.*>|MutableSet(\s)?<.*>|MutableList(\s)?<.*>|MutableCollection(\s)?<.*>)\??$`)
 
 // composeLintsDiamond matches the type arguments compose-lints strips for the wrapper class name.
 var composeLintsDiamond = regexp.MustCompile(`<.*>\??`)
@@ -156,8 +171,9 @@ func (r *ComposeUnstableCollectionsRule) check(ctx *api.Context) {
 					name, "List/Set/Map", "List/Set/Map"))
 			}
 			for _, p := range composeLintsParams(file, fn) {
+				// A vararg parameter's type is an array, which compose-lints does not report.
 				t := composeLintsDeclaredType(file, p.node)
-				if t == 0 || !aliases.isKotlinCollection(file, t, 0) {
+				if t == 0 || p.isVararg(file) || !aliases.isKotlinCollection(file, t, 0) {
 					continue
 				}
 				typeText := strings.Join(strings.Fields(file.FlatNodeText(t)), " ")
@@ -281,6 +297,8 @@ type composeLintsCallees struct {
 	index *scanner.CodeIndex
 	files map[string]*scanner.File
 	memo  map[string]bool
+	// declared records, for each name in memo, whether the project declares it.
+	declared map[string]bool
 }
 
 func newComposeLintsCallees(index *scanner.CodeIndex) *composeLintsCallees {
@@ -290,17 +308,55 @@ func newComposeLintsCallees(index *scanner.CodeIndex) *composeLintsCallees {
 			files[f.Path] = f
 		}
 	}
-	return &composeLintsCallees{index: index, files: files, memo: map[string]bool{}}
+	return &composeLintsCallees{index: index, files: files, memo: map[string]bool{}, declared: map[string]bool{}}
 }
 
 // likelyComposable mirrors compose-lints' isLikelyComposableCall: a capitalized callee that, when it resolves, is
-// @Composable. A project function name counts when some declaration of it is composable; a project class or
-// object (a constructor call) or only non-composable functions do not; a name the project does not declare falls
-// back to the capitalization heuristic.
-func (c *composeLintsCallees) likelyComposable(name string) bool {
+// @Composable. A name imported from a JDK, Kotlin or Android framework package resolves to a class there (no
+// composables live in them). A project function name counts when some declaration of it is composable; a project
+// class or object (a constructor call) or only non-composable functions do not. A name the project does not
+// declare is a default-imported Kotlin/JVM class from composeLintsDefaultImportedClasses, which resolves in Lint, or
+// else falls back to the capitalization heuristic.
+func (c *composeLintsCallees) likelyComposable(file *scanner.File, name string) bool {
 	if !acrFirstRuneIsUpper(name) {
 		return false
 	}
+	fqn := acrImportedFQN(file, name)
+	if fqn != "" && composeLintsPlatformPackage(fqn) {
+		return false
+	}
+	if !c.projectComposable(name) {
+		return false
+	}
+	return fqn != "" || !composeLintsDefaultImportedClasses[name] || !acrDefaultImported(file, name) ||
+		c.declared[name]
+}
+
+// composeLintsPlatformPackage reports whether an FQN lives in a JDK, Kotlin or Android framework package.
+func composeLintsPlatformPackage(fqn string) bool {
+	for _, prefix := range []string{"java.", "javax.", "kotlin.", "android."} {
+		if strings.HasPrefix(fqn, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// composeLintsDefaultImportedClasses are classes Kotlin imports by default (kotlin.*, kotlin.collections.*,
+// kotlin.text.*, java.lang.*) that are commonly constructed: with a classpath Lint resolves them, so a call to one
+// is not a composable.
+var composeLintsDefaultImportedClasses = map[string]bool{
+	"Pair": true, "Triple": true, "Regex": true, "StringBuilder": true, "ArrayList": true, "HashMap": true,
+	"HashSet": true, "LinkedHashMap": true, "LinkedHashSet": true, "ArrayDeque": true, "Thread": true,
+	"Any": true, "Throwable": true, "Error": true, "Exception": true, "RuntimeException": true,
+	"IllegalStateException": true, "IllegalArgumentException": true, "UnsupportedOperationException": true,
+	"NullPointerException": true, "IndexOutOfBoundsException": true, "NoSuchElementException": true,
+	"ArithmeticException": true, "ClassCastException": true, "NumberFormatException": true, "AssertionError": true,
+}
+
+// projectComposable reports whether the project's declarations of name leave it a possible composable: some
+// declaration is a composable function, or nothing in the project declares it.
+func (c *composeLintsCallees) projectComposable(name string) bool {
 	if v, ok := c.memo[name]; ok {
 		return v
 	}
@@ -318,21 +374,21 @@ func (c *composeLintsCallees) likelyComposable(name string) bool {
 	}
 	result := composable || !declared
 	c.memo[name] = result
+	c.declared[name] = declared
 	return result
 }
 
-// composeLintsDeclarationIsComposable reports whether the function a symbol names carries @Composable before its
-// `fun` keyword.
+// composeLintsDeclarationIsComposable reports whether the function declaration a symbol names is annotated
+// @Composable (read from its modifiers, so a comment or string that says "Composable" does not count).
 func composeLintsDeclarationIsComposable(file *scanner.File, sym scanner.Symbol) bool {
-	if sym.StartByte < 0 || sym.EndByte > len(file.Content) || sym.StartByte >= sym.EndByte {
+	if file.FlatTree == nil || sym.StartByte < 0 || sym.EndByte > len(file.Content) || sym.StartByte >= sym.EndByte {
 		return false
 	}
-	text := file.Content[sym.StartByte:sym.EndByte]
-	head := text
-	if fun := bytes.Index(text, []byte("fun ")); fun >= 0 {
-		head = text[:fun]
+	node, ok := file.FlatNamedDescendantForByteRange(uint32(sym.StartByte), uint32(sym.EndByte))
+	for ok && file.FlatType(node) != "function_declaration" {
+		node, ok = file.FlatParent(node)
 	}
-	return bytes.Contains(head, []byte("Composable"))
+	return ok && acrFunctionIsComposable(file, node)
 }
 
 func (r *ComposeViewModelForwardingRule) check(ctx *api.Context) {
@@ -376,7 +432,7 @@ func (r *ComposeViewModelForwardingRule) check(ctx *api.Context) {
 					return
 				}
 				name := composeLintsCalleeName(file, call)
-				if composeLintsRestartableEffects[name] || !callees.likelyComposable(name) {
+				if composeLintsRestartableEffects[name] || !callees.likelyComposable(file, name) {
 					return
 				}
 				reported[call] = true
@@ -513,7 +569,15 @@ func composeLintsNameShadowed(file *scanner.File, node uint32, name string) bool
 				}
 			}
 		case "function_declaration":
-			return false
+			// A local function's own parameters rebind the name; the checked composable itself is not local.
+			if !acrIsLocalDeclaration(file, p) {
+				return false
+			}
+			for _, param := range composeLintsParams(file, p) {
+				if strings.Trim(file.FlatChildTextOrEmpty(param.node, "simple_identifier"), "`") == name {
+					return true
+				}
+			}
 		}
 	}
 	return false

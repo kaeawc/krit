@@ -657,6 +657,11 @@ All notable changes to Krit will be documented in this file.
   request, skipping both its parse cache and the parsed trees it keeps in memory, and confirms the bypass in its
   reply. If a daemon does not confirm it, the CLI scans in process. Later requests keep using the daemon's caches
   (#1919).
+- Compose lint parity follow-ups for the fourth batch: `ComposeViewModelInjection` reports configured
+  `viewModelFactories` in files that never say "ViewModel"; `ComposeViewModelForwarding` no longer takes JDK, Kotlin
+  and Android framework classes (`Pair`, `Intent`, `WeakReference`) or a function whose comment says "Composable" for
+  composables, and treats a local function's parameter as a shadow; `vararg` parameters follow Lint's array type in
+  `ComposeMutableParameters` and `ComposeUnstableCollections` (#1948).
 - MCP `analyze` (mode `android`) reports OnClick for a relative `projectPath`. The sources stayed relative while the
   res dirs were absolute, so no Activity matched its res dir's module (#1908). Rule pages now list a rule's known
   limitations, including OnClick's: a layout is checked only against Activities in its own module.

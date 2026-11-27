@@ -7,6 +7,7 @@ import (
 
 	"github.com/kaeawc/krit/internal/filefacts"
 	"github.com/kaeawc/krit/internal/oracle"
+	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/typeinfer"
 )
@@ -714,8 +715,8 @@ func ignoredReturnValueFileDeclaresFunction(file *scanner.File, name string) boo
 }
 
 // ignoredReturnValueTestFileDisposableCall reports Rx/processor calls whose result tests drop on purpose.
-func ignoredReturnValueTestFileDisposableCall(file *scanner.File, funcName string) bool {
-	if !scanner.IsTestFile(file.Path) {
+func ignoredReturnValueTestFileDisposableCall(ctx *api.Context, file *scanner.File, funcName string) bool {
+	if !isProjectTestFile(ctx, file.Path) {
 		return false
 	}
 	switch funcName {

@@ -62,6 +62,9 @@ type binaryPayload struct {
 	RuleHash  string
 	ScanPaths []string
 	Entries   []binaryEntry
+	// Root is the repository Entries and ScanPaths are relative to, "" when
+	// they are absolute.
+	Root string
 }
 
 // hasBinaryMagic reports whether data is a binary cache frame. It accepts
@@ -75,23 +78,34 @@ func hasBinaryMagic(data []byte) bool {
 }
 
 func encodeBinary(c *Cache) ([]byte, error) {
+	// Paths under the cache's repository are stored relative to it
+	// (relocate.go); Load re-roots them.
+	root := c.root
+	rel := func(p string) string { return relocatePath(root, p) }
 	entries := make([]binaryEntry, 0, len(c.Files))
 	for path, entry := range c.Files {
+		columns := entry.Columns
+		if root != "" {
+			columns = mapColumnFiles(columns, rel)
+		}
 		entries = append(entries, binaryEntry{
-			Path:    path,
+			Path:    rel(path),
 			Hash:    entry.Hash,
 			ModTime: entry.ModTime,
 			Size:    entry.Size,
 			GitBlob: entry.GitBlob,
 			Decls:   entry.Decls,
-			Columns: entry.Columns,
+			Columns: columns,
 		})
 	}
 	sort.Slice(entries, func(i, j int) bool {
 		return entries[i].Path < entries[j].Path
 	})
 
-	scanPaths := append([]string(nil), c.ScanPaths...)
+	scanPaths := make([]string, len(c.ScanPaths))
+	for i, p := range c.ScanPaths {
+		scanPaths[i] = rel(p)
+	}
 
 	var gobBuf bytes.Buffer
 	if err := gob.NewEncoder(&gobBuf).Encode(binaryPayload{
@@ -99,6 +113,7 @@ func encodeBinary(c *Cache) ([]byte, error) {
 		RuleHash:  c.RuleHash,
 		ScanPaths: scanPaths,
 		Entries:   entries,
+		Root:      root,
 	}); err != nil {
 		return nil, fmt.Errorf("gob encode: %w", err)
 	}
@@ -159,5 +174,6 @@ func decodeBinary(data []byte) (*Cache, bool) {
 		RuleHash:  payload.RuleHash,
 		ScanPaths: payload.ScanPaths,
 		Files:     files,
+		SavedRoot: payload.Root,
 	}, true
 }

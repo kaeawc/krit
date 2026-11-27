@@ -217,11 +217,11 @@ func testingQualityFirstTypeName(file *scanner.File, parent uint32) string {
 
 // testingQualityHelperEligible reports whether a file may host asserting helpers: Kotlin test-support
 // sources that are neither production code nor test classes.
-func testingQualityHelperEligible(file *scanner.File) bool {
-	if file == nil || file.FlatTree == nil || file.Language != scanner.LangKotlin || !isTestSupportFile(file.Path) {
+func testingQualityHelperEligible(ctx *api.Context, file *scanner.File) bool {
+	if file == nil || file.FlatTree == nil || file.Language != scanner.LangKotlin || !isTestSupportFile(ctx, file.Path) {
 		return false
 	}
-	lower := strings.ToLower(filepath.ToSlash(file.Path))
+	lower := strings.ToLower(filepath.ToSlash(projectPath(ctx, file.Path)))
 	if strings.Contains(lower, "/src/main/") && !testingQualityInTestingDir(lower) {
 		return false
 	}
@@ -269,13 +269,13 @@ func testingQualityHelperOwner(file *scanner.File, fn uint32) string {
 // test-support helper files whose bodies fail on a violated condition: they call check/require, fail
 // or throw inside a condition, call an assert/verify/expect style function, or call another such
 // helper within testingQualityHelperDepth hops.
-func testingQualityProjectAssertionHelpers(files []*scanner.File) *testingQualityProjectHelpers {
+func testingQualityProjectAssertionHelpers(ctx *api.Context, files []*scanner.File) *testingQualityProjectHelpers {
 	helpers := &testingQualityProjectHelpers{decls: make(map[string][]*testingQualityHelperDecl)}
 	for _, file := range files {
 		if file == nil || file.FlatTree == nil || file.Language != scanner.LangKotlin {
 			continue
 		}
-		eligible := testingQualityHelperEligible(file)
+		eligible := testingQualityHelperEligible(ctx, file)
 		file.FlatWalkNodes(0, "function_declaration", func(fn uint32) {
 			name := testingQualityFunctionName(file, fn)
 			if name == "" {
@@ -295,7 +295,7 @@ func testingQualityProjectAssertionHelpers(files []*scanner.File) *testingQualit
 			if body == 0 {
 				return
 			}
-			if testingQualityHelperBodyAsserts(file, body) {
+			if testingQualityHelperBodyAsserts(ctx, file, body) {
 				decl.asserting = true
 				return
 			}
@@ -349,8 +349,8 @@ func testingQualityCallNames(file *scanner.File, body uint32) []string {
 // testingQualityHelperBodyAsserts reports a helper body with an assertion-like construct of its own.
 // A throw, error or fail counts only inside a condition, so a stub that throws unconditionally
 // (NotImplementedError, TODO()) is not an assertion helper.
-func testingQualityHelperBodyAsserts(file *scanner.File, body uint32) bool {
-	if testingQualityBodyHasAssertionOrVerificationWithHelpers(file, body, nil) ||
+func testingQualityHelperBodyAsserts(ctx *api.Context, file *scanner.File, body uint32) bool {
+	if testingQualityBodyHasAssertionOrVerificationWithHelpers(ctx, file, body, nil) ||
 		testingQualityBodyHasExpectOrAwaitCall(file, body) {
 		return true
 	}
@@ -393,7 +393,7 @@ func (r *TestWithoutAssertionRule) check(ctx *api.Context) {
 	if index == nil || len(index.Files) == 0 {
 		return
 	}
-	helpers := testingQualityProjectAssertionHelpers(index.Files)
+	helpers := testingQualityProjectAssertionHelpers(ctx, index.Files)
 	for _, file := range index.Files {
 		if file == nil || file.FlatTree == nil || file.Language != scanner.LangKotlin {
 			continue
@@ -408,7 +408,7 @@ func (r *TestWithoutAssertionRule) check(ctx *api.Context) {
 }
 
 func (r *TestWithoutAssertionRule) checkFunction(ctx *api.Context, file *scanner.File, idx uint32, helpers *testingQualityProjectHelpers) {
-	if testingQualityIsEditorTemplatePath(file.Path) {
+	if testingQualityIsEditorTemplatePath(projectPath(ctx, file.Path)) {
 		return
 	}
 	if !testingQualityIsTestFunction(file, idx) {
@@ -426,7 +426,7 @@ func (r *TestWithoutAssertionRule) checkFunction(ctx *api.Context, file *scanner
 	if testingQualityTestAllowsNoCrash(file, idx) {
 		return
 	}
-	if testingQualityIsBenchmarkOrGoldenFile(file) {
+	if testingQualityIsBenchmarkOrGoldenFile(ctx, file) {
 		return
 	}
 	if testingQualityTestNameDocumentsNoException(file, idx) {
@@ -458,7 +458,7 @@ func (r *TestWithoutAssertionRule) checkFunction(ctx *api.Context, file *scanner
 	if testingQualityBodyEndsWithCast(file, body) {
 		return
 	}
-	if testingQualityBodyHasAssertionOrVerificationWithPatterns(file, body, r.AssertionMethodPatterns) ||
+	if testingQualityBodyHasAssertionOrVerificationWithPatterns(ctx, file, body, r.AssertionMethodPatterns) ||
 		testingQualityBodyHasExpectOrAwaitCall(file, body) ||
 		helpers.bodyCallsAssertingHelper(file, body) {
 		return

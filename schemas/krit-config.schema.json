@@ -187,7 +187,7 @@
               }
             },
             "nonProductionPathMarkers": {
-              "description": "Path substrings that mark sources as not user-facing, in addition to the built-in debug, playground and sandbox markers.",
+              "description": "Path substrings that mark sources as not user-facing, in addition to the built-in debug, playground and sandbox markers. Under a marked project root they match the path relative to that root, so folders above the checkout never match; a marker written as an absolute path inside the root still matches.",
               "type": "array",
               "items": {
                 "type": "string"
@@ -272,7 +272,7 @@
               }
             },
             "nonProductionPathMarkers": {
-              "description": "Path substrings that mark sources as not user-facing, in addition to the built-in debug, playground and sandbox markers.",
+              "description": "Path substrings that mark sources as not user-facing, in addition to the built-in debug, playground and sandbox markers. Under a marked project root they match the path relative to that root, so folders above the checkout never match; a marker written as an absolute path inside the root still matches.",
               "type": "array",
               "items": {
                 "type": "string"

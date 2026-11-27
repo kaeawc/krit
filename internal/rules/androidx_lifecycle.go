@@ -417,7 +417,7 @@ func axlRightmostName(file *scanner.File, expr uint32) string {
 // class.
 func (r *RepeatOnLifecycleWrongUsageRule) check(ctx *api.Context) {
 	file, cls := ctx.File, ctx.Idx
-	if scanner.IsTestFile(file.Path) || !axlClassIsLifecycleHost(ctx, cls) {
+	if isProjectTestFile(ctx, file.Path) || !axlClassIsLifecycleHost(ctx, cls) {
 		return
 	}
 	body, ok := file.FlatFindChild(cls, "class_body")

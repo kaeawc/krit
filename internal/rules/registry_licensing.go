@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	api "github.com/kaeawc/krit/internal/rules/api"
-	"github.com/kaeawc/krit/internal/scanner"
 )
 
 func registerLicensingRules() {
@@ -139,7 +138,7 @@ func registerLicensingRules() {
 				if !isPropagatingOptInMarkerName(name) && !r.markerInAdditional(name) {
 					return
 				}
-				if scanner.IsTestFile(file.Path) {
+				if isProjectTestFile(ctx, file.Path) {
 					return
 				}
 				// The library that defines a well-known marker applies it to

@@ -54,8 +54,10 @@ func emitDaggerProviderCalls(ctx *api.Context) {
 	if index == nil || len(index.Files) == 0 {
 		return
 	}
-	findings := filefacts.StringFact(fileFactsCache(), fmt.Sprintf("%p", index), slotDaggerProviderCalls, func() []mockFinding {
-		return analyzeDaggerProviderCalls(index, ctx.Resolver)
+	// The test-source check reads paths relative to the project root, so the
+	// memo is per index and root.
+	findings := filefacts.StringFact(fileFactsCache(), fmt.Sprintf("%p|%s", index, projectRoot(ctx)), slotDaggerProviderCalls, func() []mockFinding {
+		return analyzeDaggerProviderCalls(ctx, index, ctx.Resolver)
 	})
 	for _, f := range findings {
 		ctx.Emit(scanner.Finding{
@@ -69,7 +71,7 @@ func emitDaggerProviderCalls(ctx *api.Context) {
 	}
 }
 
-func analyzeDaggerProviderCalls(index *scanner.CodeIndex, resolver typeinfer.TypeResolver) []mockFinding {
+func analyzeDaggerProviderCalls(ctx *api.Context, index *scanner.CodeIndex, resolver typeinfer.TypeResolver) []mockFinding {
 	byName := map[string][]daggerProvider{}
 	for _, file := range index.Files {
 		if file == nil || file.FlatTree == nil || !daggerMentionsProviderAnnotation(file.Content) {
@@ -88,7 +90,7 @@ func analyzeDaggerProviderCalls(index *scanner.CodeIndex, resolver typeinfer.Typ
 	}
 	var out []mockFinding
 	for _, file := range index.Files {
-		if file == nil || file.FlatTree == nil || scanner.IsTestFile(file.Path) || !slackMentionsAny(file.Content, names) {
+		if file == nil || file.FlatTree == nil || isProjectTestFile(ctx, file.Path) || !slackMentionsAny(file.Content, names) {
 			continue
 		}
 		visit := func(idx uint32) {

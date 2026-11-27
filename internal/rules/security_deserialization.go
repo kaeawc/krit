@@ -394,8 +394,8 @@ func xxePropertyAssignmentName(file *scanner.File, assignment uint32) string {
 	return tail
 }
 
-func javaObjectInputStreamConstructor(file *scanner.File, idx uint32) bool {
-	if file == nil || idx == 0 || scanner.IsTestFile(file.Path) {
+func javaObjectInputStreamConstructor(ctx *api.Context, file *scanner.File, idx uint32) bool {
+	if file == nil || idx == 0 || isProjectTestFile(ctx, file.Path) {
 		return false
 	}
 	if !sourceImportsOrMentions(file, "java.io.ObjectInputStream") {

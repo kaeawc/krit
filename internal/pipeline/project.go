@@ -26,6 +26,7 @@ import (
 	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/output"
 	"github.com/kaeawc/krit/internal/perf"
+	"github.com/kaeawc/krit/internal/projectroot"
 	"github.com/kaeawc/krit/internal/rules"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
@@ -1623,6 +1624,20 @@ func withOracleIdentity(ruleHash string, scanPaths []string) string {
 	return hashutil.HashHex([]byte(ruleHash + "|" + oracle.CacheIdentity(scanPaths)))[:16]
 }
 
+// withProjectRootIdentity folds whether scanPaths lie under a marked project
+// root into a rule hash. Under one, rules read paths relative to it
+// (projectPath, rule excludes); without one, absolute paths. Adding or
+// removing a marker therefore changes verdicts, and the per-file, cross-file
+// and Android caches keyed on the rule hash must miss (#1834). Only the
+// marker's presence counts, so a checkout moved whole keeps its hash and its
+// relocated cache (#1814).
+func withProjectRootIdentity(ruleHash string, scanPaths []string) string {
+	if _, marked := projectroot.FindMarked(scanPaths); marked {
+		return hashutil.HashHex([]byte(ruleHash + "|root=marked"))[:16]
+	}
+	return ruleHash
+}
+
 // noTypeOracleCacheMarker is folded into the rule-name list of a
 // --no-type-oracle run. Findings produced without oracle facts differ from
 // oracle-backed ones, so the two must never share a cache entry.
@@ -1653,7 +1668,7 @@ const defaultSDKLevelsCacheMarker = "\x00default-sdk-levels:"
 // projectRuleHashForArgs is projectRuleHashWithEditorConfig for a hosted run:
 // it additionally separates --no-type-oracle runs from oracle-backed ones.
 func projectRuleHashForArgs(args ProjectArgs, editorConfigEnabled bool) string {
-	return withOracleIdentity(cache.ComputeCacheKeyHash(cacheRuleNames(args.ActiveRules, args.NoTypeOracle), args.Config, editorConfigEnabled), args.Paths)
+	return withProjectRootIdentity(withOracleIdentity(cache.ComputeCacheKeyHash(cacheRuleNames(args.ActiveRules, args.NoTypeOracle), args.Config, editorConfigEnabled), args.Paths), args.Paths)
 }
 
 // projectAnalysisCacheRuleHash is the rule hash that keys the per-file analysis cache. It matches what IndexPhase
@@ -2014,6 +2029,7 @@ func runAndroidPhase(ctx context.Context, args ProjectArgs, host ProjectHostStat
 		return AndroidResult{}, false, nil
 	}
 	dispatcher := rules.NewDispatcher(args.ActiveRules, indexResult.Resolver)
+	SetDispatcherProjectRoot(dispatcher, args.Paths)
 	dispatcher.SetLibraryFacts(indexResult.LibraryFacts)
 	dispatcher.SetJavaSemanticFacts(indexResult.JavaSemanticFacts)
 	// Hand AndroidPhase a child tracker so its gradleAnalysis /

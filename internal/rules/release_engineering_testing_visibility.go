@@ -102,7 +102,7 @@ func (r *VisibleForTestingCallerInNonTestRule) check(ctx *api.Context) {
 		if !candidateFiles[file.Path] {
 			continue
 		}
-		if scanner.IsTestFile(file.Path) {
+		if isProjectTestFile(ctx, file.Path) {
 			continue
 		}
 		file.FlatWalkAllNodes(0, func(idx uint32) {
@@ -322,7 +322,7 @@ func (r *OpenForTestingCallerInNonTestRule) check(ctx *api.Context) {
 		if file == nil || file.FlatTree == nil {
 			continue
 		}
-		if scanner.IsTestFile(file.Path) {
+		if isProjectTestFile(ctx, file.Path) {
 			continue
 		}
 		scope := scopes[file.Path]

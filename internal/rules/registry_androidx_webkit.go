@@ -20,7 +20,7 @@ func registerAndroidxWebkitRules() {
 	gated := axlRuleOptions{NeedsLibraryFacts: true}
 	mainOnly := func(coords []librarymodel.Coordinate, check func(*api.Context)) func(*api.Context) {
 		return func(ctx *api.Context) {
-			if !scanner.IsTestFile(ctx.File.Path) &&
+			if !isProjectTestFile(ctx, ctx.File.Path) &&
 				librarymodel.EnsureFacts(ctx.LibraryFacts).Profile.HasAnyDependency(coords...) {
 				check(ctx)
 			}

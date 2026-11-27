@@ -227,6 +227,7 @@ func (a *analyzer) connectClient() *daemonclient.Client {
 func (a *analyzer) analyzeOneInProcess(path string, content []byte) (scanner.FindingColumns, error) {
 	if a.fallback == nil {
 		a.fallback = pipeline.NewSingleFileAnalyzer(nil, nil)
+		a.fallback.SetProjectRootFor([]string{a.root})
 		a.workspace = pipeline.NewWorkspaceState(a.root)
 	}
 	file, err := a.workspace.ParseFile(context.Background(), path, content)

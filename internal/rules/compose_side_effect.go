@@ -227,8 +227,8 @@ func composeRememberedDeclRe(name, factory string) *regexp.Regexp {
 }
 
 // composeIsTestSourceOrFake reports whether fn lives in a test source set or a Fake/Test class.
-func composeIsTestSourceOrFake(file *scanner.File, fn uint32) bool {
-	return composeIsTestSourceOrFakeAt(file, fn)
+func composeIsTestSourceOrFake(ctx *api.Context, file *scanner.File, fn uint32) bool {
+	return composeIsTestSourceOrFakeAt(ctx, file, fn)
 }
 
 // composeRememberedWriteState reports whether the assigned variable was created by remember {} in

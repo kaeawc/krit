@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/kaeawc/krit/internal/filefacts"
+	"github.com/kaeawc/krit/internal/projectroot"
 	"github.com/kaeawc/krit/internal/rules"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
@@ -34,6 +36,40 @@ func DefaultActiveRules() []*api.Rule {
 // dispatcher degrades gracefully.
 func BuildDispatcher(activeRules []*api.Rule, resolver typeinfer.TypeResolver) *rules.Dispatcher {
 	return rules.NewDispatcher(activeRules, resolver)
+}
+
+// SetDispatcherProjectRoot records on d the project root of paths, so rules'
+// path heuristics read root-relative paths (#1814). Only a marked root counts
+// (a VCS root, a krit config, Gradle settings): without one, projectroot.Find
+// falls back to the scanned directory, which can be the source folder a
+// heuristic needs, so rules keep reading absolute paths, and a root an
+// earlier request recorded on a shared dispatcher is cleared. Every
+// dispatcher that runs rules on files of a project calls it, so the CLI,
+// daemon, LSP and MCP agree.
+func SetDispatcherProjectRoot(d *rules.Dispatcher, paths []string) {
+	root, _ := projectroot.FindMarked(paths)
+	d.SetProjectRoot(root)
+}
+
+// crossRuleFacts returns the facts cache for the cross-file and module-aware
+// rules of one run over paths. It records the marked project root as
+// SetDispatcherProjectRoot does, so their path heuristics read the same
+// project-relative paths as the per-file rules (#1814).
+func crossRuleFacts(paths []string) *filefacts.Cache {
+	facts := filefacts.NewCache()
+	if root, ok := projectroot.FindMarked(paths); ok {
+		facts.SetProjectRoot(root)
+	}
+	return facts
+}
+
+// SetProjectRootFor records the marked project root of paths on the
+// analyzer's dispatcher (SetDispatcherProjectRoot). Call it once, before the
+// first analysis.
+func (a *SingleFileAnalyzer) SetProjectRootFor(paths []string) {
+	if a != nil {
+		SetDispatcherProjectRoot(a.Dispatcher, paths)
+	}
 }
 
 // ParseSingle parses a single in-memory Kotlin buffer into a *scanner.File

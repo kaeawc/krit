@@ -21,7 +21,7 @@ func registerPackageNamingConventionDriftRules() {
 				if pkg == "" {
 					return
 				}
-				expectedPrefix := packageNamingConventionExpectedPrefix(file.Path)
+				expectedPrefix := packageNamingConventionExpectedPrefix(projectPath(ctx, file.Path))
 				if expectedPrefix == "" {
 					return
 				}

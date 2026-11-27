@@ -31,7 +31,7 @@ func fragmentConstructorCheck(ctx *api.Context) {
 		return
 	}
 	// Test fragments are built by the test, not re-instantiated by the framework.
-	if scanner.IsTestFile(file.Path) || !fragmentExtendsKnownBase(file, idx) {
+	if isProjectTestFile(ctx, file.Path) || !fragmentExtendsKnownBase(file, idx) {
 		return
 	}
 	if file.FlatType(idx) == "object_literal" {

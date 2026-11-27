@@ -276,21 +276,22 @@ type VerifyWithoutMockRule struct {
 
 func (r *VerifyWithoutMockRule) Confidence() float64 { return api.ConfidenceMediumLow }
 
-func testingQualityIsTestFile(file *scanner.File) bool {
+func testingQualityIsTestFile(ctx *api.Context, file *scanner.File) bool {
 	if file == nil {
 		return false
 	}
-	return strings.Contains(file.Path, "/test") ||
-		strings.Contains(file.Path, "Test.kt") ||
-		strings.Contains(file.Path, "/testing-quality/")
+	inProject := projectPath(ctx, file.Path)
+	return strings.Contains(inProject, "/test") ||
+		strings.Contains(inProject, "Test.kt") ||
+		strings.Contains(inProject, "/testing-quality/")
 }
 
-func testingQualityRuleShouldRunInFile(file *scanner.File) bool {
+func testingQualityRuleShouldRunInFile(ctx *api.Context, file *scanner.File) bool {
 	if file == nil {
 		return false
 	}
-	lower := scanner.LowerPath(file.Path)
-	return isTestSupportFile(file.Path) ||
+	lower := scanner.LowerPath(projectPath(ctx, file.Path))
+	return isTestSupportFile(ctx, file.Path) ||
 		strings.HasSuffix(lower, "test.kt") ||
 		(strings.Contains(lower, "/tests/fixtures/") && strings.Contains(lower, "/testing-quality/"))
 }

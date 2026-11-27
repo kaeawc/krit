@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/kaeawc/krit/internal/module"
+	"github.com/kaeawc/krit/internal/projectroot"
 	"github.com/kaeawc/krit/internal/rules"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/sysres"
@@ -139,7 +140,8 @@ func renderPackageGraph(root, format string) (string, error) {
 	if len(parseErrs) > 0 {
 		return "", fmt.Errorf("parsing Kotlin files: %w", parseErrs[0])
 	}
-	pkgGraph := rules.PackageDependencyGraph(files)
+	markedRoot, _ := projectroot.FindMarked([]string{root})
+	pkgGraph := rules.PackageDependencyGraph(markedRoot, files)
 	payload := graphPayload{Scope: "package", RootDir: root}
 	for _, node := range pkgGraph.Packages {
 		payload.Nodes = append(payload.Nodes, graphNode{ID: node})

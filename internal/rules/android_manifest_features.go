@@ -30,7 +30,7 @@ type RtlEnabledManifestRule struct {
 
 func (r *RtlEnabledManifestRule) check(ctx *api.Context) {
 	m := ctx.Manifest
-	if m.Path == "" || isNonMainManifestPath(m.Path) {
+	if m.Path == "" || isNonMainManifestPath(projectPath(ctx, m.Path)) {
 		return
 	}
 	facts := librarymodel.EnsureFacts(ctx.LibraryFacts)
@@ -117,7 +117,7 @@ func (r *GoogleAppIndexingDeepLinkErrorManifestRule) check(ctx *api.Context) {
 	if m.Application == nil || m.Path == "" {
 		return
 	}
-	if isNonMainManifestPath(m.Path) {
+	if isNonMainManifestPath(projectPath(ctx, m.Path)) {
 		return
 	}
 	emit := func(line int, msg string) {
@@ -283,7 +283,7 @@ func (r *GoogleAppIndexingWarningManifestRule) check(ctx *api.Context) {
 	}
 	// Skip variant manifests and test fixtures — app indexing is only relevant
 	// to production manifests.
-	if isTestManifestPath(m.Path) || isLibraryOrTestModuleManifest(m.Path) {
+	if isTestManifestPath(ctx, m.Path) || isLibraryOrTestModuleManifest(m.Path) {
 		return
 	}
 	// Only an application module's manifest can be indexed; skip modules that are not applications.

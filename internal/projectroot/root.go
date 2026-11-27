@@ -35,6 +35,23 @@ func Find(scanPaths []string) string {
 	}
 }
 
+// FindMarked is Find for callers that need a real project root: it returns
+// the nearest directory holding a project marker and true, or "" and false
+// when none is found (Find then falls back to the scanned directory, which
+// may be a source folder such as src/ or a Bazel package).
+func FindMarked(scanPaths []string) (string, bool) {
+	root := Find(scanPaths)
+	if root == "" || !isRootMarkerDir(root) {
+		return "", false
+	}
+	return root, true
+}
+
+// IsMarked reports whether dir holds a project marker.
+func IsMarked(dir string) bool {
+	return dir != "" && isRootMarkerDir(dir)
+}
+
 // kritRootMarkers are krit-specific signals that a directory is a
 // project root, on top of the VCS markers shared via `config.IsVCSRoot`.
 var kritRootMarkers = append(append([]string{}, config.Filenames...), "settings.gradle", "settings.gradle.kts")

@@ -41,7 +41,7 @@ func registerStyleAbstractClassCanBeConcreteClass() {
 			if !file.FlatHasModifier(idx, "abstract") {
 				return
 			}
-			if abstractClassIsInjectionOrTestFixture(file, idx) || abstractClassHasSubtypes(ctx.Resolver, file, idx) {
+			if abstractClassIsInjectionOrTestFixture(ctx, file, idx) || abstractClassHasSubtypes(ctx.Resolver, file, idx) {
 				return
 			}
 			for i := 0; i < file.FlatChildCount(idx); i++ {
@@ -137,7 +137,7 @@ func registerStyleAbstractClassCanBeInterface() {
 			if !file.FlatHasModifier(idx, "abstract") {
 				return
 			}
-			if abstractClassIsInjectionOrTestFixture(file, idx) || abstractClassHasClassOnlyConstruct(file, idx) || abstractClassHasSubtypes(ctx.Resolver, file, idx) {
+			if abstractClassIsInjectionOrTestFixture(ctx, file, idx) || abstractClassHasClassOnlyConstruct(file, idx) || abstractClassHasSubtypes(ctx.Resolver, file, idx) {
 				return
 			}
 			if abstractClassCanBeInterfaceHasDaggerBindMethods(file, idx) {

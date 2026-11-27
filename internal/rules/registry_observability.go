@@ -166,7 +166,7 @@ func registerObservabilityRules() {
 			NodeTypes: []string{"call_expression"}, Confidence: r.Confidence(), Implementation: r,
 			Check: func(ctx *api.Context) {
 				// Fixture metric names in tests do not follow the production naming convention.
-				if metricNameInTestCode(ctx.File, ctx.Idx) {
+				if metricNameInTestCode(ctx, ctx.File, ctx.Idx) {
 					return
 				}
 				name, ok := r.shouldFlag(ctx.File, ctx.Idx)

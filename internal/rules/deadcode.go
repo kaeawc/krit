@@ -45,7 +45,7 @@ func (r *DeadCodeRule) check(ctx *api.Context) {
 	unused := index.UnusedSymbols(r.IgnoreCommentReferences)
 	for _, sym := range unused {
 		// Skip common false positives
-		if shouldSkipSymbolWithFile(sym, filesByPath[sym.File]) {
+		if shouldSkipSymbolWithFile(ctx, sym, filesByPath[sym.File]) {
 			continue
 		}
 
@@ -83,7 +83,7 @@ func (r *DeadCodeRule) check(ctx *api.Context) {
 	}
 }
 
-func shouldSkipSymbol(sym scanner.Symbol) bool {
+func shouldSkipSymbol(ctx *api.Context, sym scanner.Symbol) bool {
 	if sym.Language == scanner.LangJava && !isConservativeJavaDeadCodeSymbol(sym) {
 		return true
 	}
@@ -97,8 +97,8 @@ func shouldSkipSymbol(sym scanner.Symbol) bool {
 	if sym.IsTest {
 		return true
 	}
-	if strings.Contains(sym.File, "/test/") || strings.Contains(sym.File, "/androidTest/") ||
-		strings.Contains(sym.File, "/benchmark/") || strings.Contains(sym.File, "/canary/") {
+	if inProject := projectPath(ctx, sym.File); strings.Contains(inProject, "/test/") || strings.Contains(inProject, "/androidTest/") ||
+		strings.Contains(inProject, "/benchmark/") || strings.Contains(inProject, "/canary/") {
 		return true
 	}
 
@@ -154,8 +154,8 @@ func isConservativeJavaDeadCodeSymbol(sym scanner.Symbol) bool {
 	}
 }
 
-func shouldSkipSymbolWithFile(sym scanner.Symbol, file *scanner.File) bool {
-	if shouldSkipSymbol(sym) {
+func shouldSkipSymbolWithFile(ctx *api.Context, sym scanner.Symbol, file *scanner.File) bool {
+	if shouldSkipSymbol(ctx, sym) {
 		return true
 	}
 	// Operator functions run through syntax (`a + b`, `for (x in y)`, `val (p) = q`), so no name reference exists.

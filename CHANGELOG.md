@@ -5,6 +5,9 @@ All notable changes to Krit will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- The per-file analysis cache (`.krit/cache`) survives a move to another absolute checkout path, such as a CI cache
+  restored into another agent's workspace. Paths under the repository are stored relative to it, and the cache file
+  name, rule hash and library facts fingerprint no longer include the checkout path (#1662).
 - Module-shard FIR sessions (source-set isolation, per-settings-group sessions) put the upstream project outputs from
   `--gradle-project-outputs` on the classpath, ahead of a jar at a conventional build path, instead of compiling those
   projects from source again (#1681).
@@ -644,6 +647,15 @@ All notable changes to Krit will be documented in this file.
   background writer dropped top-level `<item type="id">` declarations and each plural `<item>`'s position, so a warm
   run lost `NotSiblingResource` findings on predeclared ids and reported plural-quantity findings on the `<plurals>`
   line (#1830).
+- Rule path heuristics read only the folders inside the scanned project (one with a VCS root, krit config or Gradle
+  settings): `InvalidPackageDeclaration`, `TestOnlyImportInProduction`, `MatchingDeclarationName`'s source-set check,
+  test-source detection, `nonProductionPathMarkers` and per-rule `excludes` globs. A package matched by folders above
+  the checkout (a clone named `app` holding `sub/` with `package app.sub`, or a parent folder named `kotlin`), a
+  checkout under a folder named like a test framework (`junit-kit/`, `test/`) or a `**/vendor/**` exclude matching a
+  parent folder used to change verdicts with the checkout path; the CLI, daemon, LSP and MCP now agree everywhere
+  (#1814).
+- `InvalidResourceFolderResource` reads the innermost `res/` folder of a layout path. A checkout under a folder ending in
+  `res` (`/builds/mres/...`) reported every layout as an invalid resource folder.
 - `MutableImplicitPendingIntent` follows more ways of building the intent, as Lint 32.4.1 does: `getActivities`
   intent arrays held in locals (`arrayOf`, a Java array initializer, and `arrayOfNulls(n)` / `new Intent[n]` of
   constant size whose elements are the last write to each index before the call), and `let`, `run` and `with`

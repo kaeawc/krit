@@ -472,11 +472,11 @@ var threadSafeTypes = map[string]bool{
 	"java.util.concurrent.atomic.": true,
 }
 
-func mutableStateInObjectShouldSkip(file *scanner.File, objectIdx, propIdx uint32, propText, propName string) bool {
+func mutableStateInObjectShouldSkip(ctx *api.Context, file *scanner.File, objectIdx, propIdx uint32, propText, propName string) bool {
 	if file == nil || objectIdx == 0 || propIdx == 0 {
 		return true
 	}
-	if scanner.IsTestFile(file.Path) || pathIsSampleOrPlayground(file.Path) || enclosedInTestDouble(file, objectIdx) {
+	if isProjectTestFile(ctx, file.Path) || pathIsSampleOrPlayground(projectPath(ctx, file.Path)) || enclosedInTestDouble(file, objectIdx) {
 		return true
 	}
 	if propName == "" {

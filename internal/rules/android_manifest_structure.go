@@ -113,7 +113,7 @@ type GradleOverridesManifestRule struct {
 
 func (r *GradleOverridesManifestRule) check(ctx *api.Context) {
 	m := ctx.Manifest
-	if isNonMainManifestPath(m.Path) {
+	if isNonMainManifestPath(projectPath(ctx, m.Path)) {
 		return
 	}
 	// A manifest value is only overridden when the owning module's build script sets it.
@@ -173,7 +173,7 @@ type UsesSdkManifestRule struct {
 func (r *UsesSdkManifestRule) check(ctx *api.Context) {
 	m := ctx.Manifest
 	// Skip variant manifests — they merge into main and don't need uses-sdk.
-	if isNonMainManifestPath(m.Path) {
+	if isNonMainManifestPath(projectPath(ctx, m.Path)) {
 		return
 	}
 	// Skip library/test module stubs with no <application> element —
@@ -435,7 +435,7 @@ func (r *MissingApplicationIconRule) check(ctx *api.Context) {
 	if m.Application == nil {
 		return
 	}
-	if isNonMainManifestPath(m.Path) {
+	if isNonMainManifestPath(projectPath(ctx, m.Path)) {
 		return
 	}
 	if isLibraryOrTestModuleManifest(m.Path) {
@@ -637,7 +637,7 @@ type MissingVersionManifestRule struct {
 func (r *MissingVersionManifestRule) check(ctx *api.Context) {
 	m := ctx.Manifest
 	// Skip variant manifests: they merge into main and inherit version info from build.gradle or the main manifest.
-	if isNonMainManifestPath(m.Path) {
+	if isNonMainManifestPath(projectPath(ctx, m.Path)) {
 		return
 	}
 	// Lint reports this only for non-Gradle projects, where the manifest is the only place for the version.
@@ -680,7 +680,7 @@ type MockLocationManifestRule struct {
 
 func (r *MockLocationManifestRule) check(ctx *api.Context) {
 	m := ctx.Manifest
-	if m.IsDebugManifest || isDebugManifestPath(m.Path) {
+	if m.IsDebugManifest || isDebugManifestPath(projectPath(ctx, m.Path)) {
 		return
 	}
 	for _, perm := range m.UsesPermissions {

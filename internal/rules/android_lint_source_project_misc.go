@@ -214,8 +214,10 @@ func recyclerPositionEscapes(file *scanner.File, bindClass, body uint32, positio
 }
 
 // recyclerIsRead reports an identifier that reads a variable: not a declaration's name, a member selector or an
-// argument label, and not a name declared again between it and body: by a function, lambda, loop or catch parameter, by
-// an earlier local of an enclosing block, or by a field of an enclosing Java class.
+// argument label, and not a name declared again between it and body: by a function, lambda, loop or catch parameter,
+// or, inside the class, lambda or function that holds the read, by an earlier local (destructured or a `when` subject
+// too) or a field of a Java class. A local of the bind body itself, nested blocks included, is a copy the caller
+// tracks, not a shadow.
 func recyclerIsRead(file *scanner.File, n, body uint32) bool {
 	name := file.FlatNodeText(n)
 	p, ok := file.FlatParent(n)
@@ -236,20 +238,37 @@ func recyclerIsRead(file *scanner.File, n, body uint32) bool {
 			return false
 		}
 	}
+	var chain []uint32
+	inner := -1
 	for cur, ok := file.FlatParent(n); ok && cur != body; cur, ok = file.FlatParent(cur) {
+		switch file.FlatType(cur) {
+		case "object_literal", "class_declaration", "object_declaration", "object_creation_expression", "lambda_literal",
+			"lambda_expression", "anonymous_function", "function_declaration", "method_declaration":
+			inner = len(chain)
+		}
+		chain = append(chain, cur)
+	}
+	for i, cur := range chain {
 		switch file.FlatType(cur) {
 		case "function_declaration", "method_declaration", "lambda_literal", "lambda_expression", "for_statement",
 			"enhanced_for_statement", "catch_clause", "anonymous_function":
 			if recyclerDeclaresName(file, cur, name) {
 				return false
 			}
+		}
+		if i >= inner {
+			continue
+		}
+		switch file.FlatType(cur) {
 		case "statements", "block":
-			// The bind body's own locals are tracked as copies of the position, not shadows of it.
-			if parent, ok := file.FlatParent(cur); ok && parent == body {
-				continue
-			}
 			if recyclerDeclaresLocalBefore(file, cur, name, file.FlatStartByte(n)) {
 				return false
+			}
+		case "when_expression":
+			if subject, ok := file.FlatFindChild(cur, "when_subject"); ok && file.FlatEndByte(subject) <= file.FlatStartByte(n) {
+				if vd, ok := file.FlatFindChild(subject, "variable_declaration"); ok && lintDeclaredName(file, vd) == name {
+					return false
+				}
 			}
 		case "class_body":
 			// A Java field of the enclosing class shadows the name. Lint 32.4.1 still reports a read of a Kotlin
@@ -262,14 +281,21 @@ func recyclerIsRead(file *scanner.File, n, body uint32) bool {
 	return true
 }
 
-// recyclerDeclaresLocalBefore reports a local variable of the block, declared before offset, named name. A
-// declaration that contains offset (its own initializer) does not count.
+// recyclerDeclaresLocalBefore reports a local variable of the block, declared before offset, named name: a Kotlin
+// property (destructured too) or a Java local. A declaration that contains offset (its own initializer) does not count.
 func recyclerDeclaresLocalBefore(file *scanner.File, block uint32, name string, offset uint32) bool {
 	for c := file.FlatFirstChild(block); c != 0 && file.FlatEndByte(c) <= offset; c = file.FlatNextSib(c) {
 		switch file.FlatType(c) {
 		case "property_declaration":
 			if vd, ok := file.FlatFindChild(c, "variable_declaration"); ok && lintDeclaredName(file, vd) == name {
 				return true
+			}
+			if multi, ok := file.FlatFindChild(c, "multi_variable_declaration"); ok {
+				for vd := file.FlatFirstChild(multi); vd != 0; vd = file.FlatNextSib(vd) {
+					if file.FlatType(vd) == "variable_declaration" && lintDeclaredName(file, vd) == name {
+						return true
+					}
+				}
 			}
 		case "local_variable_declaration":
 			for d := file.FlatFirstChild(c); d != 0; d = file.FlatNextSib(d) {
@@ -669,9 +695,11 @@ func (r *RemoteViewLayoutRule) check(ctx *api.Context) {
 }
 
 // remoteViewModuleDir returns the module directory of a project-relative source or resource path, the directory
-// above its src/<set>/{java,kotlin,res} (or above a flat <module>/res), or "" when the path has neither.
+// above its src/<set>/{java,kotlin,res} (or above a flat <module>/res; "." for the root module), or "" when the path
+// has neither.
 func remoteViewModuleDir(path string) string {
-	parts := strings.Split(filepath.ToSlash(filepath.Clean(path)), "/")
+	// projectPath spells a path under the project root with a leading slash (`/app/src/main/...`).
+	parts := strings.Split(strings.TrimPrefix(filepath.ToSlash(filepath.Clean(path)), "/"), "/")
 	dir := func(n int) string {
 		if n == 0 {
 			return "."

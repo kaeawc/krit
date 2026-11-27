@@ -256,7 +256,7 @@ func collectResourceFindings(dispatcher *rules.Dispatcher, collector *scanner.Fi
 			Language: scanner.LangXML,
 			Metadata: idx,
 		}
-		cols, _ := dispatcher.RunResource(file, idx)
+		cols, _ := dispatcher.RunResource(file, idx, nil)
 		collector.AppendColumns(&cols)
 	}
 }

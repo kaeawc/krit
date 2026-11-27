@@ -1100,10 +1100,15 @@ func (d *Dispatcher) RunManifest(file *scanner.File, m *manifest.Manifest) (scan
 }
 
 // RunResource runs every registered resource rule against a merged
-// ResourceIndex for a single res/ directory.
-func (d *Dispatcher) RunResource(file *scanner.File, idx *android.ResourceIndex) (scanner.FindingColumns, bool) {
+// ResourceIndex for a single res/ directory. sources are the project's parsed
+// source files, which a resource rule that declares NeedsParsedFiles (OnClick,
+// which checks layout onClick handlers against the Activities) reads.
+func (d *Dispatcher) RunResource(file *scanner.File, idx *android.ResourceIndex, sources []*scanner.File) (scanner.FindingColumns, bool) {
 	cols, ok := d.runProjectRuleSet(file, d.resourceRules, func(ctx *api.Context) {
 		ctx.ResourceIndex = idx
+		if ctx.Rule != nil && ctx.Rule.Needs.Has(api.NeedsParsedFiles) {
+			ctx.ParsedFiles = sources
+		}
 	})
 	return filterValuesToolsIgnored(filterLayoutToolsIgnored(cols, idx)), ok
 }

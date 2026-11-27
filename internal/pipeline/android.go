@@ -171,6 +171,18 @@ func classifyAndroidPhaseNeeds(activeRules []*api.Rule) androidPhaseNeeds {
 	return needs
 }
 
+// hasResourceRulesReadingSources reports whether an active resource rule
+// reads the parsed sources (NeedsParsedFiles; OnClick). Its findings then
+// depend on the sources, so every cache of resource-rule output keys on them.
+func hasResourceRulesReadingSources(activeRules []*api.Rule) bool {
+	for _, rule := range activeRules {
+		if rule != nil && rule.Needs.Has(api.NeedsParsedFiles) && rules.RuleScope(rule) == api.ScopeResource {
+			return true
+		}
+	}
+	return false
+}
+
 func hasResourceSourceRules(activeRules []*api.Rule) bool {
 	for _, rule := range activeRules {
 		if rule == nil || !rule.Needs.Has(api.NeedsResources) || len(rule.NodeTypes) == 0 {
@@ -435,7 +447,7 @@ func (p AndroidPhase) mergeResourceIndexes(in AndroidInput, resDir, resourceKey 
 	installAndroidSuppression(file, in.Dispatcher.ProjectRoot())
 
 	canCache := resourceKey != "" && stats != nil && in.CacheWriter != nil && in.CacheDir != "" && in.RuleHash != ""
-	raw, cacheable := in.Dispatcher.RunResource(file, mergedIdx)
+	raw, cacheable := in.Dispatcher.RunResource(file, mergedIdx, in.SourceFiles)
 	cols := filterAndroidSuppressedFindings(file, raw)
 	collector.AppendColumns(&cols)
 	if resourceBundleCollector != nil {

@@ -28,6 +28,10 @@ import (
 // resource-rule output is byte-identical. Same reasoning applies to
 // the other XML-only keys below.
 func (in AndroidInput) resourceKey(resDir, resDirFP string, deps rules.AndroidDataDependency, valueKinds android.ValuesScanKind) string {
+	sources, ok := in.resourceRulesSourceFP()
+	if !ok {
+		return ""
+	}
 	return scanner.AndroidFindingsKey(scanner.AndroidFindingsKeyInputs{
 		Kind:           scanner.AndroidFindingsKindResources,
 		RuleHash:       in.RuleHash,
@@ -37,8 +41,24 @@ func (in AndroidInput) resourceKey(resDir, resDirFP string, deps rules.AndroidDa
 		// rule-set masks flipping invalidates the cache and so two
 		// identical-content resDirs at different paths don't share an
 		// entry.
-		Extra: resDir + "\x00" + uintptrToHex(uint64(deps)) + "\x00" + uintptrToHex(uint64(valueKinds)),
+		Extra: resDir + "\x00" + uintptrToHex(uint64(deps)) + "\x00" + uintptrToHex(uint64(valueKinds)) + sources,
 	})
+}
+
+// resourceRulesSourceFP is the part of a resource-rule cache key that covers
+// the parsed sources: "" when no active resource rule reads them, else their
+// fingerprint, so a source edit that changes OnClick's verdict misses the
+// cache (#1860). ok is false when the fingerprint cannot be computed; the
+// caller then caches nothing.
+func (in AndroidInput) resourceRulesSourceFP() (string, bool) {
+	if !hasResourceRulesReadingSources(in.ActiveRules) {
+		return "", true
+	}
+	fp, ok := in.resourceSourceFingerprintForBundle()
+	if !ok {
+		return "", false
+	}
+	return "\x00sources\x00" + fp, true
 }
 
 // uintptrToHex returns a fixed-width hex representation of v for use in
@@ -141,12 +161,16 @@ func (in AndroidInput) resourceSourceKey(srcPath, srcContentHash, mergedIdxFP st
 
 // resourceBundleKey: XML-only path, same reasoning as resourceKey.
 func (in AndroidInput) resourceBundleKey(mergedFP string, deps rules.AndroidDataDependency, valueKinds android.ValuesScanKind) string {
+	sources, ok := in.resourceRulesSourceFP()
+	if !ok {
+		return ""
+	}
 	return scanner.AndroidFindingsKey(scanner.AndroidFindingsKeyInputs{
 		Kind:           scanner.AndroidFindingsKindResourceBundle,
 		RuleHash:       in.RuleHash,
 		LibraryFactsFP: in.LibraryFactsFP,
 		InputFP:        mergedFP,
-		Extra:          uintptrToHex(uint64(deps)) + "\x00" + uintptrToHex(uint64(valueKinds)),
+		Extra:          uintptrToHex(uint64(deps)) + "\x00" + uintptrToHex(uint64(valueKinds)) + sources,
 	})
 }
 
@@ -249,7 +273,7 @@ func (in AndroidInput) androidProjectBundleFingerprint(needs androidPhaseNeeds, 
 		h.Write([]byte(sourceFP))
 		h.Write([]byte{0})
 	}
-	if hasResourceSourceRules(in.ActiveRules) {
+	if hasResourceSourceRules(in.ActiveRules) || hasResourceRulesReadingSources(in.ActiveRules) {
 		sourceFP, ok := in.resourceSourceFingerprintForBundle()
 		if !ok {
 			return "", false

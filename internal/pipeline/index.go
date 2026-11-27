@@ -482,6 +482,7 @@ func (p IndexPhase) indexPrebuiltResolver(in IndexInput, caps api.Capabilities) 
 	if in.PrebuiltResolver == nil || p.SkipResolverIndex || !caps.Has(api.NeedsResolver) || len(in.KotlinFiles) == 0 {
 		return
 	}
+	files := resolverSourceFiles(in)
 	workers := p.Workers
 	if workers <= 0 {
 		workers = sysres.CPUs()
@@ -493,16 +494,16 @@ func (p IndexPhase) indexPrebuiltResolver(in IndexInput, caps api.Capabilities) 
 			var hits, misses int
 			if in.Tracker != nil {
 				child := in.Tracker.Serial("typeIndex")
-				hits, misses = cached.IndexFilesParallelCachedWithTracker(in.KotlinFiles, workers, in.TypeIndexCacheDir, child)
+				hits, misses = cached.IndexFilesParallelCachedWithTracker(files, workers, in.TypeIndexCacheDir, child)
 				perf.AddEntryDetails(child, "cacheSummary", 0, map[string]int64{
 					"hits":   int64(hits),
 					"misses": int64(misses),
 				}, nil)
 				child.End()
 			} else {
-				hits, misses = cached.IndexFilesParallelCachedWithTracker(in.KotlinFiles, workers, in.TypeIndexCacheDir, nil)
+				hits, misses = cached.IndexFilesParallelCachedWithTracker(files, workers, in.TypeIndexCacheDir, nil)
 			}
-			in.logf("verbose: Indexed %d Kotlin files for type resolution (typeIndex cache: %d hits, %d misses)", len(in.KotlinFiles), hits, misses)
+			in.logf("verbose: Indexed %d Kotlin and Java files for type resolution (typeIndex cache: %d hits, %d misses)", len(files), hits, misses)
 			return
 		}
 	}
@@ -513,21 +514,21 @@ func (p IndexPhase) indexPrebuiltResolver(in IndexInput, caps api.Capabilities) 
 		if in.Tracker != nil {
 			child = in.Tracker.Serial("typeIndex")
 		}
-		indexer.IndexFilesParallelWithTracker(in.KotlinFiles, workers, child)
+		indexer.IndexFilesParallelWithTracker(files, workers, child)
 		if child != nil {
 			child.End()
 		}
-		in.logf("verbose: Indexed %d Kotlin files for type resolution\n", len(in.KotlinFiles))
+		in.logf("verbose: Indexed %d Kotlin and Java files for type resolution\n", len(files))
 		return
 	}
 	if indexer, ok := in.PrebuiltResolver.(interface {
 		IndexFilesParallel([]*scanner.File, int)
 	}); ok {
 		_ = in.trackSerial("typeIndex", func() error {
-			indexer.IndexFilesParallel(in.KotlinFiles, workers)
+			indexer.IndexFilesParallel(files, workers)
 			return nil
 		})
-		in.logf("verbose: Indexed %d Kotlin files for type resolution\n", len(in.KotlinFiles))
+		in.logf("verbose: Indexed %d Kotlin and Java files for type resolution\n", len(files))
 	}
 }
 
@@ -550,6 +551,7 @@ func (p IndexPhase) buildBaseResolver(ctx context.Context, in IndexInput, caps a
 	if workers <= 0 {
 		workers = sysres.CPUs()
 	}
+	files := resolverSourceFiles(in)
 	build := func() typeinfer.TypeResolver {
 		r := typeinfer.NewResolver()
 		// Wire the daemon's path-keyed FileTypeInfo cache when the host
@@ -570,16 +572,16 @@ func (p IndexPhase) buildBaseResolver(ctx context.Context, in IndexInput, caps a
 				var hits, misses int
 				if in.Tracker != nil {
 					child := in.Tracker.Serial("typeIndex")
-					hits, misses = cached.IndexFilesParallelCachedWithTracker(in.KotlinFiles, workers, in.TypeIndexCacheDir, child)
+					hits, misses = cached.IndexFilesParallelCachedWithTracker(files, workers, in.TypeIndexCacheDir, child)
 					perf.AddEntryDetails(child, "cacheSummary", 0, map[string]int64{
 						"hits":   int64(hits),
 						"misses": int64(misses),
 					}, nil)
 					child.End()
 				} else {
-					hits, misses = cached.IndexFilesParallelCachedWithTracker(in.KotlinFiles, workers, in.TypeIndexCacheDir, nil)
+					hits, misses = cached.IndexFilesParallelCachedWithTracker(files, workers, in.TypeIndexCacheDir, nil)
 				}
-				in.logf("verbose: Indexed %d Kotlin files for type resolution (typeIndex cache: %d hits, %d misses)", len(in.KotlinFiles), hits, misses)
+				in.logf("verbose: Indexed %d Kotlin and Java files for type resolution (typeIndex cache: %d hits, %d misses)", len(files), hits, misses)
 				return r
 			}
 		}
@@ -587,10 +589,10 @@ func (p IndexPhase) buildBaseResolver(ctx context.Context, in IndexInput, caps a
 			IndexFilesParallel([]*scanner.File, int)
 		}); ok {
 			_ = in.trackSerial("typeIndex", func() error {
-				indexer.IndexFilesParallel(in.KotlinFiles, workers)
+				indexer.IndexFilesParallel(files, workers)
 				return nil
 			})
-			in.logf("verbose: Indexed %d Kotlin files for type resolution\n", len(in.KotlinFiles))
+			in.logf("verbose: Indexed %d Kotlin and Java files for type resolution\n", len(files))
 		}
 		return r
 	}
@@ -598,18 +600,29 @@ func (p IndexPhase) buildBaseResolver(ctx context.Context, in IndexInput, caps a
 		var fp string
 		if in.ResolverFingerprintCache != nil {
 			fp = in.ResolverFingerprintCache(func() string {
-				return resolverFingerprint(in.KotlinFiles)
+				return resolverFingerprint(files)
 			})
 		} else {
-			fp = resolverFingerprint(in.KotlinFiles)
+			fp = resolverFingerprint(files)
 		}
 		return in.ResolverCache(fp, build), nil
 	}
 	return build(), nil
 }
 
+// resolverSourceFiles is the run's Kotlin files followed by its parsed Java
+// files. Java files contribute class facts only (name, FQN, supertypes), so
+// a Kotlin rule's ClassHierarchy lookup sees a Java source supertype (#1885).
+func resolverSourceFiles(in IndexInput) []*scanner.File {
+	if len(in.JavaFiles) == 0 {
+		return in.KotlinFiles
+	}
+	files := make([]*scanner.File, 0, len(in.KotlinFiles)+len(in.JavaFiles))
+	return append(append(files, in.KotlinFiles...), in.JavaFiles...)
+}
+
 // resolverFingerprint hashes the sorted (path, content-hash) pairs of
-// every Kotlin file contributing to typeinfer.TypeResolver state.
+// every Kotlin and Java file contributing to typeinfer.TypeResolver state.
 // Mismatch forces a complete rebuild via ResolverCache.Resolver — no
 // stale entries from removed/renamed files survive across calls.
 func resolverFingerprint(files []*scanner.File) string {

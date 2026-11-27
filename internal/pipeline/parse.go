@@ -116,11 +116,12 @@ func (p ParsePhase) Run(ctx context.Context, in ParseInput) (ParseResult, error)
 	caps := unionNeeds(in.ActiveRules)
 
 	// Collect Java files only when at least one active rule needs them:
-	// cross-file indexing, parsed-file rules, or direct Java source AST
+	// cross-file indexing, parsed-file rules, the source resolver (which
+	// indexes Java class facts, #1885), or direct Java source AST
 	// dispatch. Callers that manage Java collection themselves (e.g.
 	// inside a later phase tracker scope) pass SkipJavaCollection=true.
 	var javaFiles []*scanner.File
-	if !in.SkipJavaCollection && (caps.Has(api.NeedsCrossFile) || caps.Has(api.NeedsParsedFiles) || NeedsJavaSourceDispatch(in.ActiveRules)) {
+	if !in.SkipJavaCollection && (caps.Has(api.NeedsCrossFile) || caps.Has(api.NeedsParsedFiles) || caps.Has(api.NeedsResolver) || NeedsJavaSourceDispatch(in.ActiveRules)) {
 		javaPaths := in.JavaPaths
 		var javaErr error
 		if javaPaths == nil {
@@ -296,9 +297,11 @@ func NeedsJavaSourceDispatch(rules []*api.Rule) bool {
 
 // NeedsJavaBeforeDispatch reports whether Java sources must be parsed before
 // the normal dispatch/cross-file handoff. Parsed-file rules need the complete
-// source set, and Java source rules need Java ASTs for per-file dispatch.
+// source set, the source resolver indexes Java class facts before dispatch
+// (#1885), and Java source rules need Java ASTs for per-file dispatch.
 func NeedsJavaBeforeDispatch(rules []*api.Rule) bool {
-	return unionNeeds(rules).Has(api.NeedsParsedFiles) || NeedsJavaSourceDispatch(rules)
+	caps := unionNeeds(rules)
+	return caps.Has(api.NeedsParsedFiles) || caps.Has(api.NeedsResolver) || NeedsJavaSourceDispatch(rules)
 }
 
 // scanWithResident partitions paths into resident-cache hits (returned

@@ -18,7 +18,10 @@ import (
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
-var classNameRE = regexp.MustCompile(`class\s+(\w+)`)
+var (
+	classNameRE   = regexp.MustCompile(`class\s+(\w+)`)
+	packageNameRE = regexp.MustCompile(`(?m)^package\s+([\w.]+)`)
+)
 
 // extendsViewRule flags a class whose supertype chain, resolved through the
 // resolver across files, reaches View: the shape of ClickableViewAccessibility
@@ -30,8 +33,14 @@ func extendsViewRule() *api.Rule {
 			if m == nil || ctx.Resolver == nil {
 				return
 			}
+			// Start from the class's qualified name, so a same-named class in
+			// another package is not the one walked.
+			start := m[1]
+			if pkg := packageNameRE.FindSubmatch(ctx.File.Content); pkg != nil {
+				start = string(pkg[1]) + "." + start
+			}
 			seen := map[string]bool{}
-			for queue := []string{m[1]}; len(queue) > 0; queue = queue[1:] {
+			for queue := []string{start}; len(queue) > 0; queue = queue[1:] {
 				name := queue[0]
 				if name == "View" || strings.HasSuffix(name, ".View") {
 					ctx.Emit(scanner.Finding{File: ctx.File.Path, Line: 1, Col: 1, Message: m[1] + " is a View"})
@@ -192,6 +201,86 @@ func TestResolverRuleCacheFollowsOtherFilesDeclarations(t *testing.T) {
 				t.Fatal(err)
 			}
 			h.wantWarmMatchesCold("BaseView deleted")
+		})
+	}
+}
+
+// #1885: Java classes are indexed into the resolver, so a cached Kotlin
+// verdict whose supertype chain runs through a Java class must follow that
+// Java file's edits too: its supertype, the single-type import the
+// supertype resolves through, and its deletion. A Java body-only edit
+// re-analyzes nothing.
+func TestResolverRuleCacheFollowsJavaSupertypes(t *testing.T) {
+	const (
+		widgetIsView  = "package p\n\nopen class Widget : View()\n"
+		widgetPlain   = "package q\n\nopen class Widget\n"
+		javaBase      = "package j;\n\nimport p.Widget;\n\npublic class JBase extends Widget {\n    int helper() { return 1; }\n}\n"
+		javaBasePlain = "package j;\n\npublic class JBase {\n    int helper() { return 1; }\n}\n"
+		kView         = "package k\n\nimport j.JBase\n\nclass KView : JBase()\n"
+	)
+	for _, withIndex := range []bool{true, false} {
+		name := "with-code-index"
+		if !withIndex {
+			name = "without-code-index"
+		}
+		t.Run(name, func(t *testing.T) {
+			h := newResolverHarness(t, withIndex, map[string]string{
+				"Widget.kt": widgetIsView, "QWidget.kt": widgetPlain, "JBase.java": javaBase, "KView.kt": kView, "Unrelated.kt": unrelated,
+			})
+			want := []string{"KView.kt: KView is a View", "Widget.kt: Widget is a View"}
+			if got, _ := h.run(true); strings.Join(got, "\n") != strings.Join(want, "\n") {
+				t.Fatalf("cold findings = %v, want %v", got, want)
+			}
+			if n := h.wantWarmMatchesCold("warm"); n != 0 {
+				t.Fatalf("an unchanged warm run re-analyzed %d cached files", n)
+			}
+
+			h.write("JBase.java", strings.Replace(javaBase, "return 1", "return 42", 1))
+			if n := h.wantWarmMatchesCold("Java body-only edit"); n != 0 {
+				t.Fatalf("a Java body-only edit re-analyzed %d dependents", n)
+			}
+
+			h.write("JBase.java", javaBasePlain)
+			if got := h.wantWarmMatchesCold("JBase stops extending Widget"); got == 0 {
+				t.Fatal("JBase's supertype change re-analyzed no dependents")
+			}
+			h.write("JBase.java", javaBase)
+			h.wantWarmMatchesCold("JBase extends Widget again")
+
+			// Only the import changes: Widget now resolves to q.Widget,
+			// which is not a View.
+			h.write("JBase.java", strings.Replace(javaBase, "import p.Widget;", "import q.Widget;", 1))
+			if got, _ := h.run(false); strings.Join(got, "\n") != "Widget.kt: Widget is a View" {
+				t.Fatalf("after the import swap, --no-cache findings = %v, want only Widget.kt", got)
+			}
+			h.wantWarmMatchesCold("JBase's supertype import swapped")
+			h.write("JBase.java", javaBase)
+			h.wantWarmMatchesCold("import swapped back")
+
+			// Only an on-demand import decides what the unqualified Widget
+			// names: none (j.Widget, not indexed), p.* (a View) or q.*.
+			starred := func(imp string) string {
+				return strings.Replace(javaBase, "import p.Widget;", imp, 1)
+			}
+			h.write("JBase.java", starred(""))
+			if got, _ := h.run(false); strings.Join(got, "\n") != "Widget.kt: Widget is a View" {
+				t.Fatalf("with no import, --no-cache findings = %v, want only Widget.kt", got)
+			}
+			h.wantWarmMatchesCold("supertype import removed")
+			h.write("JBase.java", starred("import p.*;"))
+			if got, _ := h.run(false); strings.Join(got, "\n") != strings.Join(want, "\n") {
+				t.Fatalf("with import p.*, --no-cache findings = %v, want %v", got, want)
+			}
+			h.wantWarmMatchesCold("on-demand import p.* added")
+			h.write("JBase.java", starred("import q.*;"))
+			h.wantWarmMatchesCold("on-demand import swapped to q.*")
+			h.write("JBase.java", starred(""))
+			h.wantWarmMatchesCold("on-demand import removed")
+
+			if err := os.Remove(filepath.Join(h.dir, "JBase.java")); err != nil {
+				t.Fatal(err)
+			}
+			h.wantWarmMatchesCold("JBase deleted")
 		})
 	}
 }

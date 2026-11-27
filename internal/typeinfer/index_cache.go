@@ -37,7 +37,9 @@ const (
 	// FunctionDecls with annotated parameters gained Params.
 	// Bumped to 21 when FunctionDecls gained TopLevel (#1888).
 	// Bumped to 22 when ClassInfo gained Outer, the enclosing class's FQN (#1928).
-	typeIndexCacheVersion = 22
+	// Bumped to 23 when Java files gained class facts, JavaPackage and
+	// JavaWildcardImports (#1885).
+	typeIndexCacheVersion = 23
 )
 
 var (
@@ -101,6 +103,9 @@ type packedFileTypeInfo struct {
 	FunctionDecls map[string][]FunctionDecl
 
 	SuspendFunctions []string
+
+	JavaPackage         string
+	JavaWildcardImports []string
 }
 
 type packedScope struct {
@@ -136,6 +141,9 @@ func packFileTypeInfo(info *FileTypeInfo) packedFileTypeInfo {
 		FunctionDecls: info.FunctionDecls,
 
 		SuspendFunctions: info.SuspendFunctions,
+
+		JavaPackage:         info.JavaPackage,
+		JavaWildcardImports: info.JavaWildcardImports,
 	}
 }
 
@@ -179,6 +187,9 @@ func unpackFileTypeInfo(p packedFileTypeInfo) (*FileTypeInfo, bool) {
 		FunctionDecls: p.FunctionDecls,
 
 		SuspendFunctions: p.SuspendFunctions,
+
+		JavaPackage:         p.JavaPackage,
+		JavaWildcardImports: p.JavaWildcardImports,
 	}, true
 }
 

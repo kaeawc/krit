@@ -61,9 +61,8 @@ public class JRes extends Resources {
 }
 `,
 	})
-	// java() on A.kt:16 and JRes.f are known false negatives: the pipeline indexes only Kotlin files into the source
-	// resolver, so JRes's supertypes are unknown (#1885). When #1885 lands, both should be reported.
-	want := "[A.kt:14 A.kt:15 A.kt:17 B.kt:4]"
+	// java() on A.kt:16 and JRes.f see JRes's supertypes: the resolver indexes Java classes (#1885).
+	want := "[A.kt:14 A.kt:15 A.kt:16 A.kt:17 B.kt:4 JRes.java:11]"
 	if got := fmt.Sprint(findingFileLines(got)); got != want {
 		t.Errorf("Resources subclasses: want %s, got %s", want, got)
 	}

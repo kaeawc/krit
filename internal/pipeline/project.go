@@ -1322,7 +1322,10 @@ func runProjectParsePhase(ctx context.Context, args ProjectArgs, host ProjectHos
 		host.Reporter.Verbosef("verbose: Parse miss-only unavailable: %s (cross=%t resourceSource=%t)\n",
 			ParsedSourceBlockReason(args.ActiveRules, allowCrossFile, allowResourceSource), allowCrossFile, allowResourceSource)
 	}
-	skipJavaCollection := len(javaPaths) == 0 && allowCrossFile
+	// The cross-file phase collects Java on its own, after the resolver is
+	// built; a rule that needs Java before dispatch (the resolver indexes
+	// Java classes, #1885) needs it from the parse phase.
+	skipJavaCollection := len(javaPaths) == 0 && allowCrossFile && !NeedsJavaBeforeDispatch(args.ActiveRules)
 	parseInput := projectParseInput(args, host, kotlinPaths, javaPaths, skipJavaCollection)
 	parsed, ok := host.Preparse.Take(parseInput)
 	if !ok {

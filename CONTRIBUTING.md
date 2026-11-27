@@ -50,7 +50,7 @@ changed files make it relevant:
 | `oraclefp`: `go run ./internal/devtools/oraclefpcheck` | rules, oracle, FIR checks, type inference, playground | build-verify |
 | `schema`: `schemas/krit-config.schema.json` matches `krit --generate-schema` | rules, schema, config, `cmd/krit/` | (generated file) |
 | `gomod`: `go mod tidy -diff` | go.mod / go.sum | build |
-| `test`: changed packages through `scripts/go-test.sh`, plus `./internal/rules` and `TestFirGoldenGoLines` for fixture edits, and `cmd/krit`'s `TestAndroidLintParityFixtures` (Android Lint fixtures) and `TestChangelogLintParityFixtureCounts` (those fixtures or `CHANGELOG.md`) | Go files, fixtures, testdata, `CHANGELOG.md` | test |
+| `test`: changed packages through `scripts/go-test.sh`, plus `./internal/rules` and `TestFirGoldenGoLines` for fixture edits, and `cmd/krit`'s `TestAndroidLintParityFixtures` (Android Lint fixtures) and `TestChangelogLintParityFixtureCounts` (those fixtures or `CHANGELOG.md`), and `internal/cache`'s `TestRulePathHeuristicsReadProjectPath` and `TestRulePathMarkersCoverRules`, which scan the rules' sources (`internal/rules/`; the markers gate also runs for the shared path classifiers it reads). A new test outside `internal/rules` that reads the rules' sources must also be planned in `test_targets`, or `TestRuleChangePlansRulesSourceGates` fails | Go files, fixtures, testdata, `CHANGELOG.md` | test |
 | `actions`: `scripts/lint-actions.sh` | `.github/` | actionlint |
 | `docs`: `scripts/validate_mkdocs_nav.sh`, `mkdocs build --strict` if installed | docs, mkdocs.yml, docgen | Documentation |
 | `winvet`: `GOOS=windows go vet ./...` | Go files change and mingw-w64 is on PATH | windows-vet |

@@ -1,5 +1,6 @@
 # A rule change also runs the rule gates, the oracle fingerprint gate, the
-# schema freshness check, and the FIR go-lines fixture test.
+# schema freshness check, the FIR go-lines fixture test, and internal/cache's
+# gates that scan the rules' sources (#1896).
 internal/rules/accessibility.go
 internal/rules/accessibility_test.go
 ---
@@ -12,4 +13,4 @@ gosec
 rules
 oraclefp
 schema
-test ./internal/rules parity:TestFirGoldenGoLines
+test ./internal/rules cache:TestRulePathHeuristicsReadProjectPath cache:TestRulePathMarkersCoverRules parity:TestFirGoldenGoLines

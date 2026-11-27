@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"encoding/json"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -37,10 +38,14 @@ class MainActivity : Activity() {
 `
 	for _, tc := range []struct {
 		name, handler string
+		relative      bool
 		want          bool
 	}{
-		{"handler missing", "", true},
-		{"handler declared", "\n    fun onSubmitClicked(v: View) {}\n", false},
+		{"handler missing", "", false, true},
+		{"handler declared", "\n    fun onSubmitClicked(v: View) {}\n", false, false},
+		// The res dirs are absolute; the sources once stayed relative, so no
+		// Activity matched the res dir's module (#1908).
+		{"handler missing, relative projectPath", "", true, true},
 	} {
 		root := t.TempDir()
 		writeProjectFile(t, root, "src/main/AndroidManifest.xml", `<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="p"><application/></manifest>`)
@@ -49,7 +54,12 @@ class MainActivity : Activity() {
 </LinearLayout>
 `)
 		writeProjectFile(t, root, "src/main/kotlin/p/MainActivity.kt", strings.Replace(activity, "%s", tc.handler, 1))
-		out := analyzeAndroidResources(t, root)
+		projectPath := root
+		if tc.relative {
+			t.Chdir(filepath.Dir(root))
+			projectPath = filepath.Base(root)
+		}
+		out := analyzeAndroidResources(t, projectPath)
 		// OnClick's message; OnClickResource flags the attribute either way.
 		if got := strings.Contains(out, "has no matching method on"); got != tc.want {
 			t.Fatalf("%s: OnClick reported = %v, want %v: %s", tc.name, got, tc.want, out)

@@ -233,3 +233,14 @@ func TestBulletsJoinsContinuations(t *testing.T) {
 		t.Errorf("got %q", got)
 	}
 }
+
+// A rule's KnownLimitations, the caveats MCP explain reports, are on its page:
+// OnClick's module scoping (#1908).
+func TestGenerateKnownLimitations(t *testing.T) {
+	page := read(t, filepath.Join(generate(t), "android-lint", "on-click.md"))
+	for _, want := range []string{"## Known limitations", "inflates a library module's layout"} {
+		if !strings.Contains(page, want) {
+			t.Errorf("OnClick page lacks %q:\n%s", want, page)
+		}
+	}
+}

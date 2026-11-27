@@ -38,6 +38,7 @@ func (v ruleView) render() string {
 	v.writeSummary(&b)
 	v.writeConfig(&b)
 	v.writeCompatibility(&b)
+	v.writeLimitations(&b)
 	v.writeExamples(&b)
 	v.writeRelated(&b)
 	return b.String()
@@ -122,6 +123,19 @@ func yamlValue(v any) string {
 		return fmt.Sprintf("%v", v)
 	}
 	return string(out)
+}
+
+// writeLimitations lists the rule's KnownLimitations, the caveats MCP
+// `explain` also reports.
+func (v ruleView) writeLimitations(b *strings.Builder) {
+	if len(v.meta.KnownLimitations) == 0 {
+		return
+	}
+	b.WriteString("## Known limitations\n\n")
+	for _, l := range v.meta.KnownLimitations {
+		fmt.Fprintf(b, "- %s\n", l)
+	}
+	b.WriteString("\n")
 }
 
 func (v ruleView) writeCompatibility(b *strings.Builder) {

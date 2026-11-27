@@ -188,7 +188,7 @@ func sdkConditionLevel(file *scanner.File, cond uint32, positive bool) int {
 		if !known || !versionCheckIsSdkInt(file, right) {
 			return 0
 		}
-		op, left, right = flipped, right, left
+		op, right = flipped, left
 	}
 	v, ok := sdkLevelValue(file, right)
 	if !ok {

@@ -643,8 +643,9 @@ Make it required once about ten A/A runs, across days, all stay within ±5%
 on the total: a third of the 15% gate, so a slow runner cannot fail a PR on
 its own. Until then, when it fails:
 
-1. Look at the report's single runs. If base's and head's overlap and only
-   the medians differ, rerun the job once.
+1. Look at the single runs: the report shows only medians, but the
+   "Base vs head (FIR)" step log has a `round N base/head` line per run. If
+   base's and head's overlap and only the medians differ, rerun the job once.
 2. If it fails again, it is probably real. Reproduce with
    `scripts/perf-guard.sh --fir` and say in the PR why the cost is intended,
    or fix it.

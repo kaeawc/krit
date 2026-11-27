@@ -185,10 +185,19 @@ func runSide(ctx context.Context, sd side, args []string, corpus string) (sample
 // bazel-model) is input, not state, and stays.
 func removeState(corpus string) error {
 	dir := filepath.Join(corpus, ".krit")
-	entries, err := os.ReadDir(dir)
+	info, err := os.Lstat(dir)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
+	if err != nil {
+		return err
+	}
+	// A symlinked .krit goes as the link; listing it would empty a directory
+	// outside the corpus.
+	if !info.IsDir() {
+		return os.Remove(dir)
+	}
+	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return err
 	}

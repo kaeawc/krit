@@ -1063,9 +1063,16 @@ jobs:
           path: ~/.krit/jars/dev
           key: perf-guard-fir-jars-${{ hashFiles('tools/krit-fir/**/*.kt', 'tools/krit-fir/**/*.kts', 'tools/krit-rule-api/**/*.kt', 'tools/krit-rule-api/**/*.kts') }}
           restore-keys: perf-guard-fir-jars-
+      # restore-keys brings back main's previous jars too; keep only the
+      # current one so the saved cache holds one jar, not one per krit-fir
+      # change.
       - name: Build main's krit-fir dev jar
         if: github.event_name != 'pull_request'
-        run: bash scripts/build-dev-jar.sh krit-fir
+        run: |
+          bash scripts/build-dev-jar.sh krit-fir
+          keep=$(go run ./cmd/krit-dev-jar-hash krit-fir)
+          find ~/.krit/jars/dev -mindepth 1 -maxdepth 1 ! -name "$keep" -exec rm -rf {} +
+          ls ~/.krit/jars/dev
       - name: Base vs head (FIR)
         if: github.event_name == 'pull_request'
         id: guard
@@ -1084,6 +1091,7 @@ jobs:
           SAME_REPO: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
           KRIT_PERF_DIR: ${{ runner.temp }}/perf-guard
         run: |
+          mkdir -p "$KRIT_PERF_DIR"
           body="$KRIT_PERF_DIR/fir-comment.md"
           {
             echo '<!-- krit-perf-guard-fir -->'

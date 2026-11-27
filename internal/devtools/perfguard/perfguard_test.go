@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"flag"
 	"io/fs"
 	"os"
@@ -534,5 +535,31 @@ func TestFIRGates(t *testing.T) {
 	got := firGatesWith(fs, g)
 	if got.TotalPct != 8 || got.PhaseMinMs != defaultFIRGates.PhaseMinMs || got.rulesGated() {
 		t.Fatalf("firGatesWith = %+v", got)
+	}
+}
+
+// removeState deletes a symlinked .krit as the link it is: following it
+// would delete the contents of a directory outside the corpus.
+func TestRemoveStateLeavesASymlinkTarget(t *testing.T) {
+	dir := t.TempDir()
+	outside := filepath.Join(dir, "outside")
+	if err := os.MkdirAll(filepath.Join(outside, "keep-me"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	corpus := filepath.Join(dir, "corpus")
+	if err := os.MkdirAll(corpus, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(corpus, ".krit")); err != nil {
+		t.Fatal(err)
+	}
+	if err := removeState(corpus); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(outside, "keep-me")); err != nil {
+		t.Fatalf("the link's target lost its contents: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(corpus, ".krit")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("the .krit link is still there: %v", err)
 	}
 }

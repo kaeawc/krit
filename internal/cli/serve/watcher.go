@@ -615,6 +615,16 @@ func (fw *fileWatcher) invalidateKotlinState(path string) {
 	fw.state.Touch(path)
 }
 
+// kotlinChanged invalidates what a Kotlin source event makes stale: at once
+// for a change to the file set, through kotlinEdited for a content write.
+func (fw *fileWatcher) kotlinChanged(path string, relevant backendOp) {
+	if relevant&(opCreate|opRemove|opRename) != 0 {
+		fw.invalidateKotlinNow(path)
+	} else {
+		fw.kotlinEdited(path)
+	}
+}
+
 // kotlinEdited handles a Write to a Kotlin file. The first event of a burst
 // invalidates at once; scheduleKotlinInvalidate then repeats the invalidation
 // once the burst has been quiet for the debounce window, so a later write in
@@ -626,16 +636,6 @@ func (fw *fileWatcher) invalidateKotlinState(path string) {
 // dirty set all still holding the old file, that analyze would reuse the old
 // tree, hash the old content, and record it under the new on-disk stat.
 // Nothing after it would tell the bundle that the file changed (#832).
-// kotlinChanged invalidates what a Kotlin source event makes stale: at once
-// for a change to the file set, through kotlinEdited for a content write.
-func (fw *fileWatcher) kotlinChanged(path string, relevant backendOp) {
-	if relevant&(opCreate|opRemove|opRename) != 0 {
-		fw.invalidateKotlinNow(path)
-	} else {
-		fw.kotlinEdited(path)
-	}
-}
-
 func (fw *fileWatcher) kotlinEdited(path string) {
 	first := !fw.burstPending(path)
 	// Arming the timer bumps the version, which must precede the invalidation.

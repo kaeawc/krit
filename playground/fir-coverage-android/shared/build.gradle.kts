@@ -28,6 +28,9 @@ kotlin {
     }
 
     sourceSets {
+        commonTest.dependencies {
+            implementation(kotlin("test"))
+        }
         jvmMain.dependencies {
             implementation(libs.moshi)
             implementation(libs.sqldelight.sqlite.driver)

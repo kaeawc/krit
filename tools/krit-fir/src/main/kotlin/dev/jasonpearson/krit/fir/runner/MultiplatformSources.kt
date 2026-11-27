@@ -29,7 +29,12 @@ import java.io.File
  *    common code. A root holding both an `actual` and a new `expect` cannot
  *    be modeled with two levels; leaving it platform keeps the damage inside
  *    that root instead of spreading to commonMain.
- *  - `main` / `test` and roots outside the `src/<sourceSet>/` layout are
+ *  - A generated root of a common source set is common too: a root under a
+ *    `generated` directory with a `commonMain` / `commonTest` segment, such as
+ *    SQLDelight's `build/generated/sqldelight/code/<Db>/commonMain` or KSP's
+ *    `build/generated/ksp/metadata/commonMain/kotlin`. Compiled as platform,
+ *    common code cannot see it (#1752).
+ *  - `main` / `test` and other roots outside the `src/<sourceSet>/` layout are
  *    never promoted.
  *
  * Without a `commonMain`/`commonTest` root the project is not treated as
@@ -61,7 +66,8 @@ internal object MultiplatformSources {
         if (bySourceSet.none { (_, name) -> name in commonSourceSets }) return emptyList()
         val commonRoots = bySourceSet.mapNotNull { (dir, name) ->
             when {
-                name == null || name in neverPromoted -> null
+                name == null -> dir.takeIf(::isGeneratedCommonRoot)
+                name in neverPromoted -> null
                 name in commonSourceSets -> dir
                 declaresExpectOnly(dir) -> dir
                 else -> null
@@ -79,6 +85,12 @@ internal object MultiplatformSources {
             val canonical = canonicalOrSelf(path)
             prefixes.any { absolute.startsWith(it) || canonical.startsWith(it) }
         }
+    }
+
+    /** True for a generator's output root of a common source set (see the class comment). */
+    internal fun isGeneratedCommonRoot(dir: String): Boolean {
+        val segments = File(dir).absoluteFile.normalize().path.split(File.separatorChar)
+        return "generated" in segments && segments.any { it in commonSourceSets }
     }
 
     /** `<name>` for a root shaped `.../src/<name>/kotlin` (or `java`), else null. */

@@ -83,9 +83,10 @@ krit {
 }
 ```
 
-`source` defaults to `src/main/kotlin` and `src/test/kotlin`. In a Kotlin Multiplatform
-project it defaults to the `kotlin` roots of every Kotlin source set (`src/commonMain/kotlin`,
-`src/jvmMain/kotlin`, ...), generated roots left out.
+`source` (shared by `kritCheck`, `kritFormat` and `kritBaseline`) defaults to `src/main/kotlin`
+and `src/test/kotlin`. In a Kotlin Multiplatform project it defaults to the `kotlin` roots of
+every Kotlin source set (`src/commonMain/kotlin`, `src/jvmMain/kotlin`, ...), generated roots
+left out; a `source` the build sets is kept.
 
 ### Reports
 
@@ -152,8 +153,10 @@ intermediate sets), read once configuration ends. An `androidTarget()` (with
 `com.android.library`) exports its `<variant>`, `<variant>UnitTest` and `<variant>AndroidTest`
 compilations; AGP 9's `com.android.kotlin.multiplatform.library` (`kotlin { android { } }`)
 has a single variant, so its target exports `main`, `hostTest` and `deviceTest` (the last two
-only when enabled) as `androidMain`, `androidHostTest` and `androidDeviceTest`, with the
-Android boot classpath. Android uses `debug` or the alphabetically first available
+only when enabled, and told apart by AGP's compilation types) as `androidMain`,
+`androidHostTest` and `androidDeviceTest`, with the Android boot classpath. A KMP test
+compilation's `classpath` leaves out the project's own main outputs, which KGP adds as file
+dependencies, so the export compiles nothing. Android uses `debug` or the alphabetically first available
 production variant if it is absent.
 
 Each source-set entry retains `name`, `platform`, `variant`, `sourceDirs`, `classpath`,

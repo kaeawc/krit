@@ -56,8 +56,9 @@ under kotlinc for each shape:
 | --- | --- |
 | `commonMain`, `commonTest` | common |
 | Other `src/<sourceSet>/kotlin` declaring an `expect` and no `actual` (for example `expect` in `concurrentMain` with its `actual` in `jvmMain`) | common |
+| A generated directory of a common source set: under a `generated` directory, with a `commonMain` or `commonTest` segment (SQLDelight's `build/generated/sqldelight/code/<Db>/commonMain`, KSP's `build/generated/ksp/metadata/commonMain/kotlin`) | common |
 | Any directory declaring an `actual`, including one that also declares a new `expect` | platform |
-| `main`, `test`, and directories outside the `src/<sourceSet>/` layout | platform |
+| `main`, `test`, and other directories outside the `src/<sourceSet>/` layout | platform |
 
 Why each shape goes where it does:
 
@@ -69,6 +70,9 @@ Why each shape goes where it does:
 - If a set holds an `actual` for `commonMain` and is compiled as common, the
   `actual` lands in the common module beside its `expect`, which breaks
   `commonMain` itself. Compiled as platform, it gets every warning.
+- Code generated for `commonMain` is part of `commonMain`. Compiled as
+  platform, it is invisible to the common files that use it, which are then
+  gated on an unresolved reference (#1752).
 - A set holding both an `actual` and a new `expect` can't be modeled with
   two levels. Compiling it as platform keeps the errors inside that set
   rather than spreading them to `commonMain`.

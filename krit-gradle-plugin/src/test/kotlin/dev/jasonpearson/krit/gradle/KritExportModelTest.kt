@@ -609,10 +609,32 @@ class KritExportModelTest {
         val test = sets.single { it["name"] == "jvmTest" }
         assertTrue((test["sourceDirs"] as List<*>).any { it.toString().endsWith("src/commonTest/kotlin") }, test.toString())
         assertTrue((main["sourceDirs"] as List<*>).any { it.toString().endsWith("src/jvmMain/kotlin") })
+        // The closure is the compilation's own: main takes no test source set, test no main one.
+        assertFalse((main["sourceDirs"] as List<*>).any { it.toString().contains("Test/") }, main.toString())
+        assertFalse((test["sourceDirs"] as List<*>).any { it.toString().contains("Main/") }, test.toString())
         val graph = runWithFakePlugin(root, FakeKmpPlugin::class.java,
             "org.jetbrains.kotlin.multiplatform", "kritExportModel", "--dry-run")
         assertTrue(graph.output.contains(":kspKotlinJvm SKIPPED"), graph.output)
         assertFalse(graph.output.contains(":kspDebugKotlin SKIPPED"), graph.output)
+    }
+
+    // #1752 review: KGP puts a KMP test compilation's main outputs on its classpath as a file
+    // dependency built by compileKotlinJvm. Exporting must not compile main code to resolve it, and
+    // the model leaves it out; a local jar file dependency stays.
+    @Test
+    fun `KMP test classpath leaves out the project's own outputs and compiles nothing`() {
+        val root = File(directory, "kmp-own-outputs").also { it.mkdirs() }
+        File(root, "settings.gradle.kts").writeText("rootProject.name = \"kmp-own-outputs\"\n")
+        File(root, "build.gradle.kts").writeText("plugins { id(\"org.jetbrains.kotlin.multiplatform\"); id(\"dev.jasonpearson.krit\") }\n")
+        File(root, "libs/local.jar").also { it.parentFile.mkdirs() }.writeBytes(byteArrayOf())
+        val graph = runWithFakePlugin(root, FakeKmpPlugin::class.java, "org.jetbrains.kotlin.multiplatform",
+            "kritExportModel", "--dry-run", "-PfakeOwnOutputs")
+        assertFalse(Regex(":compile\\w* SKIPPED").containsMatchIn(graph.output), graph.output)
+        runWithFakePlugin(root, FakeKmpPlugin::class.java, "org.jetbrains.kotlin.multiplatform",
+            "kritExportModel", "-PfakeOwnOutputs")
+        val test = sourceSets(File(root, ".krit/gradle-model/_root.json")).single { it["name"] == "jvmTest" }
+        assertEquals(listOf(File(root, "libs/local.jar").canonicalPath), test["classpath"], test.toString())
+        assertFalse(File(root, "build/classes/kotlin/jvm/main").exists())
     }
 
     @Test
@@ -699,6 +721,76 @@ class KritExportModelTest {
         assertEquals(TaskOutcome.SUCCESS, check.task(":kspAndroidMain")?.outcome, check.output)
         // kritCheck's default source is the KMP source sets' roots, not the absent src/main/kotlin.
         assertEquals(TaskOutcome.SUCCESS, check.task(":kritCheck")?.outcome, check.output)
+    }
+
+    // #1752 review: the Android-KMP target's test compilations are told apart by AGP's types, a
+    // compilation of another type is left out, and the R-jar warning follows androidResources.
+    @Test
+    fun `Android-KMP host and device tests export by type and the R jar warning follows androidResources`() {
+        val root = File(directory, "android-kmp-tests").also { it.mkdirs() }
+        File(root, "settings.gradle.kts").writeText("rootProject.name = \"android-kmp-tests\"\n")
+        File(root, "build.gradle.kts").writeText("""
+            plugins { id("org.jetbrains.kotlin.multiplatform"); id("com.android.kotlin.multiplatform.library"); id("dev.jasonpearson.krit") }
+        """.trimIndent())
+        File(root, "android.jar").writeBytes(byteArrayOf())
+        val off = runWithFakePlugin(root, FakeKmpPlugin::class.java, "org.jetbrains.kotlin.multiplatform",
+            "kritExportModel", "--info", "-PfakeAndroidKmpLibrary", "-PfakeAndroidKmpTests")
+        assertFalse(off.output.contains("R jar location unavailable"), off.output)
+        assertTrue(off.output.contains("skipped compilation benchmark"), off.output)
+        val android = sourceSets(File(root, ".krit/gradle-model/_root.json")).filter { it["platform"] == "android" }
+        assertEquals(mapOf("androidMain" to "main", "androidHostTest" to "test", "androidDeviceTest" to "androidTest"),
+            android.associate { it["name"] to it["kind"] })
+        assertTrue((android.single { it["kind"] == "test" }["sourceDirs"] as List<*>)
+            .any { it.toString().endsWith("src/commonTest/kotlin") })
+        val on = runWithFakePlugin(root, FakeKmpPlugin::class.java, "org.jetbrains.kotlin.multiplatform",
+            "kritExportModel", "-PfakeAndroidKmpLibrary", "-PfakeAndroidKmpResources")
+        assertTrue(on.output.contains("krit: own Android R jar location unavailable"), on.output)
+    }
+
+    // #1752 review: a KMP kritCheck's default source is its source sets' own roots, with generated
+    // roots (under the build directory) left out, and a source the build sets is kept.
+    @Test
+    fun `KMP kritCheck default source leaves out generated roots and keeps a configured source`() {
+        val root = File(directory, "kmp-source").also { it.mkdirs() }
+        File(root, "settings.gradle.kts").writeText("rootProject.name = \"kmp-source\"\n")
+        val args = File(root, "krit-args.txt")
+        File(root, "fake-krit").apply {
+            writeText("""#!/bin/sh
+                printf '%s\n' "${'$'}@" > "${args.path}"
+                previous=""
+                for arg in "${'$'}@"; do
+                  if [ "${'$'}previous" = "-o" ]; then printf '{}\n' > "${'$'}arg"; fi
+                  previous="${'$'}arg"
+                done
+            """.trimIndent() + "\n")
+            setExecutable(true)
+        }
+        File(root, "src/commonMain/kotlin/Shared.kt").also { it.parentFile.mkdirs() }.writeText("class Shared\n")
+        File(root, "src/jvmTest/kotlin/SharedTest.kt").also { it.parentFile.mkdirs() }.writeText("class SharedTest\n")
+        File(root, "build/generated/fake/commonMain/kotlin/Generated.kt").also { it.parentFile.mkdirs() }
+            .writeText("class Generated\n")
+        File(root, "custom/Custom.kt").also { it.parentFile.mkdirs() }.writeText("class Custom\n")
+        val build = File(root, "build.gradle.kts")
+        build.writeText("""
+            plugins { id("org.jetbrains.kotlin.multiplatform"); id("dev.jasonpearson.krit") }
+            krit { fir = false; exportModel = false; advanced { binary.set(file("fake-krit")) } }
+        """.trimIndent())
+        runWithFakePlugin(root, FakeKmpPlugin::class.java, "org.jetbrains.kotlin.multiplatform",
+            "kritCheck", "-PfakeGeneratedCommonRoot")
+        val defaults = args.readLines()
+        assertTrue(defaults.any { it.endsWith("src/commonMain/kotlin/Shared.kt") }, defaults.toString())
+        assertTrue(defaults.any { it.endsWith("src/jvmTest/kotlin/SharedTest.kt") }, defaults.toString())
+        assertFalse(defaults.any { it.endsWith("Generated.kt") }, defaults.toString())
+        // Set before the KMP plugin is applied, so its default would otherwise replace it.
+        build.writeText("""
+            plugins { id("dev.jasonpearson.krit") }
+            krit { fir = false; exportModel = false; advanced { binary.set(file("fake-krit")); source.setFrom("custom") } }
+            apply(plugin = "org.jetbrains.kotlin.multiplatform")
+        """.trimIndent())
+        runWithFakePlugin(root, FakeKmpPlugin::class.java, "org.jetbrains.kotlin.multiplatform",
+            "kritCheck", "-PfakeGeneratedCommonRoot")
+        val configured = args.readLines().filter { it.endsWith(".kt") }
+        assertEquals(listOf(File(root, "custom/Custom.kt").canonicalPath), configured.map { File(it).canonicalPath })
     }
 
     @Test

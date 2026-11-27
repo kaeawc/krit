@@ -203,11 +203,39 @@ class AnalysisSessionMultiplatformTest {
         assertEquals(listOf(common), MultiplatformSources.commonSources(dirs, listOf(common, jvm)))
     }
 
+    // #1752: SQLDelight (and KSP for commonMain) generate code for commonMain under the build
+    // directory. That root must be common, or commonMain's callers cannot see it.
+    @Test
+    fun generatedRootOfCommonMainIsCommon() {
+        val common = write(
+            "src/commonMain/kotlin/r/Store.kt",
+            "package r\n\nimport r.db.Database\n\nexpect fun label(): String\n\n" +
+                "fun stored(): Int = Database().size + label().length\n",
+        )
+        val generated = write("build/generated/sqldelight/code/Db/commonMain/r/db/Database.kt",
+            "package r.db\n\nclass Database { val size: Int = 1 }\n")
+        val kspMetadata = write("build/generated/ksp/metadata/commonMain/kotlin/r/K.kt", "package r\n")
+        val kspJvm = write("build/generated/ksp/jvm/jvmMain/kotlin/r/KJ.kt", "package r\n")
+        val jvm = write("src/jvmMain/kotlin/r/Jvm.kt", "package r\n\nactual fun label(): String = \"jvm\"\n")
+        val dirs = listOf(
+            "src/commonMain/kotlin", "src/jvmMain/kotlin", "build/generated/sqldelight/code/Db/commonMain",
+            "build/generated/ksp/metadata/commonMain/kotlin", "build/generated/ksp/jvm/jvmMain/kotlin",
+        ).map { tmp.resolve(it).toFile().path }
+
+        assertEquals(listOf(common, generated, kspMetadata),
+            MultiplatformSources.commonSources(dirs, listOf(common, generated, kspMetadata, kspJvm, jvm)))
+        val result = AnalysisSession(dirs, stdlibClasspath).check(1, listOf(FileRef(common), FileRef(jvm)), emptySet())
+        assertTrue(result.errorFiles.isEmpty(), result.errorFiles.toString())
+    }
+
     @Test
     fun sourceSetNameReadsTheGradleLayout() {
         assertEquals("commonMain", MultiplatformSources.sourceSetName("/p/src/commonMain/kotlin"))
         assertEquals("main", MultiplatformSources.sourceSetName("/p/src/main/java"))
         assertNull(MultiplatformSources.sourceSetName("/p/commonMain/kotlin"))
+        assertTrue(MultiplatformSources.isGeneratedCommonRoot("/p/build/generated/sqldelight/code/Db/commonMain"))
+        assertFalse(MultiplatformSources.isGeneratedCommonRoot("/p/build/generated/ksp/jvm/jvmMain/kotlin"))
+        assertFalse(MultiplatformSources.isGeneratedCommonRoot("/p/commonMain/kotlin"))
         assertTrue(MultiplatformSources.stripCommentsAndStrings("a // expect fun b\nc").startsWith("a \nc"))
     }
 

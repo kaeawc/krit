@@ -26,10 +26,11 @@
         with those of krit_aspect's per-target reports, keyed by rule ID,
         sample-relative path and line (#1677), and write the findings-parity
         check: it passes when both report the same findings and there is at
-        least one. The keys only one side reports are listed with it. Paths
-        under the check's "gradleOnly" prefixes in THRESHOLDS.json (sources
-        that have no Bazel target, #1752) are left out of both sides and
-        counted as gradleOnlyFindings.
+        least one. The keys only one side reports are listed with it. Gradle
+        findings under the check's "gradleOnly" prefixes in THRESHOLDS.json
+        (sources that have no Bazel target, #1752) are left out and counted
+        as gradleOnlyFindings; a Bazel finding under one fails the check
+        (listed as bazelInGradleOnly), since the prefix then has a target.
 
 Coverage is authoritative / (authoritative + gated), where gated counts both
 compile-error and generated-source gating; excluded files (scripts, files
@@ -215,7 +216,7 @@ def report(thresholds_path, paths):
         lines.append(f"| {c['name']} | {'pass' if c['passed'] else 'fail'} | {'yes' if req else 'no'} |")
     print("\n".join(lines))
     for c in checks:
-        for side in ("onlyGradle", "onlyBazel"):
+        for side in ("onlyGradle", "onlyBazel", "bazelInGradleOnly"):
             if c.get(side):
                 print(f"\n<details><summary>{c['name']}: {len(c[side])} findings {side}</summary>\n")
                 for key in c[side]:
@@ -269,18 +270,20 @@ def sarif_findings(paths):
 
 
 def parity(out_path, gradle_paths, bazel_paths, gradle_only=()):
-    def compared(keys):
-        return {key for key in keys if not key[1].startswith(tuple(gradle_only))}
+    def gradle_only_path(key):
+        return key[1].startswith(tuple(gradle_only))
     gradle_all = sarif_findings(gradle_paths)
-    gradle = compared(gradle_all)
-    bazel = compared(sarif_findings(bazel_paths))
+    gradle = {key for key in gradle_all if not gradle_only_path(key)}
+    bazel = sarif_findings(bazel_paths)
+    bazel_in_gradle_only = {key for key in bazel if gradle_only_path(key)}
     fmt = lambda keys: [f"{rule} {path}:{line}" for rule, path, line in sorted(keys)]
     result = {
         "name": "findings-parity",
         "passed": bool(gradle) and gradle == bazel,
         "matched": len(gradle & bazel),
         "onlyGradle": fmt(gradle - bazel),
-        "onlyBazel": fmt(bazel - gradle),
+        "onlyBazel": fmt(bazel - gradle - bazel_in_gradle_only),
+        "bazelInGradleOnly": fmt(bazel_in_gradle_only),
         "gradleOnlyFindings": len(gradle_all - gradle),
     }
     with open(out_path, "w", encoding="utf-8") as f:

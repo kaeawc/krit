@@ -2,6 +2,7 @@ package scanner
 
 import (
 	"math"
+	"os"
 	"path/filepath"
 	"sort"
 	"sync"
@@ -1155,22 +1156,29 @@ func radixSortOrder(order, scratch []int, passes int, key func(int) uint32) {
 // absolutely, while the daemon enters the caller's directory and keeps a
 // relative scan path, and both share .krit's findings bundle and per-file
 // cache, so a replay can meet one file under both spellings (#1832).
-type filePathSet map[string]bool
+type filePathSet struct {
+	paths map[string]bool
+	// cwd resolves relative spellings, read once per set: filepath.Abs
+	// calls os.Getwd for every path, tens of milliseconds over a daemon
+	// replay's file table.
+	cwd string
+}
 
 func newFilePathSet(capacity int) filePathSet {
-	return make(filePathSet, capacity*2)
+	cwd, _ := os.Getwd()
+	return filePathSet{paths: make(map[string]bool, capacity*2), cwd: cwd}
 }
 
 func (s filePathSet) add(path string) {
 	if path == "" {
 		return
 	}
-	s[path] = true
-	s[absOrSelfPath(path)] = true
+	s.paths[path] = true
+	s.paths[s.resolve(path)] = true
 }
 
 func (s filePathSet) has(path string) bool {
-	return s[path] || s[absOrSelfPath(path)]
+	return s.paths[path] || s.paths[s.resolve(path)]
 }
 
 // fileTableMatches reports, per entry of a FindingColumns file table, whether
@@ -1183,12 +1191,15 @@ func (s filePathSet) fileTableMatches(files []string) []bool {
 	return out
 }
 
-func absOrSelfPath(path string) string {
+// resolve returns path cleaned and, when relative, joined to the set's
+// working directory, as filepath.Abs would; path itself when no working
+// directory could be read.
+func (s filePathSet) resolve(path string) string {
 	if filepath.IsAbs(path) {
 		return filepath.Clean(path)
 	}
-	if abs, err := filepath.Abs(path); err == nil {
-		return abs
+	if s.cwd == "" {
+		return path
 	}
-	return path
+	return filepath.Join(s.cwd, path)
 }

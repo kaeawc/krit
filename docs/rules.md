@@ -139,6 +139,17 @@ declarations in libraries are not seen, and as in Lint 0.11.1, Java call sites a
 negatives: a call through an import alias (`import com.example.f as g`), an unqualified member call from a nested,
 inner or anonymous class inside a subclass, and annotated extension functions.
 
+`JavaOnlyDetector` ports `JavaOnlyDetector` for slack-lint-annotations' `@JavaOnly` and `@KotlinOnly`. As in Lint,
+it checks Kotlin sources only (Lint leaves Java to an ErrorProne check) and reads Java declarations for them. It
+reports a class or function annotated with both; a class whose direct superclass or interface, or a function whose
+overridden function, is annotated but which does not repeat the annotation (`@KotlinOnly` is checked before
+`@JavaOnly`); an object expression or a SAM-constructor lambda of a `@JavaOnly` Java type, unless returned from a
+`@JavaOnly` function; and a call or callable reference to a `@JavaOnly` function or to any member of a `@JavaOnly`
+class, with the annotation's `reason` in the message. Calls are matched like `MustUseNamedParams` above. A finding on
+a class sits at the declaration, where Lint starts it at the KDoc above. Not checked: annotated library
+declarations, a lambda passed where a `@JavaOnly` interface is expected without its SAM constructor, and Lint's
+package-level `@KotlinOnly` lookup.
+
 The R class import-alias checks (Kotlin only, as import aliases are a Kotlin feature) read the `importAliases` option,
 Lint's `import-aliases`: entries such as `slack.l10n.R as L10nR`.
 
@@ -206,6 +217,24 @@ declaration could shadow them:
   `kotlin.FunctionN` and same-file typealiases. As in Lint, `@IgnoredOnParcel` does not exempt them: it targets the
   property, and the detector reads the parameter.
 
+`DenyListedApi` and `DenyListedBlockingApi` port `DenyListedApiDetector`'s fixed list for Kotlin and Java: RxJava 3
+`hide()` and `blocking*()` calls, `Schedulers.newThread()`, `ContextCompat.getDrawable(context, id)`, Espresso's
+`withId()`, `View.setOnClickListener(null)`, `Flow.launchIn()`, the kotlinx-coroutines-rx3 builders called without a
+dispatcher, `runCatching`, the `LinkedList`, `Stack` and `Vector` constructors, and every method, constructor and
+static field of `java.util.Date`, `java.util.Calendar` and `java.text.DateFormat`/`SimpleDateFormat`, including
+static field imports and Kotlin property access and writes (`date.time`, `cal.timeInMillis = t`). An instance call
+needs the receiver's type: from the source resolver, a declared type, a constructor or static factory (including
+RxJava 3's and subjects' and relays' `create*`), a property of a class declared in the same file, or the implicit
+receiver of `apply`/`run`/`with` or an enclosing View subclass. A class of the file's own package wins over an
+on-demand import. A receiver krit cannot type (a chained operator's result, a constructor property of a class in
+another file) is not reported. As in Lint 0.11.1, the list's
+`ResourcesCompat.getDrawable`, `ViewPager2.setId` and `runBlocking` entries never match. Differences from Lint:
+
+- a top-level `runCatching` of the file's package (in any file) shadows kotlin's, as the Kotlin compiler resolves
+  it; Lint still reports it;
+- the detector also reports layout XML tags named after a listed constructor's class (`<java.util.LinkedList>`,
+  which no real layout contains); krit does not check layouts.
+
 The Dagger rules (`MustBeInModule`, `BindsMustBeAbstract`, `ProvidesMustNotBeAbstract`, `BindingReturnType`,
 `BindingReceiverParameter`) port `DaggerIssuesDetector` for Kotlin and Java `@Binds`/`@Provides` methods. As in
 Lint, a method gets at most one of the detector's issues, in the detector's order. Two of its IDs map onto existing
@@ -216,6 +245,18 @@ rules instead: `BindsWrongParameterCount` is a Lint alias of `BindsMismatchedAri
   Javadoc or comment directly above it, which would put the finding outside the range a `@SuppressLint` on the
   method covers;
 - `BindingReturnType` abstains on a Kotlin expression body without a declared type, unless the body is `Unit`.
+
+`BindsTypeMismatch` and `DoNotCallProviders` complete the Dagger checks and look across the project:
+
+- `BindsTypeMismatch` is the detector's last check: a `@Binds` method none of the earlier checks reported whose
+  parameter type is not assignable to its return type. krit reports it only when the return type is a project class
+  and the parameter is either a project class whose project supertypes never reach it, or a library type, which
+  cannot implement a project type. It abstains on a parameterized return type, a library return type and a parameter
+  type the source does not show.
+- `DoNotCallProviders` reports a call from main sources to a project method annotated `@Binds`, `@Provides` or
+  `@Produces`, unless the innermost class is annotated `@Generated`. The call is matched through the class name
+  (`Module.INSTANCE.m()` and `Module.Companion.m()` from Java too), the receiver's resolved or declared type, a
+  `with`/`run`/`apply` receiver, or the enclosing class. Provider methods in libraries are not seen.
 
 The `DoNotMock*` rules port `MockDetector` and, as in Lint, look only at test sources (`src/test`, `src/androidTest`
 and the other test source sets). A mock site is a call to one of the detector's default factories
@@ -401,6 +442,26 @@ Ports of Android Lint 32.4.1 source checks, with project fixtures and recorded L
   `[text](url)` link in a KDoc description, or `{@link}`/`{@linkplain}`/`{@inheritDoc}` in a Javadoc description.
   Kotlin binds the run of comments before a declaration to it and Lint reads the first, so a line comment first
   hides a tagged block comment after it; Java uses the nearest comment.
+
+## Android Lint Resource XML Checks
+
+Ports of Android Lint 32.4.1 resource checks, with recorded Lint output under `tests/fixtures/android-lint/<RuleID>/`.
+Cases whose resources AGP cannot compile carry `lint-standalone.txt` and are recorded with Lint's own CLI.
+
+- `StringEscaping` (error) runs aapt's escape scanner over the first text or CDATA node of every `<string>`, and of
+  every item of a `<string-array>` or `<plurals>`, in all values folders: an apostrophe outside double quotes and not
+  preceded by `\`, or a non-hex character in a `\u` escape. Entities are decoded first, so `&apos;` counts.
+- `InvalidNavigation` (warning) reports a `<navigation>` with children but no `app:startDestination`, one whose value
+  is not an `@id/` reference, and one whose start destination is neither a child's `android:id` nor the root id of
+  an `<include>`d graph. An include of a graph that is not in the scan's resources ends the check, as in Lint.
+- `ValidRestrictions` (fatal) validates `res/xml*/` files rooted at `<restrictions>`: required `key`, `title` and
+  `restrictionType`, unique literal keys, `entries`/`entryValues` for choice and multi-select, a `defaultValue` for
+  hidden, an `Integer.decode`-able integer default, nesting only under `bundle` and `bundle_array`, and Lint's size
+  limits.
+- `RelativeClassResolution` (fatal; warning when the applicationId equals the namespace) reports
+  `layout_behavior` or `layoutManager` values starting with `.` in layouts. The namespace and applicationId are read
+  from literal assignments in the module's build script (or the manifest package); without a namespace the check is
+  skipped.
 
 ## AndroidX Library Lint Checks
 

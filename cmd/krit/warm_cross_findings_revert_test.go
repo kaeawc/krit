@@ -31,8 +31,8 @@ func TestWarmCrossFindingsFollowRevertedFile(t *testing.T) {
 		{"remove call again", "B.kt", noCall},
 		{"re-add call again", "B.kt", calls},
 	}
-	t.Run("default rules", func(t *testing.T) { runWarmCrossSteps(t, false, files, steps) })
-	t.Run("DeadCode only", func(t *testing.T) { runWarmCrossSteps(t, true, files, steps) })
+	t.Run("default rules", func(t *testing.T) { runWarmCrossSteps(t, "DeadCode", false, files, steps) })
+	t.Run("DeadCode only", func(t *testing.T) { runWarmCrossSteps(t, "DeadCode", true, files, steps) })
 }
 
 // With only DeadCode active no rule needs Java before dispatch, so Java files
@@ -43,7 +43,7 @@ func TestWarmCrossFindingsFollowRevertedFile(t *testing.T) {
 func TestWarmCrossFindingsFollowJavaEdit(t *testing.T) {
 	const calls = "package p;\n\npublic class J {\n    public int run() {\n        return AKt.helper();\n    }\n}\n"
 	const noCall = "package p;\n\npublic class J {\n    public int run() {\n        return 0;\n    }\n}\n"
-	runWarmCrossSteps(t, true, map[string]string{
+	runWarmCrossSteps(t, "DeadCode", true, map[string]string{
 		"A.kt":   "package p\n\nfun helper(): Int = 1\n",
 		"J.java": calls,
 	}, []warmCrossStep{
@@ -54,26 +54,49 @@ func TestWarmCrossFindingsFollowJavaEdit(t *testing.T) {
 	})
 }
 
+// With a per-file rule alone, a warm run parses only its cache misses, and
+// hashing that result keyed the findings bundle on the misses only: once A.kt
+// returned to an earlier content, the run loaded the bundle of that earlier
+// state although B.kt had changed since (#1854 review).
+func TestWarmFindingsFollowMissOnlyRevert(t *testing.T) {
+	const plain = "package p\n\nfun %s() {\n    val x = 0\n}\n"
+	const magic = "package p\n\nfun %s() {\n    val x = %d\n}\n"
+	runWarmCrossSteps(t, "MagicNumber", true, map[string]string{
+		"A.kt": fmt.Sprintf(plain, "a"),
+		"B.kt": fmt.Sprintf(plain, "b"),
+	}, []warmCrossStep{
+		{"cold", "", ""},
+		{"A to a2", "A.kt", fmt.Sprintf(magic, "a", 42)},
+		{"B to b2", "B.kt", fmt.Sprintf(magic, "b", 42)},
+		{"A to a3", "A.kt", fmt.Sprintf(plain, "a")},
+		{"A back to a2", "A.kt", fmt.Sprintf(magic, "a", 42)},
+	})
+}
+
 type warmCrossStep struct{ name, file, content string }
 
 // runWarmCrossSteps writes files, then applies each step's edit and checks
-// that two warm DeadCode runs report what a run with no caches does. The
-// second warm run sees every file a per-file cache hit, which with
-// deadCodeOnly lets it skip parsing; it once loaded the findings bundle an
-// earlier state saved, because without content the bundle key covered paths
-// only.
-func runWarmCrossSteps(t *testing.T, deadCodeOnly bool, files map[string]string, steps []warmCrossStep) {
+// that two warm runs of rule report what a run with no caches does. With only,
+// rule is the only active rule. The second warm run sees every file a
+// per-file cache hit, which with only lets it skip parsing; it once loaded the
+// findings bundle an earlier state saved, because without content the bundle
+// key covered paths only.
+func runWarmCrossSteps(t *testing.T, rule string, only bool, files map[string]string, steps []warmCrossStep) {
 	t.Helper()
 	dir := t.TempDir()
 	write := func(name, content string) {
 		t.Helper()
-		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+		path := filepath.Join(dir, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
-	base := []string{"--no-fir", "--no-daemon", "--no-type-oracle", "--enable-rules", "DeadCode", "-f", "json", "-q"}
-	if deadCodeOnly {
-		base = append(base, "--config", deadCodeOnlyConfig(t))
+	base := []string{"--no-fir", "--no-daemon", "--no-type-oracle", "--enable-rules", rule, "-f", "json", "-q"}
+	if only {
+		base = append(base, "--config", allCategoriesOffConfig(t))
 	}
 	scan := func(extra ...string) string {
 		t.Helper()
@@ -90,7 +113,7 @@ func runWarmCrossSteps(t *testing.T, deadCodeOnly bool, files map[string]string,
 		}
 		var keys []string
 		for _, f := range report.Findings {
-			if f.Rule == "DeadCode" {
+			if f.Rule == rule {
 				keys = append(keys, fmt.Sprintf("%s:%d", filepath.Base(f.File), f.Line))
 			}
 		}
@@ -108,15 +131,15 @@ func runWarmCrossSteps(t *testing.T, deadCodeOnly bool, files map[string]string,
 		warmAgain := scan()
 		fresh := scan("--no-cache", "--no-cross-file-cache")
 		if warm != fresh || warmAgain != fresh {
-			t.Fatalf("%s: warm DeadCode findings [%s], second warm [%s], fresh [%s]", s.name, warm, warmAgain, fresh)
+			t.Fatalf("%s: warm %s findings [%s], second warm [%s], fresh [%s]", s.name, rule, warm, warmAgain, fresh)
 		}
 	}
 }
 
-// deadCodeOnlyConfig writes a config, outside the scanned tree, that turns off
-// every rule category, so --enable-rules DeadCode leaves DeadCode the only
-// active rule. The categories come from --list-rules so a new one stays off.
-func deadCodeOnlyConfig(t *testing.T) string {
+// allCategoriesOffConfig writes a config, outside the scanned tree, that turns
+// off every rule category, so --enable-rules leaves only the rules it names
+// active. The categories come from --list-rules so a new one stays off.
+func allCategoriesOffConfig(t *testing.T) string {
 	t.Helper()
 	stdout, stderr, code := runKrit(t, "--list-rules", "-f", "json")
 	if code != 0 {

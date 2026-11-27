@@ -1,0 +1,29 @@
+<restrictions xmlns:android="http://schemas.android.com/apk/res/android"
+    android:defaultValue="root">
+    <restriction android:key="missing_title" android:restrictionType="string" />
+    <restriction android:title="@string/title" android:restrictionType="string" />
+    <restriction android:key="@string/key" android:title="@string/title" android:restrictionType="bool" />
+    <restriction android:key="dup" android:title="@string/title" android:restrictionType="bool" />
+    <restriction android:key="dup" android:title="@string/title" android:restrictionType="bool" />
+    <restriction android:key="choice" android:title="@string/title" android:restrictionType="choice" />
+    <restriction android:key="hidden" android:title="@string/title" android:restrictionType="hidden" />
+    <restriction android:key="number" android:title="@string/title" android:restrictionType="integer"
+        android:defaultValue="12x" />
+    <restriction android:key="empty_bundle" android:title="@string/title" android:restrictionType="bundle" />
+    <restriction android:key="array" android:title="@string/title" android:restrictionType="bundle_array">
+        <restriction android:key="a1" android:title="@string/title" android:restrictionType="bundle">
+            <restriction android:key="leaf1" android:title="@string/title" android:restrictionType="string" />
+        </restriction>
+        <restriction android:key="a2" android:title="@string/title" android:restrictionType="bundle">
+            <restriction android:key="leaf2" android:title="@string/title" android:restrictionType="string" />
+        </restriction>
+    </restriction>
+    <restriction android:key="nested_leaf" android:title="@string/title" android:restrictionType="string">
+        <restriction android:key="child" android:title="@string/title" android:restrictionType="string" />
+    </restriction>
+    <restriction android:key="bundle_default" android:title="@string/title" android:restrictionType="bundle"
+        android:defaultValue="x">
+        <restriction android:key="b1" android:title="@string/title" android:restrictionType="string" />
+    </restriction>
+    <item android:key="wrong_tag" />
+</restrictions>

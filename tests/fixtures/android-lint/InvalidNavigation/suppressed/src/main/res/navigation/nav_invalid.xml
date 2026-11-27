@@ -1,0 +1,9 @@
+<navigation xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/nav_invalid"
+    app:startDestination="@id/elsewhere">
+    <fragment android:id="@+id/home" android:name="com.example.Home" />
+    <navigation android:id="@+id/nested" app:startDestination="  ">
+        <fragment android:id="@+id/inner" android:name="com.example.Inner" />
+    </navigation>
+</navigation>

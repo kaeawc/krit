@@ -1,0 +1,14 @@
+src/main/res/xml/app_restrictions.xml:11:31: ValidRestrictions: Invalid number
+src/main/res/xml/app_restrictions.xml:12:5: ValidRestrictions: Restriction type `bundle` should have at least one nested restriction
+src/main/res/xml/app_restrictions.xml:13:6: ValidRestrictions: Expected exactly one child for restriction of type `bundle_array`
+src/main/res/xml/app_restrictions.xml:21:6: ValidRestrictions: Only restrictions of type `bundle` and `bundle_array` can have one or multiple nested restriction elements
+src/main/res/xml/app_restrictions.xml:25:9: ValidRestrictions: Restriction type `bundle` should not have a default value
+src/main/res/xml/app_restrictions.xml:28:6: ValidRestrictions: Unexpected tag `<item>`, expected `<restriction>`
+src/main/res/xml/app_restrictions.xml:2:5: ValidRestrictions: Restriction type `null` should not have a default value
+src/main/res/xml/app_restrictions.xml:3:5: ValidRestrictions: Missing required attribute `android:title`
+src/main/res/xml/app_restrictions.xml:4:5: ValidRestrictions: Missing required attribute `android:key`
+src/main/res/xml/app_restrictions.xml:5:31: ValidRestrictions: Keys cannot be localized, they should be specified with a string literal
+src/main/res/xml/app_restrictions.xml:7:31: ValidRestrictions: Duplicate key `dup`
+src/main/res/xml/app_restrictions.xml:8:5: ValidRestrictions: Missing required attribute `android:entries`
+src/main/res/xml/app_restrictions.xml:8:5: ValidRestrictions: Missing required attribute `android:entryValues`
+src/main/res/xml/app_restrictions.xml:9:5: ValidRestrictions: Missing required attribute `android:defaultValue`

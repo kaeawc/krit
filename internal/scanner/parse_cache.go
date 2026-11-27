@@ -173,7 +173,10 @@ func treeSitterDepVersion() string {
 
 // kotlinTreeRepairRevision changes when a pre-parse rewrite or tree repair
 // changes the trees ParseKotlinFlat returns, so cached trees are not reused.
-const kotlinTreeRepairRevision = 1
+//
+// 2: one-line nested class bodies are reparsed instead of turning the rest of
+// the file into an ERROR node (#1839).
+const kotlinTreeRepairRevision = 2
 
 // KotlinGrammarVersion returns a stable identifier for the tree-sitter
 // Kotlin grammar binding in use. The SymbolCount is appended so a

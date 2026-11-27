@@ -622,9 +622,20 @@ All notable changes to Krit will be documented in this file.
   `gradle/libs.versions.toml` left `InvalidFragmentVersionForActivityResult` and the Gradle catalog lookups on the
   catalog-less result until restart (#1784). CLI scans already built a fresh memo per run.
 - `UnsafeIntentLaunch` treats a receiver class registered at runtime with `Context.registerReceiver` or
-  `ContextCompat.registerReceiver`, without `RECEIVER_NOT_EXPORTED` or a broadcast permission, as an unprotected
-  component, and follows the incoming intent into helpers declared in other files: imported or same-package top-level
-  functions and members of project classes or objects (`Launcher.launch(this, intent)`) (#1623).
+  `ContextCompat.registerReceiver` as an unprotected component unless, as in Lint, its flags include
+  `RECEIVER_NOT_EXPORTED`, its filter holds only protected broadcasts, or its broadcast permission is set to a value
+  other than null, blank or a normal one such as `INTERNET`. A filter counts only when krit sees every action: one
+  with an action krit cannot evaluate does not, nor does a property or field filter, a filter registered outside a
+  function, constructor or initializer block, or a local filter used before the registration other than by
+  `addAction` (passed to a function, given to `apply`, `also`, `let`, `run` or `with`, or aliased). It also follows
+  the incoming intent into helpers declared
+  in other files: top-level functions imported (also under an alias or through a wildcard) or from the same package,
+  members brought in by member or static imports, and members of project classes, objects and companion objects
+  (`Launcher.launch(this, intent)`), including through aliased or nested imports (#1623).
+- `UnspecifiedRegisterReceiverFlag` reads the `addAction` calls of a filter built inline in the registration,
+  `registerReceiver(r, IntentFilter().apply { addAction("custom") })`, of a filter registered in a Kotlin `init`
+  block or secondary constructor or a Java constructor or initializer block, and on `this.filter`, which it skipped
+  before, so such a filter with an unprotected action is reported (#1813).
 - `ProviderReadPermissionOnly` attributes providers declared in a library module's manifest the way Lint's merged
   manifest does: they are reported only when the scan holds an application module that depends on the library,
   directly or through other modules, by project dependencies in the Gradle module graph that merge a manifest (not test,
@@ -661,10 +672,6 @@ All notable changes to Krit will be documented in this file.
   another type is not taken for `Context.contentResolver`. A helper call resolves to the innermost local function,
   enclosing-class member or top-level function with that name and a matching argument count; overloads that disagree
   on the return type abstain (#1621).
-- `JavascriptInterface` reads Kotlin accessor use-site targets: a property annotated `@get:JavascriptInterface` or
-  `@set:JavascriptInterface`, or whose getter or setter carries the annotation, counts as an annotated bridge method,
-  and a private one is reported as `Must be public`, as Lint sees the accessor methods through UAST. `@field:` does
-  not count (part of #1620).
 - `JavascriptInterface` reads Kotlin accessor use-site targets: a property or primary-constructor property annotated
   `@get:`/`@set:JavascriptInterface` (including the array form `@get:[... JavascriptInterface]`), or whose getter or
   setter carries the annotation, counts as an annotated bridge method, and a protected one is reported as

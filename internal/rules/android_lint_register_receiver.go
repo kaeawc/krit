@@ -85,7 +85,8 @@ func (r *UnspecifiedRegisterReceiverFlagRule) check(ctx *api.Context) {
 			return
 		}
 	}
-	protected, unprotected, inspected := receiverFilterActions(file, filterArg, ctx.Idx)
+	// An action that cannot be evaluated is ignored, as before #1813.
+	protected, unprotected, inspected, _ := receiverFilterActions(file, filterArg, ctx.Idx)
 	if protected && inspected {
 		return
 	}
@@ -142,50 +143,59 @@ func lintEnclosingClassIsContext(file *scanner.File, idx uint32, depth int) bool
 }
 
 // receiverFilterActions follows the IntentFilter argument to its construction and collects the actions given to the
-// constructor and to addAction calls before the registration. inspected is false when the filter cannot be traced.
-func receiverFilterActions(file *scanner.File, filter, call uint32) (protected bool, unprotected []string, inspected bool) {
+// constructor, to addAction calls in the scope function that builds it, and, for a filter held in a variable, to
+// addAction calls on the variable before the registration. inspected is false when the filter cannot be traced.
+// protected and unprotected cover only the actions that evaluate; unevaluated reports that some action did not, or
+// that the filter may hold actions krit does not see: it is a property or field, which other members can change, the
+// registration has no enclosing function, constructor or initializer block to read, or the variable is used before
+// the registration in a way other than a readable addAction call (passed to a function, given to a scope function or
+// `with`, aliased).
+func receiverFilterActions(file *scanner.File, filter, call uint32) (protected bool, unprotected []string, inspected, unevaluated bool) {
 	construction, blockScope, name := uint32(0), uint32(0), ""
+	var callable, local uint32
 	switch file.FlatType(filter) {
 	case "simple_identifier", "identifier":
 		name = file.FlatNodeText(filter)
-		init := lintVariableInitializer(file, call, name)
+		var init uint32
+		callable, local, init = receiverFilterVariable(file, call, name)
 		if init == 0 {
-			return false, nil, false
+			return false, nil, false, false
 		}
+		// A property or field may get actions from any member, and a registration outside a callable has no body to read.
+		unevaluated = local == 0
 		construction, blockScope = unwrapFilterConstruction(file, init)
 	default:
 		construction, blockScope = unwrapFilterConstruction(file, filter)
 	}
 	if construction == 0 {
-		return false, nil, false
+		return false, nil, false, false
 	}
 	var actions []string
-	if inner, ok := lintCallAt(file, construction); ok && len(inner.Args) > 0 {
-		if v, known := receiverActionValue(file, inner.Args[0]); known {
+	add := func(arg uint32) {
+		if v, known := receiverActionValue(file, arg); known {
 			actions = append(actions, v)
+		} else {
+			unevaluated = true
 		}
 	}
-	collect := func(root uint32) {
-		file.FlatWalkAllNodes(root, func(n uint32) {
+	if inner, ok := lintCallAt(file, construction); ok && len(inner.Args) > 0 {
+		add(inner.Args[0])
+	}
+	// The scope function of an inline filter is inside the registerReceiver call, so its walk takes every addAction
+	// on its receiver.
+	if blockScope != 0 {
+		file.FlatWalkAllNodes(blockScope, func(n uint32) {
 			c, ok := lintCallAt(file, n)
-			if !ok || c.Name != "addAction" || len(c.Args) == 0 || file.FlatStartByte(n) >= file.FlatStartByte(call) {
+			if !ok || c.Name != "addAction" || len(c.Args) == 0 {
 				return
 			}
-			receiver := strings.TrimSpace(c.ReceiverText)
-			if (name != "" && receiver == name) || (blockScope != 0 && (receiver == "" || receiver == "this" || receiver == "it")) {
-				if v, known := receiverActionValue(file, c.Args[0]); known {
-					actions = append(actions, v)
-				}
+			if receiver := strings.TrimSpace(c.ReceiverText); receiver == "" || receiver == "this" || receiver == "it" {
+				add(c.Args[0])
 			}
 		})
 	}
-	if blockScope != 0 {
-		collect(blockScope)
-	}
-	if name != "" {
-		if fn, ok := flatEnclosingCallable(file, call); ok {
-			collect(fn)
-		}
+	if callable != 0 && receiverFilterVariableUses(file, callable, local, call, name, add) {
+		unevaluated = true
 	}
 	protected = true
 	for _, a := range actions {
@@ -194,7 +204,164 @@ func receiverFilterActions(file *scanner.File, filter, call uint32) (protected b
 			unprotected = append(unprotected, a)
 		}
 	}
-	return protected, unprotected, true
+	return protected, unprotected, true, unevaluated
+}
+
+// receiverFilterVariable resolves a filter variable registered at call: the callable whose body runs the
+// registration (0 when there is none, as in a property initializer), the local declaration of the variable in it (0
+// for a property or field), and the initializer (0 when the variable cannot be traced).
+func receiverFilterVariable(file *scanner.File, call uint32, name string) (callable, local, init uint32) {
+	callable = receiverFilterCallable(file, call)
+	if callable != 0 {
+		decl, localInit, found := receiverFilterLocal(file, callable, call, name)
+		if found {
+			return callable, decl, localInit
+		}
+	}
+	return callable, 0, lintVariableInitializer(file, call, name)
+}
+
+// receiverFilterVariableUses walks what runs in callable before the registration at call (the filter is copied when
+// it is registered) and passes the action of each addAction on the variable to add. For a local it starts after the
+// declaration and reports any other use that may add actions krit does not see; `this.name` names a property or
+// field, never the local.
+func receiverFilterVariableUses(file *scanner.File, callable, local, call uint32, name string, add func(uint32)) (otherUse bool) {
+	start, stop := file.FlatStartByte(callable), file.FlatStartByte(call)
+	if local != 0 {
+		start = file.FlatEndByte(local)
+	}
+	var receiverEnd uint32
+	file.FlatWalkAllNodes(callable, func(n uint32) {
+		pos := file.FlatStartByte(n)
+		if pos >= stop || file.FlatEndByte(n) <= start {
+			return
+		}
+		if c, ok := lintCallAt(file, n); ok && c.Name == "addAction" && len(c.Args) > 0 && c.ReceiverNode != 0 {
+			receiver := strings.TrimSpace(c.ReceiverText)
+			if local == 0 {
+				receiver = strings.TrimPrefix(receiver, "this.")
+			}
+			if receiver == name {
+				add(c.Args[0])
+				receiverEnd = file.FlatEndByte(c.ReceiverNode)
+				return
+			}
+		}
+		if local == 0 || otherUse || pos < start || pos < receiverEnd || file.FlatNodeText(n) != name {
+			return
+		}
+		if t := file.FlatType(n); (t == "simple_identifier" || t == "identifier") && receiverFilterOtherUse(file, n) {
+			otherUse = true
+		}
+	})
+	return otherUse
+}
+
+// receiverFilterCallable is the function, constructor, initializer block or accessor whose body runs the
+// registration at idx, or 0 when a class body or the file comes first, as in a property initializer.
+func receiverFilterCallable(file *scanner.File, idx uint32) uint32 {
+	for cur, ok := file.FlatParent(idx); ok; cur, ok = file.FlatParent(cur) {
+		switch file.FlatType(cur) {
+		case "function_declaration", "method_declaration", "constructor_declaration", "compact_constructor_declaration",
+			"secondary_constructor", "anonymous_initializer", "static_initializer", "getter", "setter":
+			return cur
+		case "block":
+			// A Java instance initializer is a block directly in the class body.
+			if p, ok := file.FlatParent(cur); ok && (file.FlatType(p) == "class_body" || file.FlatType(p) == "enum_body_declarations") {
+				return cur
+			}
+		case "class_body", "enum_class_body", "enum_body", "interface_body", "source_file", "program":
+			return 0
+		}
+	}
+	return 0
+}
+
+// receiverFilterLocal finds the last declaration of a local called name in callable before the registration at call
+// whose scope encloses the call. A same-name local in an `if` block, a lambda or an anonymous class that does not hold
+// the call does not hide the property, field, parameter or outer local the call reads. found reports such a
+// declaration; init is 0 when it has no initializer or is a var that is reassigned.
+func receiverFilterLocal(file *scanner.File, callable, call uint32, name string) (decl, init uint32, found bool) {
+	stop := file.FlatStartByte(call)
+	// A Kotlin local's scope is its statements container; a Java local's is the block around its declaration.
+	encloses := func(n uint32) bool {
+		scope, ok := file.FlatParent(n)
+		if ok && file.FlatType(scope) == "local_variable_declaration" {
+			scope, ok = file.FlatParent(scope)
+		}
+		return ok && file.FlatStartByte(scope) <= stop && file.FlatEndByte(scope) >= file.FlatEndByte(call)
+	}
+	file.FlatWalkAllNodes(callable, func(n uint32) {
+		if file.FlatStartByte(n) >= stop {
+			return
+		}
+		switch file.FlatType(n) {
+		case "property_declaration":
+			if vd, ok := file.FlatFindChild(n, "variable_declaration"); ok && lintDeclaredName(file, vd) == name && encloses(n) {
+				kind, _ := file.FlatFindChild(n, "binding_pattern_kind")
+				decl, init, found = n, lintInitializerAfterEquals(file, n), true
+				if strings.TrimSpace(file.FlatNodeText(kind)) == "var" {
+					init = 0
+				}
+			}
+		case "variable_declarator":
+			if id, ok := file.FlatFindChild(n, "identifier"); ok && file.FlatNodeText(id) == name && encloses(n) {
+				decl, init, found = n, lintInitializerAfterEquals(file, n), true
+			}
+		}
+	})
+	if found && init != 0 && lintNameReassigned(file, callable, name) {
+		init = 0
+	}
+	return decl, init, found
+}
+
+// intentFilterMembersWithoutActions are IntentFilter members that neither add an action nor hand the filter on.
+var intentFilterMembersWithoutActions = map[string]bool{
+	"addCategory": true, "addDataScheme": true, "addDataSchemeSpecificPart": true, "addDataAuthority": true,
+	"addDataPath": true, "addDataType": true, "setPriority": true, "priority": true, "getPriority": true,
+	"hasAction": true, "hasCategory": true, "countActions": true, "countCategories": true, "getAction": true,
+}
+
+// receiverFilterOtherUse reports whether the identifier id, spelled like a local filter, is a use of it that may add
+// actions krit does not see: anything but another object's member, a named-argument label, a method name, or a call
+// of an IntentFilter member that adds no action.
+func receiverFilterOtherUse(file *scanner.File, id uint32) bool {
+	parent, ok := file.FlatParent(id)
+	if !ok {
+		return true
+	}
+	next := file.FlatNextSib(id)
+	switch file.FlatType(parent) {
+	case "navigation_suffix":
+		return false
+	case "value_argument":
+		if file.FlatType(next) == "=" {
+			return false
+		}
+	case "field_access":
+		if file.FlatFirstChild(parent) != id {
+			return false
+		}
+		if field := file.FlatNamedChild(parent, 1); field != 0 {
+			return !intentFilterMembersWithoutActions[file.FlatNodeText(field)]
+		}
+	case "method_invocation":
+		if t := file.FlatType(next); t == "argument_list" || t == "type_arguments" {
+			return false
+		}
+		if file.FlatType(next) == "." {
+			if member := file.FlatNextSib(next); member != 0 && file.FlatType(member) == "identifier" {
+				return !intentFilterMembersWithoutActions[file.FlatNodeText(member)]
+			}
+		}
+	}
+	if file.FlatType(next) == "navigation_suffix" {
+		if member, ok := file.FlatFindChild(next, "simple_identifier"); ok {
+			return !intentFilterMembersWithoutActions[file.FlatNodeText(member)]
+		}
+	}
+	return true
 }
 
 // unwrapFilterConstruction finds the IntentFilter construction behind an expression, looking through Kotlin scope

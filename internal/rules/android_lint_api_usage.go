@@ -644,7 +644,7 @@ func (r *ReportShortcutUsageRule) check(ctx *api.Context) {
 	roots := map[string]string{}
 	seenRoots := map[string]bool{}
 	for _, file := range ctx.ParsedFiles {
-		if file == nil || file.FlatTree == nil || scanner.IsTestFile(file.Path) || !bytes.Contains(file.Content, shortcutBytes) {
+		if file == nil || file.FlatTree == nil || isProjectTestFile(ctx, file.Path) || !bytes.Contains(file.Content, shortcutBytes) {
 			continue
 		}
 		root := workModuleRoot(file.Path, roots)

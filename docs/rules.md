@@ -280,8 +280,6 @@ Differences from Lint:
   others stay silent;
 - `DoNotMockRecordClass` also reports Java records, which Lint 0.11.1's own tests leave out pending Lint support.
 
-
-
 `InclusiveNaming` ports `InclusiveNamingSourceCodeScanner` for Kotlin and Java. It reports nothing until its
 `blockList` option (Lint's `block-list`) lists words, for example:
 

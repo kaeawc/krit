@@ -121,15 +121,15 @@ func slackIsFrameworkView(fqn string) bool {
 
 var slackJavaImportRe = regexp.MustCompile(`(?m)^\s*import\s+([A-Za-z_][\w.]*)\s*;`)
 
-// slackJavaFileImports returns a Java source file's single-type imports by simple name, memoized in the run's file
-// facts under its path, size and modification time, so an edited file is reread.
+// slackJavaFileImports returns a Java source file's single-type imports by simple name, memoized for one request
+// under its path, size and modification time, so an edited file is reread.
 func slackJavaFileImports(path string) map[string]string {
 	st, err := os.Stat(path)
 	if err != nil {
 		return nil
 	}
 	key := fmt.Sprintf("%s\x00%d\x00%d", path, st.Size(), st.ModTime().UnixNano())
-	return filefacts.StringFact(fileFactsCache(), key, slotSlackJavaImports, func() map[string]string {
+	return filefacts.RequestFact(fileFactsCache(), key, slotSlackJavaImports, func() map[string]string {
 		out := map[string]string{}
 		if data, err := os.ReadFile(path); err == nil {
 			for _, m := range slackJavaImportRe.FindAllStringSubmatch(string(data), -1) {

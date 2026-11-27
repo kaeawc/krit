@@ -320,3 +320,20 @@ func TestProjectPathFollowsRootChange(t *testing.T) {
 		t.Fatalf("a nil cache returned %q", got)
 	}
 }
+
+// The LSP analyzes documents concurrently on one dispatcher. A RequestFact still
+// computing for an earlier request must not put its pre-edit value into the
+// generation a later request's ForgetRequestFacts started.
+func TestRequestFactComputedAcrossForgetStaysInItsGeneration(t *testing.T) {
+	c := NewCache()
+	stale := RequestFact(c, "dir", "slot", func() string {
+		ForgetRequestFacts(c) // a later request begins while this one reads the file
+		return "before the edit"
+	})
+	if stale != "before the edit" {
+		t.Fatalf("the earlier request got %q, want its own value", stale)
+	}
+	if got := RequestFact(c, "dir", "slot", func() string { return "after the edit" }); got != "after the edit" {
+		t.Fatalf("the later request got %q, want a recompute", got)
+	}
+}

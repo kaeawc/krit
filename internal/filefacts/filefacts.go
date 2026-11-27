@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -64,8 +65,11 @@ type Cache struct {
 	fileSlots    sync.Map // fileSlotKey  -> any
 	nodeSlots    sync.Map // nodeSlotKey  -> any
 	stringSlots  sync.Map // stringSlotKey -> any
-	// requestSlots holds RequestFact values, which ForgetRequestFacts drops.
-	requestSlots sync.Map // stringSlotKey -> any
+	// requestSlots holds the current generation of RequestFact values
+	// (stringSlotKey -> any). ForgetRequestFacts swaps in a fresh map, so a
+	// RequestFact still computing for an earlier request stores into the
+	// generation it read and cannot put a pre-edit value into the new one.
+	requestSlots atomic.Pointer[sync.Map]
 	// projectRoot is the root of the project this run scans, or "". Set
 	// before rules run; see SetProjectRoot.
 	projectRoot string
@@ -102,7 +106,7 @@ func RequestFact[T any](c *Cache, key, slot string, compute func() T) T {
 	if c == nil || key == "" {
 		return compute()
 	}
-	return loadOrStoreTyped(&c.requestSlots, stringSlotKey{key: key, slot: slot}, slot, compute)
+	return loadOrStoreTyped(c.requestGeneration(), stringSlotKey{key: key, slot: slot}, slot, compute)
 }
 
 // ForgetRequestFacts drops every RequestFact. A nil *Cache is a no-op.
@@ -110,7 +114,16 @@ func ForgetRequestFacts(c *Cache) {
 	if c == nil {
 		return
 	}
-	c.requestSlots.Clear()
+	c.requestSlots.Store(new(sync.Map))
+}
+
+// requestGeneration returns the current RequestFact map, creating the first one.
+func (c *Cache) requestGeneration() *sync.Map {
+	if m := c.requestSlots.Load(); m != nil {
+		return m
+	}
+	c.requestSlots.CompareAndSwap(nil, new(sync.Map))
+	return c.requestSlots.Load()
 }
 
 type fileSlotKey struct {

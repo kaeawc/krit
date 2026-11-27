@@ -671,6 +671,11 @@ All notable changes to Krit will be documented in this file.
   inner `}` sat alone in an ERROR node with its member just before it, so it was never a candidate and a later
   `fun after() { val unused = 1 }` lost its `UnusedVariable` finding. Parse-cache entries and cross-file index shards
   written before the fix are rebuilt (#1875).
+- The same repair covers a nested body whose `}` directly follows its last member, such as
+  `class H { companion object { val X = 1}}` or `{ val X = 1}; val y = 2 }`, which still lost every finding in the
+  file. With no space to hold the `;`, krit inserts one, reparses, and maps the tree's byte offsets, rows and columns
+  back to the source, so finding positions, `@Suppress` scopes and autofix ranges are those of the file. Parse-cache
+  entries and cross-file index shards written before the fix are rebuilt (#1866).
 - `--no-cache` skips every cache that can change findings. A one-shot scan read the cross-file findings cache, so a
   stale entry replayed into the run warm results are checked against; it now skips that cache and also the cross-file
   index, resource index, file-walk, tracked-files and incremental oracle caches. With the type oracle on, every

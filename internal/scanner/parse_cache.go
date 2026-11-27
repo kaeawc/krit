@@ -178,7 +178,9 @@ func treeSitterDepVersion() string {
 // the file into an ERROR node (#1839).
 // 3: the same repair covers a one-line nested body followed by ';' and more
 // members (#1875).
-const kotlinTreeRepairRevision = 3
+// 4: the repair also covers a nested body whose '}' follows its last member
+// with no space, by inserting the ';' and mapping offsets back (#1866).
+const kotlinTreeRepairRevision = 4
 
 // KotlinGrammarVersion returns a stable identifier for the tree-sitter
 // Kotlin grammar binding in use. The SymbolCount is appended so a

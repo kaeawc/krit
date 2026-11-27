@@ -482,6 +482,25 @@ Cases whose resources AGP cannot compile carry `lint-standalone.txt` and are rec
   from literal assignments in the module's build script (or the manifest package); without a namespace the check is
   skipped.
 
+## Android Lint Manifest and Resource Checks (storage, themes, splash screens)
+
+Ports of Android Lint 32.4.1 checks with recorded Lint output under `tests/fixtures/android-lint/<RuleID>/`:
+
+- `ScopedStorage` (warning) reports `READ_EXTERNAL_STORAGE` / `WRITE_EXTERNAL_STORAGE` by the effective SDK
+  (`min(targetSdk, maxSdkVersion)`): deprecated from 33, write access lost from 29 (from 30 with
+  `requestLegacyExternalStorage`), nothing when `MANAGE_EXTERNAL_STORAGE` is also requested. `MANAGE_EXTERNAL_STORAGE`
+  itself always reports the Play policy message. `tools:node="remove"` entries are skipped.
+- `SelectableText` (opt-in, as in Lint) reports a `<TextView>` with an `android:id` and no `android:text`,
+  `textIsSelectable`, `visibility` or `onClick`.
+- `CustomSplashScreen` (warning, Kotlin and Java, target SDK 31+) reports a class whose name contains SplashScreen,
+  SplashActivity, LaunchActivity or LaunchScreen (any case) and extends an Activity, an AndroidX or support Fragment,
+  or a View.
+- `VectorDrawableCompat` (error) applies below a literal `minSdk` 21: with `vectorDrawables.useSupportLibrary = true`,
+  `android:src` naming a vector drawable; without it, `app:srcCompat` naming one.
+- `TranslucentOrientation` (warning, target SDK 26+) reports the first `android:windowIsFloating` (or un-prefixed
+  `windowIsTranslucent`, matching Lint) item of a style used by an activity with a fixed portrait or landscape
+  orientation, or of the application theme when such an activity has no theme. `setTheme()` calls are not followed.
+
 ## AndroidX Library Lint Checks
 
 Lint loads the checks bundled in an AndroidX AAR only when that AAR is on the module's classpath. Krit's ports of

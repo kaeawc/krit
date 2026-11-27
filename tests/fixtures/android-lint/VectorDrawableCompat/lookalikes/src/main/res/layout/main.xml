@@ -1,0 +1,9 @@
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+    <ImageView android:layout_width="wrap_content" android:layout_height="wrap_content" tools:srcCompat="@drawable/ic_vector" />
+    <ImageView android:layout_width="wrap_content" android:layout_height="wrap_content" app:srcCompat="@android:drawable/ic_menu_add" />
+    <ImageView android:layout_width="wrap_content" android:layout_height="wrap_content" app:srcCompat="@drawable/ic_vector" />
+</LinearLayout>

@@ -71,19 +71,31 @@ func (fps *resDirFingerprints) fingerprint(resDir string) string {
 	return fp
 }
 
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
 // resDirBuildScriptFingerprint fingerprints the build script of the module that owns resDir (`<module>/src/<set>/res`
-// or `<module>/res`) and the nearest gradle/libs.versions.toml above it, or returns "" when neither exists.
+// or `<module>/res`), the nearest gradle/libs.versions.toml and settings script above it, or returns "" when none
+// exists.
 func resDirBuildScriptFingerprint(resDir string) string {
 	module := filepath.Dir(resDir)
 	if filepath.Base(filepath.Dir(module)) == "src" {
 		module = filepath.Dir(filepath.Dir(module))
 	}
 	paths := []string{filepath.Join(module, "build.gradle.kts"), filepath.Join(module, "build.gradle")}
-	for dir, depth := module, 0; depth < 8; dir, depth = filepath.Dir(dir), depth+1 {
-		catalog := filepath.Join(dir, "gradle", "libs.versions.toml")
-		if _, err := os.Stat(catalog); err == nil {
-			paths = append(paths, catalog)
-			break
+	// The nearest version catalog and settings script above the module: VectorDrawableCompat names the module's
+	// Gradle path, which the settings script decides.
+	catalog, settings := false, false
+	for dir, depth := module, 0; depth < 8 && (!catalog || !settings); dir, depth = filepath.Dir(dir), depth+1 {
+		if p := filepath.Join(dir, "gradle", "libs.versions.toml"); !catalog && fileExists(p) {
+			paths, catalog = append(paths, p), true
+		}
+		for _, name := range []string{"settings.gradle.kts", "settings.gradle"} {
+			if p := filepath.Join(dir, name); !settings && dir != module && fileExists(p) {
+				paths, settings = append(paths, p), true
+			}
 		}
 		if parent := filepath.Dir(dir); parent == dir {
 			break

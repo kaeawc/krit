@@ -26,6 +26,27 @@ var defaultScanArgs = []string{
 	"--perf", "--perf-rules", "-f", "json", "-q",
 }
 
+// firScanArgs is the FIR scan the guard times with -fir (#1729): FIR and the
+// type oracle on, in one-shot JVMs (no krit daemon, no persistent krit-fir
+// daemon, no oracle cache), so base and head never share a warm JVM or reuse
+// each other's compiles. runKrit also gives every run a fresh KRIT_STATE_DIR.
+var firScanArgs = []string{
+	"--fir", "--no-fir-daemon", "--no-daemon",
+	"--no-cache", "--no-parse-cache", "--no-cross-file-cache", "--no-resource-cache", "--no-cache-oracle",
+	"--perf", "--perf-rules", "-f", "json", "-q",
+}
+
+// side is one binary under test and the environment it runs with (a FIR run
+// sets its own KRIT_FIR_JAR, so base and head each use their krit-fir).
+type side struct {
+	Bin string
+	Env []string
+	// FIR requires each run to report files FIR analyzed, and runs it with a
+	// fresh KRIT_STATE_DIR: a FIR timing without FIR (no jar, no JDK) or
+	// with another run's module compiles measures nothing.
+	FIR bool
+}
+
 // sample is one krit run: total wall time from the JSON report, per-phase
 // durations keyed by their path in perfTiming, and per-rule durations.
 type sample struct {
@@ -52,15 +73,31 @@ type kritReport struct {
 	DurationMs    float64    `json:"durationMs"`
 	PerfTiming    []perfNode `json:"perfTiming"`
 	PerfRuleStats []perfRule `json:"perfRuleStats"`
+	Summary       struct {
+		Fir *struct {
+			Authoritative int `json:"authoritative"`
+		} `json:"fir"`
+	} `json:"summary"`
 }
 
 func parseSample(data []byte) (sample, error) {
+	s, _, err := parseReport(data)
+	return s, err
+}
+
+// parseReport is parseSample plus the number of files FIR analyzed
+// (summary.fir.authoritative; 0 when FIR did not run).
+func parseReport(data []byte) (sample, int, error) {
 	var r kritReport
 	if err := json.Unmarshal(data, &r); err != nil {
-		return sample{}, fmt.Errorf("parse krit JSON: %w", err)
+		return sample{}, 0, fmt.Errorf("parse krit JSON: %w", err)
 	}
 	if len(r.PerfTiming) == 0 {
-		return sample{}, errors.New("krit JSON has no perfTiming (was --perf passed?)")
+		return sample{}, 0, errors.New("krit JSON has no perfTiming (was --perf passed?)")
+	}
+	firFiles := 0
+	if r.Summary.Fir != nil {
+		firFiles = r.Summary.Fir.Authoritative
 	}
 	s := sample{
 		TotalMs: r.DurationMs,
@@ -74,7 +111,7 @@ func parseSample(data []byte) (sample, error) {
 		s.Rules[rule.Rule] += rule.DurationMs
 		s.Shares[rule.Rule] += rule.SharePct
 	}
-	return s, nil
+	return s, firFiles, nil
 }
 
 // flattenPhases keys every node by its slash-joined path. A phase that runs
@@ -102,23 +139,70 @@ func flattenPhases(prefix string, nodes []perfNode, out map[string]float64, leav
 // runKrit runs one scan and parses its report. krit exits 1 when it reports
 // findings, which is the normal case here.
 func runKrit(ctx context.Context, bin string, args []string, corpus string) (sample, error) {
-	if err := os.RemoveAll(filepath.Join(corpus, ".krit")); err != nil {
+	return runSide(ctx, side{Bin: bin}, args, corpus)
+}
+
+// runSide is runKrit for one side: its environment, and under FIR a fresh
+// state directory and the check that FIR analyzed files.
+func runSide(ctx context.Context, sd side, args []string, corpus string) (sample, error) {
+	if err := removeState(corpus); err != nil {
 		return sample{}, err
 	}
 	full := append(append([]string{}, args...), corpus)
-	cmd := exec.CommandContext(ctx, bin, full...)
+	cmd := exec.CommandContext(ctx, sd.Bin, full...)
+	cmd.Env = append(os.Environ(), sd.Env...)
+	if sd.FIR {
+		state, err := os.MkdirTemp("", "perfguard-state-*")
+		if err != nil {
+			return sample{}, err
+		}
+		defer os.RemoveAll(state)
+		cmd.Env = append(cmd.Env, "KRIT_STATE_DIR="+state, "KRIT_NO_JAR_DOWNLOAD=1", "KRIT_NO_DAEMON_AUTOSTART=1")
+	}
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	err := cmd.Run()
 	var exitErr *exec.ExitError
 	if err != nil && (!errors.As(err, &exitErr) || exitErr.ExitCode() != 1) {
-		return sample{}, fmt.Errorf("%s %v: %w\n%s", bin, full, err, tail(stderr.String(), 2000))
+		return sample{}, fmt.Errorf("%s %v: %w\n%s", sd.Bin, full, err, tail(stderr.String(), 2000))
 	}
-	s, perr := parseSample(stdout.Bytes())
+	s, firFiles, perr := parseReport(stdout.Bytes())
 	if perr != nil {
-		return sample{}, fmt.Errorf("%s on %s: %w\n%s", bin, corpus, perr, tail(stderr.String(), 2000))
+		return sample{}, fmt.Errorf("%s on %s: %w\n%s", sd.Bin, corpus, perr, tail(stderr.String(), 2000))
+	}
+	if sd.FIR && firFiles == 0 {
+		return sample{}, fmt.Errorf("%s on %s: FIR analyzed no file (summary.fir.authoritative is 0); is the krit-fir jar (KRIT_FIR_JAR) and a JDK 21 available?\n%s",
+			sd.Bin, corpus, tail(stderr.String(), 2000))
 	}
 	return s, nil
+}
+
+// removeState deletes the corpus's .krit directory, the caches a previous run
+// left, so every run is cold. An exported build model there (gradle-model,
+// bazel-model) is input, not state, and stays.
+func removeState(corpus string) error {
+	dir := filepath.Join(corpus, ".krit")
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	kept := false
+	for _, e := range entries {
+		if e.Name() == "gradle-model" || e.Name() == "bazel-model" {
+			kept = true
+			continue
+		}
+		if err := os.RemoveAll(filepath.Join(dir, e.Name())); err != nil {
+			return err
+		}
+	}
+	if !kept {
+		return os.Remove(dir)
+	}
+	return nil
 }
 
 func tail(s string, n int) string {
@@ -193,40 +277,37 @@ func summarize(ss series) summary {
 // measureInterleaved runs warmup scans, then alternates base and head for
 // the given rounds, flipping the order every round so neither binary always
 // runs first. Both sides see the same runner, page cache and CPU state.
-func measureInterleaved(ctx context.Context, base, head string, args []string, corpus string, rounds int, logf func(string, ...any)) (series, series, error) {
-	for _, bin := range []string{base, head} {
-		if _, err := runKrit(ctx, bin, args, corpus); err != nil {
+func measureInterleaved(ctx context.Context, base, head side, args []string, corpus string, rounds int, logf func(string, ...any)) (series, series, error) {
+	for _, sd := range []side{base, head} {
+		if _, err := runSide(ctx, sd, args, corpus); err != nil {
 			return nil, nil, fmt.Errorf("warmup: %w", err)
 		}
 	}
 	var bs, hs series
 	for r := 0; r < rounds; r++ {
-		order := []string{base, head}
+		order := []bool{true, false}
 		if r%2 == 1 {
-			order = []string{head, base}
+			order = []bool{false, true}
 		}
-		for _, bin := range order {
+		for _, isBase := range order {
+			sd, name := head, "head"
+			if isBase {
+				sd, name = base, "base"
+			}
 			start := time.Now()
-			s, err := runKrit(ctx, bin, args, corpus)
+			s, err := runSide(ctx, sd, args, corpus)
 			if err != nil {
 				return nil, nil, err
 			}
-			if bin == base {
+			if isBase {
 				bs = append(bs, s)
 			} else {
 				hs = append(hs, s)
 			}
-			logf("  round %d %s: %.0fms (wall %s)", r+1, sideName(bin, base), s.TotalMs, time.Since(start).Round(time.Millisecond))
+			logf("  round %d %s: %.0fms (wall %s)", r+1, name, s.TotalMs, time.Since(start).Round(time.Millisecond))
 		}
 	}
 	return bs, hs, nil
-}
-
-func sideName(bin, base string) string {
-	if bin == base {
-		return "base"
-	}
-	return "head"
 }
 
 func measure(ctx context.Context, bin string, args []string, corpus string, rounds int) (series, error) {

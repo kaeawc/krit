@@ -590,6 +590,40 @@ and rules with their deltas and the rules new in head, so reviewers see
 what a rule port costs. When a regression is real but intended, say why in
 the PR. The gates are flags on `perfguard compare` / `perfguard scale`.
 
+### FIR and the type oracle (`perf-guard-fir`)
+
+The `perf-guard-fir` job (#1729; `scripts/perf-guard.sh --fir` locally,
+with a JDK 21) times the JVM work the source-only job leaves out. Base and
+head each run the krit-fir jar built from their own sources
+(`scripts/build-dev-jar.sh`, one jar per source hash, cached in CI), so a
+krit-fir change is timed as well as a Go orchestration change. Every scan is
+`--fir --no-fir-daemon --no-daemon --no-cache-oracle` with every other cache
+off, in its own fresh `KRIT_STATE_DIR`: each run starts its own JVMs and
+shares no compile with the other binary. A run in which FIR analyzed no
+file (no jar, no JDK) fails the job instead of timing nothing.
+
+The corpus is generated: `perfguard gen -kind jvm` writes a JVM-only
+project, a `core` module and 8 feature modules of 20 files that extend and
+call it, with a Gradle model under `.krit/gradle-model`. It needs no Android
+SDK, Gradle run or network, and it stays authoritative for FIR (no compile
+errors), so the FIR check covers every file. Its compile is about 19s per run
+on a 4-core machine; the FIR check rides on the type oracle's compile, so
+`typeOracle/jvmAnalyze/oracleProcess` holds both.
+
+| Metric | Gate |
+|---|---|
+| Total `durationMs` | > 15% and >= 2000ms |
+| A `perfTiming` phase | > 25% and >= 1500ms |
+| Rules | not gated |
+
+Rules are not gated here: their timing is Go dispatch, which the source-only
+job gates, and under FIR a one-time cost of a few hundred milliseconds
+(loading the oracle's facts) lands on whichever rule asks first, so it moves
+between rules in identical runs. Locally an A/A run agreed within 2% on the
+total and on `oracleProcess`, and a JVM held to one CPU
+(`KRIT_ORACLE_EXTRA_JVM_ARGS=-XX:ActiveProcessorCount=1`, about 16% slower)
+failed the total gate.
+
 ## When to file a perf issue
 
 If a warm-daemon `analyze-project` takes more than ~300ms on a mid-sized repo,

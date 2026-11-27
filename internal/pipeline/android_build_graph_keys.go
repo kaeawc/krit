@@ -221,10 +221,66 @@ func manifestGradleInfoFingerprint(project *android.Project) string {
 }
 
 func computeManifestGradleInfoFingerprint(manifests []string) string {
-	memo := hashutil.Default()
-	workers := sysres.CPUs()
+	return newGradleInfoResolver().fingerprint(manifests, sysres.CPUs())
+}
+
+// gradleInfoResolver resolves, once each, what computeManifestGradleInfoFingerprint reads for a manifest or lookup
+// path: the build script it reads (rules.ManifestBuildScript) and, for each script with catalog aliases,
+// librarymodel's catalog sources for it. One resolver serves every fingerprint of a run that shares it,
+// such as the per-res-directory build-info keys (#1943). It is safe for concurrent use.
+type gradleInfoResolver struct {
+	memo      *hashutil.Memo
+	discovery *librarymodel.CatalogDiscovery
+	scripts   sync.Map // manifest or lookup path -> the build script it reads, "" for none
+	reads     sync.Map // build script -> gradleScriptReads
+}
+
+// gradleScriptReads is what a build script's aliases read beyond the script.
+type gradleScriptReads struct {
+	library      string // the script with librarymodel's catalog sources for it
+	libraryPaths []string
+}
+
+func newGradleInfoResolver() *gradleInfoResolver {
+	return &gradleInfoResolver{memo: hashutil.Default(), discovery: librarymodel.NewCatalogDiscovery()}
+}
+
+func (r *gradleInfoResolver) script(manifest string) string {
+	if script, ok := r.scripts.Load(manifest); ok {
+		return script.(string)
+	}
+	script, _ := r.scripts.LoadOrStore(manifest, rules.ManifestBuildScript(manifest))
+	return script.(string)
+}
+
+func (r *gradleInfoResolver) scriptReads(script string) gradleScriptReads {
+	if reads, ok := r.reads.Load(script); ok {
+		return reads.(gradleScriptReads)
+	}
+	var reads gradleScriptReads
+	if content, err := readThroughMemo(r.memo, script); err == nil {
+		if pluginAliases, dependencyAliases := rules.BuildScriptCatalogReads(string(content)); pluginAliases || dependencyAliases {
+			entry := script
+			sources, _ := r.discovery.FindVersionCatalogSourcesForGradlePath(script)
+			for _, source := range sources {
+				entry += "\x00" + string(source.Kind) + "\x00" + source.Path + "\x00" + source.Accessor
+				if source.Shadowed {
+					entry += "\x00shadowed"
+				}
+				reads.libraryPaths = append(reads.libraryPaths, source.Path)
+			}
+			reads.library = entry
+		}
+	}
+	stored, _ := r.reads.LoadOrStore(script, reads)
+	return stored.(gradleScriptReads)
+}
+
+// fingerprint hashes what readManifestGradleInfo reads for the manifests (see manifestGradleInfoFingerprint),
+// resolving them across workers.
+func (r *gradleInfoResolver) fingerprint(manifests []string, workers int) string {
 	scripts := make([]string, len(manifests))
-	forEachParallel(len(manifests), workers, func(i int) { scripts[i] = rules.ManifestBuildScript(manifests[i]) })
+	forEachParallel(len(manifests), workers, func(i int) { scripts[i] = r.script(manifests[i]) })
 	owners := make([]string, len(manifests))
 	var unique []string
 	seen := map[string]bool{}
@@ -235,40 +291,16 @@ func computeManifestGradleInfoFingerprint(manifests []string) string {
 			unique = append(unique, script)
 		}
 	}
-	discovery := librarymodel.NewCatalogDiscovery()
-	type scriptReads struct {
-		library      string // the script with librarymodel's catalog sources for it
-		libraryPaths []string
-	}
-	reads := make([]scriptReads, len(unique))
-	forEachParallel(len(unique), workers, func(i int) {
-		script := unique[i]
-		content, err := readThroughMemo(memo, script)
-		if err != nil {
-			return
-		}
-		if pluginAliases, dependencyAliases := rules.BuildScriptCatalogReads(string(content)); !pluginAliases && !dependencyAliases {
-			return
-		}
-		entry := script
-		sources, _ := discovery.FindVersionCatalogSourcesForGradlePath(script)
-		for _, source := range sources {
-			entry += "\x00" + string(source.Kind) + "\x00" + source.Path + "\x00" + source.Accessor
-			if source.Shadowed {
-				entry += "\x00shadowed"
-			}
-			reads[i].libraryPaths = append(reads[i].libraryPaths, source.Path)
-		}
-		reads[i].library = entry
-	})
+	reads := make([]gradleScriptReads, len(unique))
+	forEachParallel(len(unique), workers, func(i int) { reads[i] = r.scriptReads(unique[i]) })
 	catalogSet := map[string]bool{}
 	var librarySources []string
-	for _, r := range reads {
-		for _, catalog := range r.libraryPaths {
+	for _, read := range reads {
+		for _, catalog := range read.libraryPaths {
 			catalogSet[catalog] = true
 		}
-		if r.library != "" {
-			librarySources = append(librarySources, r.library)
+		if read.library != "" {
+			librarySources = append(librarySources, read.library)
 		}
 	}
 	h := hashutil.Hasher().New()
@@ -278,14 +310,14 @@ func computeManifestGradleInfoFingerprint(manifests []string) string {
 		_, _ = h.Write([]byte(owner + "\x01"))
 	}
 	sort.Strings(unique)
-	writeUnscannedFileHashes(h, memo, unique, nil)
+	writeUnscannedFileHashes(h, r.memo, unique, nil)
 	_, _ = h.Write([]byte("catalog-sources\x00"))
 	sort.Strings(librarySources)
 	for _, entry := range librarySources {
 		_, _ = h.Write([]byte(entry + "\x01"))
 	}
 	_, _ = h.Write([]byte("catalogs\x00"))
-	writeUnscannedFileHashes(h, memo, sortedKeys(catalogSet), nil)
+	writeUnscannedFileHashes(h, r.memo, sortedKeys(catalogSet), nil)
 	return hex.EncodeToString(h.Sum(nil))
 }
 

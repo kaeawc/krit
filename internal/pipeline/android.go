@@ -62,6 +62,9 @@ type AndroidInput struct {
 	// ruleSources is the run's shared view of the whole source set, installed
 	// by withResourceRuleSources.
 	ruleSources *resourceRuleSources
+	// buildInfoKeys computes the build-info parts of the run's resource keys once, installed by
+	// withResourceBuildInfoKeys.
+	buildInfoKeys *resourceBuildInfoKeys
 	// Providers is an optional async scan provider bundle. When nil,
 	// Run constructs one lazily using sysres.CPUs() workers.
 	Providers *AndroidProjectProviders
@@ -1861,6 +1864,7 @@ func (p AndroidPhase) Run(ctx context.Context, in AndroidInput) (AndroidResult, 
 	in = in.withDescribedViewNames()
 	in = in.withResourceCodeRefs()
 	in = in.withResourceRuleSources()
+	in = in.withResourceBuildInfoKeys()
 
 	collector := scanner.NewFindingCollector(len(in.Project.ManifestPaths)*4 + len(in.Project.ResDirs)*8 + len(in.Project.GradlePaths)*4)
 	projectPanicCount := projectRulePanicCount(in.Dispatcher)

@@ -27,6 +27,17 @@ type ResourceBuildInfoReads struct {
 	Files []string
 }
 
+// ResourceBuildInfoLocalReader is a ResourceBuildInfoReader whose findings for a res directory depend only on what it
+// reads for that directory, ResourceBuildInfoReads(resDir), and not on its reads for the project's other res
+// directories. Each res directory's cache entry then keys on those reads alone, so an edit of one module's build
+// script re-runs the rule for that module's res directories only (#1943). A reader that does not implement it, such as
+// the unused-resource graph that scans the files beside every res root, has every res directory keyed on its reads
+// for all of them.
+type ResourceBuildInfoLocalReader interface {
+	ResourceBuildInfoReader
+	ResourceBuildInfoReadsAreLocal()
+}
+
 // ResourceBuildInfoReadersOf returns the IDs and readers of the active resource rules that read build files for a
 // res directory (ResourceBuildInfoReader), in rule order; none when no such rule is active.
 func ResourceBuildInfoReadersOf(active []*api.Rule) (ids []string, readers []ResourceBuildInfoReader) {
@@ -151,3 +162,21 @@ func (r *UnusedResourcesRule) ResourceBuildInfoReads(resDir string) ResourceBuil
 func (r *UnusedIDsRule) ResourceBuildInfoReads(resDir string) ResourceBuildInfoReads {
 	return ResourceBuildInfoReads{Files: unusedResourceRootFiles(resDir)}
 }
+
+// ResourceBuildInfoReadsAreLocal: it looks up the module of the layouts of the res directory it runs on.
+func (r *LibraryCustomViewRule) ResourceBuildInfoReadsAreLocal() {}
+
+// ResourceBuildInfoReadsAreLocal: the minSdk is that of the res directory's own module.
+func (r *LabelForResourceRule) ResourceBuildInfoReadsAreLocal() {}
+
+// ResourceBuildInfoReadsAreLocal: the minSdk is that of the res directory's own module.
+func (r *UnusedAttributeResourceRule) ResourceBuildInfoReadsAreLocal() {}
+
+// ResourceBuildInfoReadsAreLocal: it reads the manifest and target SDK of the res directory's own module.
+func (r *TranslucentOrientationRule) ResourceBuildInfoReadsAreLocal() {}
+
+// ResourceBuildInfoReadsAreLocal: it reads the identity of the res directory's own module.
+func (r *RelativeClassResolutionRule) ResourceBuildInfoReadsAreLocal() {}
+
+// ResourceBuildInfoReadsAreLocal: it reads the res directory's own module and the settings script that names it.
+func (r *VectorDrawableCompatRule) ResourceBuildInfoReadsAreLocal() {}

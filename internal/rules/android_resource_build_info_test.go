@@ -13,7 +13,9 @@ import (
 // The resource rules that read build files beyond the res files (lookupManifestGradleInfo, readManifestGradleInfo,
 // resourceModuleMinSdk, moduleIdentityForRes, moduleVectorSettingsForRes, buildResourceGraph) declare it, so the
 // resource caches key on what they read (#1883). A new reader must join this list and implement
-// ResourceBuildInfoReader.
+// ResourceBuildInfoReader; make lint-rules fails when a resource rule reaches one of ruleslinter.BuildInfoHelpers
+// without it (#1943). All but the unused-resource graph, which spans every res root, read for a res directory only
+// what its own findings depend on (ResourceBuildInfoLocalReader).
 func TestResourceBuildInfoReaders(t *testing.T) {
 	want := []string{
 		"LabelForResource", "LibraryCustomView", "RelativeClassResolution", "TranslucentOrientation",
@@ -33,10 +35,23 @@ func TestResourceBuildInfoReaders(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("ResourceBuildInfoReader rules = %v, want %v", got, want)
 	}
-	ids, _ := ResourceBuildInfoReadersOf(api.Registry)
+	ids, readers := ResourceBuildInfoReadersOf(api.Registry)
+	var local []string
+	for i, reader := range readers {
+		if _, ok := reader.(ResourceBuildInfoLocalReader); ok {
+			local = append(local, ids[i])
+		}
+	}
 	sort.Strings(ids)
 	if !reflect.DeepEqual(ids, want) {
 		t.Fatalf("ResourceBuildInfoReadersOf(registry) = %v, want %v", ids, want)
+	}
+	sort.Strings(local)
+	if wantLocal := []string{
+		"LabelForResource", "LibraryCustomView", "RelativeClassResolution", "TranslucentOrientation",
+		"UnusedAttributeResource", "VectorDrawableCompat",
+	}; !reflect.DeepEqual(local, wantLocal) {
+		t.Fatalf("ResourceBuildInfoLocalReader rules = %v, want %v", local, wantLocal)
 	}
 }
 

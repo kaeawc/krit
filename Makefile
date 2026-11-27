@@ -43,9 +43,15 @@ hooks:
 #     grandfathered; new ones must classify)
 #   - fix-mode-mutual-exclusion: every registered rule must declare exactly
 #     one fix mode (autofix XOR suggested), see docs/suggested-fixes.md
+#   - build-info-reader: a resource rule whose check functions reach a
+#     build-file helper (ruleslinter.BuildInfoHelpers) must implement
+#     rules.ResourceBuildInfoReader; resource-source and icon rules must not
+#     reach one (type-checked call graph in internal/ruleslinter/buildinfo.go,
+#     run over api.Registry by TestRulesPackageReadersDeclareBuildInfo in
+#     internal/rules)
 lint-rules:
-	go test ./internal/ruleslinter/ -run 'TestRulesPackageHasNoCapabilityDrift|TestRulesPackageHasNoNewAdHocCaches|TestRulesPackageHasOptInReasons|TestRulesPackageHasNoDefensiveContextGuards' -count=1
-	go test ./internal/rules/ -run 'TestRulesWithTypeInfoDeclareExplicitJavaSupport|TestRegistryFixModeIsValid|TestRegistryFixModeIsObservable' -count=1
+	go test ./internal/ruleslinter/ -run 'TestRulesPackageHasNoCapabilityDrift|TestRulesPackageHasNoNewAdHocCaches|TestRulesPackageHasOptInReasons|TestRulesPackageHasNoDefensiveContextGuards|TestAnalyzeBuildInfoReach' -count=1
+	go test ./internal/rules/ -run 'TestRulesWithTypeInfoDeclareExplicitJavaSupport|TestRegistryFixModeIsValid|TestRegistryFixModeIsObservable|TestRulesPackageReadersDeclareBuildInfo' -count=1
 
 lint: build
 	./krit --no-fir .

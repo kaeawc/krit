@@ -8,8 +8,11 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/kaeawc/krit/internal/android"
@@ -489,6 +492,12 @@ type warmAnalysisCachePlan struct {
 	// findings. Misreading this flag emits 0 findings on warm+ABI
 	// when the analysis-cache lexically-irrelevant fallback fires.
 	crossIsFullBundle bool
+	// crossChecked records that the plan already ran loadWarmCrossFindings,
+	// and crossAllowed its verdict: the parse phase asks again, and with
+	// unchanged inputs a refusal would repeat the Java collection, the meta
+	// load and the content hashing (#1850).
+	crossChecked bool
+	crossAllowed bool
 }
 
 // ProjectInput is the value type that drives RunProject. The split
@@ -1305,7 +1314,7 @@ func runProjectParsePhase(ctx context.Context, args ProjectArgs, host ProjectHos
 	}
 	allowCrossFile := warm.cross != nil
 	if !allowCrossFile {
-		allowCrossFile, _ = loadWarmCrossFindings(args, host, warm)
+		allowCrossFile, _ = warmCrossVerdict(args, host, warm)
 	}
 	allowResourceSource := allowWarmResourceSourceDelta(args, host, warm)
 	missOnly := CanParseOnlyCacheMisses(args.ActiveRules, warm.result, warm.result != nil, allowCrossFile, allowResourceSource)
@@ -1415,10 +1424,21 @@ func buildWarmAnalysisCachePlan(args ProjectArgs, host ProjectHostState) warmAna
 		kotlinPaths: kotlinPaths,
 		javaPaths:   javaPaths,
 	}
-	if ok, cols := loadWarmCrossFindings(args, host, plan); ok {
+	ok, cols := loadWarmCrossFindings(args, host, plan)
+	plan.crossChecked, plan.crossAllowed = true, ok
+	if ok {
 		plan.cross = cols
 	}
 	return plan
+}
+
+// warmCrossVerdict is loadWarmCrossFindings for warm, reusing the verdict the
+// plan recorded when it has one.
+func warmCrossVerdict(args ProjectArgs, host ProjectHostState, warm warmAnalysisCachePlan) (bool, *scanner.FindingColumns) {
+	if warm.crossChecked {
+		return warm.crossAllowed, warm.cross
+	}
+	return loadWarmCrossFindings(args, host, warm)
 }
 
 func warmAnalysisCacheResult(args ProjectArgs, host ProjectHostState, filePaths []string, ruleHash string) (*cache.Result, *cache.Stats) {
@@ -1505,7 +1525,7 @@ func canSkipRunProjectParse(args ProjectArgs, host ProjectHostState, warm warmAn
 	allowCrossFile := warm.cross != nil
 	if !allowCrossFile {
 		var loaded *scanner.FindingColumns
-		allowCrossFile, loaded = loadWarmCrossFindings(args, host, warm)
+		allowCrossFile, loaded = warmCrossVerdict(args, host, warm)
 		warm.cross = loaded
 	}
 	allowResourceSource := allowWarmResourceSourceDelta(args, host, warm)
@@ -1516,7 +1536,14 @@ func canSkipRunProjectParse(args ProjectArgs, host ProjectHostState, warm warmAn
 	return true
 }
 
+// testHookLoadWarmCrossFindings, when set by a test, runs on every
+// loadWarmCrossFindings call.
+var testHookLoadWarmCrossFindings func()
+
 func loadWarmCrossFindings(args ProjectArgs, host ProjectHostState, warm warmAnalysisCachePlan) (bool, *scanner.FindingColumns) {
+	if testHookLoadWarmCrossFindings != nil {
+		testHookLoadWarmCrossFindings()
+	}
 	if !RulesNeedCrossOrParsedFiles(args.ActiveRules) {
 		return true, nil
 	}
@@ -1532,7 +1559,8 @@ func loadWarmCrossFindings(args ProjectArgs, host ProjectHostState, warm warmAna
 	// cache hit (or a lexically irrelevant miss), and so can a file returned
 	// to an earlier version (#1820), so compare the indexed Kotlin/Java paths
 	// and contents with the current ones before any reuse.
-	if !meta.CoversSourcePaths(crossIndexSourcePaths(args, warm), warmSourceHash(warm)) {
+	sourcePaths := crossIndexSourcePaths(args, warm)
+	if !coversWarmSources(meta, sourcePaths, warm) {
 		return false, nil
 	}
 	// XML layouts, manifests and navigation graphs feed class references into
@@ -4471,11 +4499,23 @@ func warmXMLFiles(host ProjectHostState, warm warmAnalysisCachePlan) []*scanner.
 // check decides those. A path outside the per-file set (Java, when no rule
 // needs it before dispatch) is hashed from disk; a Java edit leaves every
 // Kotlin entry valid.
-func warmSourceHash(warm warmAnalysisCachePlan) func(string) string {
+func warmSourceHash(warm warmAnalysisCachePlan, paths []string) func(string) string {
 	analyzed := make(map[string]bool, len(warm.filePaths))
 	for _, p := range warm.filePaths {
 		analyzed[p] = true
 	}
+	// Hash the paths outside the per-file set up front, in parallel: on a
+	// Java-heavy project they are most of the sources.
+	var outside []string
+	for _, p := range paths {
+		if warm.result != nil {
+			if _, ok := warm.result.CachedHashes[p]; ok || analyzed[p] {
+				continue
+			}
+		}
+		outside = append(outside, p)
+	}
+	disk := hashSourceFiles(outside)
 	return func(path string) string {
 		if warm.result != nil {
 			if hash, ok := warm.result.CachedHashes[path]; ok {
@@ -4485,13 +4525,61 @@ func warmSourceHash(warm warmAnalysisCachePlan) func(string) string {
 				return ""
 			}
 		}
-		hash, err := hashutil.Default().HashFile(path, nil)
-		if err != nil {
-			// Unreadable: report a hash no entry has, so reuse is refused.
-			return "unreadable-source-file"
+		if hash, ok := disk[path]; ok {
+			return hash
 		}
-		return hash
+		return hashSourceFile(path)
 	}
+}
+
+// coversWarmSources reports whether meta's index was built from exactly
+// paths, at their current content. A changed path set rejects reuse without
+// reading a file, so it is checked before warmSourceHash hashes them all.
+func coversWarmSources(meta scanner.CrossFileCacheMeta, paths []string, warm warmAnalysisCachePlan) bool {
+	return meta.CoversSourcePaths(paths, nil) && meta.CoversSourcePaths(paths, warmSourceHash(warm, paths))
+}
+
+// testHookHashSourceFiles, when set by a test, sees every hashSourceFiles batch.
+var testHookHashSourceFiles func(paths []string)
+
+// hashSourceFiles returns hashSourceFile for each of paths, hashed on
+// GOMAXPROCS workers.
+func hashSourceFiles(paths []string) map[string]string {
+	if testHookHashSourceFiles != nil {
+		testHookHashSourceFiles(paths)
+	}
+	hashes := make([]string, len(paths))
+	workers := runtime.GOMAXPROCS(0)
+	if workers > len(paths) {
+		workers = len(paths)
+	}
+	var next atomic.Int64
+	var wg sync.WaitGroup
+	for w := 0; w < workers; w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := int(next.Add(1) - 1); i < len(paths); i = int(next.Add(1) - 1) {
+				hashes[i] = hashSourceFile(paths[i])
+			}
+		}()
+	}
+	wg.Wait()
+	out := make(map[string]string, len(paths))
+	for i, p := range paths {
+		out[p] = hashes[i]
+	}
+	return out
+}
+
+// hashSourceFile returns path's content hash, or a hash no index entry has
+// when it cannot be read, so reuse is refused.
+func hashSourceFile(path string) string {
+	hash, err := hashutil.Default().HashFile(path, nil)
+	if err != nil {
+		return "unreadable-source-file"
+	}
+	return hash
 }
 
 // crossIndexSourcePaths returns the Kotlin and Java source paths the

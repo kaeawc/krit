@@ -26,6 +26,12 @@ type Dependency struct {
 // intentionally small: rules should consume derived Facts instead of parsing
 // Gradle files or version catalogs themselves.
 type ProjectProfile struct {
+	// InputBase is the directory the build files the profile was read from
+	// share. It is persisted with cached facts but left out of the
+	// fingerprint, which spells paths under it relative to it, so a checkout
+	// moved to another absolute path fingerprints the same (#1662).
+	InputBase string `json:",omitempty"`
+
 	MinSdkVersion     int
 	TargetSdkVersion  int
 	CompileSdkVersion int

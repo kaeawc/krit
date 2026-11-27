@@ -5,6 +5,9 @@ All notable changes to Krit will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- The per-file analysis cache (`.krit/cache`) survives a move to another absolute checkout path, such as a CI cache
+  restored into another agent's workspace. Paths under the repository are stored relative to it, and the cache file
+  name, rule hash and library facts fingerprint no longer include the checkout path (#1662).
 - Module-shard FIR sessions (source-set isolation, per-settings-group sessions) put the upstream project outputs from
   `--gradle-project-outputs` on the classpath, ahead of a jar at a conventional build path, instead of compiling those
   projects from source again (#1681).
@@ -90,6 +93,10 @@ All notable changes to Krit will be documented in this file.
   with `androidx.compose.animation` 1.13.0 (`animation-android`, `animation-core-android`), under their Lint IDs.
   Their findings match the Lint CLI running those releases' `lint.jar` on the inputs under
   `internal/rules/testdata/androidx_compose_animation/` (#1307, #1308, #1309, #1313).
+- `ScopedStorage`, `SelectableText`, `CustomSplashScreen`, `VectorDrawableCompat` and `TranslucentOrientation`, ports
+  of Android Lint 32.4.1's `ScopedStorageDetector`, `TextViewDetector` (SelectableText), `SplashScreenDetector`,
+  `VectorDrawableCompatDetector` and `TranslucentViewDetector` under their Lint IDs. Findings match Lint on 20
+  recorded project fixtures (#1259, #1273, #1266, #1288, #1279).
 - `StringEscaping`, `InvalidNavigation`, `ValidRestrictions` and `RelativeClassResolution`, ports of Android Lint
   32.4.1's `StringEscapeDetector`, `StartDestinationDetector`, `RestrictionsDetector` and
   `RelativeClassAttributeDetector` under their Lint IDs and severities. Findings match Lint on 17 recorded project
@@ -530,6 +537,10 @@ All notable changes to Krit will be documented in this file.
   expression body, or a lambda's last expression) outside `pointerInput`, `PointerInputEventHandler`, `coroutineScope`
   or a lambda declared `suspend PointerInputScope.() -> ...`; as in Lint, a qualified `scope.awaitPointerEventScope`
   is never reported (#1497, #1498).
+- `DoNotCallViewToString` and `InflationInItemDecoration`, slack-lints 0.11.1's View checks, in the opt-in
+  `slack-lint` rule set for Kotlin and Java: a `toString()` call resolving to a View subclass's override, and a
+  `LayoutInflater` or ViewBinding `inflate()` inside a `RecyclerView.ItemDecoration`. Findings match the Lint CLI on
+  `internal/rules/testdata/slack_lint/view_checks/` (#1435, #1436).
 - `ModifierFactoryExtensionFunction`, `ModifierFactoryReturnType`, `ModifierFactoryUnreferencedReceiver` and
   `ModifierParameter`, ported from `androidx.compose.ui:ui-android` 1.12.1 under their Lint IDs and checked against the
   Lint CLI on the same inputs. A declaration is checked when its declared type, or an expression body rooted at
@@ -628,6 +639,20 @@ All notable changes to Krit will be documented in this file.
   manifest and Wear tile-preview edits on the next request instead of after a restart. Those facts are read from disk
   and were memoized for the life of the long-lived analyzer, which also read whatever the daemon's last project run
   had cached. They now last for one request, as the version-catalog memo has since #1787 (#1788).
+- Warm runs follow version-catalog edits for every manifest rule. Manifest rules read whether a module is an app or a
+  library from its build script's `alias(libs.plugins...)` entries, resolved through `gradle/*.versions.toml`, and
+  whether it uses the SplashScreen library from its `libs.` dependency aliases, resolved through the catalogs the
+  library model finds (settings-declared ones included). Only `ProviderReadPermissionOnly`'s module-graph path keyed
+  those catalogs, so changing only the plugin id behind `alias(libs.plugins.mod)` from `com.android.application` to
+  `com.android.library` kept reporting `DataExtractionRules` on warm CLI and daemon runs while `--no-cache` did not.
+  Whenever a manifest or manifest-source rule is active, the per-manifest, manifest-bundle, Android project-bundle and
+  manifest-source keys and the findings-bundle fingerprint now hash the build script each manifest is read from and,
+  for a script with aliases, every directory its catalog search globbed, with what it found, and the catalogs found.
+  Catalogs no search reaches don't move the keys. On a 300-module project a no-op warm scan takes about 10 ms more
+  (#1853).
+- The manifest-source cache key canonicalizes every source-file hash to one width. It mixed the analysis cache's
+  16-hex hashes with the hash memo's 64-hex ones, so the same content gave different keys, and the first warm run after
+  a cold one, or a res-only edit after a source edit, re-ran the manifest-source rules (#1853).
 - A Kotlin file with a nested body closed on the same line as its last member, such as
   `class H { companion object { val X = 1 } }` or `class H { object O { const val X = 1 } }`, lost every finding.
   The grammar needs a separator before that `}`, and its error recovery turned the enclosing class and the rest of the
@@ -648,6 +673,15 @@ All notable changes to Krit will be documented in this file.
   background writer dropped top-level `<item type="id">` declarations and each plural `<item>`'s position, so a warm
   run lost `NotSiblingResource` findings on predeclared ids and reported plural-quantity findings on the `<plurals>`
   line (#1830).
+- Rule path heuristics read only the folders inside the scanned project (one with a VCS root, krit config or Gradle
+  settings): `InvalidPackageDeclaration`, `TestOnlyImportInProduction`, `MatchingDeclarationName`'s source-set check,
+  test-source detection, `nonProductionPathMarkers` and per-rule `excludes` globs. A package matched by folders above
+  the checkout (a clone named `app` holding `sub/` with `package app.sub`, or a parent folder named `kotlin`), a
+  checkout under a folder named like a test framework (`junit-kit/`, `test/`) or a `**/vendor/**` exclude matching a
+  parent folder used to change verdicts with the checkout path; the CLI, daemon, LSP and MCP now agree everywhere
+  (#1814).
+- `InvalidResourceFolderResource` reads the innermost `res/` folder of a layout path. A checkout under a folder ending in
+  `res` (`/builds/mres/...`) reported every layout as an invalid resource folder.
 - `MutableImplicitPendingIntent` follows more ways of building the intent, as Lint 32.4.1 does: `getActivities`
   intent arrays held in locals (`arrayOf`, a Java array initializer, and `arrayOfNulls(n)` / `new Intent[n]` of
   constant size whose elements are the last write to each index before the call), and `let`, `run` and `with`

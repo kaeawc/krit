@@ -239,6 +239,7 @@ var javaSupportReadiness = JavaSupportMatrix{
 		"StartActivityAndCollapseDeprecated":      {Status: api.LanguageSupportSupported, Fixtures: []string{"tests/fixtures/android-lint/StartActivityAndCollapseDeprecated/positive"}},
 		"TextConcatSpace":                         {Status: api.LanguageSupportSupported, Fixtures: []string{"tests/fixtures/android-lint/TextConcatSpace/positive"}},
 		"WrongCommentType":                        {Status: api.LanguageSupportSupported, Fixtures: []string{"tests/fixtures/android-lint/WrongCommentType/positive"}},
+		"CustomSplashScreen":                      {Status: api.LanguageSupportSupported, Fixtures: []string{"tests/fixtures/android-lint/CustomSplashScreen/positive"}},
 	},
 }
 

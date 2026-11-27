@@ -94,3 +94,42 @@ func TestVersionCatalogSearchStopsAtTheNearestCatalog(t *testing.T) {
 		t.Fatalf("matches = %v, want %v", matches, want)
 	}
 }
+
+// ManifestBuildScript is the script lookupManifestGradleInfo reads: the nearest candidate that exists, .kts first.
+func TestManifestBuildScriptIsTheOneRead(t *testing.T) {
+	root := t.TempDir()
+	manifest := filepath.Join(root, "app/src/main/AndroidManifest.xml")
+	writeModuleFile(t, root, "app/src/main/AndroidManifest.xml", "<manifest/>")
+	if got := ManifestBuildScript(manifest); got != "" {
+		t.Fatalf("no script: ManifestBuildScript = %q, want \"\"", got)
+	}
+	writeModuleFile(t, root, "build.gradle.kts", "")
+	writeModuleFile(t, root, "app/build.gradle", "")
+	writeModuleFile(t, root, "app/build.gradle.kts", "plugins { id(\"com.android.library\") }\n")
+	if got, want := ManifestBuildScript(manifest), filepath.Join(root, "app/build.gradle.kts"); got != want {
+		t.Fatalf("ManifestBuildScript = %q, want %q", got, want)
+	}
+	if !lookupManifestGradleInfo(manifest).isLibrary {
+		t.Fatal("lookupManifestGradleInfo did not read app/build.gradle.kts")
+	}
+}
+
+// BuildScriptCatalogReads gates the cache keys' catalog searches on the same aliases readManifestGradleInfo resolves
+// (#1853).
+func TestBuildScriptCatalogReads(t *testing.T) {
+	for _, test := range []struct {
+		content                          string
+		pluginAliases, dependencyAliases bool
+	}{
+		{"plugins { id(\"com.android.application\") }\n", false, false},
+		{"plugins { alias(libs.plugins.android.application) }\n", true, true},
+		{"plugins { alias(tools.plugins.android.application) }\n", true, false},
+		{"plugins { alias(libs.android.application) }\n", false, true},
+		{"dependencies { implementation(libs.core.splash) }\n", false, true},
+	} {
+		plugins, deps := BuildScriptCatalogReads(test.content)
+		if plugins != test.pluginAliases || deps != test.dependencyAliases {
+			t.Errorf("BuildScriptCatalogReads(%q) = %v, %v, want %v, %v", test.content, plugins, deps, test.pluginAliases, test.dependencyAliases)
+		}
+	}
+}

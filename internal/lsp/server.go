@@ -593,6 +593,9 @@ func (s *Server) loadConfigAndBuildDispatcher() {
 	// required by the TypeResolutionService acceptance criteria.
 	s.resolver = typeinfer.NewResolver()
 	s.analyzer = pipeline.NewSingleFileAnalyzer(nil, s.resolver)
+	if s.rootURI != "" {
+		s.analyzer.SetProjectRootFor([]string{uriToPath(s.rootURI)})
+	}
 	s.logInfo("dispatcher: %d active rules", len(s.analyzer.ActiveRules))
 }
 

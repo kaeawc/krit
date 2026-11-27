@@ -66,6 +66,11 @@ type Cache struct {
 	stringSlots  sync.Map // stringSlotKey -> any
 	// requestSlots holds RequestFact values, which ForgetRequestFacts drops.
 	requestSlots sync.Map // stringSlotKey -> any
+	// projectRoot is the root of the project this run scans, or "". Set
+	// before rules run; see SetProjectRoot.
+	projectRoot string
+	// projectPaths memoizes ProjectPath under projectRoot: path -> string.
+	projectPaths sync.Map
 }
 
 type stringSlotKey struct {
@@ -144,6 +149,40 @@ func NodeFact[T any](c *Cache, file *scanner.File, idx uint32, slot string, comp
 // NewCache returns a fresh, empty Cache. Use one Cache per analysis
 // run; lifetimes are bounded by the run, so no eviction is needed.
 func NewCache() *Cache { return &Cache{} }
+
+// SetProjectRoot records the root of the project this run scans. Rules read
+// directory names relative to it, so no verdict depends on the folders above
+// the checkout, which differ between machines and CI agents (#1814). Call it
+// before any rule runs.
+func (c *Cache) SetProjectRoot(root string) {
+	if c != nil && c.projectRoot != root {
+		c.projectRoot = root
+		c.projectPaths.Clear()
+	}
+}
+
+// ProjectPath returns scanner.RootRelativePath(c.ProjectRoot(), path),
+// memoized: rules ask for it on every node callback, and filepath.Rel
+// cleans and allocates each time.
+func (c *Cache) ProjectPath(path string) string {
+	if c == nil || c.projectRoot == "" {
+		return path
+	}
+	if v, ok := c.projectPaths.Load(path); ok {
+		return v.(string)
+	}
+	rel := scanner.RootRelativePath(c.projectRoot, path)
+	c.projectPaths.Store(path, rel)
+	return rel
+}
+
+// ProjectRoot returns the root SetProjectRoot recorded, or "".
+func (c *Cache) ProjectRoot() string {
+	if c == nil {
+		return ""
+	}
+	return c.projectRoot
+}
 
 // ImportFacts summarizes the import set of a single Kotlin or Java file.
 // Construction strips the `import` prefix, trailing `;`, and any `as`

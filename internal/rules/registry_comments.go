@@ -30,7 +30,7 @@ func registerCommentsRules() {
 			NodeTypes: []string{"multiline_comment"}, Confidence: api.ConfidenceVeryHigh, Fix: api.FixIdiomatic, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
-				if scanner.IsTestFile(file.Path) || isGradleBuildScript(file.Path) {
+				if isProjectTestFile(ctx, file.Path) || isGradleBuildScript(file.Path) {
 					return
 				}
 				if !flatIsKDoc(file, idx) || kdocIsOrphan(file, idx) {
@@ -106,7 +106,7 @@ func registerCommentsRules() {
 			NodeTypes: []string{"multiline_comment"}, Confidence: api.ConfidenceVeryHigh, Fix: api.FixCosmetic, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
-				if scanner.IsTestFile(file.Path) || isGradleBuildScript(file.Path) {
+				if isProjectTestFile(ctx, file.Path) || isGradleBuildScript(file.Path) {
 					return
 				}
 				if !flatIsKDoc(file, idx) || kdocIsOrphan(file, idx) {

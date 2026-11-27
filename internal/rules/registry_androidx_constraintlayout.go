@@ -12,7 +12,7 @@ func registerAndroidxConstraintLayoutRules() {
 	kotlin := []scanner.Language{scanner.LangKotlin}
 	mainOnly := func(check func(*api.Context)) func(*api.Context) {
 		return func(ctx *api.Context) {
-			if !scanner.IsTestFile(ctx.File.Path) {
+			if !scanner.IsTestFile(projectPath(ctx, ctx.File.Path)) {
 				check(ctx)
 			}
 		}

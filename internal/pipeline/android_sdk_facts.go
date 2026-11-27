@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/kaeawc/krit/internal/android"
+	"github.com/kaeawc/krit/internal/fsutil"
 	"github.com/kaeawc/krit/internal/hashutil"
 )
 
@@ -43,12 +44,16 @@ func sdkLevelsFingerprint(project *android.Project) string {
 	}
 	sort.Strings(probes)
 	android.WarmSDKLevels(probes)
+	// Module directories are spelled relative to the directory all of them
+	// share, so the same checkout at another absolute path keys its caches
+	// the same (#1662).
+	root := fsutil.CommonDir(probes)
 	var resolver android.SDKLevelResolver
 	var b strings.Builder
 	for _, probe := range probes {
 		// An unknown level adds nothing, so a project that declares none keeps its keys.
 		if levels := resolver.Resolve(probe); !levels.IsZero() {
-			fmt.Fprintf(&b, "%s|%d|%d\n", filepath.Dir(probe), levels.MinSdk, levels.TargetSdk)
+			fmt.Fprintf(&b, "%s|%d|%d\n", fsutil.RelSlash(root, filepath.Dir(probe)), levels.MinSdk, levels.TargetSdk)
 		}
 	}
 	if b.Len() == 0 {

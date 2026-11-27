@@ -73,7 +73,7 @@ func registerReleaseEngineeringRules() {
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				// Test fixtures routinely pass literal environment names.
-				if scanner.IsTestFile(file.Path) || isDebugSourceFile(file.Path) {
+				if isProjectTestFile(ctx, file.Path) || isDebugSourceFile(projectPath(ctx, file.Path)) {
 					return
 				}
 				funcName := flatCallExpressionName(file, idx)
@@ -107,7 +107,7 @@ func registerReleaseEngineeringRules() {
 			NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceHigh, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
-				if scanner.IsTestFile(file.Path) {
+				if isProjectTestFile(ctx, file.Path) {
 					return
 				}
 				name := flatCallExpressionName(file, idx)
@@ -154,7 +154,7 @@ func registerReleaseEngineeringRules() {
 				if !printlnNames[name] {
 					return
 				}
-				if printlnNonProductionPath(file.Path) {
+				if isProjectTestFile(ctx, file.Path) || printlnNonProductionPath(projectPath(ctx, file.Path)) {
 					return
 				}
 				receiver := flatReceiverNameFromCall(file, idx)
@@ -189,7 +189,7 @@ func registerReleaseEngineeringRules() {
 			NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceHigh, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
-				if scanner.IsTestFile(file.Path) || printCallInToolingPath(file.Path) {
+				if isProjectTestFile(ctx, file.Path) || printCallInToolingPath(projectPath(ctx, file.Path)) {
 					return
 				}
 				name := flatCallExpressionName(file, idx)
@@ -210,7 +210,7 @@ func registerReleaseEngineeringRules() {
 			NodeTypes: []string{"class_declaration", "function_declaration", "property_declaration"}, Confidence: api.ConfidenceVeryHigh, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
-				if scanner.IsTestFile(file.Path) {
+				if isProjectTestFile(ctx, file.Path) {
 					return
 				}
 				var name string

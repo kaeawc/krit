@@ -167,3 +167,22 @@ func allCategoriesOffConfig(t *testing.T) string {
 	}
 	return path
 }
+
+// A miss is reused without re-running the cross-file rules only when it is
+// lexically irrelevant to them. Removing @VisibleForTesting leaves TestHooks.kt
+// with nothing the rule looks for, but the content that produced the reused
+// findings had it, so the reuse must still be refused (#1844).
+func TestWarmCrossFindingsFollowLexicallyRelevantRemoval(t *testing.T) {
+	const hooks = "app/src/main/java/com/example/TestHooks.kt"
+	const annotated = "package com.example\n\nobject TestHooks {\n    @VisibleForTesting\n    fun resetForTests() = Unit\n}\n"
+	const plain = "package com.example\n\nobject TestHooks {\n    fun resetForTests() = Unit\n}\n"
+	runWarmCrossSteps(t, "VisibleForTestingCallerInNonTest", true, map[string]string{
+		hooks: annotated,
+		"app/src/main/java/com/example/Production.kt": "package com.example\n\nfun production() {\n    TestHooks.resetForTests()\n}\n",
+	}, []warmCrossStep{
+		{"cold", "", ""},
+		{"remove @VisibleForTesting", hooks, plain},
+		{"re-add @VisibleForTesting", hooks, annotated},
+		{"remove @VisibleForTesting again", hooks, plain},
+	})
+}

@@ -1,0 +1,1 @@
+src/main/AndroidManifest.xml:2:36: ScopedStorage: WRITE_EXTERNAL_STORAGE no longer provides write access when targeting Android 10+

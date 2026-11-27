@@ -221,7 +221,7 @@ func (r *MaxLineLengthRule) check(ctx *api.Context) {
 	file := ctx.File
 	// Skip test files — test code commonly uses long descriptive strings
 	// and chained builder calls where wrapping hurts readability.
-	if scanner.IsTestFile(file.Path) {
+	if isProjectTestFile(ctx, file.Path) {
 		return
 	}
 	// Compute set of lines that are inside a triple-quoted raw string literal.

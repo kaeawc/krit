@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"encoding/hex"
+	"hash"
 	"os"
 	"path/filepath"
 	"sort"
@@ -220,15 +221,8 @@ func (in AndroidInput) androidProjectBundleFingerprint(needs androidPhaseNeeds, 
 	h.Write([]byte{0})
 	h.Write([]byte(uintptrToHex(uint64(valueKinds))))
 	h.Write([]byte{0})
-	if needs.manifest {
-		if !writePathHashes(h, "manifest", in.Project.ManifestPaths) {
-			return "", false
-		}
-		// Manifest rules read the res of every source set of the module, listed in Project.ResDirs or not (the tile
-		// preview checks), so the module fingerprint of each manifest keys the bundle too.
-		for _, path := range in.Project.ManifestPaths {
-			h.Write([]byte("manifest-module\x00" + in.manifestModuleFP(path, resDirFPs) + "\x00"))
-		}
+	if needs.manifest && !in.writeManifestFingerprints(h, resDirFPs) {
+		return "", false
 	}
 	// Manifest rules also read the module's build script and res/ files from disk.
 	if needs.gradle || needs.manifest {
@@ -266,6 +260,29 @@ func (in AndroidInput) androidProjectBundleFingerprint(needs androidPhaseNeeds, 
 		h.Write([]byte{0})
 	}
 	return hex.EncodeToString(h.Sum(nil)), true
+}
+
+// writeManifestFingerprints writes what the manifest and manifest-source rules read into a project bundle
+// fingerprint: the manifests; the res of every source set of each manifest's module, listed in Project.ResDirs or not
+// (the tile preview checks); and the build files outside the scan the rules read, each manifest's build script and
+// version catalogs (#1853) and the module graph of its build (#1800), as the manifest-source key and the findings
+// bundle do. It returns false when a file can't be hashed.
+func (in AndroidInput) writeManifestFingerprints(h hash.Hash, resDirFPs *resDirFingerprints) bool {
+	if !writePathHashes(h, "manifest", in.Project.ManifestPaths) {
+		return false
+	}
+	for _, path := range in.Project.ManifestPaths {
+		h.Write([]byte("manifest-module\x00" + in.manifestModuleFP(path, resDirFPs) + "\x00"))
+	}
+	reads := buildFileReadersOf(in.ActiveRules)
+	if !reads.moduleGraph && !reads.gradleInfo {
+		return true
+	}
+	fp, ok := buildFilesFingerprint(in.Project, reads)
+	if ok {
+		h.Write([]byte("manifest-build-files\x00" + fp + "\x00"))
+	}
+	return ok
 }
 
 func androidPhaseNeedsKey(needs androidPhaseNeeds) string {

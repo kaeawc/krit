@@ -1,6 +1,6 @@
 {
   "project": "../../playground/android-app/",
-  "findings_count": 70,
+  "findings_count": 71,
   "findings": [
     {
       "rule": "CoarseFineLocation",
@@ -17,6 +17,14 @@
       "line": 6,
       "col": 0,
       "message": "Permission exists without corresponding hardware `\u003cuses-feature android:name=\"android.hardware.camera\" android:required=\"false\" /\u003e` tag"
+    },
+    {
+      "rule": "ScopedStorage",
+      "ruleSet": "android-lint",
+      "file": "src/main/AndroidManifest.xml",
+      "line": 7,
+      "col": 0,
+      "message": "WRITE_EXTERNAL_STORAGE is deprecated (and is not granted) when targeting Android 13+. If you need to write to shared storage, use the `MediaStore.createWriteRequest` intent."
     },
     {
       "rule": "AllowBackupManifest",

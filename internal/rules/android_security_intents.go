@@ -31,7 +31,7 @@ func (r *ImplicitPendingIntentRule) Confidence() float64 { return api.Confidence
 
 func (r *BroadcastReceiverExportedFlagMissingRule) check(ctx *api.Context) {
 	file := ctx.File
-	if scanner.IsTestFile(file.Path) || strings.Contains(filepath.ToSlash(file.Path), "/androidTest/") {
+	if isProjectTestFile(ctx, file.Path) || strings.Contains(filepath.ToSlash(projectPath(ctx, file.Path)), "/androidTest/") {
 		return
 	}
 	if javaAwareCallName(file, ctx.Idx) != "registerReceiver" {
@@ -64,7 +64,7 @@ func (r *ImplicitPendingIntentRule) check(ctx *api.Context) {
 	if !implicitPendingIntentCall(file, ctx.Idx) {
 		return
 	}
-	if scanner.IsTestFile(file.Path) || isTestFixturePath(file.Path) || isTestFixtureModulePath(file.Path) {
+	if isProjectTestFile(ctx, file.Path) || isTestFixturePath(projectPath(ctx, file.Path)) || isTestFixtureModulePath(projectPath(ctx, file.Path)) {
 		return
 	}
 	sdk := addJavascriptInterfaceSDKContextForFile(file)

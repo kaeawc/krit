@@ -26,6 +26,7 @@ import (
 	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/output"
 	"github.com/kaeawc/krit/internal/perf"
+	"github.com/kaeawc/krit/internal/projectroot"
 	"github.com/kaeawc/krit/internal/rules"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
@@ -898,12 +899,13 @@ func RunProjectAnalysis(ctx context.Context, in ProjectInput) (ProjectAnalysisRe
 	perf.AddEntry(host.Tracker, "targetedResolution", time.Since(targetedStart))
 
 	fpStart := time.Now()
-	runFP, bundleEnabled := computeRunFingerprint(args, host, parseResult, indexResult)
+	sourceInputs := fingerprintSourceInputs(parseResult, indexResult)
+	runFP, bundleEnabled := computeRunFingerprint(args, host, sourceInputs, indexResult)
 	perf.AddEntry(host.Tracker, "computeRunFingerprint", time.Since(fpStart))
 
 	manifestStart := time.Now()
 	runTestHookBeforeManifestData()
-	manifestData := buildManifestData(args, host, parseResult, readBound, bundleEnabled)
+	manifestData := buildManifestData(args, host, sourceInputs, readBound, bundleEnabled)
 	perf.AddEntry(host.Tracker, "buildManifestData", time.Since(manifestStart))
 
 	var early *earlyAndroid
@@ -1526,11 +1528,8 @@ func loadWarmCrossFindings(args ProjectArgs, host ProjectHostState, warm warmAna
 	}
 	if warm.result != nil && warm.result.TotalFiles > 0 && warm.result.TotalCached != warm.result.TotalFiles {
 		missPaths := CacheMissPaths(warm.filePaths, warm.result)
-		if canReuseCrossFindingsForLexicallyIrrelevantMisses(args.ActiveRules, missPaths) {
-			cols, ok := scanner.LoadLastCrossFindings(host.CrossFindingsCacheDir)
-			if ok {
-				return true, &cols
-			}
+		if cols, tags, ok := scanner.LoadLastCrossFindings(host.CrossFindingsCacheDir); ok && canReuseCrossFindingsForLexicallyIrrelevantMisses(args.ActiveRules, missPaths, tags) {
+			return true, &cols
 		}
 		return false, nil
 	}
@@ -1623,6 +1622,20 @@ func withOracleIdentity(ruleHash string, scanPaths []string) string {
 	return hashutil.HashHex([]byte(ruleHash + "|" + oracle.CacheIdentity(scanPaths)))[:16]
 }
 
+// withProjectRootIdentity folds whether scanPaths lie under a marked project
+// root into a rule hash. Under one, rules read paths relative to it
+// (projectPath, rule excludes); without one, absolute paths. Adding or
+// removing a marker therefore changes verdicts, and the per-file, cross-file
+// and Android caches keyed on the rule hash must miss (#1834). Only the
+// marker's presence counts, so a checkout moved whole keeps its hash and its
+// relocated cache (#1814).
+func withProjectRootIdentity(ruleHash string, scanPaths []string) string {
+	if _, marked := projectroot.FindMarked(scanPaths); marked {
+		return hashutil.HashHex([]byte(ruleHash + "|root=marked"))[:16]
+	}
+	return ruleHash
+}
+
 // noTypeOracleCacheMarker is folded into the rule-name list of a
 // --no-type-oracle run. Findings produced without oracle facts differ from
 // oracle-backed ones, so the two must never share a cache entry.
@@ -1653,7 +1666,7 @@ const defaultSDKLevelsCacheMarker = "\x00default-sdk-levels:"
 // projectRuleHashForArgs is projectRuleHashWithEditorConfig for a hosted run:
 // it additionally separates --no-type-oracle runs from oracle-backed ones.
 func projectRuleHashForArgs(args ProjectArgs, editorConfigEnabled bool) string {
-	return withOracleIdentity(cache.ComputeCacheKeyHash(cacheRuleNames(args.ActiveRules, args.NoTypeOracle), args.Config, editorConfigEnabled), args.Paths)
+	return withProjectRootIdentity(withOracleIdentity(cache.ComputeCacheKeyHash(cacheRuleNames(args.ActiveRules, args.NoTypeOracle), args.Config, editorConfigEnabled), args.Paths), args.Paths)
 }
 
 // projectAnalysisCacheRuleHash is the rule hash that keys the per-file analysis cache. It matches what IndexPhase
@@ -2014,6 +2027,7 @@ func runAndroidPhase(ctx context.Context, args ProjectArgs, host ProjectHostStat
 		return AndroidResult{}, false, nil
 	}
 	dispatcher := rules.NewDispatcher(args.ActiveRules, indexResult.Resolver)
+	SetDispatcherProjectRoot(dispatcher, args.Paths)
 	dispatcher.SetLibraryFacts(indexResult.LibraryFacts)
 	dispatcher.SetJavaSemanticFacts(indexResult.JavaSemanticFacts)
 	// Hand AndroidPhase a child tracker so its gradleAnalysis /
@@ -2854,7 +2868,7 @@ func preparseBundleFingerprintWithPaths(
 	})
 	var xmlFP string
 	track("xmlInputs", func() {
-		xmlFP = xmlInputsFingerprint(host, preparseAndroidProject(args, host), kotlinPaths, rules.ReadsModuleGraph(args.ActiveRules))
+		xmlFP = xmlInputsFingerprint(host, preparseAndroidProject(args, host), kotlinPaths, buildFileReadersOf(args.ActiveRules))
 	})
 	kotlinFiles := filesForPaths(kotlinPaths, scanner.LangKotlin)
 	javaFiles := filesForPaths(javaPaths, scanner.LangJava)
@@ -3195,7 +3209,8 @@ func fileSetPaths(files []*scanner.File) []string {
 // rules, so the findings bundle cannot outlive an XML-only edit (layouts,
 // manifests and navigation graphs contribute class references to the code
 // index; manifests and res/ directories feed the Android rules), plus the
-// build scripts the manifest rules read next to them. It returns "" when the
+// build scripts and version catalogs the manifest rules read next to them
+// (reads says which). It returns "" when the
 // project has no XML, which keeps the bundle key unchanged for projects
 // without XML.
 //
@@ -3204,7 +3219,7 @@ func fileSetPaths(files []*scanner.File) []string {
 // the XML version. The manifests, res/ directories and build scripts are
 // hashed through the stat-keyed hashutil memo, which re-reads only files
 // whose size or mtime moved. kotlinPaths only locates the module roots for the XML walk.
-func xmlInputsFingerprint(host ProjectHostState, project *android.Project, kotlinPaths []string, readsGraph bool) string {
+func xmlInputsFingerprint(host ProjectHostState, project *android.Project, kotlinPaths []string, reads buildFileReaders) string {
 	build := func() []*scanner.XMLCacheFile {
 		return scanner.LoadXMLFilesForCache(filesForPaths(kotlinPaths, scanner.LangKotlin))
 	}
@@ -3222,7 +3237,7 @@ func xmlInputsFingerprint(host ProjectHostState, project *android.Project, kotli
 	if len(xmlFiles) == 0 && len(manifests) == 0 && len(resDirs) == 0 {
 		return ""
 	}
-	if readsGraph && project != nil {
+	if reads.moduleGraph && project != nil {
 		// Reads each manifest once for both its hash and the module-graph check below.
 		projectBuildGraphs(project)
 	}
@@ -3257,11 +3272,12 @@ func xmlInputsFingerprint(host ProjectHostState, project *android.Project, kotli
 		_, _ = h.Write([]byte{0})
 	}
 	// Manifest and manifest-source rules also read the build scripts themselves (plugins, namespace, project
-	// dependencies) and the module graph of each manifest's build, settings file included, which can lie outside
-	// the scan paths. A Groovy build.gradle is not a source file the SourceSet hash covers (#1625, #1800).
+	// dependencies), the version catalogs their aliases resolve through, and the module graph of each manifest's
+	// build, settings file included, which can lie outside the scan paths. A Groovy build.gradle is not a source file
+	// the SourceSet hash covers (#1625, #1800, #1853).
 	if project != nil && (len(project.GradlePaths) > 0 || len(project.ManifestPaths) > 0) {
 		_, _ = h.Write([]byte{5})
-		if fp, ok := buildFilesFingerprint(project, readsGraph); ok {
+		if fp, ok := buildFilesFingerprint(project, reads); ok {
 			_, _ = h.Write([]byte(fp))
 		} else {
 			_, _ = h.Write([]byte("err"))
@@ -4074,7 +4090,7 @@ func previewPostParseBundleHit(args ProjectArgs, host ProjectHostState, parseRes
 		Android:          androidFP,
 		LibraryFacts:     libraryFactsFP,
 		CompilerSettings: args.OracleKotlin.Identity(),
-		XMLInputs:        xmlInputsFingerprint(host, preparseAndroidProject(args, host), fileSetPaths(parseResult.KotlinFiles), rules.ReadsModuleGraph(args.ActiveRules)),
+		XMLInputs:        xmlInputsFingerprint(host, preparseAndroidProject(args, host), fileSetPaths(parseResult.KotlinFiles), buildFileReadersOf(args.ActiveRules)),
 	}
 	// Look up the prior manifest once — daemon callers wire
 	// FindingsBundleManifestLoader to an in-memory cache so this is
@@ -4149,6 +4165,21 @@ func runBackgroundSave(host ProjectHostState, fn func()) {
 	fn()
 }
 
+// fingerprintSourceInputs returns the parse result the findings bundle key
+// and its manifest hash. When no rule needs Java before dispatch the parse
+// phase carries none, and IndexPhase parses the Java files the cross-file
+// index reads on its own; those decide cross-file findings too, so a Java
+// edit must move the key. Without them a Java-only edit kept the key and
+// the daemon served the bundle of the pre-edit state (#1843).
+func fingerprintSourceInputs(parseResult ParseResult, indexResult IndexResult) ParseResult {
+	if len(parseResult.JavaFiles) > 0 || len(indexResult.JavaFiles) == 0 {
+		return parseResult
+	}
+	withJava := parseResult
+	withJava.JavaFiles = indexResult.JavaFiles
+	return withJava
+}
+
 func computeRunFingerprint(args ProjectArgs, host ProjectHostState, parseResult ParseResult, indexResult IndexResult) (scanner.RunFingerprint, bool) {
 	if host.FindingsBundleStore == nil || host.FindingsBundleCacheRoot == "" {
 		return scanner.RunFingerprint{}, false
@@ -4179,7 +4210,7 @@ func computeRunFingerprint(args ProjectArgs, host ProjectHostState, parseResult 
 	if indexResult.LibraryFacts != nil {
 		fp.LibraryFacts = indexResult.LibraryFacts.Fingerprint()
 	}
-	fp.XMLInputs = xmlInputsFingerprint(host, indexResult.AndroidProject, fileSetPaths(parseResult.KotlinFiles), rules.ReadsModuleGraph(args.ActiveRules))
+	fp.XMLInputs = xmlInputsFingerprint(host, indexResult.AndroidProject, fileSetPaths(parseResult.KotlinFiles), buildFileReadersOf(args.ActiveRules))
 	return fp, true
 }
 

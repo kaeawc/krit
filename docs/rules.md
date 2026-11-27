@@ -227,7 +227,8 @@ needs the receiver's type: from the source resolver, a declared type, a construc
 RxJava 3's and subjects' and relays' `create*`), a property of a class declared in the same file, or the implicit
 receiver of `apply`/`run`/`with` or an enclosing View subclass. A class of the file's own package wins over an
 on-demand import. A receiver krit cannot type (a chained operator's result, a constructor property of a class in
-another file) is not reported. As in Lint 0.11.1, the list's
+another file) is not reported, and neither is a Kotlin receiver typed as a Java source subclass of `View`: the
+pipeline does not index Java classes into the resolver yet (#1885). As in Lint 0.11.1, the list's
 `ResourcesCompat.getDrawable`, `ViewPager2.setId` and `runBlocking` entries never match. Differences from Lint:
 
 - a top-level `runCatching` of the file's package (in any file) shadows kotlin's, as the Kotlin compiler resolves
@@ -279,6 +280,24 @@ Differences from Lint:
 - `DoNotMockAnything` reports alongside the other `DoNotMock*` rules. Lint runs it first, so when it is enabled the
   others stay silent;
 - `DoNotMockRecordClass` also reports Java records, which Lint 0.11.1's own tests leave out pending Lint support.
+
+`DoNotCallViewToString` and `InflationInItemDecoration` port slack-lints' View checks for Kotlin and Java. They walk
+Kotlin source class hierarchies through the resolver, resolving each supertype through its declaring file's
+imports, so a project class named `View` in another package does not count as Android's. A Java source class in the
+middle of a hierarchy ends the walk, because the pipeline does not index Java classes into the resolver yet (#1885):
+
+- `DoNotCallViewToString` reports a `toString()` call that resolves to an override declared in a subclass of
+  `android.view.View`, including an inherited override and an unqualified call inside the class or in a plain lambda
+  there. A call inside an `apply`/`run`/`with`/`build*` block, whose receiver is another object, is not reported. As in
+  Lint, a call that resolves to View's own `toString()` (a plain `View` or a framework widget) is not reported, and
+  neither is a string template. An override declared in Java is not seen, because the resolver records Kotlin members
+  only.
+- `InflationInItemDecoration` reports, inside a class, object or anonymous class extending
+  `RecyclerView.ItemDecoration` (directly, through source superclasses, or through `DividerItemDecoration` and
+  `ItemTouchHelper`), an `inflate()` call on a `LayoutInflater` (a typed receiver, or a property or local initialized
+  from `LayoutInflater.from(...)`) or a static `inflate()` of a generated `…Binding` class (in a `databinding` package)
+  or a source class implementing `ViewBinding`. A class or companion object nested inside the decoration is not part
+  of it, as in Lint.
 
 `InclusiveNaming` ports `InclusiveNamingSourceCodeScanner` for Kotlin and Java. It reports nothing until its
 `blockList` option (Lint's `block-list`) lists words, for example:
@@ -462,6 +481,25 @@ Cases whose resources AGP cannot compile carry `lint-standalone.txt` and are rec
   `layout_behavior` or `layoutManager` values starting with `.` in layouts. The namespace and applicationId are read
   from literal assignments in the module's build script (or the manifest package); without a namespace the check is
   skipped.
+
+## Android Lint Manifest and Resource Checks (storage, themes, splash screens)
+
+Ports of Android Lint 32.4.1 checks with recorded Lint output under `tests/fixtures/android-lint/<RuleID>/`:
+
+- `ScopedStorage` (warning) reports `READ_EXTERNAL_STORAGE` / `WRITE_EXTERNAL_STORAGE` by the effective SDK
+  (`min(targetSdk, maxSdkVersion)`): deprecated from 33, write access lost from 29 (from 30 with
+  `requestLegacyExternalStorage`), nothing when `MANAGE_EXTERNAL_STORAGE` is also requested. `MANAGE_EXTERNAL_STORAGE`
+  itself always reports the Play policy message. `tools:node="remove"` entries are skipped.
+- `SelectableText` (opt-in, as in Lint) reports a `<TextView>` with an `android:id` and no `android:text`,
+  `textIsSelectable`, `visibility` or `onClick`.
+- `CustomSplashScreen` (warning, Kotlin and Java, target SDK 31+) reports a class whose name contains SplashScreen,
+  SplashActivity, LaunchActivity or LaunchScreen (any case) and extends an Activity, an AndroidX or support Fragment,
+  or a View.
+- `VectorDrawableCompat` (error) applies below a literal `minSdk` 21: with `vectorDrawables.useSupportLibrary = true`,
+  `android:src` naming a vector drawable; without it, `app:srcCompat` naming one.
+- `TranslucentOrientation` (warning, target SDK 26+) reports the first `android:windowIsFloating` (or un-prefixed
+  `windowIsTranslucent`, matching Lint) item of a style used by an activity with a fixed portrait or landscape
+  orientation, or of the application theme when such an activity has no theme. `setTheme()` calls are not followed.
 
 ## AndroidX Library Lint Checks
 

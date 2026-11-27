@@ -1,0 +1,15 @@
+<resources>
+    <style name="AppTheme" parent="android:Theme.Material.Light">
+        <item name="android:windowIsFloating">true</item>
+    </style>
+    <style name="Translucent" parent="android:Theme.Material.Light">
+        <item name="android:colorPrimary">#000000</item>
+        <item name="android:windowIsFloating">true</item>
+    </style>
+    <style name="AndroidPrefixed" parent="android:Theme.Material.Light">
+        <item name="android:windowIsTranslucent">true</item>
+    </style>
+    <style name="Floating" parent="android:Theme.Material.Light">
+        <item name="android:windowIsFloating">true</item>
+    </style>
+</resources>

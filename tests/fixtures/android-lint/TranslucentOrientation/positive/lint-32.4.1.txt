@@ -1,0 +1,2 @@
+src/main/res/values/styles.xml:3:21: TranslucentOrientation: Should not specify screen orientation with translucent or floating theme
+src/main/res/values/styles.xml:7:21: TranslucentOrientation: Should not specify screen orientation with translucent or floating theme

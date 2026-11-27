@@ -62,7 +62,7 @@ func (r *NotificationTrampolineRule) Confidence() float64 { return api.Confidenc
 func (r *LaunchActivityFromNotificationRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *NotificationTrampolineRule) check(ctx *api.Context) {
-	for _, f := range notificationTrampolineFindings(ctx.ParsedFiles) {
+	for _, f := range notificationTrampolineFindings(ctx, ctx.ParsedFiles) {
 		if f.trampoline {
 			ctx.Emit(r.Finding(f.file, f.line, f.col, f.msg))
 		}
@@ -70,7 +70,7 @@ func (r *NotificationTrampolineRule) check(ctx *api.Context) {
 }
 
 func (r *LaunchActivityFromNotificationRule) check(ctx *api.Context) {
-	for _, f := range notificationTrampolineFindings(ctx.ParsedFiles) {
+	for _, f := range notificationTrampolineFindings(ctx, ctx.ParsedFiles) {
 		if !f.trampoline {
 			ctx.Emit(r.Finding(f.file, f.line, f.col, f.msg))
 		}
@@ -85,12 +85,12 @@ type notificationFinding struct {
 }
 
 // notificationTrampolineFindings runs the detector over every non-test source file.
-func notificationTrampolineFindings(parsed []*scanner.File) []notificationFinding {
+func notificationTrampolineFindings(ctx *api.Context, parsed []*scanner.File) []notificationFinding {
 	files := append([]*scanner.File(nil), parsed...)
 	sort.SliceStable(files, func(i, j int) bool { return files[i].Path < files[j].Path })
 	a := &notificationAnalysis{files: files}
 	for _, file := range files {
-		if file == nil || file.FlatTree == nil || scanner.IsTestFile(file.Path) ||
+		if file == nil || file.FlatTree == nil || isProjectTestFile(ctx, file.Path) ||
 			!bytes.Contains(file.Content, []byte("NotificationCompat")) {
 			continue
 		}

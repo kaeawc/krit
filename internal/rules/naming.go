@@ -96,11 +96,13 @@ type EnumNamingRule struct {
 // Classified per roadmap/17.
 func (r *EnumNamingRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
-func isTestSupportFile(path string) bool {
-	if scanner.IsTestFile(path) {
+// isTestSupportFile reports a test source or a test-support module (-testing/, test-utils/), judged by the
+// project-relative path (projectPath); a nil ctx judges path as given.
+func isTestSupportFile(ctx *api.Context, path string) bool {
+	if isProjectTestFile(ctx, path) {
 		return true
 	}
-	lower := scanner.LowerPath(path)
+	lower := scanner.LowerPath(projectPath(ctx, path))
 	return strings.Contains(lower, "-testing/") ||
 		strings.Contains(lower, "/testing/") ||
 		strings.Contains(lower, "/test-utils/") ||
@@ -250,7 +252,8 @@ func invalidPackageDeclarationIgnoredPath(path string) bool {
 // `common/src/flow/` and ktor keeps `package io.ktor.client.plugin.tracing`
 // directly in `common/src/`. A file whose directories match no trailing part
 // of its package, or match one below something other than a source root, is
-// still misplaced.
+// still misplaced. dir is project-relative (projectPath), so a source root
+// has to be a folder inside the project.
 func packageOmitsCommonRoot(dir, pkg string) bool {
 	segments := strings.Split(pkg, ".")
 	for drop := 1; drop <= len(segments); drop++ {

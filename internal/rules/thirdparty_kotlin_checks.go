@@ -54,7 +54,7 @@ var exceptionMessageFunctions = map[string]bool{"check": true, "checkNotNull": t
 func checkExceptionMessage(ctx *api.Context) {
 	file, idx := ctx.File, ctx.Idx
 	// The detector does not run on test sources.
-	if scanner.IsTestFile(file.Path) {
+	if isProjectTestFile(ctx, file.Path) {
 		return
 	}
 	// `requireNotNull<T>(x) { ... }` parses as a call whose callee is the call with the arguments; the inner call

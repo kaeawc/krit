@@ -967,6 +967,7 @@ func (s *daemonState) bufferAnalyzer() (*pipeline.SingleFileAnalyzer, error) {
 		strict := cfg.GetTopLevelBool("strict", false)
 		active := rules.ActiveRulesV2(nil, nil, false, experimental, strict)
 		s.analyzer = pipeline.NewSingleFileAnalyzer(active, nil)
+		s.analyzer.SetProjectRootFor([]string{s.root})
 		s.analyzerCfg = cfg
 	}
 	return s.analyzer, nil

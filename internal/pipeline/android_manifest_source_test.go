@@ -398,10 +398,10 @@ func TestManifestSourcePass_InvalidatesOnBuildFilesOutsideTheScan(t *testing.T) 
 			}
 			for _, e := range test.edits {
 				hashutil.ResetDefault()
-				xmlBefore := xmlInputsFingerprint(ProjectHostState{}, project, nil, true)
+				xmlBefore := xmlInputsFingerprint(ProjectHostState{}, project, nil, buildFileReadersOf([]*api.Rule{rule}))
 				p.write(e.rel, e.body)
 				hashutil.ResetDefault()
-				if moved := xmlInputsFingerprint(ProjectHostState{}, project, nil, true) != xmlBefore; moved == e.unkeyed {
+				if moved := xmlInputsFingerprint(ProjectHostState{}, project, nil, buildFileReadersOf([]*api.Rule{rule})) != xmlBefore; moved == e.unkeyed {
 					t.Errorf("edit of %s: findings-bundle XML inputs fingerprint moved = %v, want %v", e.rel, moved, !e.unkeyed)
 				}
 				if got := run(""); got != e.want {

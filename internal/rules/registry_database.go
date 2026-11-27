@@ -259,7 +259,7 @@ func registerDatabaseRules() {
 				if !sourceImportsOrMentions(file, "androidx.room") {
 					return
 				}
-				if isDebugSourceFile(file.Path) || isTestSupportFile(file.Path) {
+				if isDebugSourceFile(projectPath(ctx, file.Path)) || isTestSupportFile(ctx, file.Path) {
 					return
 				}
 				if enclosedInBuildConfigDebugGuard(file, idx) {

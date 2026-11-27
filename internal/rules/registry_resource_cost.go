@@ -106,7 +106,7 @@ func registerResourceCostRules() {
 				if !okHTTPClientConstructionCallName(file, idx, name) {
 					return
 				}
-				if scanner.IsTestFile(file.Path) || okHTTPClientToolingPath(file.Path) {
+				if isProjectTestFile(ctx, file.Path) || okHTTPClientToolingPath(projectPath(ctx, file.Path)) {
 					return
 				}
 				nodeText := file.FlatNodeText(idx)
@@ -235,7 +235,7 @@ func registerResourceCostRules() {
 			NodeTypes: []string{"call_expression", "method_invocation"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
-				if scanner.IsTestFile(file.Path) || okHTTPClientToolingPath(file.Path) {
+				if isProjectTestFile(ctx, file.Path) || okHTTPClientToolingPath(projectPath(ctx, file.Path)) {
 					return
 				}
 				name := databaseCallName(file, idx)
@@ -290,7 +290,7 @@ func registerResourceCostRules() {
 			Confidence: 0.75, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
-				if scanner.IsTestFile(file.Path) || (!isRecyclerAdapterClassFlat(ctx, idx) && !recyclerAdapterThroughProjectBase(ctx, idx)) {
+				if isProjectTestFile(ctx, file.Path) || (!isRecyclerAdapterClassFlat(ctx, idx) && !recyclerAdapterThroughProjectBase(ctx, idx)) {
 					return
 				}
 				if classExtendsAnyFlat(file, idx, "androidx.recyclerview.widget.ListAdapter", "ListAdapter") {

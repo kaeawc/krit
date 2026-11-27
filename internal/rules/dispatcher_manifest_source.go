@@ -99,7 +99,7 @@ func (d *Dispatcher) filterManifestSourceFindings(cols scanner.FindingColumns, m
 		}
 		filter := file.Suppression
 		if filter == nil {
-			filter = scanner.BuildSuppressionFilter(file, nil, allRuleExcludes(), "").WithRuleAliases(AllSuppressionAliases()).WithExcludedRules(ScriptPolicyExcludes(file))
+			filter = scanner.BuildSuppressionFilterAt(file, nil, allRuleExcludes(), "", d.ProjectRoot()).WithRuleAliases(AllSuppressionAliases()).WithExcludedRules(ScriptPolicyExcludes(file))
 			file.Suppression = filter
 			file.SuppressionIdx = filter.Annotations()
 		}

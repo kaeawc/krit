@@ -1,0 +1,1 @@
+src/main/res/layout/main.xml:6:89: VectorDrawableCompat: To use VectorDrawableCompat, you need to set `android.defaultConfig.vectorDrawables.useSupportLibrary = true` in `:app/build.gradle`

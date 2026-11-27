@@ -197,7 +197,7 @@ func (r *WearBackNavigationRule) check(ctx *api.Context) {
 		return
 	}
 	for _, resDir := range ctx.ResourceIndex.ResDirs {
-		if !wearIsWearResDir(resDir) {
+		if !wearIsWearResDir(ctx, resDir) {
 			continue
 		}
 		for _, path := range wearValuesFiles(resDir) {
@@ -268,7 +268,7 @@ func (r *WearMaterialThemeRule) check(ctx *api.Context) {
 			continue
 		}
 		root := wearAbsPath(acuiManifestModuleRoot(m.Path))
-		wear := wearIsWearProject(m)
+		wear := wearIsWearProject(ctx, m)
 		wearByRoot[root] = wearByRoot[root] || wear
 		anyWear = anyWear || wear
 	}
@@ -276,7 +276,7 @@ func (r *WearMaterialThemeRule) check(ctx *api.Context) {
 		return
 	}
 	for _, file := range ctx.ParsedFiles {
-		if file == nil || file.FlatTree == nil || scanner.IsTestFile(file.Path) ||
+		if file == nil || file.FlatTree == nil || isProjectTestFile(ctx, file.Path) ||
 			!bytes.Contains(file.Content, wearComposeMaterialThemeBytes) || !wearNearestModuleIsWear(file.Path, wearByRoot) {
 			continue
 		}

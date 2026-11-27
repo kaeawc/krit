@@ -27,7 +27,7 @@ func (r *ExportedWithoutPermissionRule) check(ctx *api.Context) {
 	}
 	// Skip test/benchmark/debug manifests — these legitimately export
 	// components for testing infrastructure and aren't shipped to production.
-	if isTestManifestPath(m.Path) || isInstrumentationManifest(m) || isTestSupportModuleManifestPath(m.Path) {
+	if isTestManifestPath(ctx, m.Path) || isInstrumentationManifest(m) || isTestSupportModuleManifestPath(projectPath(ctx, m.Path)) {
 		return
 	}
 	skipSystemActions := experiment.Enabled("exported-without-permission-skip-system-actions")

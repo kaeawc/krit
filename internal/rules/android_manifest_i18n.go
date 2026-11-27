@@ -24,7 +24,7 @@ func (r *LocaleConfigMissingRule) check(ctx *api.Context) {
 	if m.Application == nil || m.Application.LocaleConfig == "" {
 		return
 	}
-	if isNonMainManifestPath(m.Path) {
+	if isNonMainManifestPath(projectPath(ctx, m.Path)) {
 		return
 	}
 	if isLibraryOrTestModuleManifest(m.Path) {

@@ -297,3 +297,26 @@ func TestRequestFactLastsUntilForgetRequestFacts(t *testing.T) {
 		t.Fatalf("nil cache RequestFact = %d, want 7", got)
 	}
 }
+
+// ProjectPath memoizes per root: after SetProjectRoot moves the root, a path
+// asked for under the old root is recomputed, not served from the memo.
+func TestProjectPathFollowsRootChange(t *testing.T) {
+	repo := filepath.Join(t.TempDir(), "repo")
+	path := filepath.Join(repo, "module", "src", "Foo.kt")
+	c := NewCache()
+	if got := c.ProjectPath(path); got != path {
+		t.Fatalf("with no root, ProjectPath(%q) = %q, want the path unchanged", path, got)
+	}
+	c.SetProjectRoot(repo)
+	if got := c.ProjectPath(path); got != "/module/src/Foo.kt" {
+		t.Fatalf("under %q, ProjectPath = %q", repo, got)
+	}
+	c.SetProjectRoot(filepath.Join(repo, "module"))
+	if got := c.ProjectPath(path); got != "/src/Foo.kt" {
+		t.Fatalf("after the root moved to module/, ProjectPath = %q", got)
+	}
+	var nilCache *Cache
+	if got := nilCache.ProjectPath(path); got != path {
+		t.Fatalf("a nil cache returned %q", got)
+	}
+}

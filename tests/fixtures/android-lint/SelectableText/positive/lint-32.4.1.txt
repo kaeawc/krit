@@ -1,0 +1,2 @@
+src/main/res/layout/main.xml:5:6: SelectableText: Consider making the text value selectable by specifying `android:textIsSelectable="true"`
+src/main/res/layout/main.xml:9:6: SelectableText: Consider making the text value selectable by specifying `android:textIsSelectable="true"`

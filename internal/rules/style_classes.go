@@ -188,11 +188,11 @@ func abstractClassCanBeInterfaceHasFrameworkClassAnnotation(file *scanner.File, 
 
 // abstractClassIsInjectionOrTestFixture reports abstract classes that frameworks require to stay classes:
 // Dagger modules and factories, and test base classes.
-func abstractClassIsInjectionOrTestFixture(file *scanner.File, idx uint32) bool {
+func abstractClassIsInjectionOrTestFixture(ctx *api.Context, file *scanner.File, idx uint32) bool {
 	if abstractClassCanBeInterfaceHasFrameworkClassAnnotation(file, idx) {
 		return true
 	}
-	if scanner.IsTestFile(file.Path) {
+	if isProjectTestFile(ctx, file.Path) {
 		return true
 	}
 	if flatHasAnnotationNamed(file, idx, "RunWith") {

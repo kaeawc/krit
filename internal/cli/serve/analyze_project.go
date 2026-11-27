@@ -27,6 +27,7 @@ import (
 	"github.com/kaeawc/krit/internal/output"
 	"github.com/kaeawc/krit/internal/perf"
 	"github.com/kaeawc/krit/internal/pipeline"
+	"github.com/kaeawc/krit/internal/projectroot"
 	"github.com/kaeawc/krit/internal/rules"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/sysres"
@@ -758,8 +759,10 @@ func firStartFindingsPass(args daemon.AnalyzeProjectArgs, paths []string, cfg *c
 		checker.SourceDirs = oracle.FilterFIRSourceDirs(oracle.UnionSourceDirs(checker.SourceDirs, args.OracleSourceDirs))
 		checker.JvmTarget = args.OracleJvmTarget
 		checker.Kotlin = args.OracleKotlin
+		projectRoot, _ := projectroot.FindMarked(paths)
 		opts := firchecks.PassOptions{
 			Enabled:             true,
+			ProjectRoot:         projectRoot,
 			Verbose:             args.Verbose,
 			VerboseOut:          verboseOut,
 			Checker:             checker,

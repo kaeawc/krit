@@ -125,10 +125,11 @@ type tilePreviewFlags struct {
 	round, square, wrongRatio, small bool
 }
 
-// slotTilePreviewScan memoizes the drawable scan per manifest, which both preview rules need.
+// slotTilePreviewScan memoizes the drawable scan per manifest and project root (the Wear check reads the
+// project-relative manifest path), which both preview rules need.
 const slotTilePreviewScan = "lintTilePreviewScan"
 
-func tileScanPreviewImages(m *manifest.Manifest, previews map[string]*tilePreview) {
+func tileScanPreviewImages(ctx *api.Context, m *manifest.Manifest, previews map[string]*tilePreview) {
 	if len(previews) == 0 || m.Path == "" {
 		return
 	}
@@ -137,8 +138,8 @@ func tileScanPreviewImages(m *manifest.Manifest, previews map[string]*tilePrevie
 		names = append(names, name)
 	}
 	sort.Strings(names)
-	scan := filefacts.RequestFact(fileFactsCache(), m.Path+"\x00"+strings.Join(names, ","), slotTilePreviewScan,
-		func() map[string]tilePreviewFlags { return tileScanDrawables(m, names) })
+	scan := filefacts.RequestFact(fileFactsCache(), projectRoot(ctx)+"\x00"+m.Path+"\x00"+strings.Join(names, ","), slotTilePreviewScan,
+		func() map[string]tilePreviewFlags { return tileScanDrawables(ctx, m, names) })
 	for name, flags := range scan {
 		p := previews[name]
 		p.round, p.square, p.wrongRatio, p.small = flags.round, flags.square, flags.wrongRatio, flags.small
@@ -147,9 +148,9 @@ func tileScanPreviewImages(m *manifest.Manifest, previews map[string]*tilePrevie
 
 // tileScanDrawables reads the preview images of a Wear module's drawable folders, in every res directory the module
 // merges.
-func tileScanDrawables(m *manifest.Manifest, names []string) map[string]tilePreviewFlags {
+func tileScanDrawables(ctx *api.Context, m *manifest.Manifest, names []string) map[string]tilePreviewFlags {
 	out := map[string]tilePreviewFlags{}
-	if !wearIsWearProject(m) {
+	if !wearIsWearProject(ctx, m) {
 		return out
 	}
 	wanted := map[string]bool{}
@@ -238,7 +239,7 @@ func (r *SquareAndRoundTilePreviewsRule) check(ctx *api.Context) {
 	for _, service := range missing {
 		emitManifestAtNode(ctx, service, "Tiles need preview assets")
 	}
-	tileScanPreviewImages(m, previews)
+	tileScanPreviewImages(ctx, m, previews)
 	for _, name := range order {
 		if p := previews[name]; p.round != p.square {
 			emitManifestAtValue(ctx, p.at, "Tiles need a preview asset in both drawable-round and drawable")
@@ -252,7 +253,7 @@ func (r *TilePreviewImageFormatRule) check(ctx *api.Context) {
 		return
 	}
 	previews, order, _ := tilePreviews(m)
-	tileScanPreviewImages(m, previews)
+	tileScanPreviewImages(ctx, m, previews)
 	for _, name := range order {
 		p := previews[name]
 		if p.wrongRatio {

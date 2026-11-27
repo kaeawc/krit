@@ -42,7 +42,7 @@ func registerNamingClassNaming() {
 		NodeTypes: []string{"class_declaration", "object_declaration"}, Confidence: api.ConfidenceVeryHigh, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
-			if scanner.IsTestFile(file.Path) {
+			if isProjectTestFile(ctx, file.Path) {
 				return
 			}
 			name := extractIdentifierFlat(file, idx)
@@ -187,7 +187,7 @@ func registerNamingBooleanPropertyNaming() {
 		NodeTypes: []string{"property_declaration"}, Confidence: api.ConfidenceVeryHigh, Fix: api.FixSemantic, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
-			if scanner.IsTestFile(file.Path) || !isPublicDeclarationFlat(file, idx) {
+			if isProjectTestFile(ctx, file.Path) || !isPublicDeclarationFlat(file, idx) {
 				return
 			}
 			if !isBooleanPropertyFlat(file, idx) {
@@ -371,7 +371,7 @@ func registerNamingInvalidPackageDeclaration() {
 		NodeTypes: []string{"package_header"}, Confidence: api.ConfidenceVeryHigh, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
-			if invalidPackageDeclarationIgnoredPath(file.Path) {
+			if invalidPackageDeclarationIgnoredPath(projectPath(ctx, file.Path)) {
 				return
 			}
 			var pkg string
@@ -412,8 +412,10 @@ func registerNamingInvalidPackageDeclaration() {
 				return
 			}
 			expectedSuffix := strings.ReplaceAll(pkgForPath, ".", string(filepath.Separator))
-			dir := filepath.Dir(file.Path)
-			dirNorm := filepath.ToSlash(dir)
+			// Only the directories inside the project count: a package
+			// matched by folders above the checkout would pass at one
+			// checkout path and fail at another.
+			dirNorm := filepath.ToSlash(projectPath(ctx, filepath.Dir(file.Path)))
 			expectedNorm := filepath.ToSlash(expectedSuffix)
 			if strings.HasSuffix(dirNorm, expectedNorm) {
 				return
@@ -562,8 +564,10 @@ func registerNamingMatchingDeclarationName() {
 			if strings.HasSuffix(fileName, "Test") && decl.name == fileName+"s" {
 				return
 			}
-			if strings.Contains(filepath.ToSlash(file.Path), "/src/") &&
-				strings.Contains(filepath.ToSlash(file.Path), "Main/") &&
+			// A KMP source set (src/jvmMain/...) inside the project; the
+			// folders above the checkout must not count (#1814).
+			if inProject := projectPath(ctx, file.Path); strings.Contains(filepath.ToSlash(inProject), "/src/") &&
+				strings.Contains(filepath.ToSlash(inProject), "Main/") &&
 				decl.name != fileName {
 				return
 			}

@@ -192,7 +192,7 @@ func registerAccessibilityRules() {
 				if name != "Text" {
 					return
 				}
-				if composeRawTextLiteralNonProductionFile(file.Path, r.NonProductionPathMarkers) {
+				if isProjectTestFile(ctx, file.Path) || composeRawTextLiteralNonProductionFile(projectPath(ctx, file.Path), projectPathMarkers(ctx, r.NonProductionPathMarkers)) {
 					return
 				}
 				_, args := flatCallExpressionParts(file, idx)
@@ -253,7 +253,7 @@ func registerAccessibilityRules() {
 					return
 				}
 				// Test composables don't ship to users.
-				if composeIsTestSourceOrFakeAt(file, idx) {
+				if composeIsTestSourceOrFakeAt(ctx, file, idx) {
 					return
 				}
 				if isInsidePreviewOrSampleFunctionFlatWithConfig(file, idx, customPreviewConfigFromFields(r.CustomPreviewWildcard, r.CustomPreviewPrefixes)) {
@@ -305,7 +305,7 @@ func registerAccessibilityRules() {
 				if !composeTextFieldCalls[name] {
 					return
 				}
-				if !composeTextFieldCallResolvesToMaterial(file, idx, name) {
+				if !composeTextFieldCallResolvesToMaterial(ctx, file, idx, name) {
 					return
 				}
 				if isInsidePreviewOrSampleFunctionFlatWithConfig(file, idx, customPreviewConfigFromFields(true, nil)) {
@@ -325,7 +325,7 @@ func registerAccessibilityRules() {
 				if readOnly := flatNamedValueArgument(file, args, "readOnly"); readOnly != 0 && !strings.HasSuffix(strings.TrimSpace(file.FlatNodeText(readOnly)), "false") {
 					return
 				}
-				if composeDebugToolingPath(file.Path, r.NonProductionPathMarkers) {
+				if composeDebugToolingPath(projectPath(ctx, file.Path), projectPathMarkers(ctx, r.NonProductionPathMarkers)) {
 					return
 				}
 				parent, ok := file.FlatParent(idx)

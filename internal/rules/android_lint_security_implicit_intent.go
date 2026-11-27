@@ -28,12 +28,12 @@ const (
 
 func (r *UnsafeImplicitIntentLaunchRule) check(ctx *api.Context) {
 	classes := lintSourceClasses(ctx.ParsedFiles)
-	nonExported := implicitIntentNonExportedComponents(ctx.Manifests, classes)
+	nonExported := implicitIntentNonExportedComponents(ctx, ctx.Manifests, classes)
 	actions := newImplicitIntentActionEval(ctx.ParsedFiles)
 	dynamic := map[string]bool{}
 	var sent []implicitIntentSend
 	for _, file := range ctx.ParsedFiles {
-		if file == nil || scanner.IsTestFile(file.Path) {
+		if file == nil || isProjectTestFile(ctx, file.Path) {
 			continue
 		}
 		file.FlatWalkAllNodes(0, func(n uint32) {
@@ -80,10 +80,10 @@ func lintFindingAtNodeIn(file *scanner.File, idx uint32, msg string) scanner.Fin
 // implicitIntentNonExportedComponents maps "<action> (used to ...)" to the sorted names of the non-exported
 // activities, activity aliases and receivers whose intent filters declare the action. A component without
 // android:exported="true" counts as non-exported, as in Lint.
-func implicitIntentNonExportedComponents(manifests []*manifest.Manifest, classes *lintSourceIndex) map[string][]string {
+func implicitIntentNonExportedComponents(ctx *api.Context, manifests []*manifest.Manifest, classes *lintSourceIndex) map[string][]string {
 	sets := map[string]map[string]bool{}
 	for _, m := range manifests {
-		if m == nil || m.Root == nil || scanner.IsTestFile(m.Path) {
+		if m == nil || m.Root == nil || isProjectTestFile(ctx, m.Path) {
 			continue
 		}
 		for _, app := range m.Root.ChildrenByTag("application") {

@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/kaeawc/krit/internal/lazyre"
+	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -229,7 +230,7 @@ func testingQualityCallReceiverContains(file *scanner.File, call uint32, name st
 	return found
 }
 
-func testingQualityIsBenchmarkOrGoldenFile(file *scanner.File) bool {
+func testingQualityIsBenchmarkOrGoldenFile(ctx *api.Context, file *scanner.File) bool {
 	if file == nil {
 		return false
 	}
@@ -238,27 +239,27 @@ func testingQualityIsBenchmarkOrGoldenFile(file *scanner.File) bool {
 		fileImportsFQN(file, "androidx.benchmark.junit4.BenchmarkRule") ||
 		fileImportsFQN(file, "androidx.compose.testutils.benchmark.ComposeBenchmarkRule") ||
 		fileImportsFQN(file, "com.github.takahirom.roborazzi.RoborazziRule") ||
-		testingQualityIsDeviceJourneyFile(file)
+		testingQualityIsDeviceJourneyFile(ctx, file)
 }
 
 // testingQualityIsDeviceJourneyFile reports macrobenchmark, UI Automator and benchmark-source-set instrumentation
 // journeys. Their test passes when the flow completes without throwing, so there is no assertion to add.
-func testingQualityIsDeviceJourneyFile(file *scanner.File) bool {
+func testingQualityIsDeviceJourneyFile(ctx *api.Context, file *scanner.File) bool {
 	if fileFactsCache().Imports(file).HasAnyPrefix("androidx.test.uiautomator", "androidx.benchmark.macro") {
 		return true
 	}
-	path := scanner.LowerSlashPath(file.Path)
+	path := scanner.LowerSlashPath(projectPath(ctx, file.Path))
 	if !strings.Contains(path, "/benchmark/") && !strings.Contains(path, "/macrobenchmark/") {
 		return false
 	}
 	return strings.Contains(string(file.Content), "@LargeTest") || strings.Contains(string(file.Content), "AndroidJUnit4")
 }
 
-func testingQualityIsAndroidInstrumentedTestFile(file *scanner.File) bool {
+func testingQualityIsAndroidInstrumentedTestFile(ctx *api.Context, file *scanner.File) bool {
 	if file == nil {
 		return false
 	}
-	path := scanner.LowerPath(file.Path)
+	path := scanner.LowerPath(projectPath(ctx, file.Path))
 	return strings.Contains(path, "/src/androidtest/") ||
 		strings.Contains(path, "/src/androidinstrumentedtest/") ||
 		strings.Contains(path, "/src/androidcommontest/") ||

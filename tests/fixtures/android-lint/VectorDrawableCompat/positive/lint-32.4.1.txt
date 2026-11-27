@@ -1,0 +1,1 @@
+src/main/res/layout/main.xml:5:89: VectorDrawableCompat: When using VectorDrawableCompat, you need to use `app:srcCompat`

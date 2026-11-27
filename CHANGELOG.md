@@ -677,11 +677,22 @@ All notable changes to Krit will be documented in this file.
   published one, stops an unimported `gradle/<name>.versions.toml` of that name from serving its accessor. Programmatic
   `library(...)`/`plugin(...)` text in a settings string literal adds no library fact, and the parsed-catalog caches
   follow file content, not only size and mtime.
+- A scan delegated to a daemon no longer drops scan flags silently. `--strict`, `--disable-related` and
+  `--no-type-inference` are now sent (`--no-type-inference` as `--no-type-oracle`, which is all it does in process,
+  #1973). `--experiment`, `--experiment-off`, `--enable-editorconfig`, `--no-oracle-filter`, `--cache-dir`,
+  `--store-dir`, `--parse-cache-cap-mb` and `--no-cross-file-cache` without `--no-cache` now run in process, since the
+  daemon holds that state once for every request. With no daemon running, `--clear-cache` and `--clear-matrix-cache`
+  clear in process instead of starting a daemon, scanning and clearing nothing. A test now fails when a scan flag has
+  no daemon route, and `docs/daemon-flag-routing.md` lists every flag's route (#1956).
+- `--disable-related` disables the related rules: the built-in rules declare `RelatedRules` in their metadata
+  descriptors, which the expansion did not read, so the flag disabled nothing (#1956).
+- A delegated `--no-parse-cache -v` scan whose daemon does not confirm the bypass prints its `-v` output once: the
+  daemon's verbose output is no longer streamed before the result is accepted (#1956).
 - `--no-parse-cache` now works on a scan delegated to a daemon. The flag was not sent, so the daemon still parsed
-  through its parse cache and could serve stale trees with no warning. The daemon now parses every file afresh for that
-  request, skipping both its parse cache and the parsed trees it keeps in memory, and confirms the bypass in its
-  reply. If a daemon does not confirm it, the CLI scans in process. Later requests keep using the daemon's caches
-  (#1919).
+  through its parse cache and could serve stale trees with no warning. The daemon now parses every file it does not
+  replay from the findings or analysis cache for that request, skipping both its parse cache and the parsed trees it
+  keeps in memory, and confirms the bypass in its reply. If a daemon does not confirm it, the CLI scans in process.
+  Later requests keep using the daemon's caches (#1919).
 - Compose lint parity follow-ups for the fourth batch: `ComposeViewModelInjection` reports configured
   `viewModelFactories` in files that never say "ViewModel"; `ComposeViewModelForwarding` no longer takes JDK, Kotlin
   and Android framework classes (`Pair`, `Intent`, `WeakReference`) or a function whose comment says "Composable" for

@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -36,26 +37,19 @@ var daemonSupported = daemon.Supported
 // daemon startup or a daemon call fails after the flag set has been
 // accepted for delegation.
 func tryDaemonDelegate(f *scanFlags, paths []string, repoDir string) (bool, int) {
-	if f == nil || *f.NoDaemon {
+	if f == nil {
 		return false, 0
 	}
-	// Unsupported platforms (Windows) never connect, spawn, or wait: the
-	// scan goes straight to in-process analysis.
-	if !daemonSupported() {
+	verb, ok := scanDelegation(f, flag.CommandLine, paths, repoDir)
+	if !ok {
 		return false, 0
 	}
-	resolveDepthForDelegation(f, flag.CommandLine, paths)
-	if verb, ok := metaVerbForFlags(f); ok {
+	if verb != metaVerbNone {
 		client, ok := daemonclient.TryConnect(repoDir, *f.DaemonSocket)
 		if !ok {
 			return false, 0
 		}
 		return runDaemonMetaVerb(client, f, paths, verb)
-	}
-	// A failed FIR preflight is reported in-process: the wire carries no
-	// degraded state, so a delegated report would omit summary.firDegraded.
-	if !daemonCompatibleFlags(f) || !configServedByDaemon(f, repoDir) || f.firDegraded != nil {
-		return false, 0
 	}
 	if *f.DaemonSocket != "" {
 		client, ok := daemonclient.TryConnect(repoDir, *f.DaemonSocket)
@@ -91,6 +85,29 @@ func tryDaemonDelegate(f *scanFlags, paths []string, repoDir string) (bool, int)
 		return false, 0
 	}
 	return runDaemonAnalyze(client, f, paths)
+}
+
+// scanDelegation decides from the flags alone whether a daemon serves the
+// scan: ok=false keeps it in-process, and verb names the meta verb that
+// answers it (metaVerbNone means analyze-project). fs is the parsed flag set,
+// which the --depth preset reads to leave explicit flags alone. It resolves
+// the preset into f first, as the request must carry it.
+func scanDelegation(f *scanFlags, fs *flag.FlagSet, paths []string, repoDir string) (verb metaVerbName, ok bool) {
+	// Unsupported platforms (Windows) never connect, spawn, or wait: the
+	// scan goes straight to in-process analysis.
+	if *f.NoDaemon || !daemonSupported() {
+		return metaVerbNone, false
+	}
+	resolveDepthForDelegation(f, fs, paths)
+	if verb, ok := metaVerbForFlags(f); ok {
+		return verb, true
+	}
+	// A failed FIR preflight is reported in-process: the wire carries no
+	// degraded state, so a delegated report would omit summary.firDegraded.
+	if !daemonCompatibleFlags(f) || !configServedByDaemon(f, repoDir) || f.firDegraded != nil {
+		return metaVerbNone, false
+	}
+	return metaVerbNone, true
 }
 
 // resolveDepthForDelegation applies the --depth / krit.yml analysis.depth
@@ -180,9 +197,14 @@ func runDaemonAnalyze(client daemonProjectClient, f *scanFlags, paths []string) 
 
 // analyzeViaDaemon streams verbose output to stderr when -v is set and the
 // client supports it. announce runs before the first streamed text.
+//
+// A --no-parse-cache result is kept only when the daemon confirms the bypass,
+// so its verbose output is not streamed: it arrives in the result and is
+// printed once the result is accepted. Otherwise a fallback would print -v
+// output twice, the daemon's and then the in-process scan's.
 func analyzeViaDaemon(client daemonProjectClient, f *scanFlags, args daemon.AnalyzeProjectArgs, announce func()) (daemon.AnalyzeProjectResult, error) {
 	streamer, ok := client.(streamingProjectClient)
-	if !ok || !*f.Verbose {
+	if !ok || !*f.Verbose || args.NoParseCache {
 		return client.AnalyzeProject(args)
 	}
 	return streamer.AnalyzeProjectStream(args, func(text string) {
@@ -688,15 +710,21 @@ var javaForPRMode = oracle.JavaPath
 // are also daemon-routable: --no-cache rides on AnalyzeProjectArgs.NoCache
 // (the daemon nils every disk-cache pointer and skips .krit/fir-cache for
 // this single call); --no-parse-cache rides on
-// AnalyzeProjectArgs.NoParseCache (the daemon parses every file afresh,
-// bypassing its parse cache and resident parsed trees for this call, and
-// confirms it in the stats, so a daemon that predates the field falls
-// back to in-process); the two clear-* flags are handled by
-// tryDaemonClearCache and tryDaemonClearMatrixCache before
-// tryDaemonDelegate runs (early-exit verbs). --clear-cache also drops the daemon's resident
+// AnalyzeProjectArgs.NoParseCache (the daemon parses every file it does not
+// replay from the findings or analysis cache, bypassing its parse cache and
+// resident parsed trees for this call, and confirms it in the stats, so a
+// daemon that predates the field falls back to in-process); the two clear-*
+// flags are handled by tryDaemonClearCache and tryDaemonClearMatrixCache
+// before tryDaemonDelegate runs (early-exit verbs), and stay in-process here
+// when no daemon is running, so they clear instead of starting a daemon
+// (#1956). --clear-cache also drops the daemon's resident
 // WorkspaceState slots so the next analyze rebuilds from cold;
 // --clear-matrix-cache only touches the host-wide matrix baseline
 // directory because the matrix cache has no resident counterpart.
+//
+// Every scan flag is classified as forwarded, in-process or not needed by
+// the lists in daemon_flag_routing_test.go, which fail when a new flag has
+// no route; docs/daemon-flag-routing.md carries the same table.
 //
 // --create-baseline and --dry-run ARE compatible: the daemon computes
 // the baseline-ID list / fixable-file list from the same FindingColumns
@@ -729,7 +757,8 @@ var javaForPRMode = oracle.JavaPath
 // / os.Rename still happens with the CLI's CWD and permissions.
 func daemonCompatibleFlags(f *scanFlags) bool {
 	meta := []bool{*f.Init, *f.Doctor, *f.Version, *f.List, *f.ValidateConfig, *f.GenerateSchema,
-		*f.OracleFilterFingerprint, *f.DumpOracleDiagnostics, *f.ListExperiments}
+		*f.OracleFilterFingerprint, *f.DumpOracleDiagnostics, *f.ListExperiments,
+		*f.ClearCache, *f.ClearMatrixCache}
 	for _, on := range meta {
 		if on {
 			return false
@@ -745,6 +774,9 @@ func daemonCompatibleFlags(f *scanFlags) bool {
 	// The analyze-project wire carries no rule-scope or cost filter, so a
 	// delegated scan would run the full rule set.
 	if scopeFlagsSet(f) || strings.TrimSpace(*f.MaxCost) != "" {
+		return false
+	}
+	if processStateFlagsSet(f) || localCacheFlagsSet(f) {
 		return false
 	}
 	// PR mode compiles only the changed files' modules in-process (#1660);
@@ -787,6 +819,35 @@ func daemonCompatibleFlags(f *scanFlags) bool {
 	// `--oracle-backend` is forwarded verbatim by buildDaemonAnalyzeArgs;
 	// the serve handler validates it, so it never forces in-process.
 	return true
+}
+
+// processStateFlagsSet reports flags that change state a daemon holds once
+// for every request, so a delegated scan cannot apply them for one request
+// (#1956):
+//
+//   - --experiment / --experiment-off set the process-wide experiment set
+//     (experiment.SetCurrent) that rules read while they run, and no findings
+//     cache is keyed on it, so the daemon would replay findings of another
+//     experiment set.
+//   - --enable-editorconfig rewrites the config, and the daemon keeps one
+//     resident config.
+//   - --no-oracle-filter feeds every file to the resident type oracle. It is
+//     the findings-equivalence baseline for the oracle filter, so it runs
+//     in-process.
+func processStateFlagsSet(f *scanFlags) bool {
+	return strings.TrimSpace(*f.Experiment) != "" || strings.TrimSpace(*f.ExperimentOff) != "" ||
+		*f.EditorConfig || *f.NoOracleFilter
+}
+
+// localCacheFlagsSet reports cache flags a daemon cannot honour, since it keeps
+// its caches in its own state directory and its own memory (#1956, #1947):
+// --cache-dir and --store-dir move caches it does not use, --parse-cache-cap-mb
+// sizes its resident parse cache, and --no-cross-file-cache on its own leaves
+// the daemon's resident code index in place (with --no-cache, which implies it,
+// the daemon skips the disk caches as before).
+func localCacheFlagsSet(f *scanFlags) bool {
+	return *f.CacheDir != "" || *f.StoreDir != "" || *f.ParseCacheCapMB != 0 ||
+		*f.NoCrossFileCache && !*f.NoCache
 }
 
 // configServedByDaemon reports whether the daemon would analyze with the
@@ -884,6 +945,9 @@ func buildDaemonAnalyzeArgs(f *scanFlags, paths []string) daemon.AnalyzeProjectA
 		includeColumns = true
 		wireFormat = "json"
 	}
+	// In-process, --no-type-inference turns the type oracle off (the resolver
+	// it gates is not pre-built); source-level inference still runs (#1973).
+	noTypeOracle := *f.NoTypeOracle || *f.NoTypeInfer
 	return daemon.AnalyzeProjectArgs{
 		Paths:                     paths,
 		Cwd:                       callerCwd(),
@@ -896,8 +960,9 @@ func buildDaemonAnalyzeArgs(f *scanFlags, paths []string) daemon.AnalyzeProjectA
 		IncludeGenerated:          *f.IncludeGenerated,
 		AllRules:                  *f.AllRules,
 		Experimental:              *f.Experimental,
+		Strict:                    *f.Strict,
 		EnableRules:               *f.EnableRules,
-		DisableRules:              *f.DisableRules,
+		DisableRules:              daemonDisableRules(f),
 		CustomRuleJars:            parseCustomRuleJars(*f.CustomRuleJars),
 		ShowPerf:                  *f.Perf || *f.PerfRules,
 		PerfRules:                 *f.PerfRules,
@@ -916,7 +981,7 @@ func buildDaemonAnalyzeArgs(f *scanFlags, paths []string) daemon.AnalyzeProjectA
 		OracleBackend:             *f.OracleBackend,
 		Fir:                       *f.Fir && !*f.NoFir,
 		NoFir:                     *f.NoFir || !*f.Fir,
-		NoTypeOracle:              *f.NoTypeOracle,
+		NoTypeOracle:              noTypeOracle,
 		NoCacheOracle:             *f.NoCacheOracle,
 		GradleModel:               *f.GradleModel,
 		NoGradleModel:             *f.NoGradleModel,
@@ -929,6 +994,21 @@ func buildDaemonAnalyzeArgs(f *scanFlags, paths []string) daemon.AnalyzeProjectA
 		NoFirDaemon:               *f.NoFirDaemon,
 		ClientBinaryHash:          daemonclient.CurrentBinaryHash(),
 	}
+}
+
+// daemonDisableRules is the --disable-rules list a delegated scan sends. With
+// --disable-related the CLI adds the related rules itself, so the daemon
+// disables the same rules as an in-process scan without knowing the flag.
+func daemonDisableRules(f *scanFlags) string {
+	if !*f.DisableRelated {
+		return *f.DisableRules
+	}
+	names := make([]string, 0, 8)
+	for name := range scanDisabledRuleSet(f) {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return strings.Join(names, ",")
 }
 
 // callerCwd returns the working directory the daemon must resolve this

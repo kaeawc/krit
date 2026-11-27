@@ -97,7 +97,7 @@ func ruleFired(t *testing.T, findings json.RawMessage, rule string) bool {
 	return false
 }
 
-// A no_parse_cache request parses every file afresh: it neither reads a
+// A no_parse_cache request parses without the parse cache: it neither reads a
 // seeded stale parse-cache entry nor the resident trees, and writes neither,
 // as an in-process --no-parse-cache scan neither reads nor writes the parse
 // cache (#1919).

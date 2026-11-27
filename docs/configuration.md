@@ -441,7 +441,9 @@ These sit under the detekt config and `krit.yml`, which win where they set
 the same rule. `--verbose` reports what was applied; set
 `ktlintEditorConfig: {enabled: false}` to opt out. `--enable-editorconfig`
 additionally applies the other standard properties (`indent_style`,
-`insert_final_newline`, ...), which override krit.yml.
+`insert_final_newline`, ...), which override krit.yml. A scan with
+`--enable-editorconfig` runs in-process, as the daemon keeps one resident
+config.
 
 ## Gradle model
 

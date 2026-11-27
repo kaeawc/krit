@@ -164,9 +164,10 @@ func IsDefaultActive(name string) bool {
 // set. The expansion is non-transitive: only one hop is followed. A
 // related ID that is not present in registry is silently skipped — that
 // case is already rejected by ValidateRelations at dispatcher
-// construction, so a stale entry here means the user passed an unknown
-// rule ID via --disable-rules (which is its own diagnostic surface) or
-// the registry was filtered after validation.
+// construction (and by TestRuleDescriptorRelatedRulesAreRegistered for
+// descriptor relations), so a stale entry here means the user passed an
+// unknown rule ID via --disable-rules (which is its own diagnostic surface)
+// or the registry was filtered after validation.
 func ExpandWithRelated(disabledSet map[string]bool, registry []*api.Rule) {
 	if len(disabledSet) == 0 {
 		return
@@ -182,7 +183,10 @@ func ExpandWithRelated(disabledSet map[string]bool, registry []*api.Rule) {
 		if r == nil || !seed[r.ID] {
 			continue
 		}
-		for _, related := range r.RelatedRules {
+		// Built-in rules declare RelatedRules in their Meta() descriptor;
+		// MetaForRule merges it with api.Rule.RelatedRules.
+		meta, _ := MetaForRule(r)
+		for _, related := range meta.RelatedRules {
 			disabledSet[related] = true
 		}
 	}

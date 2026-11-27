@@ -181,7 +181,6 @@ func emitDaemonFilteredColumns(f *scanFlags, paths []string, columns *scanner.Fi
 // path admits (NO custom-rule-jars: daemon-eligibility gate keeps
 // callers with --custom-rule-jars on the in-process path).
 func activeRulesForDaemonEmit(f *scanFlags) []*api.Rule {
-	disabledSet := clishared.ParseRuleNameSetCSV(*f.DisableRules)
 	enabledSet := clishared.ParseRuleNameSetCSV(*f.EnableRules)
-	return rules.ActiveRulesV2(disabledSet, enabledSet, *f.AllRules, *f.Experimental, *f.Strict)
+	return rules.ActiveRulesV2(scanDisabledRuleSet(f), enabledSet, *f.AllRules, *f.Experimental, *f.Strict)
 }

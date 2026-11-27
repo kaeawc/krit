@@ -23,6 +23,7 @@ the collected sources, manifests, resources or the config changes.
 
 load("@bazel_skylib//rules:common_settings.bzl", "BuildSettingInfo")
 load(":android.bzl", "resource_dirs_build_file", "sdk_level_args")
+load(":toolchain.bzl", "KRIT_TOOLCHAIN_TYPE")
 
 _SOURCE_EXTENSIONS = ["kt", "kts", "java"]
 
@@ -139,7 +140,7 @@ def _krit_project_report_impl(ctx):
     args.add_all(scan)
 
     ctx.actions.run(
-        executable = ctx.executable._krit,
+        executable = ctx.toolchains[KRIT_TOOLCHAIN_TYPE].krit,
         arguments = ["bazel-worker", args],
         inputs = inputs,
         outputs = [sarif, plain, status],
@@ -170,6 +171,7 @@ def _krit_project_report_impl(ctx):
 
 krit_project_report = rule(
     implementation = _krit_project_report_impl,
+    toolchains = [KRIT_TOOLCHAIN_TYPE],
     doc = """Runs krit's project-scope rules over the sources of `deps` and their dependencies.
 
 Writes `<name>.krit.sarif` and `<name>.krit.txt`. The sources are the
@@ -199,11 +201,6 @@ krit_aspect, whose per-target actions run the file-scope rules.
             default = "auto",
             values = ["auto", "true", "false"],
             doc = "Fail the build through a validation action when krit reports findings; auto follows --@krit//:fail_on_findings.",
-        ),
-        "_krit": attr.label(
-            default = Label("//:krit"),
-            executable = True,
-            cfg = "exec",
         ),
         "_config": attr.label(
             default = Label("//:config"),

@@ -285,8 +285,8 @@ near-zero on a warm run.
 
 | Flag | What it disables |
 |---|---|
-| `--no-cache` | Every cache that can change findings: the incremental analysis cache, the cross-file index and the cross-file findings cache, the findings bundle, the Android findings cache, the resource index, the file-walk cache, the tracked-files cache (the git file listing), the type-index and library-profile caches, the incremental oracle cache, the `--fir` check cache `.krit/fir-cache` and the incremental FIR bundle `.krit/fir-incremental`. None of these is read or written. The content-keyed parse cache (Kotlin, Java and XML trees) and the content-hash memo stay on, and a type-oracle run still writes its output, `.krit/types.json`. A daemon-delegated scan forwards the flag, and the daemon also skips its parse cache for that call |
-| `--no-parse-cache` | Tree-sitter parse-tree cache |
+| `--no-cache` | Every cache that can change findings: the incremental analysis cache, the cross-file index and the cross-file findings cache, the findings bundle, the Android findings cache, the resource index, the file-walk cache, the tracked-files cache (the git file listing), the type-index and library-profile caches, the incremental oracle cache, the `--fir` check cache `.krit/fir-cache` and the incremental FIR bundle `.krit/fir-incremental`. None of these is read or written. The content-keyed parse cache (Kotlin, Java and XML trees) and the content-hash memo stay on, and a type-oracle run still writes its output, `.krit/types.json`. A daemon-delegated scan forwards the flag, and the daemon also skips its parse cache for that call. An in-process `--no-cache` scan is therefore not a cold baseline for a change to parsing, the grammar or tree repair: see [Cold baseline for parser changes](#cold-baseline-for-parser-changes) |
+| `--no-parse-cache` | Tree-sitter parse-tree cache (Kotlin, Java and XML trees). Not forwarded to a daemon: pair it with `--no-daemon` |
 | `--no-resource-cache` | Android values-XML ResourceIndex cache |
 | `--no-cross-file-cache` | Cross-file index cache |
 | `--no-cache-oracle` | Incremental oracle cache (forces full JVM run) |
@@ -315,7 +315,7 @@ Findings and rule-dependent derived data. A different build never reads these:
 | `findings-bundle-cache/` | Whole-run findings and delta manifests | Run fingerprint: rule hash, source set, cross-file structure, oracle facts, Gradle paths and library facts, compiler settings, XML inputs (manifests, resources, module SDK levels) | Any fingerprint field |
 | `cross-findings-cache/` | Cross-file rule findings | Cross-file index fingerprint, rule hash | Index fingerprint (sources, XML inputs, build), rule hash |
 | `cross-file-cache/` | Cross-file symbol and reference index | Source and XML content hashes, build, bloom library version | `CrossFileCacheVersion`, the shard version, the build |
-| `android-findings-cache/` | Manifest, resource, icon, Gradle, resource-source and manifest-source findings, merged resource indexes | Rule hash (with module SDK levels and RTL main-project facts), library facts, Java semantic facts, content fingerprint of the unit (a manifest also keys on its path and the module's `res/` and build script) | `androidFindingsCacheVersion`, any key input |
+| `android-findings-cache/` | Manifest, resource, icon, Gradle, resource-source and manifest-source findings, merged resource indexes | Rule hash (with module SDK levels and RTL main-project facts), library facts, Java semantic facts, content fingerprint of the unit (a manifest also keys on its path and the module's `res/` and build script; manifest and resource units also key on the build scripts and version catalogs their active rules read beyond the scan, a resource unit only when an active resource rule reads them, see `rules.ResourceBuildInfoReader`) | `androidFindingsCacheVersion`, any key input |
 | `fir-cache/`, `fir-incremental/` | FIR checker verdicts and incremental compiler state | Source hash, classpath, jar identity, rules and configs, per-file SDK levels, Kotlin settings; `fir-cache/` keys paths relative to the repository and jars by content, so it survives a move to another checkout path or `GRADLE_USER_HOME` | `FirCacheVersion`, the fingerprint, the build |
 | `types.json`, `types-cache/` | Type oracle facts | File hashes, backend jar token, `CacheVersion`, fact schema | Jar contents, schema versions, build |
 | `type-index-cache/` | Source type index (scopes, smart casts, declarations) | File path and content hash | `typeIndexCacheVersion`, the build (the directory is emptied when another build wrote it) |
@@ -406,6 +406,23 @@ GitHub Actions (`/home/runner/work/<repo>/<repo>`), GitLab (`/builds/<group>/<pr
 If a scan with the default cache disagrees with `--no-cache`, that is a bug in
 a key: run `krit --clear-cache` to recover, then report which cache held the
 stale data (move cache directories aside one at a time to find it).
+
+### Cold baseline for parser changes
+
+In process, `--no-cache` keeps the parse cache, whose key is the file content
+plus the grammar version and, for Kotlin, the tree-repair revision
+(`kotlinTreeRepairRevision` in `internal/scanner/parse_cache.go`). A change to
+parsing, the tree-sitter grammar or tree repair that forgets to bump that
+version keeps serving the old trees, and a warm run and a `--no-cache` run
+then agree on the same stale answer. For such a change, compare against:
+
+```bash
+krit --no-daemon --no-cache --no-parse-cache -f json .
+```
+
+`--no-parse-cache` is not forwarded to a daemon, hence `--no-daemon`. In the
+#1904 review (#1912), a warm run and a `--no-cache` run both reported
+17 findings; `--no-parse-cache` reported the correct 39.
 
 ### When the oracle cache re-runs the JVM
 

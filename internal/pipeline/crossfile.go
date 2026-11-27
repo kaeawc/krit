@@ -455,7 +455,7 @@ func (p CrossFilePhase) saveCrossFindingsCache(in DispatchResult, crossFindingsK
 	crossOnlySuppressed := applySuppressionColumns(&crossOnlyCols, in.SourceFiles())
 	snapshot := crossOnlySuppressed.Clone()
 	tags := lexicalTags(in.ActiveRules, in.KotlinFiles, in.JavaFiles)
-	if err := scanner.SaveCrossFindingsTagged(in.CrossFindingsCacheDir, crossFindingsKey, snapshot, tags); err != nil {
+	if err := scanner.SaveCrossFindingsTagged(in.CrossFindingsCacheDir, crossFindingsKey, snapshot, tags, lexicalReuseKey(in.RuleHash)); err != nil {
 		if in.Reporter != nil {
 			in.Reporter.Verbosef("verbose: Cross-file findings cache: save failed: %v\n", err)
 		}

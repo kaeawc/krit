@@ -763,12 +763,9 @@ func moduleIdentityForRes(resDir string) moduleIdentity {
 const slotModuleIdentity = "lintModuleIdentity"
 
 func readModuleIdentity(resDir string) moduleIdentity {
-	module := filepath.Dir(resDir)
-	if filepath.Base(filepath.Dir(module)) == "src" {
-		module = filepath.Dir(filepath.Dir(module))
-	}
+	module := resModuleDir(resDir)
 	var id moduleIdentity
-	for _, name := range []string{"build.gradle.kts", "build.gradle"} {
+	for _, name := range manifestBuildScriptNames {
 		data, err := os.ReadFile(filepath.Join(module, name))
 		if err != nil {
 			continue
@@ -789,7 +786,7 @@ func readModuleIdentity(resDir string) moduleIdentity {
 		}
 		break
 	}
-	for _, manifest := range []string{filepath.Join(filepath.Dir(resDir), "AndroidManifest.xml"), filepath.Join(module, "src", "main", "AndroidManifest.xml")} {
+	for _, manifest := range moduleIdentityManifests(resDir) {
 		if id.namespace != "" {
 			break
 		}

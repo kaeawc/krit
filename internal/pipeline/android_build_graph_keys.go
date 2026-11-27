@@ -27,11 +27,18 @@ type buildFileReaders struct {
 	// gradleInfo: a manifest or manifest-source rule reads each manifest's build script and the version catalogs its
 	// aliases resolve through (rules.ReadsManifestGradleInfo). A module-graph rule reads them too.
 	gradleInfo bool
+	// resources: the active resource rules that read build files for a res directory (rules.ResourceBuildInfoReader),
+	// nil when none does (#1883).
+	resources *resourceBuildInfoRules
 }
 
 func buildFileReadersOf(active []*api.Rule) buildFileReaders {
 	graph := rules.ReadsModuleGraph(active)
-	return buildFileReaders{moduleGraph: graph, gradleInfo: graph || rules.ReadsManifestGradleInfo(active)}
+	return buildFileReaders{
+		moduleGraph: graph,
+		gradleInfo:  graph || rules.ReadsManifestGradleInfo(active),
+		resources:   resourceBuildInfoRulesOf(active),
+	}
 }
 
 // buildFilesFingerprint hashes every Gradle file manifest and manifest-source rules can read: the build scripts and
@@ -40,8 +47,9 @@ func buildFileReadersOf(active []*api.Rule) buildFileReaders {
 // scan path holds: a scan of only app/ and lib/, an explicit file list, a module that is gitignored or mapped into a
 // dot-directory or build/ (#1800). Every manifest rule reads its manifest's build script (is the module an app or a
 // library, its SDK levels) and the version catalogs that script's aliases resolve through, which a scan of only
-// source directories doesn't hold and no scan holds the catalogs of (#1853): see manifestGradleInfoFingerprint. It
-// returns false when a scanned path can't be hashed.
+// source directories doesn't hold and no scan holds the catalogs of (#1853): see manifestGradleInfoFingerprint. A
+// resource rule that reads build files reads them for each res directory, which a scan of only res directories doesn't
+// hold either (#1883): see gradleInfoFingerprint. It returns false when a scanned path can't be hashed.
 func buildFilesFingerprint(project *android.Project, reads buildFileReaders) (string, bool) {
 	h := hashutil.Hasher().New()
 	if project == nil {
@@ -64,8 +72,8 @@ func buildFilesFingerprint(project *android.Project, reads buildFileReaders) (st
 			writeUnscannedFileHashes(h, memo, build.files, scanned)
 		}
 	}
-	if reads.gradleInfo {
-		_, _ = h.Write([]byte("gradle-info\x00" + manifestGradleInfoFingerprint(project)))
+	if reads.gradleInfo || reads.resources != nil {
+		_, _ = h.Write([]byte("gradle-info\x00" + gradleInfoFingerprint(project, reads)))
 	}
 	return hex.EncodeToString(h.Sum(nil)), true
 }

@@ -33,7 +33,7 @@ func (v ruleView) render() string {
 	r := v.rule
 	fmt.Fprintf(&b, "# %s\n\n", r.ID)
 	if r.Description != "" {
-		fmt.Fprintf(&b, "%s\n\n", r.Description)
+		fmt.Fprintf(&b, "%s\n\n", escapeOutsideCodeSpans(r.Description))
 	}
 	v.writeSummary(&b)
 	v.writeConfig(&b)
@@ -103,7 +103,7 @@ func (v ruleView) writeConfig(b *strings.Builder) {
 		if o.Default != nil {
 			def = "`" + yamlValue(o.Default) + "`"
 		}
-		fmt.Fprintf(b, "| %s | %s | %s | %s |\n", name, o.Type, def, cell(o.Description))
+		fmt.Fprintf(b, "| %s | %s | %s | %s |\n", name, o.Type, def, cell(escapeOutsideCodeSpans(o.Description)))
 	}
 	b.WriteString("\n")
 }
@@ -133,9 +133,82 @@ func (v ruleView) writeLimitations(b *strings.Builder) {
 	}
 	b.WriteString("## Known limitations\n\n")
 	for _, l := range v.meta.KnownLimitations {
-		fmt.Fprintf(b, "- %s\n", l)
+		fmt.Fprintf(b, "- %s\n", escapeOutsideCodeSpans(l))
 	}
 	b.WriteString("\n")
+}
+
+// escapeOutsideCodeSpans escapes the characters markdown passes through as
+// HTML, so a description's bare `List<T>` or `<meta-data>` renders as text
+// instead of a hidden tag. Code spans are left alone, as markdown shows them
+// literally. They are found the way CommonMark finds them: a run of
+// backticks opens one only when a later run of the same length closes it, an
+// unmatched run is literal text, and a backslash-escaped backtick opens
+// nothing.
+func escapeOutsideCodeSpans(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); {
+		switch c := s[i]; {
+		case c == '\\' && i+1 < len(s) && isASCIIPunct(s[i+1]):
+			// A backslash escape: the next character is literal, a backtick
+			// included; < > & stay escaped by the backslash.
+			b.WriteString(s[i : i+2])
+			i += 2
+		case c == '`':
+			run := backtickRun(s, i)
+			if end := closingBacktickRun(s, i+run, run); end >= 0 {
+				b.WriteString(s[i:end])
+				i = end
+				continue
+			}
+			b.WriteString(s[i : i+run])
+			i += run
+		case c == '<':
+			b.WriteString("&lt;")
+			i++
+		case c == '>':
+			b.WriteString("&gt;")
+			i++
+		case c == '&':
+			b.WriteString("&amp;")
+			i++
+		default:
+			b.WriteByte(c)
+			i++
+		}
+	}
+	return b.String()
+}
+
+// backtickRun returns the length of the run of backticks starting at i.
+func backtickRun(s string, i int) int {
+	n := 0
+	for i+n < len(s) && s[i+n] == '`' {
+		n++
+	}
+	return n
+}
+
+// closingBacktickRun returns the index just past the first run of exactly n
+// backticks at or after from, or -1 when there is none.
+func closingBacktickRun(s string, from, n int) int {
+	for j := from; j < len(s); {
+		if s[j] != '`' {
+			j++
+			continue
+		}
+		run := backtickRun(s, j)
+		if run == n {
+			return j + run
+		}
+		j += run
+	}
+	return -1
+}
+
+// isASCIIPunct reports whether c is one CommonMark lets a backslash escape.
+func isASCIIPunct(c byte) bool {
+	return strings.IndexByte("!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~", c) >= 0
 }
 
 func (v ruleView) writeCompatibility(b *strings.Builder) {

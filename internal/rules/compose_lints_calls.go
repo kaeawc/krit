@@ -388,12 +388,11 @@ func composeLintsReceiverIsModifier(file *scanner.File, decl uint32) bool {
 	return t != 0 && composeLintsTypeIsModifier(file, t)
 }
 
-// composeLintsReceiverType returns the (nullable) user_type of a function or property declaration's extension
-// receiver, or 0.
+// composeLintsReceiverType returns the type node of a function or property declaration's extension receiver, or 0.
 func composeLintsReceiverType(file *scanner.File, decl uint32) uint32 {
 	for child := file.FlatFirstChild(decl); child != 0; child = file.FlatNextSib(child) {
 		switch file.FlatType(child) {
-		case "user_type", "nullable_type":
+		case "user_type", "nullable_type", "function_type", "parenthesized_type":
 			if next := file.FlatNextSib(child); next != 0 && file.FlatType(next) == "." {
 				return child
 			}

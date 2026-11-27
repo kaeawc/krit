@@ -7,6 +7,7 @@ exports_files([
     "android.bzl",
     "kotlin.bzl",
     "model.bzl",
+    "toolchain.bzl",
 ])
 
 exports_files(["export_model.sh"])

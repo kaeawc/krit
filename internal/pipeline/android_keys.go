@@ -45,7 +45,7 @@ func (in AndroidInput) resourceKey(resDir, resDirFP string, deps rules.AndroidDa
 		// rule-set masks flipping invalidates the cache and so two
 		// identical-content resDirs at different paths don't share an
 		// entry.
-		Extra: resDir + "\x00" + uintptrToHex(uint64(deps)) + "\x00" + uintptrToHex(uint64(valueKinds)) + sources,
+		Extra: resDir + "\x00" + uintptrToHex(uint64(deps)) + "\x00" + uintptrToHex(uint64(valueKinds)) + sources + in.resourceBuildInfoKey(),
 	})
 }
 
@@ -181,7 +181,7 @@ func (in AndroidInput) resourceBundleKey(mergedFP string, deps rules.AndroidData
 		RuleHash:       in.RuleHash,
 		LibraryFactsFP: in.LibraryFactsFP,
 		InputFP:        mergedFP,
-		Extra:          uintptrToHex(uint64(deps)) + "\x00" + uintptrToHex(uint64(valueKinds)) + sources,
+		Extra:          uintptrToHex(uint64(deps)) + "\x00" + uintptrToHex(uint64(valueKinds)) + sources + in.resourceBuildInfoKey(),
 	})
 }
 
@@ -267,6 +267,10 @@ func (in AndroidInput) androidProjectBundleFingerprint(needs androidPhaseNeeds, 
 	}
 	if needs.resources || needs.icons || needs.manifest {
 		writeResDirFingerprints(h, in.Project.ResDirs, resDirFPs)
+	}
+	// Resource rules that read build files read them beside every res directory (#1883).
+	if key := in.resourceBuildInfoKey(); needs.resources && key != "" {
+		h.Write([]byte("resource-build-info" + key + "\x00"))
 	}
 	// The icon index reads the manifest beside each res directory.
 	if needs.icons {

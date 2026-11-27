@@ -66,7 +66,7 @@ cd playground/fir-coverage-android
 .krit-bin/dist/krit --no-daemon --fir -v . 2>&1 | grep -E 'FIR verdict:|FIR gated'
 
 # Bazel (uses .krit-bin/dist/krit and .krit-bin/dist/krit-fir.jar through
-# override_repo in MODULE.bazel)
+# override_repo of krit_toolchains and krit_fir in MODULE.bazel)
 cp "${KRIT_FIR_JAR:?path to the krit-fir jar}" .krit-bin/dist/krit-fir.jar
 bazel build //...
 bazel test //:krit_test

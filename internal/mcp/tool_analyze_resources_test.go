@@ -47,22 +47,24 @@ class MainActivity : Activity() {
 		// Activity matched the res dir's module (#1908).
 		{"handler missing, relative projectPath", "", true, true},
 	} {
-		root := t.TempDir()
-		writeProjectFile(t, root, "src/main/AndroidManifest.xml", `<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="p"><application/></manifest>`)
-		writeProjectFile(t, root, "src/main/res/layout/activity_main.xml", `<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android">
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			writeProjectFile(t, root, "src/main/AndroidManifest.xml", `<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="p"><application/></manifest>`)
+			writeProjectFile(t, root, "src/main/res/layout/activity_main.xml", `<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android">
     <Button android:id="@+id/submit" android:onClick="onSubmitClicked" />
 </LinearLayout>
 `)
-		writeProjectFile(t, root, "src/main/kotlin/p/MainActivity.kt", strings.Replace(activity, "%s", tc.handler, 1))
-		projectPath := root
-		if tc.relative {
-			t.Chdir(filepath.Dir(root))
-			projectPath = filepath.Base(root)
-		}
-		out := analyzeAndroidResources(t, projectPath)
-		// OnClick's message; OnClickResource flags the attribute either way.
-		if got := strings.Contains(out, "has no matching method on"); got != tc.want {
-			t.Fatalf("%s: OnClick reported = %v, want %v: %s", tc.name, got, tc.want, out)
-		}
+			writeProjectFile(t, root, "src/main/kotlin/p/MainActivity.kt", strings.Replace(activity, "%s", tc.handler, 1))
+			projectPath := root
+			if tc.relative {
+				t.Chdir(filepath.Dir(root))
+				projectPath = filepath.Base(root)
+			}
+			out := analyzeAndroidResources(t, projectPath)
+			// OnClick's message; OnClickResource flags the attribute either way.
+			if got := strings.Contains(out, "has no matching method on"); got != tc.want {
+				t.Fatalf("OnClick reported = %v, want %v: %s", got, tc.want, out)
+			}
+		})
 	}
 }

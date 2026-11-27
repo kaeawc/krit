@@ -83,6 +83,13 @@ type warmCrossStep struct{ name, file, content string }
 // key covered paths only.
 func runWarmCrossSteps(t *testing.T, rule string, only bool, files map[string]string, steps []warmCrossStep) {
 	t.Helper()
+	runWarmCrossStepsWith(t, rule, nil, only, files, steps)
+}
+
+// runWarmCrossStepsWith is runWarmCrossSteps with also enabled alongside rule;
+// only rule's findings are compared.
+func runWarmCrossStepsWith(t *testing.T, rule string, also []string, only bool, files map[string]string, steps []warmCrossStep) {
+	t.Helper()
 	dir := t.TempDir()
 	write := func(name, content string) {
 		t.Helper()
@@ -94,7 +101,7 @@ func runWarmCrossSteps(t *testing.T, rule string, only bool, files map[string]st
 			t.Fatal(err)
 		}
 	}
-	base := []string{"--no-fir", "--no-daemon", "--no-type-oracle", "--enable-rules", rule, "-f", "json", "-q"}
+	base := []string{"--no-fir", "--no-daemon", "--no-type-oracle", "--enable-rules", strings.Join(append([]string{rule}, also...), ","), "-f", "json", "-q"}
 	if only {
 		base = append(base, "--config", allCategoriesOffConfig(t))
 	}
@@ -184,5 +191,61 @@ func TestWarmCrossFindingsFollowLexicallyRelevantRemoval(t *testing.T) {
 		{"remove @VisibleForTesting", hooks, plain},
 		{"re-add @VisibleForTesting", hooks, annotated},
 		{"remove @VisibleForTesting again", hooks, plain},
+	})
+}
+
+// VisibleForTestingCallerInNonTest reports on the caller, which need not
+// mention @VisibleForTesting, so an edit to the caller alone must re-run it:
+// removing the call drops the finding and adding it back restores it (#1893).
+func TestWarmCrossFindingsFollowCallerEdits(t *testing.T) {
+	const production = "app/src/main/java/com/example/Production.kt"
+	const calls = "package com.example\n\nfun production() {\n    TestHooks.reset()\n}\n"
+	const noCall = "package com.example\n\nfun production() {\n    println(\"x\")\n}\n"
+	runWarmCrossSteps(t, "VisibleForTestingCallerInNonTest", true, map[string]string{
+		"app/src/main/java/com/example/TestHooks.kt": "package com.example\n\nobject TestHooks {\n    @VisibleForTesting\n    fun reset() = Unit\n}\n",
+		production: calls,
+	}, []warmCrossStep{
+		{"cold", "", ""},
+		{"caller drops the call", production, noCall},
+		{"caller adds the call back", production, calls},
+	})
+}
+
+// RoomLoadsAllWhereFirstUsed reports on the caller that takes one element of
+// a load-all DAO query, with any of the terminals and load-all names its
+// library facts list. The lexical reuse once judged such a caller by
+// `.first(` and getAll only, so `findAll().last()` edited to `.size` kept
+// the finding (#1906 review). AnvilMergeComponentEmptyScope, also judgeable,
+// makes the run build the code index the cross findings are saved with.
+func TestWarmCrossFindingsFollowRoomCallerEdits(t *testing.T) {
+	const repo = "app/src/main/java/com/example/Repo.kt"
+	const takesOne = "package com.example\n\nfun latest(userDao: UserDao) = userDao.findAll().last()\n"
+	const takesAll = "package com.example\n\nfun latest(userDao: UserDao) = userDao.findAll().size\n"
+	runWarmCrossStepsWith(t, "RoomLoadsAllWhereFirstUsed", []string{"AnvilMergeComponentEmptyScope"}, true, map[string]string{
+		"app/src/main/java/com/example/UserDao.kt": "package com.example\n\nimport androidx.room.Dao\nimport androidx.room.Query\n\n@Dao\ninterface UserDao {\n    @Query(\"SELECT * FROM users\")\n    fun findAll(): List<User>\n}\n\nclass User\n",
+		repo: takesOne,
+	}, []warmCrossStep{
+		{"cold", "", ""},
+		{"caller stops taking one element", repo, takesAll},
+		{"caller takes one element again", repo, takesOne},
+	})
+}
+
+// AnvilMergeComponentEmptyScope counts any Contributes* annotation, from
+// Anvil or metro, toward a merge scope. The lexical reuse once looked for
+// Anvil spellings only, so adding or removing a metro @ContributesBinding to
+// a scope not named *Scope left the empty-scope finding as it was (#1906
+// review).
+func TestWarmCrossFindingsFollowMetroContributionEdits(t *testing.T) {
+	const impl = "app/src/main/java/com/example/Impl.kt"
+	const plain = "package com.example\n\ninterface Api\n\nclass Impl : Api\n"
+	const contributes = "package com.example\n\nimport dev.zacsweers.metro.ContributesBinding\n\ninterface Api\n\n@ContributesBinding(AppGraph::class)\nclass Impl : Api\n"
+	runWarmCrossSteps(t, "AnvilMergeComponentEmptyScope", true, map[string]string{
+		"app/src/main/java/com/example/AppComponent.kt": "package com.example\n\nimport com.squareup.anvil.annotations.MergeComponent\n\nabstract class AppGraph\n\n@MergeComponent(AppGraph::class)\ninterface AppComponent\n",
+		impl: plain,
+	}, []warmCrossStep{
+		{"cold", "", ""},
+		{"contribution added", impl, contributes},
+		{"contribution removed", impl, plain},
 	})
 }

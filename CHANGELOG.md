@@ -107,6 +107,11 @@ All notable changes to Krit will be documented in this file.
   `androidx.compose.material3` 1.5.0, under their Lint IDs. Their findings match the Lint CLI running those releases'
   `lint.jar` on the inputs under `internal/rules/testdata/androidx_compose_material/`. The material3 import check needs
   a material3 import in the file or a material3 dependency in the build (#1457, #1458, #1459, #1461).
+- Compose lint parity, fourth batch of compose-lints 1.6.1 ports: `ComposeMutableParameters`,
+  `ComposeUnstableCollections`, `ComposeViewModelForwarding` and `ComposeViewModelInjection` (with
+  `viewModelFactories`), under their Lint IDs, messages and severities, experimental and off by default. On
+  nowinandroid and compose-samples the findings, messages included, match the Lint CLI exactly (#1343, #1351, #1352,
+  #1353).
 - Compose lint parity, third batch of compose-lints 1.6.1 ports: `ComposeModifierMissing` (with `contentEmitters` and
   `visibilityThreshold`), `ComposeModifierWithoutDefault` (autofix: a default in the parameter type's own spelling) and `ComposeParameterOrder`, under
   their Lint IDs, messages and severities, experimental and off by default. On nowinandroid and compose-samples their
@@ -472,6 +477,13 @@ All notable changes to Krit will be documented in this file.
   `FrequentlyChangedStateReadInComposition` still suppress the matching rule (#1472, #1476, #1478).
 
 ### Changed
+- The Bazel module registers krit's release binaries as toolchains (`@krit//toolchains:toolchain_type`), one per
+  execution platform, instead of downloading the host's archive into `@krit_bin`. `krit_aspect` and
+  `krit_project_report` resolve it for the platform that runs their actions, so remote execution on another OS or
+  architecture runs the right binary, and `krit_toolchain` lets a root module register its own build. `@krit//:krit`
+  and `krit_test` take the binary for the target platform. Only the archives of the platforms Bazel picks are
+  fetched. The `krit_bin` repository is gone: register a `krit_toolchain`, or override `krit_toolchains`, instead. The BCR presubmit runs on Debian 13
+  instead of the end-of-life Debian 11.
 - `publish-bcr.yml` authenticates with a fine-grained token limited to the `kaeawc/bazel-central-registry` fork instead
   of a classic token whose `repo` scope reached every repository. Fine-grained tokens cannot open pull requests
   against `bazelbuild/bazel-central-registry`, so the run pushes the entry to the fork and prints a link; a maintainer
@@ -650,6 +662,11 @@ All notable changes to Krit will be documented in this file.
 - MCP `analyze` (mode `android`) reports OnClick for a relative `projectPath`. The sources stayed relative while the
   res dirs were absolute, so no Activity matched its res dir's module (#1908). Rule pages now list a rule's known
   limitations, including OnClick's: a layout is checked only against Activities in its own module.
+- Warm runs no longer serve three kinds of stale findings (#1893). A Java edit made while the daemon was stopped
+  reaches the next daemon's first scan, even when no active rule parses Java before dispatch.
+  VisibleForTestingCallerInNonTest, TestFixtureAccessedFromProduction and DatabaseQueryOnMainThread report on callers
+  that need not mention what they flag, so an edit to a caller always re-runs them instead of reusing the cross-file
+  findings. That reuse also checks that the findings came from the same rules and config.
 - The LSP, the daemon's buffer analysis and the MCP server see module build-script edits (library or application,
   minSdk, targetSdk), version-catalog `[plugins]` edits and rewritten Java imports on the next request instead of after
   a restart. Those facts are read from disk and were memoized for the life of the long-lived analyzer, which also read
@@ -672,6 +689,16 @@ All notable changes to Krit will be documented in this file.
   for a script with aliases, every directory its catalog search globbed, with what it found, and the catalogs found.
   Catalogs no search reaches don't move the keys. On a 300-module project a no-op warm scan takes about 10 ms more
   (#1853).
+- Warm runs follow build-script and version-catalog edits for the resource rules that read them: `LibraryCustomView`,
+  `RelativeClassResolution`, `VectorDrawableCompat`, `TranslucentOrientation`, `LabelForResource`,
+  `UnusedAttributeResource`, `UnusedResources` and `UnusedIds`. The res-directory fingerprint hashed only the module's
+  build script and the nearest `gradle/libs.versions.toml` and settings script, so changing only the plugin id behind
+  `alias(deps.plugins.mod)` in `gradle/deps.versions.toml` kept reporting `LibraryCustomView` on warm CLI and daemon
+  runs while `--no-cache` did not. Those rules now declare what they read for a res directory
+  (`rules.ResourceBuildInfoReader`), and whenever one is active the per-res-directory, resource-bundle and Android
+  project-bundle keys and the findings-bundle fingerprint hash it through the fingerprint the manifest keys use,
+  computed once per run for both. Runs without such a rule, the default, no longer hash build scripts, catalogs or
+  settings scripts into the res-directory fingerprint (#1883).
 - The manifest-source cache key canonicalizes every source-file hash to one width. It mixed the analysis cache's
   16-hex hashes with the hash memo's 64-hex ones, so the same content gave different keys, and the first warm run after
   a cold one, or a res-only edit after a source edit, re-ran the manifest-source rules (#1853).

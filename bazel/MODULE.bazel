@@ -10,9 +10,13 @@ and to lint a target's sources as a test:
 
     krit_test(name = "lib_krit", targets = [":lib"])
 
-The module downloads the release archive for the host platform and verifies
-it against the release's checksums.txt (or a pinned sha256 map), so krit's
-version is an ordinary bazel_dep that Dependabot or Renovate can bump.
+krit is a Go analyzer whose tree-sitter grammars are C, plus a Kotlin
+compiler (FIR) checker jar built with the Kotlin compiler, so the module
+registers krit's released binaries as toolchains (one per execution
+platform) instead of building them. Bazel downloads only the archive of the
+platform that runs krit's actions, verified against the release's
+checksums.txt (or a pinned sha256 map), so krit's version is an ordinary
+bazel_dep that Dependabot or Renovate can bump.
 """
 
 module(
@@ -22,9 +26,12 @@ module(
 )
 
 bazel_dep(name = "bazel_skylib", version = "1.7.1")
+bazel_dep(name = "platforms", version = "1.0.0")
 bazel_dep(name = "rules_java", version = "8.9.0")
 bazel_dep(name = "rules_kotlin", version = "2.2.0")
 bazel_dep(name = "rules_android", version = "0.6.4")
 
 krit = use_extension("//:extensions.bzl", "krit")
-use_repo(krit, "krit_bin", "krit_fir")
+use_repo(krit, "krit_fir", "krit_toolchains")
+
+register_toolchains("@krit_toolchains//:all")

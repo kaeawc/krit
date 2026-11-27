@@ -80,7 +80,7 @@ func renderCategory(cat string, rs []*api.Rule) string {
 	for _, r := range rs {
 		_, fixable := rules.GetV2FixLevel(r)
 		fmt.Fprintf(&b, "| [`%s`](%s.md) | %s | %s | %s |\n",
-			r.ID, api.DocsSlug(r.ID), yesNo(rules.DeclaredDefaultActive(r)), yesNo(fixable), cell(r.Description))
+			r.ID, api.DocsSlug(r.ID), yesNo(rules.DeclaredDefaultActive(r)), yesNo(fixable), cell(escapeOutsideCodeSpans(r.Description)))
 	}
 	return b.String()
 }

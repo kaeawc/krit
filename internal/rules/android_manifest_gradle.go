@@ -352,8 +352,7 @@ var manifestMinSdkRe = lazyre.New(`android:minSdkVersion\s*=\s*"(\d+)"`)
 // resourceModuleMinSdk returns the minSdk of the module owning a res file: the build script value, then the
 // manifest's uses-sdk, then 0 when the module declares neither (a convention plugin may set it elsewhere).
 func resourceModuleMinSdk(resFile string) int {
-	resRoot := filepath.Dir(filepath.Dir(resFile))
-	manifest := filepath.Join(filepath.Dir(resRoot), "AndroidManifest.xml")
+	manifest := resSourceSetManifest(filepath.Dir(filepath.Dir(resFile)))
 	if info := lookupManifestGradleInfo(manifest); info.minSdk > 0 {
 		return info.minSdk
 	}

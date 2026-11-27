@@ -217,6 +217,24 @@ declaration could shadow them:
   `kotlin.FunctionN` and same-file typealiases. As in Lint, `@IgnoredOnParcel` does not exempt them: it targets the
   property, and the detector reads the parameter.
 
+`DenyListedApi` and `DenyListedBlockingApi` port `DenyListedApiDetector`'s fixed list for Kotlin and Java: RxJava 3
+`hide()` and `blocking*()` calls, `Schedulers.newThread()`, `ContextCompat.getDrawable(context, id)`, Espresso's
+`withId()`, `View.setOnClickListener(null)`, `Flow.launchIn()`, the kotlinx-coroutines-rx3 builders called without a
+dispatcher, `runCatching`, the `LinkedList`, `Stack` and `Vector` constructors, and every method, constructor and
+static field of `java.util.Date`, `java.util.Calendar` and `java.text.DateFormat`/`SimpleDateFormat`, including
+static field imports and Kotlin property access and writes (`date.time`, `cal.timeInMillis = t`). An instance call
+needs the receiver's type: from the source resolver, a declared type, a constructor or static factory (including
+RxJava 3's and subjects' and relays' `create*`), a property of a class declared in the same file, or the implicit
+receiver of `apply`/`run`/`with` or an enclosing View subclass. A class of the file's own package wins over an
+on-demand import. A receiver krit cannot type (a chained operator's result, a constructor property of a class in
+another file) is not reported. As in Lint 0.11.1, the list's
+`ResourcesCompat.getDrawable`, `ViewPager2.setId` and `runBlocking` entries never match. Differences from Lint:
+
+- a top-level `runCatching` of the file's package (in any file) shadows kotlin's, as the Kotlin compiler resolves
+  it; Lint still reports it;
+- the detector also reports layout XML tags named after a listed constructor's class (`<java.util.LinkedList>`,
+  which no real layout contains); krit does not check layouts.
+
 The Dagger rules (`MustBeInModule`, `BindsMustBeAbstract`, `ProvidesMustNotBeAbstract`, `BindingReturnType`,
 `BindingReceiverParameter`) port `DaggerIssuesDetector` for Kotlin and Java `@Binds`/`@Provides` methods. As in
 Lint, a method gets at most one of the detector's issues, in the detector's order. Two of its IDs map onto existing

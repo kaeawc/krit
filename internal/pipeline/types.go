@@ -166,11 +166,12 @@ type ParseResult struct {
 	// Timings carries the cumulative phase timings so Output can emit
 	// a --perf summary at the end.
 	Timings PhaseTimings
-	// ContentSkipped is set when the findings cache let the run skip
-	// parsing: the files carry paths but no content, and Java outside the
-	// per-file set is absent. Content fingerprints cannot be computed from
-	// them, so the findings bundle is neither loaded nor saved.
-	ContentSkipped bool
+	// PartialSources is set when the result lacks the content of some of
+	// the run's source files: the findings cache let the run skip parsing
+	// (paths without content) or parse only its cache misses. Content
+	// fingerprints over it would cover only part of the source set, so the
+	// findings bundle is neither loaded nor saved.
+	PartialSources bool
 }
 
 // SourceSet groups parsed source files by language while providing a unified

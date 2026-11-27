@@ -468,6 +468,11 @@ All notable changes to Krit will be documented in this file.
   `FrequentlyChangedStateReadInComposition` still suppress the matching rule (#1472, #1476, #1478).
 
 ### Changed
+- `publish-bcr.yml` authenticates with a fine-grained token limited to the `kaeawc/bazel-central-registry` fork instead
+  of a classic token whose `repo` scope reached every repository. Fine-grained tokens cannot open pull requests
+  against `bazelbuild/bazel-central-registry`, so the run pushes the entry to the fork and prints a link; a maintainer
+  opens the pull request as a draft and marks it ready, which BCR takes as their approval. The workflow previously
+  opened non-draft pull requests, which a maintainer could not approve as their own.
 - `krit_aspect`'s persistent worker keeps one warm krit-fir JVM for every target with the same compiler settings
   instead of one per classpath: its scans share a krit-fir daemon pool slot, and the daemon rebuilds its session for
   each action's sources and classpath. On a 24-target benchmark the Krit actions of a full build went from 79.9 s to
@@ -515,6 +520,12 @@ All notable changes to Krit will be documented in this file.
   with `--experimental`. One shared project pass serves every `MoshiUsage*` rule. A new `api.Rule.LintIssue` flag
   lets rules outside `android-lint` whose IDs are Lint issue IDs honor `lint.xml` and Gradle `lint { disable }`
   (#1391, #1392, #1393, #1394, #1397).
+- `DenyListedApi` and `DenyListedBlockingApi`, slack-lints 0.11.1's `DenyListedApiDetector`, in the opt-in
+  `slack-lint` rule set for Kotlin and Java. They report the detector's built-in list (RxJava 3 `hide()` and blocking
+  calls, `java.util.Date`/`Calendar` and `java.text.DateFormat` APIs, `LinkedList`/`Stack`/`Vector`, `runCatching`,
+  `Flow.launchIn`, dispatcher-less rx3 builders and more) once the owner is proven from imports or the receiver's type.
+  Findings match the Lint CLI on `internal/rules/testdata/slack_lint/denylist/`, except that a top-level
+  `runCatching` of the file's package shadows kotlin's (#1428, #1429).
 - `MultipleAwaitPointerEventScopes` and `ReturnFromAwaitPointerEventScope`, ported from `androidx.compose.ui:ui-android`
   1.12.1 under their Lint IDs and checked against the Lint CLI on the same inputs. The first counts
   `awaitPointerEventScope` calls within the enclosing `pointerInput` call (its own arguments, not the chain before it)
@@ -625,6 +636,9 @@ All notable changes to Krit will be documented in this file.
 - `--no-cache` skips every cache that can change findings. A one-shot scan read the cross-file findings cache, so a
   stale entry replayed into the run warm results are checked against; it now skips that cache and also the cross-file
   index, resource index, file-walk and incremental oracle caches. Only the parse cache stays on (#1818).
+- Gradle plugin: with FIR on, the check tasks run the R tasks of exported Android test components
+  (`generate<Variant>UnitTestStubRFile`, `process<Variant>AndroidTestResources`). On a clean checkout FIR compiled unit
+  and instrumented tests without their own R class, so test files that use `R` were gated (#1724).
 - Gradle plugin: the configuration cache is reused after the first build that creates an Android module's R jar.
   `kritExportModel` recorded the R jar by listing `build/intermediates` while configuring, which made the directory a
   configuration input. It now records the path AGP writes the jar to, and krit looks the jar up when it loads the model

@@ -146,6 +146,7 @@ func init() {
 	registerGradleKotlinRules()
 	registerTestingQualityRules()
 	registerThirdPartyMoshiRules()
+	registerThirdPartyDenyListRules()
 	registerThirdPartyResourceAliasRules()
 	registerThirdPartyAnnotationRules()
 	registerThirdPartyMockingRules()

@@ -1283,7 +1283,7 @@ func runProjectParsePhase(ctx context.Context, args ProjectArgs, host ProjectHos
 			JavaFiles:   filesForPaths(javaPaths, scanner.LangJava),
 			Paths:       args.Paths,
 
-			ContentSkipped: true,
+			PartialSources: true,
 		}, nil
 	}
 	allowCrossFile := warm.cross != nil
@@ -1291,7 +1291,8 @@ func runProjectParsePhase(ctx context.Context, args ProjectArgs, host ProjectHos
 		allowCrossFile, _ = loadWarmCrossFindings(args, host, warm)
 	}
 	allowResourceSource := allowWarmResourceSourceDelta(args, host, warm)
-	if CanParseOnlyCacheMisses(args.ActiveRules, warm.result, warm.result != nil, allowCrossFile, allowResourceSource) {
+	missOnly := CanParseOnlyCacheMisses(args.ActiveRules, warm.result, warm.result != nil, allowCrossFile, allowResourceSource)
+	if missOnly {
 		kotlinPaths = CacheMissPaths(kotlinPaths, warm.result)
 		javaPaths = CacheMissPaths(javaPaths, warm.result)
 		host.Reporter.Verbosef("verbose: Parsing %d cache-miss files; findings cache covers %d/%d files\n", len(kotlinPaths), warm.result.TotalCached, warm.result.TotalFiles)
@@ -1301,10 +1302,18 @@ func runProjectParsePhase(ctx context.Context, args ProjectArgs, host ProjectHos
 	}
 	skipJavaCollection := len(javaPaths) == 0 && allowCrossFile
 	parseInput := projectParseInput(args, host, kotlinPaths, javaPaths, skipJavaCollection)
-	if parsed, ok := host.Preparse.Take(parseInput); ok {
-		return parsed, nil
+	parsed, ok := host.Preparse.Take(parseInput)
+	if !ok {
+		var err error
+		if parsed, err = (ParsePhase{Workers: args.Workers}).Run(ctx, parseInput); err != nil {
+			return parsed, err
+		}
 	}
-	return ParsePhase{Workers: args.Workers}.Run(ctx, parseInput)
+	// Only the misses parsed: hashing this result would key the bundle on
+	// the misses alone, so a later state whose misses match loads this
+	// state's findings although other files changed since.
+	parsed.PartialSources = parsed.PartialSources || missOnly
+	return parsed, nil
 }
 
 // projectParseInput is the parse phase input for the given paths. The background parse
@@ -4056,7 +4065,7 @@ func previewPostParseBundleHit(args ProjectArgs, host ProjectHostState, parseRes
 	if host.FindingsBundleStore == nil || host.FindingsBundleCacheRoot == "" {
 		return nil
 	}
-	if len(args.CustomRuleJars) > 0 || parseResult.ContentSkipped {
+	if len(args.CustomRuleJars) > 0 || parseResult.PartialSources {
 		return nil
 	}
 	// Cold runs (no prior manifest residing in the host) cannot hit
@@ -4163,10 +4172,10 @@ func computeRunFingerprint(args ProjectArgs, host ProjectHostState, parseResult 
 	if len(args.CustomRuleJars) > 0 {
 		return scanner.RunFingerprint{}, false
 	}
-	// Without content, SourceSet hashes paths only, so every skipped-parse
-	// run would share one key and load the bundle of whichever earlier
-	// state saved it first.
-	if parseResult.ContentSkipped {
+	// Over part of the source set, SourceSet hashes only that part (paths
+	// only, after a skipped parse), so a later state that shares it would
+	// load this state's bundle.
+	if parseResult.PartialSources {
 		return scanner.RunFingerprint{}, false
 	}
 	rulesHash := projectRuleHashForArgs(args, false)

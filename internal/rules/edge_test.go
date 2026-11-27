@@ -153,8 +153,18 @@ func runRuleByNameOnFile(t *testing.T, ruleName string, file *scanner.File) []sc
 // runCrossFileRuleOnFiles runs an index-backed rule over the given parsed files.
 func runCrossFileRuleOnFiles(r *api.Rule, files ...*scanner.File) []scanner.Finding {
 	collector := scanner.NewFindingCollector(0)
+	// The pipeline indexes Java files as Java (their declarations are symbols too); passing them as Kotlin would
+	// hide every Java class from the rule.
+	var kotlin, java []*scanner.File
+	for _, f := range files {
+		if f.Language == scanner.LangJava {
+			java = append(java, f)
+		} else {
+			kotlin = append(kotlin, f)
+		}
+	}
 	r.Check(&api.Context{
-		CodeIndex:   scanner.BuildIndex(files, 1),
+		CodeIndex:   scanner.BuildIndex(kotlin, 1, java...),
 		ParsedFiles: files,
 		Collector:   collector,
 		Rule:        r,

@@ -333,7 +333,7 @@ func (s *javaOnlyScan) checkFunction(fn uint32) {
 		return
 	}
 	name := extractIdentifierFlat(file, fn)
-	if m, owner := s.superMethod(s.classFQN(cls), name, map[string]bool{}); m != nil {
+	if m, owner := s.superMethod(s.classFQN(cls), name, slackArityOf(file, fn).max, map[string]bool{}); m != nil {
 		want := "JavaOnly"
 		if m.kotlinOnly {
 			want = "KotlinOnly"
@@ -343,14 +343,16 @@ func (s *javaOnlyScan) checkFunction(fn uint32) {
 	}
 }
 
-// superMethod returns the nearest annotated method called name of a project supertype of the class fqn, and the
-// supertype declaring it.
-func (s *javaOnlyScan) superMethod(fqn, name string, seen map[string]bool) (*javaOnlyMethod, *javaOnlyClass) {
+// superMethod returns the nearest annotated method called name, with params parameters (-1: ending in a vararg), of
+// a project supertype of the class fqn, and the supertype declaring it. An override has its method's parameter list,
+// so a same-named method with another number of parameters is an overload, not the one overridden; same-count
+// overloads are not told apart.
+func (s *javaOnlyScan) superMethod(fqn, name string, params int, seen map[string]bool) (*javaOnlyMethod, *javaOnlyClass) {
 	supers := slackDirectSupertypes(s.h, fqn)
 	for _, super := range supers {
 		for i := range s.ix.methods[name] {
 			m := &s.ix.methods[name][i]
-			if m.decl.owner == super && (m.javaOnly || m.kotlinOnly) {
+			if m.decl.owner == super && (m.javaOnly || m.kotlinOnly) && m.decl.arity.max == params {
 				return m, s.ix.classes[super]
 			}
 		}
@@ -360,7 +362,7 @@ func (s *javaOnlyScan) superMethod(fqn, name string, seen map[string]bool) (*jav
 			continue
 		}
 		seen[super] = true
-		if m, owner := s.superMethod(super, name, seen); m != nil {
+		if m, owner := s.superMethod(super, name, params, seen); m != nil {
 			return m, owner
 		}
 	}

@@ -645,12 +645,20 @@ All notable changes to Krit will be documented in this file.
   list: the files, their kinds and their names. Editing a settings-declared catalog, renaming a `create(...)`, or
   pointing `from(files(...))` at another file reruns the manifest rules. A settings edit that leaves the catalogs
   alone doesn't (#1872).
+- MCP `analyze` (mode `android`) reports OnClick for a relative `projectPath`. The sources stayed relative while the
+  res dirs were absolute, so no Activity matched its res dir's module (#1908). Rule pages now list a rule's known
+  limitations, including OnClick's: a layout is checked only against Activities in its own module.
 - The LSP, the daemon's buffer analysis and the MCP server see module build-script edits (library or application,
   minSdk, targetSdk), version-catalog `[plugins]` edits and rewritten Java imports on the next request instead of after
   a restart. Those facts are read from disk and were memoized for the life of the long-lived analyzer, which also read
   whatever the daemon's last project run had cached. Facts read from disk now last for one request, as the
   version-catalog memo has since #1787, and a request still running in the LSP cannot hand a pre-edit value to a
   later one (#1788).
+- `MustUseNamedParams`, `RestrictCallsTo` and `JavaOnlyDetector` no longer scale quadratically. Each call that
+  reached the annotated member's hierarchy rescanned every same-named function in the project; the per-name arities are
+  now built once per run. A 2,000-file project with an override per file went from 37.9 s to 0.6 s.
+  `JavaOnlyDetector` matches an override by parameter count, so `override fun on(x: Int)` is not reported against
+  `@JavaOnly fun on()` (#1899).
 - Warm runs follow version-catalog edits for every manifest rule. Manifest rules read whether a module is an app or a
   library from its build script's `alias(libs.plugins...)` entries, resolved through `gradle/*.versions.toml`, and
   whether it uses the SplashScreen library from its `libs.` dependency aliases, resolved through the catalogs the
@@ -671,12 +679,23 @@ All notable changes to Krit will be documented in this file.
   file into one ERROR node, so the parse-error filter dropped all of them and `@Suppress` on the class did not apply.
   Krit now reparses such a file with a `;` in the space before the brace and keeps the result when its error region is
   smaller. Parse-cache entries and cross-file index shards written before the fix are rebuilt (#1839).
+- The same repair covers a one-line nested body followed by `;` and more members, such as
+  `class H { companion object { val X = 1 }; val y = 2 }` or `} ; val y = 2 }`, and two such classes on one line. The
+  inner `}` sat alone in an ERROR node with its member just before it, so it was never a candidate and a later
+  `fun after() { val unused = 1 }` lost its `UnusedVariable` finding. Parse-cache entries and cross-file index shards
+  written before the fix are rebuilt (#1875).
 - `--no-cache` skips every cache that can change findings. A one-shot scan read the cross-file findings cache, so a
   stale entry replayed into the run warm results are checked against; it now skips that cache and also the cross-file
   index, resource index, file-walk, tracked-files and incremental oracle caches. With the type oracle on, every
   `--no-cache` scan therefore runs krit-fir in full. A daemon-delegated scan forwards the oracle part too, including
   the `KRIT_MODULE_SHARDS` module facts. The content-keyed parse cache and the content-hash memo stay on (#1818,
   #1831).
+  index, resource index, file-walk and incremental oracle caches. Only the parse cache stays on (#1818).
+- `ArgInFormattedQuantityStringRes` reports `getQuantityString` on a Kotlin subclass of `Resources`, direct or
+  indirect and declared in any file, and on `resources` of a Kotlin `ContextWrapper`, Activity or View subclass. The
+  resolver records supertypes as written, so each is now resolved through its declaring file's imports. A lookalike
+  `Resources` stays silent. A Java subclass is still missed (#1885). The per-file cache keys a class's supertype imports,
+  so swapping only the import a supertype resolves through re-analyzes the files that use the class (#1857).
 - Gradle plugin: with FIR on, the check tasks run the R tasks of exported Android test components
   (`generate<Variant>UnitTestStubRFile`, `process<Variant>AndroidTestResources`). On a clean checkout FIR compiled unit
   and instrumented tests without their own R class, so test files that use `R` were gated (#1724).

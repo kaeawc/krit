@@ -19,9 +19,10 @@ type CrossFileFacts struct {
 	// simple and fully qualified, to a hash of what the lookup sees. A
 	// supertype's name also covers the file's subtypes of it: a new subclass
 	// changes what a sealed or abstract supertype resolves to for files that
-	// only name the supertype. Source positions, the file's path, its
-	// imports and file-local declarations are left out, so a body-only edit
-	// keeps every hash.
+	// only name the supertype. Source positions, the file's path,
+	// file-local declarations and imports are left out, so a body-only edit
+	// keeps every hash. The exception is an import that names a class's
+	// supertype, which changes what the supertype resolves to.
 	ByName map[string]string
 	// Hash covers ByName: equal hashes mean no lookup changed.
 	Hash string
@@ -53,6 +54,10 @@ type crossFileClass struct {
 	DirectSupertypes []string     `json:"d"`
 	Flags            [6]bool      `json:"b"`
 	Members          []MemberInfo `json:"m"`
+	// SupertypeImports maps each supertype's first name segment to what the file explicitly imports it as. Rules
+	// resolve supertypes written as simple names through the declaring file's imports, so swapping only that
+	// import changes what they see.
+	SupertypeImports map[string]string `json:"i,omitempty"`
 }
 
 type crossFileExtension struct {
@@ -67,7 +72,7 @@ func (info *FileTypeInfo) CrossFileFacts() CrossFileFacts {
 		return CrossFileFacts{}
 	}
 	f := crossFileFrags{}
-	f.addClasses(info.Classes)
+	f.addClasses(info.Classes, info.ImportTable)
 	for name, subs := range info.SealedSubs {
 		f.add(name, "sealed", subs)
 	}
@@ -100,7 +105,7 @@ func (f crossFileFrags) add(name, kind string, v any) {
 	}
 }
 
-func (f crossFileFrags) addClasses(classes []*ClassInfo) {
+func (f crossFileFrags) addClasses(classes []*ClassInfo, imports *ImportTable) {
 	for _, ci := range classes {
 		if ci == nil {
 			continue
@@ -111,6 +116,7 @@ func (f crossFileFrags) addClasses(classes []*ClassInfo) {
 			Flags:   [6]bool{ci.IsSealed, ci.IsData, ci.IsInner, ci.IsAbstract, ci.IsOpen, ci.IsNested},
 			Members: ci.Members,
 		}
+		class.SupertypeImports = supertypeImports(ci, imports)
 		name := ci.FQN
 		if name == "" {
 			name = ci.Name
@@ -120,6 +126,42 @@ func (f crossFileFrags) addClasses(classes []*ClassInfo) {
 			f.add(s, "subtype", ci.FQN+"|"+ci.Name)
 		}
 	}
+}
+
+// supertypeImports returns how the file's explicit and aliased imports name the first segment of each of ci's
+// supertypes as written. A lowercase segment starts a package-qualified name, which no import changes. On-demand
+// imports are left out: ImportTable.Resolve never resolves through them, so no lookup changes with them. Imports
+// that name no supertype are left out too, so adding an import for a body edit keeps the class's hash.
+func supertypeImports(ci *ClassInfo, imports *ImportTable) map[string]string {
+	if imports == nil {
+		return nil
+	}
+	written := ci.DirectSupertypes
+	if len(written) == 0 {
+		written = ci.Supertypes
+	}
+	var named map[string]string
+	for _, s := range written {
+		if i := strings.IndexByte(s, '<'); i >= 0 {
+			s = s[:i]
+		}
+		head, _, _ := strings.Cut(strings.TrimSpace(s), ".")
+		if head == "" || (head[0] >= 'a' && head[0] <= 'z') {
+			continue
+		}
+		target, ok := imports.Aliases[head]
+		if !ok {
+			target, ok = imports.Explicit[head]
+		}
+		if !ok {
+			continue
+		}
+		if named == nil {
+			named = map[string]string{}
+		}
+		named[head] = target
+	}
+	return named
 }
 
 // addFunctions records the functions, extensions and suspend functions

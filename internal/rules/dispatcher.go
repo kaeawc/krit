@@ -1100,12 +1100,38 @@ func (d *Dispatcher) RunManifest(file *scanner.File, m *manifest.Manifest) (scan
 }
 
 // RunResource runs every registered resource rule against a merged
-// ResourceIndex for a single res/ directory.
-func (d *Dispatcher) RunResource(file *scanner.File, idx *android.ResourceIndex) (scanner.FindingColumns, bool) {
+// ResourceIndex for a single res/ directory. A resource rule that declares
+// NeedsParsedFiles (OnClick, which checks layout onClick handlers against the
+// Activities) reads the project's parsed sources: sources returns them, and is
+// called only when ResourceReadsSources(idx) holds, so a caller can parse them
+// on demand.
+func (d *Dispatcher) RunResource(file *scanner.File, idx *android.ResourceIndex, sources func() []*scanner.File) (scanner.FindingColumns, bool) {
+	var parsed []*scanner.File
+	if sources != nil && d.ResourceReadsSources(idx) {
+		parsed = sources()
+	}
 	cols, ok := d.runProjectRuleSet(file, d.resourceRules, func(ctx *api.Context) {
 		ctx.ResourceIndex = idx
+		if ctx.Rule != nil && ctx.Rule.Needs.Has(api.NeedsParsedFiles) {
+			ctx.ParsedFiles = parsed
+		}
 	})
 	return filterValuesToolsIgnored(filterLayoutToolsIgnored(cols, idx)), ok
+}
+
+// ResourceReadsSources reports whether a registered resource rule's verdict
+// for idx can depend on the parsed sources: the rule declares NeedsParsedFiles
+// and either says so for idx (ResourceSourceReader) or does not say.
+func (d *Dispatcher) ResourceReadsSources(idx *android.ResourceIndex) bool {
+	for _, r := range d.resourceRules {
+		if r == nil || !r.Needs.Has(api.NeedsParsedFiles) {
+			continue
+		}
+		if reader, ok := r.Implementation.(ResourceSourceReader); !ok || reader.ReadsSourcesFor(idx) {
+			return true
+		}
+	}
+	return false
 }
 
 // RunIcons runs every registered icon rule against an IconIndex for a

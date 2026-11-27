@@ -72,6 +72,10 @@ func (r *OnClickRule) Meta() api.RuleDescriptor {
 		ID:            "OnClick",
 		RuleSet:       "android-lint",
 		DefaultActive: true,
+		KnownLimitations: []string{
+			"A layout is checked only against Activities in its own module, so an app Activity that inflates a library module's layout through R.layout is not checked.",
+			"Only Kotlin Activities are read; a layout inflated by a Java Activity is not checked.",
+		},
 	}
 }
 

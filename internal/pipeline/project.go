@@ -2084,6 +2084,13 @@ func runAndroidPhase(ctx context.Context, args ProjectArgs, host ProjectHostStat
 	if host.Tracker != nil && host.Tracker.IsEnabled() {
 		androidTracker = host.Tracker.Serial("androidPhase")
 	}
+	// A resource rule that reads the sources (OnClick) has the files a
+	// skipped parse left out parsed on demand.
+	parseSources := func(paths []string) ([]*scanner.File, error) {
+		kotlin, java := splitSourcePaths(paths)
+		kt, jv, err := parseFilesByPath(ctx, args, host, kotlin, java)
+		return append(kt, jv...), err
+	}
 	res, err := (AndroidPhase{}).Run(ctx, AndroidInput{
 		Project:             project,
 		ActiveRules:         args.ActiveRules,
@@ -2091,6 +2098,7 @@ func runAndroidPhase(ctx context.Context, args ProjectArgs, host ProjectHostStat
 		SourceFiles:         indexResult.SourceFiles(),
 		SourcePaths:         androidSourcePaths(args, indexResult),
 		SourceHashes:        CachedHashesOrNil(indexResult.CacheResult),
+		ParseSources:        parseSources,
 		Providers:           host.AndroidProviders,
 		RuleHash:            indexResult.RuleHash,
 		LibraryFactsFP:      indexResult.LibraryFacts.Fingerprint(),

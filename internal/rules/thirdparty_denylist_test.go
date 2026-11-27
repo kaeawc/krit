@@ -282,8 +282,8 @@ class Screen(private val holder: Holder, private val buttons: List<Button>) {
 }
 `}, 3},
 		{"same-package Date over java.util.*", "DenyListedApi", map[string]string{
-			"Date.kt": "package com.ex\n\nclass Date {\n  fun getTime() = 0L\n}\n\nclass Calendar {\n  companion object {\n    fun getInstance() = Calendar()\n  }\n}\n",
-			"Use.kt":  "package com.ex\n\nimport java.util.*\n\nfun f(): Long {\n  val d = Date()\n  Calendar.getInstance()\n  return d.getTime()\n}\n",
+			"Date.kt":  "package com.ex\n\nclass Date {\n  fun getTime() = 0L\n}\n\nclass Calendar {\n  companion object {\n    fun getInstance() = Calendar()\n  }\n}\n",
+			"Use.kt":   "package com.ex\n\nimport java.util.*\n\nfun f(): Long {\n  val d = Date()\n  Calendar.getInstance()\n  return d.getTime()\n}\n",
 			"Use.java": "package com.ex;\n\nimport java.util.*;\n\nclass UseJ {\n  long f() {\n    Date d = new Date();\n    return d.getTime();\n  }\n}\n",
 		}, 0},
 		{"implicit receivers and a property write", "DenyListedApi", map[string]string{"C.kt": `package com.example

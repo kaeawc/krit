@@ -135,7 +135,8 @@ func runDaemonAnalyze(client daemonProjectClient, f *scanFlags, paths []string) 
 			fmt.Fprintln(os.Stderr, "info: using daemon")
 		}
 	})
-	res, err := analyzeViaDaemon(client, f, buildDaemonAnalyzeArgs(f, paths), announce)
+	args := buildDaemonAnalyzeArgs(f, paths)
+	res, err := analyzeViaDaemon(client, f, args, announce)
 	if err != nil {
 		if daemonclient.IsBinaryHashMismatch(err) {
 			fmt.Fprintf(os.Stderr, "warning: krit daemon rejected request (%v); falling back to in-process. Restart it with: krit daemon restart\n", err)
@@ -152,6 +153,13 @@ func runDaemonAnalyze(client daemonProjectClient, f *scanFlags, paths []string) 
 			return false, 0
 		}
 		fmt.Fprintf(os.Stderr, "warning: krit daemon call failed (%v); falling back to in-process\n", err)
+		return false, 0
+	}
+	if args.NoParseCache && !res.Stats.ParseCacheBypassed {
+		// A daemon that predates no_parse_cache ignored it and parsed
+		// through its parse cache, so its findings are not a cold-parse
+		// result (#1919).
+		fmt.Fprintln(os.Stderr, "warning: krit daemon does not support --no-parse-cache; falling back to in-process. Restart it with: krit daemon restart")
 		return false, 0
 	}
 
@@ -655,10 +663,14 @@ func daemonAutoStartDisabled() bool {
 //     when a daemon is in use; pair with --no-daemon to profile the
 //     short-lived CLI process instead.
 //
-// --no-cache, --clear-cache, --clear-matrix-cache are also daemon-
-// routable: --no-cache rides on AnalyzeProjectArgs.NoCache (the
-// daemon nils every disk-cache pointer and skips .krit/fir-cache for
-// this single call); the two clear-* flags are handled by
+// --no-cache, --no-parse-cache, --clear-cache, --clear-matrix-cache
+// are also daemon-routable: --no-cache rides on AnalyzeProjectArgs.NoCache
+// (the daemon nils every disk-cache pointer and skips .krit/fir-cache for
+// this single call); --no-parse-cache rides on
+// AnalyzeProjectArgs.NoParseCache (the daemon parses every file afresh,
+// bypassing its parse cache and resident parsed trees for this call, and
+// confirms it in the stats, so a daemon that predates the field falls
+// back to in-process); the two clear-* flags are handled by
 // tryDaemonClearCache and tryDaemonClearMatrixCache before
 // tryDaemonDelegate runs (early-exit verbs). --clear-cache also drops the daemon's resident
 // WorkspaceState slots so the next analyze rebuilds from cold;
@@ -868,6 +880,7 @@ func buildDaemonAnalyzeArgs(f *scanFlags, paths []string) daemon.AnalyzeProjectA
 		PerfRules:                 *f.PerfRules,
 		InputTypesPath:            inputTypesPath,
 		NoCache:                   *f.NoCache,
+		NoParseCache:              *f.NoParseCache,
 		ProfileDispatch:           *f.ProfileDispatch,
 		CPUProfilePath:            absoluteProfilePath(*f.CPUProfile),
 		MemProfilePath:            absoluteProfilePath(*f.MemProfile),

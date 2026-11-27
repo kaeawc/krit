@@ -285,8 +285,8 @@ near-zero on a warm run.
 
 | Flag | What it disables |
 |---|---|
-| `--no-cache` | Every cache that can change findings: the incremental analysis cache, the cross-file index and the cross-file findings cache, the findings bundle, the Android findings cache, the resource index, the file-walk cache, the tracked-files cache (the git file listing), the type-index and library-profile caches, the incremental oracle cache, the `--fir` check cache `.krit/fir-cache` and the incremental FIR bundle `.krit/fir-incremental`. None of these is read or written. The content-keyed parse cache (Kotlin, Java and XML trees) and the content-hash memo stay on, and a type-oracle run still writes its output, `.krit/types.json`. A daemon-delegated scan forwards the flag, and the daemon also skips its parse cache for that call. An in-process `--no-cache` scan is therefore not a cold baseline for a change to parsing, the grammar or tree repair: see [Cold baseline for parser changes](#cold-baseline-for-parser-changes) |
-| `--no-parse-cache` | Tree-sitter parse-tree cache (Kotlin, Java and XML trees). Not forwarded to a daemon: pair it with `--no-daemon` |
+| `--no-cache` | Every cache that can change findings: the incremental analysis cache, the cross-file index and the cross-file findings cache, the findings bundle, the Android findings cache, the resource index, the file-walk cache, the tracked-files cache (the git file listing), the type-index and library-profile caches, the incremental oracle cache, the `--fir` check cache `.krit/fir-cache` and the incremental FIR bundle `.krit/fir-incremental`. None of these is read or written. The content-keyed parse cache (Kotlin, Java and XML trees) and the content-hash memo stay on, and a type-oracle run still writes its output, `.krit/types.json`. A daemon-delegated scan forwards the flag, and the daemon also skips its on-disk parse cache for that call, but not the parsed trees it holds in memory. An in-process `--no-cache` scan is therefore not a cold baseline for a change to parsing, the grammar or tree repair: see [Cold baseline for parser changes](#cold-baseline-for-parser-changes) |
+| `--no-parse-cache` | Tree-sitter parse-tree cache (Kotlin, Java and XML trees): every file is parsed afresh, and the cache is neither read nor written. A daemon-delegated scan forwards the flag, and the daemon also skips the parsed trees it holds in memory for that call. A daemon that does not confirm the bypass gets no delegation: the scan runs in process (#1919) |
 | `--no-resource-cache` | Android values-XML ResourceIndex cache |
 | `--no-cross-file-cache` | Cross-file index cache |
 | `--no-cache-oracle` | Incremental oracle cache (forces full JVM run) |
@@ -420,7 +420,11 @@ then agree on the same stale answer. For such a change, compare against:
 krit --no-daemon --no-cache --no-parse-cache -f json .
 ```
 
-`--no-parse-cache` is not forwarded to a daemon, hence `--no-daemon`. In the
+A daemon-delegated scan honours both flags (#1919), but the daemon still
+keeps in memory the per-file type facts, the type resolver and the code index
+that earlier requests built, keyed on file content. If an earlier request
+parsed a stale cached tree, a delegated baseline can reuse facts derived from
+it, hence `--no-daemon`. In the
 #1904 review (#1912), a warm run and a `--no-cache` run both reported
 17 findings; `--no-parse-cache` reported the correct 39.
 

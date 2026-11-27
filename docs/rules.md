@@ -298,7 +298,8 @@ middle of a hierarchy ends the walk, because the pipeline does not index Java cl
 - `DoNotCallViewToString` reports a `toString()` call that resolves to an override declared in a subclass of
   `android.view.View`, including an inherited override and an unqualified call inside the class or in a plain lambda
   there, or an unqualified call in an extension function on that class, written directly, through a typealias, in
-  parentheses or as a type parameter's bound (`fun <T : KView> T.f()`). A call inside an `apply`/`run`/`with`/`build*`
+  parentheses or as a type parameter's bound (`fun <T : KView> T.f()`, any `where` bound). A receiver that is
+  nullable, written so or through its alias or bound, is not reported. A call inside an `apply`/`run`/`with`/`build*`
   block, or inside an extension function on another type (`fun String.render() = toString()`, `List<KView>`, or a
   function type such as `(() -> Unit)`), whose receiver is another object, is not reported. As in Lint, a call that
   resolves to View's own `toString()` (a plain `View` or a framework widget) is not reported, and neither is a string

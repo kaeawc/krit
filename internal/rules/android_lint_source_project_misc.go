@@ -167,9 +167,15 @@ func recyclerFunctionBody(file *scanner.File, fn uint32) uint32 {
 
 // recyclerPositionEscapes ports ParameterEscapesVisitor: the position escapes when it (or a local it was assigned to)
 // is assigned to a field, or is read inside an anonymous or inner class. Lambdas are not classes, so they do not count.
+// Names are resolved to their declarations, so a local that redeclares the position (or a copy of it) is not it.
 func recyclerPositionEscapes(file *scanner.File, bindClass, body uint32, position string) bool {
-	tracked := map[string]bool{position: true}
-	locals := recyclerLocalNames(file, body)
+	// tracked maps each name that holds the position to the declaration it resolves to: 0 for the parameter, else
+	// the local the position was assigned to.
+	tracked := map[string]uint32{position: 0}
+	holds := func(name string, at uint32) bool {
+		decl, ok := tracked[name]
+		return ok && recyclerResolve(file, at, body, name) == decl
+	}
 	fields := recyclerFieldNames(file, bindClass)
 	foundInner := false
 	escapes := false
@@ -191,18 +197,25 @@ func recyclerPositionEscapes(file *scanner.File, bindClass, body uint32, positio
 			if lhs == "" {
 				return
 			}
-			if tracked[rhs] {
-				switch {
-				case field || fields[lhs]:
+			if rhs != "" && holds(rhs, n) {
+				if field {
 					escapes = true
-				case locals[lhs]:
-					tracked[lhs] = true
+					return
+				}
+				switch decl := recyclerResolve(file, n, body, lhs); {
+				case recyclerIsLocal(file, decl):
+					tracked[lhs] = decl
+				case decl == 0 && fields[lhs]:
+					escapes = true
 				}
 				return
 			}
-			delete(tracked, lhs)
+			if !field && holds(lhs, n) {
+				delete(tracked, lhs)
+			}
 		case "simple_identifier", "identifier":
-			if !foundInner || !tracked[file.FlatNodeText(n)] || !recyclerIsRead(file, n, body) {
+			name := file.FlatNodeText(n)
+			if !foundInner || !recyclerIsRead(file, n) || !holds(name, n) {
 				return
 			}
 			if inner := recyclerEnclosingClass(file, n); inner != 0 && inner != bindClass {
@@ -213,13 +226,9 @@ func recyclerPositionEscapes(file *scanner.File, bindClass, body uint32, positio
 	return escapes
 }
 
-// recyclerIsRead reports an identifier that reads a variable: not a declaration's name, a member selector or an
-// argument label, and not a name declared again between it and body: by a function, lambda, loop or catch parameter,
-// or, inside the class, lambda or function that holds the read, by an earlier local (destructured or a `when` subject
-// too) or a field of a Java class. A local of the bind body itself, nested blocks included, is a copy the caller
-// tracks, not a shadow.
-func recyclerIsRead(file *scanner.File, n, body uint32) bool {
-	name := file.FlatNodeText(n)
+// recyclerIsRead reports an identifier in a position that reads a variable: not a declaration's name, a member
+// selector or an argument label.
+func recyclerIsRead(file *scanner.File, n uint32) bool {
 	p, ok := file.FlatParent(n)
 	if !ok {
 		return false
@@ -238,62 +247,69 @@ func recyclerIsRead(file *scanner.File, n, body uint32) bool {
 			return false
 		}
 	}
-	var chain []uint32
-	inner := -1
-	for cur, ok := file.FlatParent(n); ok && cur != body; cur, ok = file.FlatParent(cur) {
-		switch file.FlatType(cur) {
-		case "object_literal", "class_declaration", "object_declaration", "object_creation_expression", "lambda_literal",
-			"lambda_expression", "anonymous_function", "function_declaration", "method_declaration":
-			inner = len(chain)
-		}
-		chain = append(chain, cur)
-	}
-	for i, cur := range chain {
-		switch file.FlatType(cur) {
-		case "function_declaration", "method_declaration", "lambda_literal", "lambda_expression", "for_statement",
-			"enhanced_for_statement", "catch_clause", "anonymous_function":
-			if recyclerDeclaresName(file, cur, name) {
-				return false
-			}
-		}
-		if i >= inner {
-			continue
-		}
-		switch file.FlatType(cur) {
-		case "statements", "block":
-			if recyclerDeclaresLocalBefore(file, cur, name, file.FlatStartByte(n)) {
-				return false
-			}
-		case "when_expression":
-			if subject, ok := file.FlatFindChild(cur, "when_subject"); ok && file.FlatEndByte(subject) <= file.FlatStartByte(n) {
-				if vd, ok := file.FlatFindChild(subject, "variable_declaration"); ok && lintDeclaredName(file, vd) == name {
-					return false
-				}
-			}
-		case "class_body":
-			// A Java field of the enclosing class shadows the name. Lint 32.4.1 still reports a read of a Kotlin
-			// object's own property of the same name (recorded in RecyclerView/shadowing), so Kotlin members do not.
-			if file.Language == scanner.LangJava && recyclerMemberNames(file, cur, nil)[name] {
-				return false
-			}
-		}
-	}
 	return true
 }
 
-// recyclerDeclaresLocalBefore reports a local variable of the block, declared before offset, named name: a Kotlin
-// property (destructured too) or a Java local. A declaration that contains offset (its own initializer) does not count.
-func recyclerDeclaresLocalBefore(file *scanner.File, block uint32, name string, offset uint32) bool {
+// recyclerResolve returns the declaration that name, used at node at, resolves to within the bind body: the scope of
+// a function, lambda, loop or catch parameter, the nearest earlier local of an enclosing block (destructured too), a
+// `when` subject, or the body of a Java class that declares it as a field. It returns 0 when none does: name is then
+// the bind method's parameter or a member. Lint 32.4.1 resolves a Kotlin object's own property of the position's name
+// to the position (recorded in RecyclerView/shadowing), so Kotlin members do not count.
+func recyclerResolve(file *scanner.File, at, body uint32, name string) uint32 {
+	offset := file.FlatStartByte(at)
+	for cur, ok := file.FlatParent(at); ok; cur, ok = file.FlatParent(cur) {
+		switch file.FlatType(cur) {
+		case "function_declaration", "method_declaration", "lambda_literal", "lambda_expression", "for_statement",
+			"enhanced_for_statement", "catch_clause", "anonymous_function":
+			if cur != body && recyclerDeclaresName(file, cur, name) {
+				return cur
+			}
+		case "statements", "block":
+			if decl := recyclerLocalBefore(file, cur, name, offset); decl != 0 {
+				return decl
+			}
+		case "when_expression":
+			if subject, ok := file.FlatFindChild(cur, "when_subject"); ok && file.FlatEndByte(subject) <= offset {
+				if vd, ok := file.FlatFindChild(subject, "variable_declaration"); ok && lintDeclaredName(file, vd) == name {
+					return subject
+				}
+			}
+		case "class_body":
+			if file.Language == scanner.LangJava && recyclerMemberNames(file, cur, nil)[name] {
+				return cur
+			}
+		}
+		if cur == body {
+			break
+		}
+	}
+	return 0
+}
+
+// recyclerIsLocal reports a declaration recyclerResolve returned for a local variable.
+func recyclerIsLocal(file *scanner.File, decl uint32) bool {
+	if decl == 0 {
+		return false
+	}
+	t := file.FlatType(decl)
+	return t == "property_declaration" || t == "local_variable_declaration"
+}
+
+// recyclerLocalBefore returns the local variable declaration of the block, before offset, that declares name: a
+// Kotlin property (destructured too) or a Java local. A declaration that contains offset (its own initializer) does
+// not count. It returns 0 when there is none.
+func recyclerLocalBefore(file *scanner.File, block uint32, name string, offset uint32) uint32 {
+	var found uint32
 	for c := file.FlatFirstChild(block); c != 0 && file.FlatEndByte(c) <= offset; c = file.FlatNextSib(c) {
 		switch file.FlatType(c) {
 		case "property_declaration":
 			if vd, ok := file.FlatFindChild(c, "variable_declaration"); ok && lintDeclaredName(file, vd) == name {
-				return true
+				found = c
 			}
 			if multi, ok := file.FlatFindChild(c, "multi_variable_declaration"); ok {
 				for vd := file.FlatFirstChild(multi); vd != 0; vd = file.FlatNextSib(vd) {
 					if file.FlatType(vd) == "variable_declaration" && lintDeclaredName(file, vd) == name {
-						return true
+						found = c
 					}
 				}
 			}
@@ -301,13 +317,13 @@ func recyclerDeclaresLocalBefore(file *scanner.File, block uint32, name string, 
 			for d := file.FlatFirstChild(c); d != 0; d = file.FlatNextSib(d) {
 				if file.FlatType(d) == "variable_declarator" {
 					if id, ok := file.FlatFindChild(d, "identifier"); ok && file.FlatNodeText(id) == name {
-						return true
+						found = c
 					}
 				}
 			}
 		}
 	}
-	return false
+	return found
 }
 
 // recyclerDeclaresName reports a parameter (of a function, lambda, loop or catch) declared directly by scope.
@@ -382,28 +398,6 @@ func recyclerAssignSides(file *scanner.File, n uint32) (lhs, rhs string, field b
 		value = ""
 	}
 	return target, value, field
-}
-
-// recyclerLocalNames lists the local variables declared in a function body.
-func recyclerLocalNames(file *scanner.File, body uint32) map[string]bool {
-	out := map[string]bool{}
-	file.FlatWalkAllNodes(body, func(n uint32) {
-		switch file.FlatType(n) {
-		case "property_declaration":
-			if vd, ok := file.FlatFindChild(n, "variable_declaration"); ok {
-				out[lintDeclaredName(file, vd)] = true
-			}
-		case "local_variable_declaration":
-			for c := file.FlatFirstChild(n); c != 0; c = file.FlatNextSib(c) {
-				if file.FlatType(c) == "variable_declarator" {
-					if id, ok := file.FlatFindChild(c, "identifier"); ok {
-						out[file.FlatNodeText(id)] = true
-					}
-				}
-			}
-		}
-	})
-	return out
 }
 
 // recyclerFieldNames lists the properties and fields declared directly in the class and its same-file superclasses.

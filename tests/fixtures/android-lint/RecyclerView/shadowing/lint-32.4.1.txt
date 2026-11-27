@@ -2,3 +2,4 @@ src/main/java/com/example/JNested.java:19:49: RecyclerView: Do not treat positio
 src/main/java/com/example/Local.kt:25:51: RecyclerView: Do not treat position as fixed; only use immediately and call `holder.getAdapterPosition()` to look it up later
 src/main/java/com/example/Local.kt:40:51: RecyclerView: Do not treat position as fixed; only use immediately and call `holder.getAdapterPosition()` to look it up later
 src/main/java/com/example/Nested.kt:11:51: RecyclerView: Do not treat position as fixed; only use immediately and call `holder.getAdapterPosition()` to look it up later
+src/main/java/com/example/Redeclared.kt:75:51: RecyclerView: Do not treat position as fixed; only use immediately and call `holder.getAdapterPosition()` to look it up later

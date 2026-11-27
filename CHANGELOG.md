@@ -655,8 +655,9 @@ All notable changes to Krit will be documented in this file.
   `gradle/<name>.versions.toml` serves only the accessor `<name>`, when no imported catalog has that name. Version
   catalog sources in librarymodel carry this accessor name. Warm runs and the daemon key the settings-derived source
   list: the files, their kinds and their names. Editing a settings-declared catalog, renaming a `create(...)`, or
-  pointing `from(files(...))` at another file reruns the manifest rules. A settings edit that leaves the catalogs
-  alone doesn't (#1872). Settings scanning skips comments and string literals, lexes string templates, and reads
+  pointing `from(files(...))` at another file reruns the manifest rules, and the resource rules that read the
+  module's build script, such as RelativeClassResolution and LibraryCustomView. A settings edit that leaves the
+  catalogs alone doesn't (#1872). Settings scanning skips comments and string literals, lexes string templates, and reads
   Groovy's paren-less `from files('...')`. A settings block that declares a catalog krit can't read, such as a
   published one, stops an unimported `gradle/<name>.versions.toml` of that name from serving its accessor.
 - MCP `analyze` (mode `android`) reports OnClick for a relative `projectPath`. The sources stayed relative while the

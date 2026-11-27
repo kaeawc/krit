@@ -55,6 +55,11 @@ All notable changes to Krit will be documented in this file.
   repository; every other file keeps Go's verdict. It falls back to the whole-repository compile when a module would
   lose dependency context or the model is missing, and `--no-pr-mode` turns it off. The FIR summary line and
   `summary.fir.outsidePr` say how many files stayed with Go.
+- PR mode for `--delta` (#1660): the current scan and the base-ref scan both compile only the changed files' modules,
+  the base scan over the same changed files, so an unchanged file keeps Go's verdict on both sides. On a 480-file,
+  12-module project a cold `--fir --delta` went from 31–34s to 21s. PR-mode `--delta` scans run in-process, as `--diff`
+  ones do; `--no-pr-mode` keeps the daemon route and the whole-repository compile. Under `-v` the base scan's log is
+  shown, each line marked `--delta base:`.
 - `MissingOnRenderProcessGone`, `CrossOriginIsolatedAllowlist` (`androidx.webkit` 1.18.0) and
   `DontUseAccessibilityNodeInfoGetText` (`androidx.test.uiautomator` 2.4.1), under their Lint IDs, checked against
   the Lint CLI running those releases' `lint.jar` (`internal/rules/testdata/androidx_webkit/`,
@@ -865,6 +870,9 @@ All notable changes to Krit will be documented in this file.
   top-level or in a class, object or companion object), so an implicit intent with such an action that matches a
   non-exported component is reported as Lint reports it. A same-named parameter or local shadows a constant from
   another file (#1624).
+- `--delta` with a Gradle model reported FIR findings in unchanged files as new: the model is untracked, so the
+  base-ref worktree had none, FIR was skipped there and its Go fallback reported those files differently (49 false
+  "new" findings on a 480-file project). The base scan now reads a copy of the current model (#1660).
 - `--diff` run from a subdirectory of the repository reported no findings: git's repository-relative paths were
   resolved against the working directory.
 - Incremental FIR checking works again: the krit-fir shadow jar left out the IR manglers the JVM backend needs, so

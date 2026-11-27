@@ -1298,16 +1298,29 @@ func firstScanPath(paths []string) string {
 	return paths[0]
 }
 
-// prModeFiles returns the changed Kotlin files a --diff scan analyzes with
-// FIR and the type oracle, compiling only their modules (PR mode, #1660), or
-// nil when PR mode is off: no --diff, --no-pr-mode, or a failed git diff
-// (which the findings filter reports). Every other file keeps Go's verdict,
-// and --diff drops its findings anyway. A non-nil empty list analyzes none.
+// prModeFiles returns the changed Kotlin files a --diff or --delta scan
+// analyzes with FIR and the type oracle, compiling only their modules (PR
+// mode, #1660), or nil when PR mode is off: no --diff, --delta or --pr-files,
+// --no-pr-mode, or a failed git diff (which the findings filter reports).
+// Every other file keeps Go's verdict: --diff drops its findings anyway, and
+// --delta's base scan gets the same list (--pr-files), so both sides judge an
+// unchanged file alike. A non-nil empty list analyzes none.
 func (r *runner) prModeFiles() []string {
-	if *r.f.Diff == "" || *r.f.NoPRMode {
+	if *r.f.NoPRMode {
 		return nil
 	}
-	changed, err := getChangedFiles(*r.f.Diff, r.paths)
+	var changed map[string]bool
+	var err error
+	switch {
+	case *r.f.Diff != "":
+		changed, err = getChangedFiles(*r.f.Diff, r.paths)
+	case *r.f.Delta != "":
+		changed, err = getChangedFiles(*r.f.Delta, r.paths)
+	case *r.f.PRFiles != "":
+		changed, err = readPRFileList(*r.f.PRFiles)
+	default:
+		return nil
+	}
 	if err != nil {
 		return nil
 	}

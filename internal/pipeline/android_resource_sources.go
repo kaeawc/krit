@@ -27,6 +27,8 @@ type resourceRuleSources struct {
 	fpOnce sync.Once
 	fp     string
 	fpOK   bool
+	// used is the content hash fingerprint took for each path.
+	used map[string]string
 }
 
 // withResourceRuleSources installs the run's resourceRuleSources. Every copy
@@ -84,12 +86,31 @@ func (s *resourceRuleSources) sources() ([]*scanner.File, bool) {
 		// The parse drops what a full parse would (generated files), and a
 		// file deleted since the walk fails fingerprint, so nothing is cached.
 		more, err := s.parse(missing)
-		if err != nil {
+		if err != nil || !s.matchesFingerprint(more) {
 			s.filesOK = false
 		}
 		s.files = append(parsed, more...)
 	})
 	return s.files, s.filesOK
+}
+
+// matchesFingerprint reports whether files hold the content fingerprint
+// hashed for their paths. A file edited between the two reads would leave
+// the findings describing bytes the key does not, so they are not cached.
+func (s *resourceRuleSources) matchesFingerprint(files []*scanner.File) bool {
+	if _, ok := s.fingerprint(); !ok {
+		return false
+	}
+	for _, f := range files {
+		if f == nil {
+			continue
+		}
+		used, ok := s.used[f.Path]
+		if !ok || canonResourceSourceHash(hashutil.HashHex(f.Content)) != canonResourceSourceHash(used) {
+			return false
+		}
+	}
+	return true
 }
 
 // fingerprint covers every source path and its content, the unparsed ones of
@@ -111,6 +132,7 @@ func (s *resourceRuleSources) fingerprint() (string, bool) {
 			}
 		}
 		memo := hashutil.Default()
+		s.used = make(map[string]string, len(s.paths))
 		entries := make([]resourceSourceEntry, 0, len(s.paths))
 		for _, path := range s.paths {
 			hash := s.hashes[path]
@@ -125,6 +147,7 @@ func (s *resourceRuleSources) fingerprint() (string, bool) {
 				}
 				hash = h
 			}
+			s.used[path] = hash
 			entries = append(entries, resourceSourceEntry{path: path, hash: hash})
 		}
 		s.fp, s.fpOK = resourceSourceEntriesFingerprint(entries)

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/kaeawc/krit/internal/android"
+	"github.com/kaeawc/krit/internal/hashutil"
 	"github.com/kaeawc/krit/internal/perf"
 	"github.com/kaeawc/krit/internal/rules"
 	api "github.com/kaeawc/krit/internal/rules/api"
@@ -139,6 +140,17 @@ func TestResourceRuleSourcesParsesSkippedFiles(t *testing.T) {
 	b, okB := full.fingerprint()
 	if !okA || !okB || a != b {
 		t.Fatalf("fingerprints differ: skipped %q (%v), full %q (%v)", a, okA, b, okB)
+	}
+	// The file changed between the hash the cache validated and the on-demand
+	// parse: the findings describe bytes the key does not, so no caching.
+	stale := AndroidInput{
+		SourceFiles:  []*scanner.File{{Path: src}},
+		SourcePaths:  []string{src},
+		SourceHashes: map[string]string{src: hashutil.HashHex([]byte("an earlier version"))[:16]},
+		ParseSources: func([]string) ([]*scanner.File, error) { return []*scanner.File{parsed}, nil },
+	}.withResourceRuleSources().ruleSources
+	if _, ok := stale.sources(); ok {
+		t.Fatal("a parse that read other content than the fingerprint hashed must leave the result uncacheable")
 	}
 	noParser := AndroidInput{SourceFiles: []*scanner.File{{Path: src}}, SourcePaths: []string{src}}.withResourceRuleSources().ruleSources
 	if _, ok := noParser.sources(); ok {

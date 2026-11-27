@@ -105,7 +105,7 @@ func (r *OnClickRule) check(ctx *api.Context) {
 		if file == nil || file.FlatTree == nil {
 			continue
 		}
-		if module != "" && !strings.HasPrefix(file.Path, module+string(filepath.Separator)) {
+		if module != "" && !onClickSameModule(file.Path, module) {
 			continue
 		}
 		for idx := range file.FlatTree.Types {
@@ -139,6 +139,29 @@ func onClickModuleDir(resDir string) string {
 		return filepath.Dir(filepath.Dir(set))
 	}
 	return set
+}
+
+// onClickSameModule reports whether the source file belongs to module. A
+// file under `<dir>/src/<set>/kotlin|java/` belongs to <dir>, which keeps a
+// nested module's Activities out of its parent's; a file in no such tree
+// falls back to lying under module.
+func onClickSameModule(path, module string) bool {
+	if owner := onClickSourceModuleDir(path); owner != "" {
+		return owner == module
+	}
+	return strings.HasPrefix(path, module+string(filepath.Separator))
+}
+
+// onClickSourceModuleDir returns <dir> for the last `<dir>/src/<set>/kotlin`
+// or `.../java` in path, or "".
+func onClickSourceModuleDir(path string) string {
+	segs := strings.Split(filepath.ToSlash(path), "/")
+	for i := len(segs) - 3; i > 0; i-- {
+		if segs[i] == "src" && (segs[i+2] == "kotlin" || segs[i+2] == "java") {
+			return filepath.FromSlash(strings.Join(segs[:i], "/"))
+		}
+	}
+	return ""
 }
 
 func collectOnClickHandlerSites(idx *android.ResourceIndex) map[string][]onClickHandlerSite {

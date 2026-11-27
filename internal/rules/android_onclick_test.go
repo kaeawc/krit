@@ -259,9 +259,16 @@ class MainActivity : AppCompatActivity() {
 		{"same module", filepath.Join(root, "a", "src", "main", "res"), 1},
 		{"same module, flat res", filepath.Join(root, "a", "res"), 1},
 		{"other module", filepath.Join(root, "b", "src", "main", "res"), 0},
+		// a/nested is a module of its own inside a; its Activity is not a's.
+		{"parent of a nested module", filepath.Join(root, "a", "nested", "src", "main", "res"), 0},
 	} {
 		file := parseInline(t, activity)
 		file.Path = filepath.Join(root, "a", "src", "main", "kotlin", "test", "MainActivity.kt")
+		if tc.name == "parent of a nested module" {
+			// The layout is the parent's, the Activity the nested module's.
+			tc.resDir = filepath.Join(root, "a", "src", "main", "res")
+			file.Path = filepath.Join(root, "a", "nested", "src", "main", "kotlin", "test", "MainActivity.kt")
+		}
 		var findings []scanner.Finding
 		for _, r := range api.Registry {
 			if r.ID != "OnClick" {

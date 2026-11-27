@@ -22,7 +22,9 @@
 #   test      go test on changed packages through scripts/go-test.sh, plus
 #             the rule fixture and FIR go-lines tests for fixture changes,
 #             and for Android Lint fixture or CHANGELOG.md changes the
-#             cmd/krit Lint parity replay and CHANGELOG fixture-count tests
+#             cmd/krit Lint parity replay and CHANGELOG fixture-count tests,
+#             and for rule changes internal/cache's gates that scan the
+#             rules' sources for raw-path heuristics (#1896)
 #   actions   scripts/lint-actions.sh for .github/ changes (CI: actionlint)
 #   docs      scripts/validate_mkdocs_nav.sh, then mkdocs build --strict when
 #             mkdocs is installed (Documentation workflow)
@@ -169,6 +171,15 @@ test_targets() {
 	fi
 	if has_match '^tests/fixtures/|^internal/rules/'; then
 		echo ./internal/rules
+	fi
+	# internal/cache's gates scan the rules' sources (and the shared path
+	# classifiers) for raw-path heuristics, so a rule change can break them
+	# while internal/cache is unchanged (CI: test) (#1896).
+	if has_match '^internal/rules/'; then
+		echo 'cache:TestRulePathHeuristicsReadProjectPath'
+	fi
+	if has_match '^internal/rules/|^internal/scanner/testpath\.go$|^internal/fileignore/(docsample|fileignore)\.go$'; then
+		echo 'cache:TestRulePathMarkersCoverRules'
 	fi
 	# Fixture headers carry the Go rule's expected lines; this test needs no
 	# krit-fir jar (CI: test). Its other tests do, so filter it.
@@ -352,7 +363,7 @@ run_gomod() {
 
 run_test() {
 	step "go test (changed packages)"
-	local targets pkgs=() runs=() kruns=() t parity_all=0
+	local targets pkgs=() runs=() kruns=() cruns=() t parity_all=0
 	targets=$(test_targets | sort -u)
 	while IFS= read -r t; do
 		[ -n "$t" ] || continue
@@ -360,6 +371,7 @@ run_test() {
 			parity:*) runs+=("${t#parity:}") ;;
 			parity-all) parity_all=1 ;;
 			krit:*) kruns+=("${t#krit:}") ;;
+			cache:*) cruns+=("${t#cache:}") ;;
 			*) [ -n "$(find "${t#./}" -maxdepth 1 -name '*_test.go' -print -quit)" ] && pkgs+=("$t") ;;
 		esac
 	done <<<"$targets"
@@ -371,6 +383,12 @@ run_test() {
 		local IFS='|'
 		bash scripts/go-test.sh ./cmd/krit -run "^(${kruns[*]})\$" -count=1 ||
 			fail test "cmd/krit (${kruns[*]}) failed; a CHANGELOG count must equal the recorded cases of the rules the entry names."
+	fi
+	# A changed internal/cache package already ran in full above.
+	if [ "${#cruns[@]}" -gt 0 ] && ! printf '%s\n' "${pkgs[@]+"${pkgs[@]}"}" | grep -qx './internal/cache'; then
+		local IFS='|'
+		bash scripts/go-test.sh ./internal/cache -run "^(${cruns[*]})\$" -count=1 ||
+			fail test "internal/cache (${cruns[*]}) failed; a rule's path heuristic must read projectPath(ctx, file.Path), and every folder it tests needs a rulePathMarkers entry."
 	fi
 	if [ "$parity_all" = 1 ]; then
 		bash scripts/go-test.sh ./tests/parity -count=1 -timeout 30m || fail test "tests/parity failed."

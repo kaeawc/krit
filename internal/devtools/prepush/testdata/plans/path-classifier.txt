@@ -1,0 +1,12 @@
+# A shared path classifier the rules call is read by internal/cache's
+# rulePathMarkers gate, so it runs that gate too, but not the raw-path gate,
+# which scans only internal/rules (#1896).
+internal/scanner/testpath.go
+---
+merge
+gofmt
+build
+vet
+lint
+gosec
+test ./internal/scanner cache:TestRulePathMarkersCoverRules

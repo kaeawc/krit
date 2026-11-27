@@ -62,7 +62,11 @@ func runRuleOnSourcesWithResolver(t *testing.T, ruleID string, sources map[strin
 		if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		file, err := scanner.ParseFile(context.Background(), path)
+		parse := scanner.ParseFile
+		if filepath.Ext(path) == ".java" {
+			parse = scanner.ParseJavaFile
+		}
+		file, err := parse(context.Background(), path)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -81,4 +85,14 @@ func runRuleOnSourcesWithResolver(t *testing.T, ruleID string, sources map[strin
 	}
 	t.Fatalf("rule %q not registered", ruleID)
 	return nil
+}
+
+// runRuleOnSourcesWithResolverAll is runRuleOnSourcesWithResolver over every source file.
+func runRuleOnSourcesWithResolverAll(t *testing.T, ruleID string, sources map[string]string) []scanner.Finding {
+	t.Helper()
+	var out []scanner.Finding
+	for name := range sources {
+		out = append(out, runRuleOnSourcesWithResolver(t, ruleID, sources, name)...)
+	}
+	return out
 }

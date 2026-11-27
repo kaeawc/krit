@@ -240,3 +240,80 @@ abstract class Cached extends Single<Integer> {
 		t.Errorf("an inherited blockingGet(): want one finding, got %v", got)
 	}
 }
+
+// Orchestrator first pass on #1819: an untyped subject or relay property, navigation receivers the resolver types,
+// a same-package class over a star import, implicit receivers, property writes, and a Java View subclass.
+func TestDenyListedApiFirstPassReview(t *testing.T) {
+	for _, tc := range []struct {
+		name, rule string
+		sources    map[string]string
+		want       int
+	}{
+		{"subject property hide()", "DenyListedApi", map[string]string{"S.kt": `package com.example
+
+import io.reactivex.rxjava3.core.Observable
+import io.reactivex.rxjava3.subjects.BehaviorSubject
+import io.reactivex.rxjava3.subjects.PublishSubject
+import com.jakewharton.rxrelay3.BehaviorRelay
+
+class Store {
+  private val state = BehaviorSubject.createDefault(0)
+  private val events = PublishSubject.create<Int>()
+  private val relay = BehaviorRelay.create<Int>()
+  val a: Observable<Int> get() = state.hide()
+  val b: Observable<Int> get() = events.hide()
+  val c: Observable<Int> get() = relay.hide()
+}
+`}, 3},
+		{"navigation receiver", "DenyListedApi", map[string]string{"H.kt": `package com.example
+
+import android.content.Context
+import android.widget.Button
+
+class Holder(val button: Button)
+
+class Screen(private val holder: Holder, private val buttons: List<Button>) {
+  private val button: Button? = null
+  fun clear() {
+    holder.button.setOnClickListener(null)
+    this.button?.setOnClickListener(null)
+    buttons[0].setOnClickListener(null)
+  }
+}
+`}, 3},
+		{"same-package Date over java.util.*", "DenyListedApi", map[string]string{
+			"Date.kt": "package com.ex\n\nclass Date {\n  fun getTime() = 0L\n}\n\nclass Calendar {\n  companion object {\n    fun getInstance() = Calendar()\n  }\n}\n",
+			"Use.kt":  "package com.ex\n\nimport java.util.*\n\nfun f(): Long {\n  val d = Date()\n  Calendar.getInstance()\n  return d.getTime()\n}\n",
+			"Use.java": "package com.ex;\n\nimport java.util.*;\n\nclass UseJ {\n  long f() {\n    Date d = new Date();\n    return d.getTime();\n  }\n}\n",
+		}, 0},
+		{"implicit receivers and a property write", "DenyListedApi", map[string]string{"C.kt": `package com.example
+
+import android.content.Context
+import android.view.View
+import java.util.Calendar
+
+fun f(millis: Long) {
+  val cal = Calendar.getInstance()
+  cal.timeInMillis = millis
+  Calendar.getInstance().apply { set(Calendar.MONTH, 1) }
+}
+
+class Tappable(c: Context) : View(c) {
+  init {
+    setOnClickListener(null)
+  }
+}
+`}, 6},
+		{"Java View subclass", "DenyListedApi", map[string]string{
+			"JBase.java": "package com.ex;\n\nimport android.content.Context;\nimport android.widget.LinearLayout;\n\npublic class JBase extends LinearLayout {\n  public JBase(Context c) { super(c); }\n}\n",
+			"Use.kt":     "package com.ex\n\nfun clear(b: JBase) {\n  b.setOnClickListener(null)\n}\n",
+		}, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := runRuleOnSourcesWithResolverAll(t, tc.rule, tc.sources)
+			if len(got) != tc.want {
+				t.Errorf("want %d findings, got %v", tc.want, got)
+			}
+		})
+	}
+}

@@ -4,7 +4,11 @@ package rules
 // walks the source resolver's class index, resolving each supertype name through the declaring file's imports.
 
 import (
+	"fmt"
+	"os"
+	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/typeinfer"
@@ -20,9 +24,14 @@ func slackSupertypeFQN(resolver typeinfer.TypeResolver, info *typeinfer.ClassInf
 	}
 	super = strings.TrimSpace(super)
 	head, rest, nested := strings.Cut(super, ".")
-	// ResolveImport reads only the path of the file it is given.
+	// ResolveImport reads only the path of the file it is given. The resolver keeps no import table for Java
+	// files, so a Java class's imports are read from its source.
 	declaring := &scanner.File{Path: info.File, Language: scanner.LangKotlin}
-	if fqn := resolver.ResolveImport(head, declaring); strings.Contains(fqn, ".") {
+	fqn := resolver.ResolveImport(head, declaring)
+	if !strings.Contains(fqn, ".") && strings.HasSuffix(info.File, ".java") {
+		fqn = slackJavaFileImports(info.File)[head]
+	}
+	if strings.Contains(fqn, ".") {
 		if nested {
 			return fqn + "." + rest
 		}
@@ -66,7 +75,7 @@ func slackClassExtends(resolver typeinfer.TypeResolver, fqn, target string) bool
 }
 
 func slackClassExtendsSeen(resolver typeinfer.TypeResolver, fqn, target string, seen map[string]bool) bool {
-	if fqn == target {
+	if fqn == target || (target == "android.view.View" && slackIsFrameworkView(fqn)) {
 		return true
 	}
 	if resolver == nil || fqn == "" || seen[fqn] {
@@ -93,4 +102,40 @@ func slackRecordedSupertypes(info *typeinfer.ClassInfo) []string {
 		return info.DirectSupertypes
 	}
 	return info.Supertypes
+}
+
+// slackIsFrameworkView reports whether a library class is one of the Android framework or AndroidX View classes krit
+// knows by name (TextView, LinearLayout, RecyclerView, ...), so a project class extending it is a View.
+func slackIsFrameworkView(fqn string) bool {
+	if !strings.HasPrefix(fqn, "android.") && !strings.HasPrefix(fqn, "androidx.") && !strings.HasPrefix(fqn, "com.google.android.material.") {
+		return false
+	}
+	_, ok := androidKnownViewSimpleNames[fqn[strings.LastIndexByte(fqn, '.')+1:]]
+	return ok
+}
+
+var (
+	slackJavaImportRe    = regexp.MustCompile(`(?m)^\s*import\s+([A-Za-z_][\w.]*)\s*;`)
+	slackJavaImportCache sync.Map // path -> map[string]string
+)
+
+// slackJavaFileImports returns a Java source file's single-type imports by simple name. The result is memoized by
+// path, size and modification time, so a long-lived daemon or LSP session rereads an edited file.
+func slackJavaFileImports(path string) map[string]string {
+	st, err := os.Stat(path)
+	if err != nil {
+		return nil
+	}
+	key := fmt.Sprintf("%s\x00%d\x00%d", path, st.Size(), st.ModTime().UnixNano())
+	if v, ok := slackJavaImportCache.Load(key); ok {
+		return v.(map[string]string)
+	}
+	out := map[string]string{}
+	if data, err := os.ReadFile(path); err == nil {
+		for _, m := range slackJavaImportRe.FindAllStringSubmatch(string(data), -1) {
+			out[m[1][strings.LastIndexByte(m[1], '.')+1:]] = m[1]
+		}
+	}
+	slackJavaImportCache.Store(key, out)
+	return out
 }

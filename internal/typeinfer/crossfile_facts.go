@@ -54,11 +54,10 @@ type crossFileClass struct {
 	DirectSupertypes []string     `json:"d"`
 	Flags            [6]bool      `json:"b"`
 	Members          []MemberInfo `json:"m"`
-	// SupertypeImports maps each supertype's first name segment to what the file imports it as, and Wildcards
-	// lists the file's on-demand imports when a segment has no explicit import. Rules resolve supertypes written
-	// as simple names through the declaring file's imports, so swapping only that import changes what they see.
+	// SupertypeImports maps each supertype's first name segment to what the file explicitly imports it as. Rules
+	// resolve supertypes written as simple names through the declaring file's imports, so swapping only that
+	// import changes what they see.
 	SupertypeImports map[string]string `json:"i,omitempty"`
-	Wildcards        []string          `json:"w,omitempty"`
 }
 
 type crossFileExtension struct {
@@ -117,7 +116,7 @@ func (f crossFileFrags) addClasses(classes []*ClassInfo, imports *ImportTable) {
 			Flags:   [6]bool{ci.IsSealed, ci.IsData, ci.IsInner, ci.IsAbstract, ci.IsOpen, ci.IsNested},
 			Members: ci.Members,
 		}
-		class.SupertypeImports, class.Wildcards = supertypeImports(ci, imports)
+		class.SupertypeImports = supertypeImports(ci, imports)
 		name := ci.FQN
 		if name == "" {
 			name = ci.Name
@@ -129,21 +128,25 @@ func (f crossFileFrags) addClasses(classes []*ClassInfo, imports *ImportTable) {
 	}
 }
 
-// supertypeImports returns how the file's imports name the first segment of each of ci's supertypes (an
-// explicit or aliased import), and the file's on-demand imports when some segment has neither. Imports that name
-// no supertype are left out, so adding an import for a body edit keeps the class's hash.
-func supertypeImports(ci *ClassInfo, imports *ImportTable) (map[string]string, []string) {
+// supertypeImports returns how the file's explicit and aliased imports name the first segment of each of ci's
+// supertypes as written. A lowercase segment starts a package-qualified name, which no import changes. On-demand
+// imports are left out: ImportTable.Resolve never resolves through them, so no lookup changes with them. Imports
+// that name no supertype are left out too, so adding an import for a body edit keeps the class's hash.
+func supertypeImports(ci *ClassInfo, imports *ImportTable) map[string]string {
 	if imports == nil {
-		return nil, nil
+		return nil
+	}
+	written := ci.DirectSupertypes
+	if len(written) == 0 {
+		written = ci.Supertypes
 	}
 	var named map[string]string
-	unnamed := false
-	for _, s := range append(append([]string(nil), ci.Supertypes...), ci.DirectSupertypes...) {
+	for _, s := range written {
 		if i := strings.IndexByte(s, '<'); i >= 0 {
 			s = s[:i]
 		}
 		head, _, _ := strings.Cut(strings.TrimSpace(s), ".")
-		if head == "" {
+		if head == "" || (head[0] >= 'a' && head[0] <= 'z') {
 			continue
 		}
 		target, ok := imports.Aliases[head]
@@ -151,7 +154,6 @@ func supertypeImports(ci *ClassInfo, imports *ImportTable) (map[string]string, [
 			target, ok = imports.Explicit[head]
 		}
 		if !ok {
-			unnamed = true
 			continue
 		}
 		if named == nil {
@@ -159,12 +161,7 @@ func supertypeImports(ci *ClassInfo, imports *ImportTable) (map[string]string, [
 		}
 		named[head] = target
 	}
-	var wildcards []string
-	if unnamed && len(imports.Wildcard) > 0 {
-		wildcards = slices.Clone(imports.Wildcard)
-		sort.Strings(wildcards)
-	}
-	return named, wildcards
+	return named
 }
 
 // addFunctions records the functions, extensions and suspend functions

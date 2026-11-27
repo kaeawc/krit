@@ -185,7 +185,9 @@ Three Android source checks prove their receiver before reporting:
   Kotlin subclass, direct or indirect, with each supertype resolved through its declaring file's imports), or be
   Android's accessor (`context.resources`, `getResources()`, an unqualified `resources`) on a Context, View or
   Fragment, so a project's own `getQuantityString` wrapper or `Resources` lookalike is not reported. A Java subclass
-  of `Resources` is not seen yet, because the pipeline does not index Java classes into the resolver (#1885).
+  of `Resources` is not seen yet, because the pipeline does not index Java classes into the resolver (#1885). Also
+  missed: a supertype that only an on-demand import names (`import android.content.res.*`, then `: Resources(...)`),
+  a supertype written through a typealias, and a parameter typed as a qualified nested class.
 - `SpanMarkPointMissingMask` reports `==`/`!=` against a `Spanned` mark-point flag (`SPAN_EXCLUSIVE_EXCLUSIVE`, ...)
   whose other side does not mask with `SPAN_POINT_MARK_MASK` (a bitwise `and`/`&`; `or`/`|` does not mask). A
   parameter or local named like the flag shadows its static import. Unlike Lint, krit looks inside parentheses, so
@@ -301,8 +303,8 @@ middle of a hierarchy ends the walk, because the pipeline does not index Java cl
   `RecyclerView.ItemDecoration` (directly, through source superclasses, or through `DividerItemDecoration` and
   `ItemTouchHelper`), an `inflate()` call on a `LayoutInflater` (a typed receiver, or a property or local initialized
   from `LayoutInflater.from(...)`), a static `inflate()` of a generated `…Binding` class (in a `databinding` package),
-  or a static or instance `inflate()` of a source class implementing `ViewBinding`. A class or companion object nested
-  inside the decoration is not part of it, as in Lint.
+  or a static or member `inflate()` of a source class implementing `ViewBinding` (an extension `inflate()` is not the
+  class's). A class or companion object nested inside the decoration is not part of it, as in Lint.
 
 `InclusiveNaming` ports `InclusiveNamingSourceCodeScanner` for Kotlin and Java. It reports nothing until its
 `blockList` option (Lint's `block-list`) lists words, for example:

@@ -207,6 +207,7 @@ class KView(c: Context) : LinearLayout(c) {
 
 fun KView.describe() = toString()
 fun String.other() = toString()
+fun KView?.orNull() = toString()
 `})
 	var lines []int
 	for _, f := range got {
@@ -231,12 +232,20 @@ class Other {
   fun inflate() {}
 }
 
-class Deco(private val binding: ManualBinding, private val other: Other) : RecyclerView.ItemDecoration() {
+class Deco(private val binding: ManualBinding, private val other: Other, private val plain: PlainBinding) : RecyclerView.ItemDecoration() {
   fun draw() {
     binding.inflate()
     other.inflate()
+    plain.inflate()
   }
 }
+
+// An extension inflate() is the file facade's, not the ViewBinding's (#1894 review, P3).
+class PlainBinding(private val v: View) : ViewBinding {
+  override fun getRoot(): View = v
+}
+
+fun PlainBinding.inflate(): View = root
 `})
 	if len(got) != 1 || got[0].Line != 18 {
 		t.Errorf("InflationInItemDecoration: want one finding, on binding.inflate(), got %v", got)

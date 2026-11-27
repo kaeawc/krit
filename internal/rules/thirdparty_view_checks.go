@@ -113,7 +113,11 @@ func viewImplicitReceiverFQN(ctx *api.Context, idx uint32) string {
 		switch file.FlatType(p) {
 		case "function_declaration":
 			if len(names) == 0 && file.Language == scanner.LangKotlin {
-				if recv, _ := flatFunctionReceiverTypeInfo(file, p); recv != "" {
+				if recv, nullable := flatFunctionReceiverTypeInfo(file, p); recv != "" {
+					// On a nullable receiver, toString() is the Any?.toString() extension, not the class's.
+					if nullable {
+						return ""
+					}
 					return viewSourceClassFQN(ctx, denyAnyClassFQN(ctx.Resolver, file, recv))
 				}
 			}
@@ -194,7 +198,34 @@ func viewInflateIsLayoutOrBinding(ctx *api.Context, call lintCall) bool {
 	}
 	// An instance inflate() on a source class implementing ViewBinding: Lint checks the method's declaring class, not
 	// whether the call is static.
-	return ctx.Resolver != nil && typ != "" && ctx.Resolver.ClassHierarchy(typ) != nil && slackClassExtends(ctx.Resolver, typ, viewViewBindingFQN)
+	// An extension inflate() is declared in its file facade, not the class, so the member must be the class's own or
+	// a source supertype's.
+	return ctx.Resolver != nil && typ != "" && ctx.Resolver.ClassHierarchy(typ) != nil &&
+		slackClassExtends(ctx.Resolver, typ, viewViewBindingFQN) && viewClassDeclaresFunction(ctx, typ, "inflate", map[string]bool{})
+}
+
+// viewClassDeclaresFunction reports whether the source class fqn, or one of its source superclasses, declares a
+// member function called name.
+func viewClassDeclaresFunction(ctx *api.Context, fqn, name string, seen map[string]bool) bool {
+	if fqn == "" || seen[fqn] {
+		return false
+	}
+	seen[fqn] = true
+	info := ctx.Resolver.ClassHierarchy(fqn)
+	if info == nil || info.FQN != fqn {
+		return false
+	}
+	for _, m := range info.Members {
+		if m.Name == name && m.Kind == "function" {
+			return true
+		}
+	}
+	for _, super := range slackRecordedSupertypes(info) {
+		if viewClassDeclaresFunction(ctx, slackSupertypeFQN(ctx.Resolver, info, super), name, seen) {
+			return true
+		}
+	}
+	return false
 }
 
 // viewInflaterReceiverType is denyReceiverType that also types `LayoutInflater.from(context)`.

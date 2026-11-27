@@ -2,6 +2,7 @@ package typeinfer
 
 import (
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -93,6 +94,8 @@ func TestCrossFileFactsHashFollowsSupertypeImports(t *testing.T) {
 	same := map[string]string{
 		"unrelated import added":   "package p\n\nimport android.view.View\nimport java.util.Date\n\nopen class Base : View()\n",
 		"unrelated wildcard added": "package p\n\nimport android.view.View\nimport java.util.*\n\nopen class Base : View()\n",
+		// The resolver never resolves through on-demand imports, so no lookup follows them.
+		"wildcard swapped": "package p\n\nimport android.view.View\nimport q.*\n\nopen class Base : View()\n",
 	}
 	changed := map[string]string{
 		"supertype import swapped": "package p\n\nimport q.View\n\nopen class Base : View()\n",
@@ -110,9 +113,24 @@ func TestCrossFileFactsHashFollowsSupertypeImports(t *testing.T) {
 			t.Errorf("%s kept the hash", name)
 		}
 	}
-	// With no explicit import, the supertype resolves through the file's on-demand imports.
-	star := crossFileFactsOf(t, "package p\n\nimport android.view.*\n\nopen class Base : View()\n").Hash
-	if got := crossFileFactsOf(t, "package p\n\nimport q.*\n\nopen class Base : View()\n").Hash; got == star {
-		t.Error("swapping the on-demand import a supertype resolves through kept the hash")
+}
+
+// #1894's review (P1): an on-demand import never changes a lookup (ImportTable.Resolve doesn't read them), so adding
+// one (an unrelated `import kotlin.random.*`) keeps the hash, whatever the class's supertypes. Hashing them made such
+// an edit re-analyze every file using the class (600 files on ktor).
+func TestCrossFileFactsHashIgnoresWildcardImports(t *testing.T) {
+	for name, src := range map[string]string{
+		"supertype from no import": "package p\n\nclass Base : Other()\n",
+		"supertype from a star":    "package p\n\nimport android.view.*\n\nclass Base : View()\n",
+		"same-file supertype":      "package p\n\nopen class Other\n\nclass Base : Other()\n",
+		"qualified supertype":      "package p\n\nclass Base : android.view.View()\n",
+		"explicit import":          "package p\n\nimport android.view.View\n\nclass Base : View()\n",
+		"no supertype":             "package p\n\nclass Base\n",
+	} {
+		base := crossFileFactsOf(t, src).Hash
+		withStar := crossFileFactsOf(t, strings.Replace(src, "package p\n", "package p\n\nimport kotlin.random.*\n", 1)).Hash
+		if base != withStar {
+			t.Errorf("%s: an unrelated wildcard import changed the hash", name)
+		}
 	}
 }

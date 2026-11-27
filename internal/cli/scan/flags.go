@@ -111,6 +111,7 @@ type scanFlags struct {
 	Diff                     *string
 	NoPRMode                 *bool
 	Delta                    *string
+	PRFiles                  *string
 	DisableRules             *string
 	DisableRelated           *bool
 	EnableRules              *string
@@ -236,8 +237,9 @@ func registerScanFlags(fs *flag.FlagSet) *scanFlags {
 	f.Doctor = fs.Bool("doctor", false, "Check environment: Java, config, tools")
 	f.RemoveDeadCode = fs.Bool("remove-dead-code", false, "Bulk-remove directly fixable dead code findings; pair with --dry-run to preview")
 	f.Diff = fs.String("diff", "", "Only report findings in files changed since git ref (e.g., HEAD~1, main, origin/main)")
-	f.NoPRMode = fs.Bool("no-pr-mode", false, "With --diff, run FIR and the type oracle over the whole repository instead of compiling only the modules of the changed files (PR mode)")
+	f.NoPRMode = fs.Bool("no-pr-mode", false, "With --diff or --delta, run FIR and the type oracle over the whole repository instead of compiling only the modules of the changed files (PR mode)")
 	f.Delta = fs.String("delta", "", "Only fail/report findings newly introduced since git ref (e.g., main, origin/main)")
+	f.PRFiles = fs.String("pr-files", "", "Internal (--delta's base-ref scan): run PR mode over the absolute paths listed one per line in FILE")
 	f.DisableRules = fs.String("disable-rules", "", "Comma-separated rules to disable (e.g., MagicNumber,MaxLineLength)")
 	f.DisableRelated = fs.Bool("disable-related", false, "Also disable every rule listed in the RelatedRules metadata of each --disable-rules entry (non-transitive: only one hop is followed).")
 	f.EnableRules = fs.String("enable-rules", "", "Comma-separated rules to enable (overrides config)")

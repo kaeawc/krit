@@ -206,17 +206,62 @@ from a built jar that predates the change. PR-mode verdicts are kept out of
 the FIR check cache, which holds whole-repository verdicts only, so a later
 `--no-pr-mode` scan never replays them.
 
+`--delta` uses PR mode too. The current scan compiles the changed files'
+modules, and the scan of the base ref, in a temporary worktree, compiles the
+same changed files' modules there (a file the base ref lacks is skipped), so
+an unchanged file keeps Go's verdict on both sides and its findings compare
+like for like. On a 480-file, 12-module project (one function changed in a
+module that depends on another), a cold `--fir --delta` took 21s against
+31–34s for the whole-repository compile on both sides.
+
+The base scan reads this checkout's build model, in either mode. The model
+(`.krit/gradle-model`, `.krit/bazel-model` or a `--gradle-model` directory)
+is untracked, so the worktree has none, and without it FIR would be skipped
+on the base side only. The copy names the base ref's own project and source
+directories; its build outputs (generated sources, R.jar, KSP and Dagger
+output, project and compiler-plugin jars) are the worktree's when it has
+them, otherwise this checkout's, since a fresh checkout has built nothing. A
+model the base ref commits is used as it is. A `--gradle-model` directory is
+passed to the base scan with `--gradle-model`; a discovered one goes where
+the base scan discovers it. So `--delta` compares source changes: a change to
+build scripts, settings or the version catalog (dependency versions, compiler
+options, plugins) reaches both sides through the same model, and the findings
+it causes are not reported as new. krit warns when such files changed, and
+when the base scan cannot get the model. The base scan gets its own state
+directory, removed with the worktree, also under `KRIT_STATE_DIR`. `-v` shows
+its log, each line marked `--delta base:`.
+
 `--no-pr-mode` keeps the whole-repository compile. It also takes precedence
-over `--daemon`'s resident oracle, and PR-mode scans run in-process rather
-than through the krit daemon. Module compiles are cached by content under
+over `--daemon`'s resident oracle, and PR-mode scans (`--diff` and `--delta`)
+with JVM work (FIR or the type oracle on, and a Java launcher) run
+in-process rather than through the krit daemon. Module compiles are cached by content under
 `.krit/module-facts`, so rescanning an unchanged module costs no JVM.
 
 A module compile sees its own module and its dependencies, not the rest of
 the repository, so a verdict can differ from the whole-repository compile
 where module boundaries matter: smart casts across modules, `internal`
 visibility, and classes the merged compile reported as redeclared between
-variant source sets (which PR mode no longer sees). `--delta` does not use
-PR mode yet: it compares against a full scan of the base ref.
+variant source sets (which PR mode no longer sees). Under `--delta`, a
+finding a source change causes in an unchanged file (a new error in a
+dependent module, say) is not reported in PR mode; `--no-pr-mode` reports
+it. Neither mode reports a finding a build change causes (see above).
+
+Which rules are PR-safe: PR mode narrows only the JVM work. Go rules,
+cross-file ones included (dead code, unused declarations), still run over
+the whole repository with every reference index. Every FIR rule is PR-safe
+because it reads only the file it reports on plus the signatures of what that
+file resolves, which the module compile has; none looks for usages in other
+files, so leaving dependent modules out of the compile cannot change its
+verdict on a changed file. The usage-style FIR rules (`UnusedPrivate*`,
+`UnusedVariable`, `VarCouldBeVal`) only judge private or local declarations,
+and `UnusedParameter` and `RedundantSuspendModifier` read only the function's
+own body. krit-fir's `FirRuleWholeCompilationGateTest` keeps it that way: it
+fails a rule that iterates the compilation's files or reads another
+declaration's body outside the checked file. A rule that ever needs the whole
+compilation declares a `wholeCompilationTier` and would then have to keep
+Go's verdict in PR mode. One gap remains: a dependency passed as a built jar
+drops its `SOURCE`-retention annotations (see `FirRule.kt`), which a source
+context compile keeps.
 
 ### `--max-cost TIER`
 

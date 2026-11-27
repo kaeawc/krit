@@ -69,6 +69,27 @@ func TestPRModeFilesAreTheChangedKotlinFiles(t *testing.T) {
 	if got := runner().prModeFiles(); got != nil {
 		t.Fatalf("without --diff: %v", got)
 	}
+	// --delta compiles the changed files' modules too, unless --no-pr-mode.
+	if got := runner("--delta", "HEAD").prModeFiles(); !slices.Equal(got, []string{a}) {
+		t.Fatalf("--delta PR mode files = %v, want only the changed %s", got, a)
+	}
+	if got := runner("--delta", "HEAD", "--no-pr-mode").prModeFiles(); got != nil {
+		t.Fatalf("--delta --no-pr-mode: %v", got)
+	}
+	// --delta's base scan reads the current side's list (--pr-files).
+	list := filepath.Join(t.TempDir(), "pr-files.txt")
+	if err := os.WriteFile(list, []byte(b+"\n"+filepath.Join(wd, "Gone.kt")+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := runner("--pr-files", list).prModeFiles(); !slices.Equal(got, []string{b}) {
+		t.Fatalf("--pr-files PR mode files = %v, want the listed %s", got, b)
+	}
+	if err := os.WriteFile(list, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := runner("--pr-files", list).prModeFiles(); got == nil || len(got) != 0 {
+		t.Fatalf("an empty --pr-files list analyzes nothing, got %v", got)
+	}
 	git("add", "-A")
 	git("commit", "-qm", "edit")
 	if got := runner("--diff", "HEAD").prModeFiles(); got == nil || len(got) != 0 {

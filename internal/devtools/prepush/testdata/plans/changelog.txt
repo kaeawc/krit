@@ -1,0 +1,5 @@
+# A CHANGELOG edit checks its Lint parity fixture counts, and nothing slower.
+CHANGELOG.md
+---
+merge
+test krit:TestChangelogLintParityFixtureCounts

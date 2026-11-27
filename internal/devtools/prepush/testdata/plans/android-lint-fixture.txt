@@ -1,0 +1,6 @@
+# An Android Lint fixture edit replays the recorded Lint cases (cmd/krit,
+# filtered) and rechecks the CHANGELOG counts of recorded cases.
+tests/fixtures/android-lint/RecyclerView/positive/lint-32.4.1.txt
+---
+merge
+test ./internal/rules krit:TestAndroidLintParityFixtures krit:TestChangelogLintParityFixtureCounts parity:TestFirGoldenGoLines

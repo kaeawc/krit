@@ -20,7 +20,9 @@
 #   schema    schemas/krit-config.schema.json matches `krit --generate-schema`
 #   gomod     go mod tidy -diff
 #   test      go test on changed packages through scripts/go-test.sh, plus
-#             the rule fixture and FIR go-lines tests for fixture changes
+#             the rule fixture and FIR go-lines tests for fixture changes,
+#             and for Android Lint fixture or CHANGELOG.md changes the
+#             cmd/krit Lint parity replay and CHANGELOG fixture-count tests
 #   actions   scripts/lint-actions.sh for .github/ changes (CI: actionlint)
 #   docs      scripts/validate_mkdocs_nav.sh, then mkdocs build --strict when
 #             mkdocs is installed (Documentation workflow)
@@ -114,7 +116,7 @@ plan_checks() {
 	if has_match '^go\.(mod|sum)$'; then
 		PLAN+=(gomod)
 	fi
-	if [ "$go_changed" = 1 ] || has_match '^tests/fixtures/|/testdata/'; then
+	if [ "$go_changed" = 1 ] || has_match '^tests/fixtures/|/testdata/|^CHANGELOG\.md$'; then
 		PLAN+=(test)
 	fi
 	if has_match '^\.github/'; then
@@ -172,6 +174,15 @@ test_targets() {
 	# krit-fir jar (CI: test). Its other tests do, so filter it.
 	if has_match '^tests/fixtures/|^internal/rules/|^tools/krit-fir/compiler-tests/'; then
 		echo 'parity:TestFirGoldenGoLines'
+	fi
+	# A recorded Lint fixture is replayed by cmd/krit, and the CHANGELOG
+	# counts the recorded cases of the rules each entry names (CI: test).
+	# The rest of cmd/krit is slow, so filter it.
+	if has_match '^tests/fixtures/android-lint/'; then
+		echo 'krit:TestAndroidLintParityFixtures'
+	fi
+	if has_match '^tests/fixtures/android-lint/|^CHANGELOG\.md$'; then
+		echo 'krit:TestChangelogLintParityFixtureCounts'
 	fi
 }
 
@@ -341,18 +352,25 @@ run_gomod() {
 
 run_test() {
 	step "go test (changed packages)"
-	local targets pkgs=() runs=() t parity_all=0
+	local targets pkgs=() runs=() kruns=() t parity_all=0
 	targets=$(test_targets | sort -u)
 	while IFS= read -r t; do
 		[ -n "$t" ] || continue
 		case "$t" in
 			parity:*) runs+=("${t#parity:}") ;;
 			parity-all) parity_all=1 ;;
+			krit:*) kruns+=("${t#krit:}") ;;
 			*) [ -n "$(find "${t#./}" -maxdepth 1 -name '*_test.go' -print -quit)" ] && pkgs+=("$t") ;;
 		esac
 	done <<<"$targets"
 	if [ "${#pkgs[@]}" -gt 0 ]; then
 		bash scripts/go-test.sh "${pkgs[@]}" || fail test "Fix the failing tests above."
+	fi
+	# A changed cmd/krit package already ran in full above.
+	if [ "${#kruns[@]}" -gt 0 ] && ! printf '%s\n' "${pkgs[@]+"${pkgs[@]}"}" | grep -qx './cmd/krit'; then
+		local IFS='|'
+		bash scripts/go-test.sh ./cmd/krit -run "^(${kruns[*]})\$" -count=1 ||
+			fail test "cmd/krit (${kruns[*]}) failed; a CHANGELOG count must equal the recorded cases of the rules the entry names."
 	fi
 	if [ "$parity_all" = 1 ]; then
 		bash scripts/go-test.sh ./tests/parity -count=1 -timeout 30m || fail test "tests/parity failed."

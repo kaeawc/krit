@@ -7,7 +7,9 @@
 # of a throwaway project that applies AGP 9.4.1 (which bundles Lint 32.4.1), runs `lint` with only the given
 # issues (default: the <RuleID> directory name), and writes the findings to <case>/lint-32.4.1.txt as sorted
 # `path:line:column: ID: message` lines with paths relative to the case. cmd/krit's TestAndroidLintParityFixtures
-# replays krit on the same directory and compares. Dependencies in the fixture's build.gradle.kts are resolved, so
+# replays krit on the same directory and compares. An Unreleased CHANGELOG entry that says its rules match Lint on
+# "N recorded project fixtures" counts the <RuleID>/<case>/lint-32.4.1.txt cases of the rules it names in backticks;
+# cmd/krit's TestChangelogLintParityFixtureCounts checks it. Dependencies in the fixture's build.gradle.kts are resolved, so
 # checks that need a library on the classpath see it. Compile tasks are skipped: Lint reads sources through UAST and
 # fixtures need not compile.
 #

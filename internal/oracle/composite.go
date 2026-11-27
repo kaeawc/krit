@@ -194,7 +194,7 @@ func (c *CompositeResolver) withSourceSupertypes(info *typeinfer.ClassInfo) *typ
 		return info
 	}
 	var source []string
-	if src := c.fallback.ClassHierarchy(info.FQN); src != nil && src.FQN == info.FQN {
+	if src := c.sourceClass(info.FQN); src != nil {
 		source = src.DirectSupertypes
 		if len(source) == 0 {
 			source = src.Supertypes
@@ -205,40 +205,62 @@ func (c *CompositeResolver) withSourceSupertypes(info *typeinfer.ClassInfo) *typ
 	return &merged
 }
 
+// sourceClass returns the source resolver's ClassInfo for the class the
+// oracle names fqn. The source index names a nested class by its package and
+// simple name (pkg.Inner for krit-fir's pkg.Outer.Inner), so when fqn itself
+// misses, each shorter prefix of it is tried as the package, and only a
+// nested class with exactly that name is taken (#1928).
+func (c *CompositeResolver) sourceClass(fqn string) *typeinfer.ClassInfo {
+	if src := c.fallback.ClassHierarchy(fqn); src != nil && src.FQN == fqn {
+		return src
+	}
+	segs := strings.Split(fqn, ".")
+	simple := segs[len(segs)-1]
+	for k := len(segs) - 2; k >= 1; k-- {
+		cand := strings.Join(segs[:k], ".") + "." + simple
+		if src := c.fallback.ClassHierarchy(cand); src != nil && src.FQN == cand && src.IsNested {
+			return src
+		}
+	}
+	return nil
+}
+
 // mergeResolvedSupertypes keeps the oracle's resolved supertypes and adds the
-// source resolver's, once each. A source name, often written unqualified,
-// whose simple name a resolved oracle supertype already has is the same type
-// and is skipped.
+// source resolver's, once each. A source name, often written unqualified or
+// partly qualified, is the same type as a resolved oracle supertype when it
+// is that FQN or a dot-boundary suffix of it (Tracked or SomeLib.Callback
+// for com.lib.SomeLib.Callback); any other name, Handler.Callback beside
+// com.lib.SomeLib.Callback, is a distinct type and kept (#1928).
 func mergeResolvedSupertypes(oracle, source []string) []string {
 	out := make([]string, 0, len(oracle)+len(source))
 	seen := make(map[string]bool, len(oracle)+len(source))
+	var resolved []string
 	for _, super := range oracle {
 		if !isUnresolvedSupertype(super) && !seen[super] {
 			seen[super] = true
-			seen[simpleSupertypeName(super)] = true
+			resolved = append(resolved, stripTypeArguments(super))
 			out = append(out, super)
 		}
 	}
 	for _, super := range source {
-		if isUnresolvedSupertype(super) || seen[super] || seen[simpleSupertypeName(super)] {
+		if isUnresolvedSupertype(super) || seen[super] || namesResolvedSupertype(stripTypeArguments(super), resolved) {
 			continue
 		}
 		seen[super] = true
-		seen[simpleSupertypeName(super)] = true
 		out = append(out, super)
 	}
 	return out
 }
 
-// simpleSupertypeName is a supertype's simple name without type arguments.
-func simpleSupertypeName(name string) string {
-	if i := strings.IndexByte(name, '<'); i >= 0 {
-		name = name[:i]
+// namesResolvedSupertype reports whether name is one of resolved, or a
+// dot-boundary suffix of one.
+func namesResolvedSupertype(name string, resolved []string) bool {
+	for _, fqn := range resolved {
+		if fqn == name || strings.HasSuffix(fqn, "."+name) {
+			return true
+		}
 	}
-	if i := strings.LastIndexByte(name, '.'); i >= 0 {
-		name = name[i+1:]
-	}
-	return strings.TrimSpace(name)
+	return false
 }
 
 func hasUnresolvedSupertype(supers []string) bool {

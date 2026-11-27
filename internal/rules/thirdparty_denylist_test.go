@@ -366,3 +366,53 @@ func TestDenyListedApiPostMergeVerification(t *testing.T) {
 		})
 	}
 }
+
+// #1940 (P2): a private top-level function is visible only in its own file, so one in another file shadows nothing;
+// and an implicit receiver's member wins over a top-level function of the package or the file, as Kotlin resolves an
+// unqualified call.
+func TestDenyListedApiShadowScopes(t *testing.T) {
+	const fancyView = "package com.ex\n\nimport android.content.Context\nimport android.view.View\n\n" +
+		"class Other(c: Context) : View(c) {\n  init {\n    setOnClickListener(null)\n  }\n}\n"
+	for _, tc := range []struct {
+		name    string
+		sources map[string]string
+		want    int
+	}{
+		{"private top-level runCatching in another file", map[string]string{
+			"Fns.kt": "package com.ex\n\nprivate fun <T> runCatching(block: () -> T): T = block()\n",
+			"Use.kt": "package com.ex\n\nfun f() = runCatching { 1 }\n",
+		}, 1},
+		{"private top-level runCatching in the same file still shadows", map[string]string{
+			"Use.kt": "package com.ex\n\nprivate fun <T> runCatching(block: () -> T): T = block()\n\nfun f() = runCatching { 1 }\n",
+		}, 0},
+		{"same-package top-level setOnClickListener, call in a View subclass", map[string]string{
+			"Fns.kt":   "package com.ex\n\nfun setOnClickListener(x: Any?) {}\n",
+			"Other.kt": fancyView,
+		}, 1},
+		{"same-file top-level setOnClickListener, call in a View subclass", map[string]string{
+			"Other.kt": strings.Replace(fancyView, "class Other", "fun setOnClickListener(x: Any?) {}\n\nclass Other", 1),
+		}, 1},
+		{"same-package top-level set, call in cal.apply", map[string]string{
+			"Fns.kt": "package com.ex\n\nfun set(a: Int, b: Int) {}\n",
+			"C.kt":   "package com.ex\n\nimport java.util.Calendar\n\nfun f() {\n  Calendar.getInstance().apply { set(Calendar.MONTH, 1) }\n}\n",
+		}, 3}, // getInstance, Calendar.MONTH and set
+		{"same-package top-level set, call in apply on a Calendar parameter", map[string]string{
+			"Fns.kt": "package com.ex\n\nfun set(a: Int, b: Int) {}\n",
+			"C.kt":   "package com.ex\n\nimport java.util.Calendar\n\nfun f(cal: Calendar) {\n  cal.apply { set(1, 2) }\n}\n",
+		}, 1},
+		{"top-level setOnClickListener, call outside any View", map[string]string{
+			"Fns.kt": "package com.ex\n\nfun setOnClickListener(x: Any?) {}\n",
+			"Use.kt": "package com.ex\n\nfun f() {\n  setOnClickListener(null)\n}\n",
+		}, 0},
+		{"a local function still shadows the implicit receiver's member", map[string]string{
+			"Other.kt": strings.Replace(fancyView, "  init {\n", "  init {\n    fun setOnClickListener(x: Any?) {}\n", 1),
+		}, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := runRuleOnSourcesWithResolverAll(t, "DenyListedApi", tc.sources)
+			if len(got) != tc.want {
+				t.Errorf("want %d findings, got %v", tc.want, got)
+			}
+		})
+	}
+}

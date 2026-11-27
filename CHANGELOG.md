@@ -681,6 +681,10 @@ All notable changes to Krit will be documented in this file.
   top-level function shadows the listed one. The type index records which functions are top-level (cache version 21),
   and a warm run follows a function moving between top level and a class body in another file. An unqualified
   property write inside `cal.apply { }` (`timeInMillis = t`) is now reported (#1888).
+- `DenyListedApi`: a `private` top-level function in another file of the package no longer silences a listed call;
+  only its own file can call it. A member of an implicit receiver now wins over a top-level function of the file or
+  its package, so `setOnClickListener(null)` inside a View subclass and `set(...)` inside `cal.apply { }` are
+  reported even when the package declares a top-level function of that name (#1940).
 - Warm runs follow version-catalog edits for every manifest rule. Manifest rules read whether a module is an app or a
   library from its build script's `alias(libs.plugins...)` entries, resolved through `gradle/*.versions.toml`, and
   whether it uses the SplashScreen library from its `libs.` dependency aliases, resolved through the catalogs the

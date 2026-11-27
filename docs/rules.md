@@ -237,8 +237,10 @@ another file) is not reported, and neither is a Kotlin receiver typed as a Java 
 pipeline does not index Java classes into the resolver yet (#1885). As in Lint 0.11.1, the list's
 `ResourcesCompat.getDrawable`, `ViewPager2.setId` and `runBlocking` entries never match. Differences from Lint:
 
-- a top-level `runCatching` of the file's package (in any file) shadows kotlin's, as the Kotlin compiler resolves
-  it; Lint still reports it;
+- a top-level `runCatching` of the file's package (in any file, unless it is `private` to another file) shadows
+  kotlin's, as the Kotlin compiler resolves it; Lint still reports it. As in Kotlin, a member of an implicit receiver
+  (a View subclass's `this`, `cal.apply { }`) wins over a top-level function of the file or its package, and a local
+  declaration wins over both;
 - the detector also reports layout XML tags named after a listed constructor's class (`<java.util.LinkedList>`,
   which no real layout contains); krit does not check layouts.
 

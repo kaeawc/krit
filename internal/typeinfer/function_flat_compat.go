@@ -105,10 +105,11 @@ func (r *defaultResolver) HasFunction(fqn string) bool {
 	return len(r.functionDecls[fqn]) != 0 || r.functions[fqn] != nil
 }
 
-// HasTopLevelFunction implements TopLevelFunctionIndex.
+// HasTopLevelFunction implements TopLevelFunctionIndex. A private top-level
+// function is visible only in its own file, so it doesn't count (#1940).
 func (r *defaultResolver) HasTopLevelFunction(fqn string) bool {
 	for _, d := range r.functionDecls[fqn] {
-		if d.TopLevel {
+		if d.TopLevel && !d.FileLocal {
 			return true
 		}
 	}

@@ -144,9 +144,9 @@ func ParamAnnotationsOf(r TypeResolver) ParamAnnotationIndex {
 	return nil
 }
 
-// TopLevelFunctionIndex answers whether a top-level source function has an
-// FQN. HasFunction also answers for members, which the resolver records under
-// pkg.name too.
+// TopLevelFunctionIndex answers whether a non-private top-level source
+// function, one other files of its package can call, has an FQN. HasFunction
+// also answers for members, which the resolver records under pkg.name too.
 type TopLevelFunctionIndex interface {
 	HasTopLevelFunction(fqn string) bool
 }

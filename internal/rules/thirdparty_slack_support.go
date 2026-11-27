@@ -82,6 +82,16 @@ func slackDeclaredTypeAfterColon(file *scanner.File, decl uint32) uint32 {
 // (invoked as name(...)), or a member of an enclosing class always wins; a top-level function of the file's package
 // wins only over a default or star import (explicitlyImported false), not over an explicit import.
 func slackFunctionShadows(file *scanner.File, idx uint32, name string, explicitlyImported bool) bool {
+	return slackScopeShadows(file, idx, name, !explicitlyImported)
+}
+
+// slackLocalFunctionShadows is slackFunctionShadows without the file's top-level functions: what wins even over an
+// implicit receiver's member (#1940).
+func slackLocalFunctionShadows(file *scanner.File, idx uint32, name string) bool {
+	return slackScopeShadows(file, idx, name, false)
+}
+
+func slackScopeShadows(file *scanner.File, idx uint32, name string, topLevel bool) bool {
 	child := idx
 	for parent, ok := file.FlatParent(idx); ok; parent, ok = file.FlatParent(parent) {
 		switch file.FlatType(parent) {
@@ -113,7 +123,7 @@ func slackFunctionShadows(file *scanner.File, idx uint32, name string, explicitl
 				}
 			}
 		case "source_file":
-			if explicitlyImported {
+			if !topLevel {
 				return false
 			}
 			for member := file.FlatFirstChild(parent); member != 0; member = file.FlatNextSib(member) {

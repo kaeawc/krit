@@ -45,7 +45,7 @@ func TestRunResourceHonoursToolsIgnoreOnAncestors(t *testing.T) {
 	}
 	run := func(idx *android.ResourceIndex) int {
 		file := &scanner.File{Path: "res", Language: scanner.LangXML}
-		cols, _ := rules.NewDispatcher([]*api.Rule{r}, nil).RunResource(file, idx)
+		cols, _ := rules.NewDispatcher([]*api.Rule{r}, nil).RunResource(file, idx, nil)
 		return cols.Len()
 	}
 	if n := run(build("")); n != 1 {

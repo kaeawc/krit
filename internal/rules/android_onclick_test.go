@@ -1,6 +1,7 @@
 package rules_test
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/kaeawc/krit/internal/android"
@@ -235,5 +236,56 @@ class FormActivity : AppCompatActivity() {
 `, idx)
 	if len(findings) != 1 {
 		t.Fatalf("expected 1 finding for protected handler, got %d", len(findings))
+	}
+}
+
+// Modules often share layout names (activity_main). An Activity checks the
+// layout of its own module, so another module's same-named layout is not
+// held to its handlers (found dogfooding android/testing-samples, #1860).
+func TestOnClickRule_ChecksOnlyTheResDirsModule(t *testing.T) {
+	const activity = `package test
+class MainActivity : AppCompatActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_main)
+    }
+}
+`
+	root := t.TempDir()
+	for _, tc := range []struct {
+		name, resDir string
+		want         int
+	}{
+		{"same module", filepath.Join(root, "a", "src", "main", "res"), 1},
+		{"same module, flat res", filepath.Join(root, "a", "res"), 1},
+		{"other module", filepath.Join(root, "b", "src", "main", "res"), 0},
+		// a/nested is a module of its own inside a; its Activity is not a's.
+		{"parent of a nested module", filepath.Join(root, "a", "nested", "src", "main", "res"), 0},
+	} {
+		file := parseInline(t, activity)
+		file.Path = filepath.Join(root, "a", "src", "main", "kotlin", "test", "MainActivity.kt")
+		if tc.name == "parent of a nested module" {
+			// The layout is the parent's, the Activity the nested module's.
+			tc.resDir = filepath.Join(root, "a", "src", "main", "res")
+			file.Path = filepath.Join(root, "a", "nested", "src", "main", "kotlin", "test", "MainActivity.kt")
+		}
+		var findings []scanner.Finding
+		for _, r := range api.Registry {
+			if r.ID != "OnClick" {
+				continue
+			}
+			ctx := &api.Context{
+				File:          &scanner.File{Path: tc.resDir, Language: scanner.LangXML},
+				ParsedFiles:   []*scanner.File{file},
+				ResourceIndex: onClickIndexWithHandler("activity_main", "onSubmitClicked"),
+				Collector:     scanner.NewFindingCollector(0),
+				Rule:          r,
+			}
+			r.Check(ctx)
+			findings = ctx.Collector.Columns().Findings()
+		}
+		if len(findings) != tc.want {
+			t.Fatalf("%s: %d findings, want %d", tc.name, len(findings), tc.want)
+		}
 	}
 }

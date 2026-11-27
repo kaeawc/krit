@@ -201,8 +201,8 @@ func (s *Server) analyzeProject(args analyzeArgs) ToolResult {
 	return jsonResult(summary)
 }
 
-func collectManifestFindings(dispatcher *rules.Dispatcher, collector *scanner.FindingCollector, manifestPaths []string, sourceRoot string) {
-	preferenceFacts := lazyPreferenceActivityFacts(sourceRoot)
+func collectManifestFindings(dispatcher *rules.Dispatcher, collector *scanner.FindingCollector, manifestPaths []string, sources func() []*scanner.File) {
+	preferenceFacts := lazyPreferenceActivityFacts(sources)
 	for _, manifestPath := range manifestPaths {
 		parsed, err := android.ParseManifest(manifestPath)
 		if err != nil {
@@ -220,17 +220,31 @@ func collectManifestFindings(dispatcher *rules.Dispatcher, collector *scanner.Fi
 	}
 }
 
-// lazyPreferenceActivityFacts parses the project's Kotlin and Java sources once, on first use, so the
-// ExportedPreferenceActivity rule sees real superclass chains instead of falling back to the class name.
-func lazyPreferenceActivityFacts(sourceRoot string) func() map[string]bool {
+// lazyPreferenceActivityFacts computes the preference-activity facts from the project's sources on first use, so
+// the ExportedPreferenceActivity rule sees real superclass chains instead of falling back to the class name.
+func lazyPreferenceActivityFacts(sources func() []*scanner.File) func() map[string]bool {
 	var once sync.Once
 	var facts map[string]bool
 	return func() map[string]bool {
 		once.Do(func() {
+			if files := sources(); len(files) > 0 {
+				facts = rules.ComputeActivityPreferenceFacts(files)
+			}
+		})
+		return facts
+	}
+}
+
+// lazyProjectSources parses the project's Kotlin and Java sources once, on first use: the manifest facts above
+// and the resource rules that read the sources (OnClick) share them, and a scan that needs neither parses nothing.
+func lazyProjectSources(sourceRoot string) func() []*scanner.File {
+	var once sync.Once
+	var files []*scanner.File
+	return func() []*scanner.File {
+		once.Do(func() {
 			if sourceRoot == "" {
 				return
 			}
-			var files []*scanner.File
 			if paths, err := scanner.CollectKotlinFiles([]string{sourceRoot}, nil); err == nil {
 				parsed, _ := scanner.ScanFiles(context.Background(), paths, 4)
 				files = append(files, parsed...)
@@ -239,13 +253,12 @@ func lazyPreferenceActivityFacts(sourceRoot string) func() map[string]bool {
 				parsed, _ := scanner.ScanJavaFiles(context.Background(), paths, 4)
 				files = append(files, parsed...)
 			}
-			facts = rules.ComputeActivityPreferenceFacts(files)
 		})
-		return facts
+		return files
 	}
 }
 
-func collectResourceFindings(dispatcher *rules.Dispatcher, collector *scanner.FindingCollector, resDirs []string) {
+func collectResourceFindings(dispatcher *rules.Dispatcher, collector *scanner.FindingCollector, resDirs []string, sources func() []*scanner.File) {
 	for _, resDir := range resDirs {
 		idx, err := android.ScanResourceDir(resDir)
 		if err != nil {
@@ -256,7 +269,7 @@ func collectResourceFindings(dispatcher *rules.Dispatcher, collector *scanner.Fi
 			Language: scanner.LangXML,
 			Metadata: idx,
 		}
-		cols, _ := dispatcher.RunResource(file, idx)
+		cols, _ := dispatcher.RunResource(file, idx, sources)
 		collector.AppendColumns(&cols)
 	}
 }
@@ -329,11 +342,12 @@ func (s *Server) analyzeAndroid(args analyzeArgs) ToolResult {
 	pipeline.SetDispatcherProjectRoot(dispatcher, []string{args.ProjectPath})
 	dispatcher.SetLibraryFacts(libraryFacts)
 
+	sources := lazyProjectSources(args.ProjectPath)
 	if scope == "manifest" || scope == "all" {
-		collectManifestFindings(dispatcher, collector, proj.ManifestPaths, args.ProjectPath)
+		collectManifestFindings(dispatcher, collector, proj.ManifestPaths, sources)
 	}
 	if scope == "resources" || scope == "all" {
-		collectResourceFindings(dispatcher, collector, proj.ResDirs)
+		collectResourceFindings(dispatcher, collector, proj.ResDirs, sources)
 	}
 	if scope == "gradle" || scope == "all" {
 		collectGradleFindings(dispatcher, collector, proj.GradlePaths)

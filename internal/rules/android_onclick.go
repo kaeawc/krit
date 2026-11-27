@@ -13,6 +13,7 @@ package rules
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/android"
@@ -70,6 +71,21 @@ type onClickMethodInfo struct {
 	hasViewParam bool
 }
 
+// ResourceSourceReader is implemented by a resource rule that reads the parsed
+// sources (NeedsParsedFiles) to say whether its verdict for one res
+// directory's merged index can depend on them at all. Resource caches key on
+// the sources only for a directory some active rule reads them for; a rule
+// that reads sources without implementing it is taken to always read them.
+type ResourceSourceReader interface {
+	ReadsSourcesFor(idx *android.ResourceIndex) bool
+}
+
+// ReadsSourcesFor reports whether a layout in idx names an android:onClick
+// handler: without one, check reports nothing whatever the sources hold.
+func (r *OnClickRule) ReadsSourcesFor(idx *android.ResourceIndex) bool {
+	return idx != nil && len(collectOnClickHandlerSites(idx)) > 0
+}
+
 func (r *OnClickRule) check(ctx *api.Context) {
 	if ctx.ResourceIndex == nil || len(ctx.ParsedFiles) == 0 {
 		return
@@ -78,8 +94,18 @@ func (r *OnClickRule) check(ctx *api.Context) {
 	if len(handlersByLayout) == 0 {
 		return
 	}
+	// R.layout.X in an Activity names its own module's layout X when there
+	// is one, so a layout is checked against the Activities of the module
+	// that owns this res directory, not every same-named layout's.
+	module := ""
+	if ctx.File != nil {
+		module = onClickModuleDir(ctx.File.Path)
+	}
 	for _, file := range ctx.ParsedFiles {
 		if file == nil || file.FlatTree == nil {
+			continue
+		}
+		if module != "" && !onClickSameModule(file.Path, module) {
 			continue
 		}
 		for idx := range file.FlatTree.Types {
@@ -100,6 +126,42 @@ func (r *OnClickRule) check(ctx *api.Context) {
 			emitOnClickFindings(ctx, r.BaseRule, summary, handlersByLayout)
 		}
 	}
+}
+
+// onClickModuleDir returns the module directory of a res directory,
+// `<module>/src/<set>/res` or `<module>/res`, or "" for a path that is not one.
+func onClickModuleDir(resDir string) string {
+	if resDir == "" || filepath.Base(resDir) != "res" {
+		return ""
+	}
+	set := filepath.Dir(resDir)
+	if filepath.Base(filepath.Dir(set)) == "src" {
+		return filepath.Dir(filepath.Dir(set))
+	}
+	return set
+}
+
+// onClickSameModule reports whether the source file belongs to module. A
+// file under `<dir>/src/<set>/kotlin|java/` belongs to <dir>, which keeps a
+// nested module's Activities out of its parent's; a file in no such tree
+// falls back to lying under module.
+func onClickSameModule(path, module string) bool {
+	if owner := onClickSourceModuleDir(path); owner != "" {
+		return owner == module
+	}
+	return strings.HasPrefix(path, module+string(filepath.Separator))
+}
+
+// onClickSourceModuleDir returns <dir> for the last `<dir>/src/<set>/kotlin`
+// or `.../java` in path, or "".
+func onClickSourceModuleDir(path string) string {
+	segs := strings.Split(filepath.ToSlash(path), "/")
+	for i := len(segs) - 3; i > 0; i-- {
+		if segs[i] == "src" && (segs[i+2] == "kotlin" || segs[i+2] == "java") {
+			return filepath.FromSlash(strings.Join(segs[:i], "/"))
+		}
+	}
+	return ""
 }
 
 func collectOnClickHandlerSites(idx *android.ResourceIndex) map[string][]onClickHandlerSite {

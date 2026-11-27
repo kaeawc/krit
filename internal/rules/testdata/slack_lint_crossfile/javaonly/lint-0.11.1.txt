@@ -1,0 +1,14 @@
+src/main/java/com/example/More.kt:12:1: JavaOnlyDetector: Type subclasses/implements KotlinOnlyBase in JavaApi.java which is annotated @KotlinOnly, it should also be annotated.
+src/main/java/com/example/More.kt:29:3: JavaOnlyDetector: This method should not be called from Kotlin, see its documentation for details.
+src/main/java/com/example/More.kt:30:3: JavaOnlyDetector: This method should not be called from Kotlin: call the suspend variant
+src/main/java/com/example/Use.kt:10:3: JavaOnlyDetector: This method should not be called from Kotlin, see its documentation for details.
+src/main/java/com/example/Use.kt:11:13: JavaOnlyDetector: This method should not be called from Kotlin, see its documentation for details.
+src/main/java/com/example/Use.kt:12:14: JavaOnlyDetector: Cannot create anonymous instances of @JavaOnly-annotated type JavaOnlyCallback (in JavaApi.java) in Kotlin. Make a concrete class instead.
+src/main/java/com/example/Use.kt:15:33: JavaOnlyDetector: Cannot create lambda instances of @JavaOnly-annotated type JavaOnlyCallback (in JavaApi.java) in Kotlin. Make a concrete class instead.
+src/main/java/com/example/Use.kt:18:1: JavaOnlyDetector: Type subclasses/implements JavaOnlyCallback in JavaApi.java which is annotated @JavaOnly, it should also be annotated.
+src/main/java/com/example/Use.kt:23:3: JavaOnlyDetector: Function overrides onEvent in Listener which is annotated @JavaOnly, it should also be annotated.
+src/main/java/com/example/Use.kt:26:1: JavaOnlyDetector: Type subclasses/implements KotlinOnlyBase in JavaApi.java which is annotated @KotlinOnly, it should also be annotated.
+src/main/java/com/example/Use.kt:28:1: JavaOnlyDetector: Cannot annotate types with both `@KotlinOnly` and `@JavaOnly`
+src/main/java/com/example/Use.kt:33:3: JavaOnlyDetector: Cannot annotate functions with both `@KotlinOnly` and `@JavaOnly`
+src/main/java/com/example/Use.kt:7:3: JavaOnlyDetector: This method should not be called from Kotlin, see its documentation for details.
+src/main/java/com/example/Use.kt:8:3: JavaOnlyDetector: This method should not be called from Kotlin: use the Kotlin extension

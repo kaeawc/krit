@@ -219,7 +219,7 @@ var requiresAPIAnnotations = []string{"androidx.annotation.RequiresApi", "androi
 func (r *UseSdkSuppressRule) check(ctx *api.Context) {
 	file := ctx.File
 	decl := ctx.Idx
-	if !scanner.IsTestFile(file.Path) || !bytes.Contains(file.Content, requiresAPIBytes) {
+	if !isProjectTestFile(ctx, file.Path) || !bytes.Contains(file.Content, requiresAPIBytes) {
 		return
 	}
 	var ann uint32

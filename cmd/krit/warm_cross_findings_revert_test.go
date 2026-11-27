@@ -186,3 +186,20 @@ func TestWarmCrossFindingsFollowLexicallyRelevantRemoval(t *testing.T) {
 		{"remove @VisibleForTesting again", hooks, plain},
 	})
 }
+
+// VisibleForTestingCallerInNonTest reports on the caller, which need not
+// mention @VisibleForTesting, so an edit to the caller alone must re-run it:
+// removing the call drops the finding and adding it back restores it (#1893).
+func TestWarmCrossFindingsFollowCallerEdits(t *testing.T) {
+	const production = "app/src/main/java/com/example/Production.kt"
+	const calls = "package com.example\n\nfun production() {\n    TestHooks.reset()\n}\n"
+	const noCall = "package com.example\n\nfun production() {\n    println(\"x\")\n}\n"
+	runWarmCrossSteps(t, "VisibleForTestingCallerInNonTest", true, map[string]string{
+		"app/src/main/java/com/example/TestHooks.kt": "package com.example\n\nobject TestHooks {\n    @VisibleForTesting\n    fun reset() = Unit\n}\n",
+		production: calls,
+	}, []warmCrossStep{
+		{"cold", "", ""},
+		{"caller drops the call", production, noCall},
+		{"caller adds the call back", production, calls},
+	})
+}

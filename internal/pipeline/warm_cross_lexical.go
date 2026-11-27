@@ -1,8 +1,8 @@
 package pipeline
 
 import (
+	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	api "github.com/kaeawc/krit/internal/rules/api"
@@ -12,16 +12,34 @@ import (
 // lexicalReuseRules are the cross-file rules crossRuleLexicallyIrrelevant
 // can judge. Bit i of a file's lexical tag is set when the file's content is
 // relevant to lexicalReuseRules[i]. Append only: the bits are stored with the
-// cross findings.
+// cross findings. A retired rule keeps its slot under a name no rule has.
+//
+// A rule qualifies only when every file its findings can land in, or whose
+// edit can change them, holds the needle text. VisibleForTestingCallerInNonTest,
+// TestFixtureAccessedFromProduction and DatabaseQueryOnMainThread report on
+// callers that need not name the annotation, fixture or query, so an edit to
+// such a caller changed their findings unseen (#1893); they are retired.
 var lexicalReuseRules = []string{
 	"OnClick",
 	"RoomConflictStrategyReplaceOnFk",
 	"RoomRelationWithoutIndex",
 	"AnvilMergeComponentEmptyScope",
-	"VisibleForTestingCallerInNonTest",
-	"TestFixtureAccessedFromProduction",
-	"DatabaseQueryOnMainThread",
+	"retired:VisibleForTestingCallerInNonTest",
+	"retired:TestFixtureAccessedFromProduction",
+	"retired:DatabaseQueryOnMainThread",
 	"RoomLoadsAllWhereFirstUsed",
+}
+
+// lexicalNeedleVersion versions what a lexical tag means: the rule slots and
+// crossRuleLexicallyIrrelevant's needles. Bump it with any change to either,
+// so tags saved under the old meaning are not read under the new one.
+const lexicalNeedleVersion = 2
+
+// lexicalReuseKey is saved with the cross findings and must match for the
+// last-value slot to be reused: the rules the findings came from (ruleHash)
+// and the tag meaning.
+func lexicalReuseKey(ruleHash string) string {
+	return fmt.Sprintf("lexical-v%d\x00%s", lexicalNeedleVersion, ruleHash)
 }
 
 // lexicalReuseBit returns ruleID's bit in a lexical tag, or 0 when
@@ -57,6 +75,9 @@ func lexicalReuseApplies(activeRules []*api.Rule) bool {
 func lexicalTag(path, text string) uint16 {
 	var tag uint16
 	for i, id := range lexicalReuseRules {
+		if strings.HasPrefix(id, "retired:") {
+			continue
+		}
 		if !crossRuleLexicallyIrrelevant(id, path, text) {
 			tag |= 1 << i
 		}
@@ -118,8 +139,7 @@ func canReuseCrossFindingsForLexicallyIrrelevantMisses(activeRules []*api.Rule, 
 	return true
 }
 
-func crossRuleLexicallyIrrelevant(ruleID, path, text string) bool {
-	lowerPath := strings.ToLower(filepath.ToSlash(path))
+func crossRuleLexicallyIrrelevant(ruleID, _, text string) bool {
 	lowerText := strings.ToLower(text)
 	switch ruleID {
 	case "OnClick":
@@ -131,18 +151,6 @@ func crossRuleLexicallyIrrelevant(ruleID, path, text string) bool {
 		return !containsAny(lowerText, "@relation", "foreignkey", "@entity", "room")
 	case "AnvilMergeComponentEmptyScope":
 		return !containsAny(lowerText, "mergecomponent", "contributesto", "anvil", "scope::class")
-	case "VisibleForTestingCallerInNonTest":
-		return !containsAny(lowerText, "visiblefortesting", "fortesting")
-	case "TestFixtureAccessedFromProduction":
-		if containsAny(lowerPath, "testfixtures", "/test/", "/androidtest/") {
-			return false
-		}
-		return !containsAny(lowerText, "testfixtures", "testfixture")
-	case "DatabaseQueryOnMainThread":
-		return !containsAny(lowerText,
-			"sqlite", "rawquery", ".query(", "@query", "@dao", "roomdatabase",
-			"dispatchers.main", "mainthread", "lifecycle", "onclick", "setonclicklistener",
-		)
 	case "RoomLoadsAllWhereFirstUsed":
 		return !containsAny(lowerText, "@query", "@dao", "room", ".first(", ".firstornull(", ".single(", ".singleornull(", "getall")
 	default:

@@ -119,6 +119,11 @@ type crossFindingsPayload struct {
 	// were computed from (SaveCrossFindingsTagged); nil when none were
 	// recorded. A payload written before the field existed decodes as nil.
 	FileTags map[string]uint16
+	// ReuseKey is the caller's key for what the tags mean and which rules
+	// the findings came from (SaveCrossFindingsTagged); LoadLastCrossFindings
+	// returns it so a reuse without the full key can check it. Empty in a
+	// payload written before the field existed.
+	ReuseKey string
 }
 
 // LoadCrossFindings reads cached cross-rule findings for the given key.
@@ -136,14 +141,14 @@ func LoadCrossFindings(cacheDir, key string) (FindingColumns, bool) {
 // without requiring the caller to know its key. This is for warm-delta
 // planning: the cache file is intentionally a last-value slot, so a
 // body-only edit can reuse the previous snapshot before the current
-// content fingerprint is available. It also returns the file tags saved with
-// the snapshot, nil when none were.
-func LoadLastCrossFindings(cacheDir string) (FindingColumns, map[string]uint16, bool) {
+// content fingerprint is available. It also returns the file tags and the
+// reuse key saved with the snapshot, nil and "" when none were.
+func LoadLastCrossFindings(cacheDir string) (FindingColumns, map[string]uint16, string, bool) {
 	if cacheDir == "" {
-		return FindingColumns{}, nil, false
+		return FindingColumns{}, nil, "", false
 	}
 	payload, ok := loadCrossFindings(cacheDir, "", false)
-	return payload.Columns, payload.FileTags, ok
+	return payload.Columns, payload.FileTags, payload.ReuseKey, ok
 }
 
 func loadCrossFindings(cacheDir, key string, requireKey bool) (crossFindingsPayload, bool) {
@@ -226,13 +231,13 @@ func loadCrossFindings(cacheDir, key string, requireKey bool) (crossFindingsPayl
 // key. Best-effort: any error returns nil after recording a miss
 // counter, since cache failures should never break analysis.
 func SaveCrossFindings(cacheDir, key string, cols FindingColumns) error {
-	return SaveCrossFindingsTagged(cacheDir, key, cols, nil)
+	return SaveCrossFindingsTagged(cacheDir, key, cols, nil, "")
 }
 
 // SaveCrossFindingsTagged is SaveCrossFindings that also records per-path
-// tags describing the content the findings were computed from, which
-// LoadLastCrossFindings returns with them.
-func SaveCrossFindingsTagged(cacheDir, key string, cols FindingColumns, fileTags map[string]uint16) error {
+// tags describing the content the findings were computed from, and the
+// caller's reuseKey for them, which LoadLastCrossFindings returns.
+func SaveCrossFindingsTagged(cacheDir, key string, cols FindingColumns, fileTags map[string]uint16, reuseKey string) error {
 	if cacheDir == "" || key == "" {
 		return nil
 	}
@@ -240,7 +245,7 @@ func SaveCrossFindingsTagged(cacheDir, key string, cols FindingColumns, fileTags
 		return err
 	}
 	var buf bytes.Buffer
-	if err := gob.NewEncoder(&buf).Encode(crossFindingsPayload{Columns: cols, FileTags: fileTags}); err != nil {
+	if err := gob.NewEncoder(&buf).Encode(crossFindingsPayload{Columns: cols, FileTags: fileTags, ReuseKey: reuseKey}); err != nil {
 		return err
 	}
 	compressed := shardZstdEncoder.EncodeAll(buf.Bytes(), nil)

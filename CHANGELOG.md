@@ -638,6 +638,11 @@ All notable changes to Krit will be documented in this file.
 - MCP `analyze` (mode `android`) reports OnClick for a relative `projectPath`. The sources stayed relative while the
   res dirs were absolute, so no Activity matched its res dir's module (#1908). Rule pages now list a rule's known
   limitations, including OnClick's: a layout is checked only against Activities in its own module.
+- Warm runs no longer serve three kinds of stale findings (#1893). A Java edit made while the daemon was stopped
+  reaches the next daemon's first scan, even when no active rule parses Java before dispatch.
+  VisibleForTestingCallerInNonTest, TestFixtureAccessedFromProduction and DatabaseQueryOnMainThread report on callers
+  that need not mention what they flag, so an edit to a caller always re-runs them instead of reusing the cross-file
+  findings. That reuse also checks that the findings came from the same rules and config.
 - The LSP, the daemon's buffer analysis and the MCP server see module build-script edits (library or application,
   minSdk, targetSdk), version-catalog `[plugins]` edits and rewritten Java imports on the next request instead of after
   a restart. Those facts are read from disk and were memoized for the life of the long-lived analyzer, which also read

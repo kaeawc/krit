@@ -923,6 +923,7 @@ func RunProjectAnalysis(ctx context.Context, in ProjectInput) (ProjectAnalysisRe
 
 	fpStart := time.Now()
 	sourceInputs := fingerprintSourceInputs(parseResult, indexResult)
+	host.SourceSetDirty = augmentDirtyWithAddedJavaDrift(host, parseResult, sourceInputs)
 	runFP, bundleEnabled := computeRunFingerprint(args, host, sourceInputs, indexResult)
 	perf.AddEntry(host.Tracker, "computeRunFingerprint", time.Since(fpStart))
 
@@ -1185,12 +1186,7 @@ func runProjectIndexPhase(ctx context.Context, args ProjectArgs, host ProjectHos
 	if warm.result == nil {
 		wireAnalysisCacheLookup(&indexInput, args, host)
 	}
-	if args.NoTypeOracle && indexInput.CacheRuleNames == nil {
-		// No cache lookup is wired, but IndexPhase still derives RuleHash
-		// (which keys the cross-file findings cache) from these fields.
-		indexInput.CacheRuleNames = cacheRuleNames(args.ActiveRules, true)
-		indexInput.CacheConfig = args.Config
-	}
+	wireRuleHashInputs(&indexInput, args, host)
 	runTestHookIndexInput(indexInput)
 	indexResult, err := IndexPhase{Workers: args.Workers}.Run(ctx, indexInput)
 	if err != nil {
@@ -1572,7 +1568,9 @@ func loadWarmCrossFindings(args ProjectArgs, host ProjectHostState, warm warmAna
 	}
 	if warm.result != nil && warm.result.TotalFiles > 0 && warm.result.TotalCached != warm.result.TotalFiles {
 		missPaths := CacheMissPaths(warm.filePaths, warm.result)
-		if cols, tags, ok := scanner.LoadLastCrossFindings(host.CrossFindingsCacheDir); ok && canReuseCrossFindingsForLexicallyIrrelevantMisses(args.ActiveRules, missPaths, tags) {
+		// The last-value slot is read without its key, so its reuse key must
+		// show the same rules and tag meaning (#1893).
+		if cols, tags, reuseKey, ok := scanner.LoadLastCrossFindings(host.CrossFindingsCacheDir); ok && warm.ruleHash != "" && reuseKey == lexicalReuseKey(warm.ruleHash) && canReuseCrossFindingsForLexicallyIrrelevantMisses(args.ActiveRules, missPaths, tags) {
 			return true, &cols
 		}
 		return false, nil
@@ -1747,6 +1745,19 @@ func wireAnalysisCacheLookup(in *IndexInput, args ProjectArgs, host ProjectHostS
 	in.CacheEditorConfigEnabled = args.EditorConfigEnabled
 	in.CacheRuleNames = cacheRuleNames(args.ActiveRules, args.NoTypeOracle)
 	in.CacheDirty = host.AnalysisCacheDirty
+}
+
+// wireRuleHashInputs fills the fields IndexPhase derives RuleHash from when
+// no cache lookup is wired. RuleHash still keys the cross-file findings
+// cache, and a hash without the config would replay findings across config
+// changes (#1893). Same inputs as wireAnalysisCacheLookup.
+func wireRuleHashInputs(in *IndexInput, args ProjectArgs, host ProjectHostState) {
+	if in.CacheRuleNames != nil || (!args.NoTypeOracle && host.CrossFindingsCacheDir == "") {
+		return
+	}
+	in.CacheRuleNames = cacheRuleNames(args.ActiveRules, args.NoTypeOracle)
+	in.CacheConfig = args.Config
+	in.CacheEditorConfigEnabled = args.EditorConfigEnabled
 }
 
 // wireOracleHandles fills in the oracle-related IndexInput fields when
@@ -4463,6 +4474,17 @@ func augmentDirtyWithStatDrift(host ProjectHostState, parseResult ParseResult) [
 	out = append(out, host.SourceSetDirty...)
 	out = append(out, drifted...)
 	return out
+}
+
+// augmentDirtyWithAddedJavaDrift extends the dirty set with the Java files
+// IndexPhase added to the fingerprint inputs whose stat drifted. The drift
+// check on the parse could not see them, so a Java edit made while no daemon
+// ran kept the prior manifest's hash and hit the bundle (#1893).
+func augmentDirtyWithAddedJavaDrift(host ProjectHostState, parseResult, sourceInputs ParseResult) []string {
+	if len(parseResult.JavaFiles) > 0 || len(sourceInputs.JavaFiles) == 0 {
+		return host.SourceSetDirty
+	}
+	return augmentDirtyWithStatDrift(host, ParseResult{JavaFiles: sourceInputs.JavaFiles})
 }
 
 // dirtyPathSet materialises a host's SourceSetDirty slice into a

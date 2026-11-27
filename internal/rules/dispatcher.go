@@ -150,12 +150,16 @@ type Dispatcher struct {
 }
 
 // BeginRequest starts a new request on a long-lived dispatcher (LSP, daemon
-// buffer analysis, MCP tools): project facts memoized for one request, such as
-// version-catalog discovery, are dropped so this request rereads settings files
-// and catalogs that changed since the last one. A project run builds its own
-// dispatcher and does not need to call it.
+// buffer analysis, MCP tools). Facts read from disk for one request
+// (filefacts.RequestFact: module build scripts, version catalogs, manifests,
+// catalog discovery) are dropped, so this request rereads files edited since
+// the last one. It also makes this dispatcher's cache the one that helpers
+// without an api.Context reach through fileFactsCache(); that pointer otherwise
+// belongs to whichever dispatcher was built last, such as a daemon project run.
+// A project run builds its own dispatcher and does not need to call it.
 func (d *Dispatcher) BeginRequest() {
-	filefacts.ForgetStringFact(d.fileFacts, catalogDiscoveryKey, slotCatalogDiscovery)
+	setSharedFileFacts(d.fileFacts)
+	filefacts.ForgetRequestFacts(d.fileFacts)
 }
 
 // NewDispatcher constructs a Dispatcher from the supplied v2 rules.

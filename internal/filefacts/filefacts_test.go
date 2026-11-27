@@ -272,3 +272,28 @@ func TestMentions(t *testing.T) {
 		t.Fatal("nil cache should still search the source")
 	}
 }
+
+func TestRequestFactLastsUntilForgetRequestFacts(t *testing.T) {
+	c := NewCache()
+	calls := 0
+	compute := func() int { calls++; return calls }
+	if got := RequestFact(c, "dir", "slot", compute); got != 1 {
+		t.Fatalf("first RequestFact = %d, want 1", got)
+	}
+	if got := RequestFact(c, "dir", "slot", compute); got != 1 {
+		t.Fatalf("memoized RequestFact = %d, want 1", got)
+	}
+	stringCalls := 0
+	StringFact(c, "dir", "slot", func() int { stringCalls++; return stringCalls })
+	ForgetRequestFacts(c)
+	if got := RequestFact(c, "dir", "slot", compute); got != 2 {
+		t.Fatalf("RequestFact after ForgetRequestFacts = %d, want a recompute (2)", got)
+	}
+	if got := StringFact(c, "dir", "slot", func() int { stringCalls++; return stringCalls }); got != 1 {
+		t.Fatalf("StringFact after ForgetRequestFacts = %d, want the memoized 1", got)
+	}
+	ForgetRequestFacts(nil) // no-op
+	if got := RequestFact(nil, "dir", "slot", func() int { return 7 }); got != 7 {
+		t.Fatalf("nil cache RequestFact = %d, want 7", got)
+	}
+}

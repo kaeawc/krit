@@ -462,7 +462,7 @@ func lookupSourceModuleGradleInfo(sourcePath string) sourceModuleGradleInfo {
 }
 
 func tryReadSourceModuleGradleInfo(dir string) (sourceModuleGradleInfo, bool) {
-	info := filefacts.StringFact(fileFactsCache(), dir, slotSourceModuleGradle, func() sourceModuleGradleInfo {
+	info := filefacts.RequestFact(fileFactsCache(), dir, slotSourceModuleGradle, func() sourceModuleGradleInfo {
 		return readSourceModuleGradleInfo(dir)
 	})
 	return info, info.found

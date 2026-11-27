@@ -15,7 +15,7 @@ func manifestRoot(m *Manifest) *android.XMLNode {
 	if m == nil || m.Path == "" {
 		return nil
 	}
-	return filefacts.StringFact(fileFactsCache(), m.Path, slotManifestDOM, func() *android.XMLNode {
+	return filefacts.RequestFact(fileFactsCache(), m.Path, slotManifestDOM, func() *android.XMLNode {
 		data, err := os.ReadFile(m.Path)
 		if err != nil {
 			return nil

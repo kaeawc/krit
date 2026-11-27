@@ -62,7 +62,7 @@ const (
 	slotCatalogDiscovery            = "catalogDiscovery"
 )
 
-// catalogDiscoveryKey is the StringFact key of the catalog discovery memo, which
+// catalogDiscoveryKey is the RequestFact key of the catalog discovery memo, which
 // lives for one request: a project run, or one call of a long-lived analyzer
 // (see Dispatcher.BeginRequest).
 const catalogDiscoveryKey = "request"
@@ -81,5 +81,5 @@ func catalogDiscovery(facts *filefacts.Cache) *librarymodel.CatalogDiscovery {
 	if facts == nil {
 		return nil
 	}
-	return filefacts.StringFact(facts, catalogDiscoveryKey, slotCatalogDiscovery, librarymodel.NewCatalogDiscovery)
+	return filefacts.RequestFact(facts, catalogDiscoveryKey, slotCatalogDiscovery, librarymodel.NewCatalogDiscovery)
 }

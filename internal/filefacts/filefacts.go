@@ -64,6 +64,8 @@ type Cache struct {
 	fileSlots    sync.Map // fileSlotKey  -> any
 	nodeSlots    sync.Map // nodeSlotKey  -> any
 	stringSlots  sync.Map // stringSlotKey -> any
+	// requestSlots holds RequestFact values, which ForgetRequestFacts drops.
+	requestSlots sync.Map // stringSlotKey -> any
 }
 
 type stringSlotKey struct {
@@ -75,7 +77,9 @@ type stringSlotKey struct {
 // computed on first access. Useful for memoizing facts whose natural
 // key is not a *scanner.File or AST index — for example "gradle module
 // info for directory X". Slot disambiguates fact types stored under
-// the same string key. A nil *Cache or empty key recomputes.
+// the same string key. A nil *Cache or empty key recomputes. A fact read
+// from files on disk belongs in RequestFact instead: a StringFact lives as
+// long as the Cache, which in the LSP, the daemon and MCP is the whole session.
 func StringFact[T any](c *Cache, key, slot string, compute func() T) T {
 	if c == nil || key == "" {
 		return compute()
@@ -83,14 +87,25 @@ func StringFact[T any](c *Cache, key, slot string, compute func() T) T {
 	return loadOrStoreTyped(&c.stringSlots, stringSlotKey{key: key, slot: slot}, slot, compute)
 }
 
-// ForgetStringFact drops one StringFact, so the next access recomputes it.
-// Long-lived callers use it to scope a fact to one request. A nil *Cache is
-// a no-op.
-func ForgetStringFact(c *Cache, key, slot string) {
+// RequestFact is StringFact for a fact derived from files on disk, such as a
+// module's build script or a version catalog. It lasts for one request: a
+// whole project run, which builds its own Cache, or one call of a long-lived
+// analyzer (LSP, daemon buffers, MCP), which calls ForgetRequestFacts first so
+// the request rereads files edited since the last one. A nil *Cache or empty
+// key recomputes.
+func RequestFact[T any](c *Cache, key, slot string, compute func() T) T {
+	if c == nil || key == "" {
+		return compute()
+	}
+	return loadOrStoreTyped(&c.requestSlots, stringSlotKey{key: key, slot: slot}, slot, compute)
+}
+
+// ForgetRequestFacts drops every RequestFact. A nil *Cache is a no-op.
+func ForgetRequestFacts(c *Cache) {
 	if c == nil {
 		return
 	}
-	c.stringSlots.Delete(stringSlotKey{key: key, slot: slot})
+	c.requestSlots.Clear()
 }
 
 type fileSlotKey struct {

@@ -622,7 +622,7 @@ func lintLibsCatalogPath(gradlePath string) string {
 // lintCatalogPluginIDs maps each [plugins] key, with `-` and `_` replaced by `.`, to its plugin id.
 // Lint skips a table entry without a version, or whose version.ref names no [versions] entry.
 func lintCatalogPluginIDs(path string) map[string]string {
-	return filefacts.StringFact(fileFactsCache(), path, slotLintCatalogPlugins, func() map[string]string {
+	return filefacts.RequestFact(fileFactsCache(), path, slotLintCatalogPlugins, func() map[string]string {
 		ids := map[string]string{}
 		catalog, err := versioncatalog.ParseFile(path)
 		if err != nil {

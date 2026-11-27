@@ -137,7 +137,7 @@ func tileScanPreviewImages(m *manifest.Manifest, previews map[string]*tilePrevie
 		names = append(names, name)
 	}
 	sort.Strings(names)
-	scan := filefacts.StringFact(fileFactsCache(), m.Path+"\x00"+strings.Join(names, ","), slotTilePreviewScan,
+	scan := filefacts.RequestFact(fileFactsCache(), m.Path+"\x00"+strings.Join(names, ","), slotTilePreviewScan,
 		func() map[string]tilePreviewFlags { return tileScanDrawables(m, names) })
 	for name, flags := range scan {
 		p := previews[name]

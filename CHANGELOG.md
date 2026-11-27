@@ -624,6 +624,10 @@ All notable changes to Krit will be documented in this file.
   a class is reported at the declaration rather than its KDoc (#1369).
 
 ### Fixed
+- The LSP, the daemon's buffer analysis and the MCP server see module build-script, version-catalog `[plugins]`,
+  manifest and Wear tile-preview edits on the next request instead of after a restart. Those facts are read from disk
+  and were memoized for the life of the long-lived analyzer, which also read whatever the daemon's last project run
+  had cached. They now last for one request, as the version-catalog memo has since #1787 (#1788).
 - A Kotlin file with a nested body closed on the same line as its last member, such as
   `class H { companion object { val X = 1 } }` or `class H { object O { const val X = 1 } }`, lost every finding.
   The grammar needs a separator before that `}`, and its error recovery turned the enclosing class and the rest of the

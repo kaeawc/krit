@@ -21,12 +21,15 @@
         (default 0), or a required check failed. Anything above its threshold is listed as a
         ratchet: raise the threshold in the same pull request.
 
-    fir_coverage.py parity OUT.check.json --gradle SARIF --bazel SARIF...
+    fir_coverage.py parity OUT.check.json [--thresholds THRESHOLDS.json] --gradle SARIF --bazel SARIF...
         Compare the findings of the Gradle whole-build report (kritCheckAll)
         with those of krit_aspect's per-target reports, keyed by rule ID,
         sample-relative path and line (#1677), and write the findings-parity
         check: it passes when both report the same findings and there is at
-        least one. The keys only one side reports are listed with it.
+        least one. The keys only one side reports are listed with it. Paths
+        under the check's "gradleOnly" prefixes in THRESHOLDS.json (sources
+        that have no Bazel target, #1752) are left out of both sides and
+        counted as gradleOnlyFindings.
 
 Coverage is authoritative / (authoritative + gated), where gated counts both
 compile-error and generated-source gating; excluded files (scripts, files
@@ -218,6 +221,8 @@ def report(thresholds_path, paths):
                 for key in c[side]:
                     print(f"- `{key}`")
                 print("\n</details>")
+        if c.get("gradleOnlyFindings"):
+            print(f"\n{c['name']}: {c['gradleOnlyFindings']} findings in Gradle-only sources not compared")
     for r in results:
         for error in r.get("checkerErrors", []):
             print(f"\n**{r['name']}: FIR checker error:** {error}")
@@ -263,9 +268,12 @@ def sarif_findings(paths):
     return keys
 
 
-def parity(out_path, gradle_paths, bazel_paths):
-    gradle = sarif_findings(gradle_paths)
-    bazel = sarif_findings(bazel_paths)
+def parity(out_path, gradle_paths, bazel_paths, gradle_only=()):
+    def compared(keys):
+        return {key for key in keys if not key[1].startswith(tuple(gradle_only))}
+    gradle_all = sarif_findings(gradle_paths)
+    gradle = compared(gradle_all)
+    bazel = compared(sarif_findings(bazel_paths))
     fmt = lambda keys: [f"{rule} {path}:{line}" for rule, path, line in sorted(keys)]
     result = {
         "name": "findings-parity",
@@ -273,6 +281,7 @@ def parity(out_path, gradle_paths, bazel_paths):
         "matched": len(gradle & bazel),
         "onlyGradle": fmt(gradle - bazel),
         "onlyBazel": fmt(bazel - gradle),
+        "gradleOnlyFindings": len(gradle_all - gradle),
     }
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(result, f, indent=2)
@@ -292,10 +301,18 @@ def main(argv):
         return 0
     if len(argv) >= 3 and argv[1] == "report":
         return report(argv[2], argv[3:])
-    if len(argv) >= 6 and argv[1] == "parity" and argv[3] == "--gradle" and "--bazel" in argv[4:]:
-        split = argv.index("--bazel", 4)
-        parity(argv[2], argv[4:split], argv[split + 1:])
-        return 0
+    if len(argv) >= 6 and argv[1] == "parity":
+        rest = argv[3:]
+        gradle_only = ()
+        if len(rest) >= 2 and rest[0] == "--thresholds":
+            with open(rest[1], encoding="utf-8") as f:
+                check = json.load(f)["checks"].get("findings-parity", {})
+            gradle_only = tuple(check.get("gradleOnly", []))
+            rest = rest[2:]
+        if len(rest) >= 3 and rest[0] == "--gradle" and "--bazel" in rest[1:]:
+            split = rest.index("--bazel", 1)
+            parity(argv[2], rest[1:split], rest[split + 1:], gradle_only)
+            return 0
     print(__doc__, file=sys.stderr)
     return 2
 

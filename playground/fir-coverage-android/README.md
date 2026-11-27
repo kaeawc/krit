@@ -16,9 +16,10 @@ Each module covers a case that has broken FIR coverage before:
 | `:data` | `//data` | KSP (Moshi codegen) | #1574, #1586 |
 | `:app` | `//app` | `com.android.application` with view binding (Bazel: generated into a `.srcjar` by `tools/viewbinding`), and Kotlin calling same-module Java | #1574, #1626 |
 | `:benchmark` | `//benchmark` | `com.android.test` module targeting `:app` | #1572 |
+| `:shared` | none (Gradle only) | Kotlin Multiplatform library: `jvm()` and an Android target from `com.android.kotlin.multiplatform.library` (AGP 9's KMP Android plugin; `com.android.library` cannot share a module with KMP there), an `expect`/`actual` pair, SQLDelight in `commonMain`, KSP (Moshi codegen) on both targets | #1752 |
 
 Versions: AGP 9.5.3 (built-in Kotlin), Kotlin 2.4.21, KSP 2.3.14, Wire 7.2.2,
-Moshi 1.15.2, Gradle 9.9.2; Bazel 9.3.3 with rules_kotlin 2.4.21 and
+Moshi 1.15.2, SQLDelight 2.4.1, Gradle 9.9.2; Bazel 9.3.3 with rules_kotlin 2.4.21 and
 rules_android 0.8.1. Keep `gradle/libs.versions.toml` and `MODULE.bazel` on
 the same library versions.
 
@@ -34,11 +35,12 @@ the same library versions.
 | `gradle-up-to-date` | That second `kritCheckAll` is up to date: krit does not run. |
 | `bazel-action-cache` | A second `bazel build //...` runs no actions. |
 | `bazel-krit_aspect-cache` | After `bazel clean`, every Krit action of a second aspect build is a disk-cache hit. |
-| `findings-parity` | `kritCheckAll`'s SARIF and `krit_aspect`'s per-target SARIFs report the same findings, keyed by rule, sample-relative path and line, and at least one (#1677). `app/.../ParityProbe.kt` holds known findings: two from source alone, and a safe call and Elvis that rest on `:model`'s types, so FIR must resolve the full classpath on both sides. The report lists the keys only one side has. |
+| `findings-parity` | `kritCheckAll`'s SARIF and `krit_aspect`'s per-target SARIFs report the same findings, keyed by rule, sample-relative path and line, and at least one (#1677). `app/.../ParityProbe.kt` holds known findings: two from source alone, and a safe call and Elvis that rest on `:model`'s types, so FIR must resolve the full classpath on both sides. The report lists the keys only one side has. Sources with no Bazel target (`gradleOnly` in `ci/fir-coverage-thresholds.json`: `:shared`, which `.bazelignore` leaves out) are not compared; the report counts their findings. |
 
 The Gradle runs use `ci/krit-verbose.sh` as the krit binary. The plugin runs
 krit with `-q`; the wrapper runs it with `-v` instead, to capture the `FIR verdict`
-line.
+line. It writes krit's stderr to a file rather than a pipe: the pooled krit-fir
+daemon krit starts would hold a pipe open and hang the task.
 
 `ci/fir_coverage.py` sums the verbose `FIR verdict` lines (Gradle) or the
 SARIF `properties.fir` records (Bazel), writes the table to

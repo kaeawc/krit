@@ -604,7 +604,10 @@ class KritExportModelTest {
         assertEquals(setOf("jvmMain", "jvmTest"), sets.map { it["name"] }.toSet())
         assertEquals(setOf("main", "test"), sets.map { it["kind"] }.toSet())
         val main = sets.single { it["name"] == "jvmMain" }
-        assertTrue((main["sourceDirs"] as List<*>).any { it.toString().endsWith("src/commonMain/kotlin") })
+        // commonMain is in jvmMain's dependsOn closure, which KGP completes after afterEvaluate (#1752).
+        assertTrue((main["sourceDirs"] as List<*>).any { it.toString().endsWith("src/commonMain/kotlin") }, main.toString())
+        val test = sets.single { it["name"] == "jvmTest" }
+        assertTrue((test["sourceDirs"] as List<*>).any { it.toString().endsWith("src/commonTest/kotlin") }, test.toString())
         assertTrue((main["sourceDirs"] as List<*>).any { it.toString().endsWith("src/jvmMain/kotlin") })
         val graph = runWithFakePlugin(root, FakeKmpPlugin::class.java,
             "org.jetbrains.kotlin.multiplatform", "kritExportModel", "--dry-run")
@@ -660,6 +663,42 @@ class KritExportModelTest {
         assertEquals(1, sets.count { it["platform"] == "android" && it["kind"] == "main" }, "no duplicate Android spec")
         val check = runWithFakePlugin(root, FakeKmpPlugin::class.java, "org.jetbrains.kotlin.multiplatform", "kritCheck", *args)
         assertEquals(TaskOutcome.SUCCESS, check.task(":generateDebugFakeSources")?.outcome, check.output)
+    }
+
+    // #1752: AGP 9's Android-KMP library plugin (`kotlin { android { } }`) has no `android`
+    // extension, one `main` Android compilation while tests are off, and creates its variant only
+    // after the export is configured. The target still exports with the boot classpath, the
+    // commonMain closure and the Variant API's generated roots, and kritCheck runs their producer.
+    @Test
+    fun `Android-KMP library target exports with commonMain and its Variant API generated roots`() {
+        val root = File(directory, "android-kmp-library").also { it.mkdirs() }
+        fakeKrit(root)
+        File(root, "settings.gradle.kts").writeText("rootProject.name = \"android-kmp-library\"\n")
+        File(root, "build.gradle.kts").writeText("""
+            plugins { id("org.jetbrains.kotlin.multiplatform"); id("com.android.kotlin.multiplatform.library"); id("dev.jasonpearson.krit") }
+            krit { advanced { binary.set(file("fake-krit")) } }
+        """.trimIndent())
+        File(root, "android.jar").writeBytes(byteArrayOf())
+        File(root, "src/commonMain/kotlin/Shared.kt").also { it.parentFile.mkdirs() }.writeText("class Shared\n")
+        val args = arrayOf("-PfakeAndroidKmpLibrary", "-PfakeGeneratedSources", "--configuration-cache")
+        val export = runWithFakePlugin(root, FakeKmpPlugin::class.java, "org.jetbrains.kotlin.multiplatform", "kritExportModel", *args)
+        assertFalse(export.output.contains("KMP Android variant absent"), export.output)
+        assertFalse(export.output.contains("KMP compilation missing"), export.output)
+        assertFalse(export.output.contains("R jar location unavailable"), export.output)
+        val sets = sourceSets(File(root, ".krit/gradle-model/_root.json"))
+        val main = sets.single { it["platform"] == "android" }
+        assertEquals("androidMain", main["name"])
+        assertEquals("main", main["kind"])
+        assertEquals("androidMain", main["variant"])
+        assertTrue((main["bootClasspath"] as List<*>).any { it.toString().endsWith("android.jar") }, main.toString())
+        assertEquals(listOf(modelPath(File(root, "src/androidMain/kotlin")), modelPath(File(root, "src/commonMain/kotlin"))),
+            main["sourceDirs"], main.toString())
+        assertEquals(listOf(modelPath(File(root, "build/generated/ksp/android/androidMain/kotlin"))),
+            main["generatedSourceDirs"], main.toString())
+        val check = runWithFakePlugin(root, FakeKmpPlugin::class.java, "org.jetbrains.kotlin.multiplatform", "kritCheck", *args)
+        assertEquals(TaskOutcome.SUCCESS, check.task(":kspAndroidMain")?.outcome, check.output)
+        // kritCheck's default source is the KMP source sets' roots, not the absent src/main/kotlin.
+        assertEquals(TaskOutcome.SUCCESS, check.task(":kritCheck")?.outcome, check.output)
     }
 
     @Test

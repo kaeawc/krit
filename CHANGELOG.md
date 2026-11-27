@@ -665,6 +665,12 @@ All notable changes to Krit will be documented in this file.
   a class is reported at the declaration rather than its KDoc (#1369).
 
 ### Fixed
+- Gradle plugin, Kotlin Multiplatform: each compilation's model entry includes the source sets it compiles through
+  `dependsOn` (`commonMain` and intermediate sets, with their generated roots such as SQLDelight's), which KGP links only
+  after the export was configured, so FIR no longer compiles `jvmMain` without `commonMain` and gates every `actual`. AGP 9's
+  `com.android.kotlin.multiplatform.library` target is exported (`androidMain`, with the Android boot classpath and its
+  Variant API roots such as KSP's, whose producers `kritCheck` now runs) instead of being skipped for a missing `debug`
+  variant, and a KMP project's `kritCheck` analyzes its source sets instead of reporting NO-SOURCE (#1752).
 - Manifest rules resolve plugin aliases (`alias(<catalog>.plugins.x)`) against the catalogs Gradle builds, so they
   tell apps from libraries correctly. That covers catalogs a settings file declares with
   `versionCatalogs { create("<name>") { from(files(...)) } }` (any path, Kotlin or Groovy DSL) or programmatically,

@@ -2,6 +2,7 @@ package rules_test
 
 import (
 	"fmt"
+	"path/filepath"
 	"sort"
 	"testing"
 )
@@ -287,5 +288,44 @@ fun (KView)?.parenNullable() = toString()
 	sort.Ints(lines)
 	if fmt.Sprint(lines) != "[13 14 15 16]" {
 		t.Errorf("DoNotCallViewToString: want lines 13-16, got %v", got)
+	}
+}
+
+// #1953 review: a nullable receiver written through a typealias, a nullable bound, or parentheses is Any?'s
+// toString(), not the View's; every upper bound of a type parameter counts, a typealias bound resolves, and an alias
+// imported from another package resolves.
+func TestViewChecksExtensionReceiverNullabilityAndBounds(t *testing.T) {
+	got := runRuleOnSourcesWithResolverAll(t, "DoNotCallViewToString", map[string]string{
+		"KView.kt": `package com.example
+
+import android.content.Context
+import android.widget.LinearLayout
+
+class KView(c: Context) : LinearLayout(c) {
+  override fun toString(): String = "k"
+}
+
+typealias KVN = KView?
+typealias KV = KView
+fun KVN.nullableAlias() = toString()
+fun <T : KView?> T.nullableBound() = toString()
+fun (KView?).parenNullable() = toString()
+fun <T> T.secondWhereBound() where T : Runnable, T : KView = toString()
+fun <T : KV> T.aliasBound() = toString()
+`,
+		"Other.kt": `package com.other
+
+import com.example.KV
+
+fun KV.importedAlias() = toString()
+`,
+	})
+	var lines []string
+	for _, f := range got {
+		lines = append(lines, fmt.Sprintf("%s:%d", filepath.Base(f.File), f.Line))
+	}
+	sort.Strings(lines)
+	if want := "[KView.kt:15 KView.kt:16 Other.kt:5]"; fmt.Sprint(lines) != want {
+		t.Errorf("DoNotCallViewToString: want %s, got %v", want, got)
 	}
 }

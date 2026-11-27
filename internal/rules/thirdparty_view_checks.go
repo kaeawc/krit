@@ -103,17 +103,48 @@ func viewSourceClassFQN(ctx *api.Context, name string) string {
 	return name
 }
 
-// viewReceiverClassFQN returns the FQN of an extension receiver's class named recv, expanding a typealias
-// (`typealias KV = KView; fun KV.f()`) through the resolver.
-func viewReceiverClassFQN(ctx *api.Context, typ uint32, recv string) string {
-	fqn := denyAnyClassFQN(ctx.Resolver, ctx.File, recv)
+// viewReceiverClassFQN returns the FQN of the class an extension receiver's type node typ (unwrapped) names,
+// expanding a typealias (`typealias KV = KView; fun KV.f()`) through the resolver, and whether that alias is
+// nullable (`typealias KVN = KView?`).
+func viewReceiverClassFQN(ctx *api.Context, typ uint32) (fqn string, nullable bool) {
+	fqn = denyAnyClassFQN(ctx.Resolver, ctx.File, flatTypeNameIdentifier(ctx.File, typ))
 	if ctx.Resolver == nil || ctx.Resolver.ClassHierarchy(fqn) != nil || ctx.File.FlatType(typ) != "user_type" {
-		return fqn
+		return fqn, false
 	}
 	if t := ctx.Resolver.ResolveFlatNode(typ, ctx.File); t != nil && t.FQN != "" && ctx.Resolver.ClassHierarchy(t.FQN) != nil {
-		return t.FQN
+		return t.FQN, t.IsNullable()
 	}
-	return fqn
+	return fqn, false
+}
+
+// viewReceiverFQN returns the FQN of an extension function's receiver class: the receiver's, or the first upper
+// bound of a type-parameter receiver that is a View, else its first bound. It returns "" when the receiver is
+// nullable (toString() is then Any?.toString()) or has no class (a function type).
+func viewReceiverFQN(ctx *api.Context, fn uint32) string {
+	types, nullable, _ := flatFunctionReceiverClassTypes(ctx.File, fn)
+	if nullable {
+		return ""
+	}
+	first := ""
+	for _, typ := range types {
+		if flatTypeNameIdentifier(ctx.File, typ) == "" {
+			continue
+		}
+		fqn, aliasNullable := viewReceiverClassFQN(ctx, typ)
+		if aliasNullable {
+			return ""
+		}
+		if len(types) == 1 {
+			return fqn
+		}
+		if slackClassExtends(ctx.Resolver, viewSourceClassFQN(ctx, fqn), "android.view.View") {
+			return fqn
+		}
+		if first == "" {
+			first = fqn
+		}
+	}
+	return first
 }
 
 // viewImplicitReceiverFQN returns the FQN of the class whose `this` an unqualified call reaches: the receiver of the
@@ -126,15 +157,15 @@ func viewImplicitReceiverFQN(ctx *api.Context, idx uint32) string {
 		switch file.FlatType(p) {
 		case "function_declaration":
 			if len(names) == 0 && file.Language == scanner.LangKotlin {
-				if typ, _, ok := flatFunctionReceiverType(file, p); ok {
+				if _, _, ok := flatFunctionReceiverType(file, p); ok {
 					// An extension's receiver is `this`, whatever the enclosing class. On a nullable receiver,
 					// toString() is the Any?.toString() extension, not the class's; a function-type receiver has
 					// no class (#1949).
-					recv, nullable := flatFunctionReceiverTypeInfo(file, p)
-					if nullable || recv == "" {
+					fqn := viewReceiverFQN(ctx, p)
+					if fqn == "" {
 						return ""
 					}
-					return viewSourceClassFQN(ctx, viewReceiverClassFQN(ctx, typ, recv))
+					return viewSourceClassFQN(ctx, fqn)
 				}
 			}
 		case "lambda_literal":

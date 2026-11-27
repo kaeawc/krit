@@ -8,8 +8,8 @@ import (
 	"os"
 	"regexp"
 	"strings"
-	"sync"
 
+	"github.com/kaeawc/krit/internal/filefacts"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/typeinfer"
 )
@@ -114,28 +114,25 @@ func slackIsFrameworkView(fqn string) bool {
 	return ok
 }
 
-var (
-	slackJavaImportRe    = regexp.MustCompile(`(?m)^\s*import\s+([A-Za-z_][\w.]*)\s*;`)
-	slackJavaImportCache sync.Map // path -> map[string]string
-)
+var slackJavaImportRe = regexp.MustCompile(`(?m)^\s*import\s+([A-Za-z_][\w.]*)\s*;`)
 
-// slackJavaFileImports returns a Java source file's single-type imports by simple name. The result is memoized by
-// path, size and modification time, so a long-lived daemon or LSP session rereads an edited file.
+// slackJavaFileImports returns a Java source file's single-type imports by simple name, memoized in the run's file
+// facts under its path, size and modification time, so an edited file is reread.
 func slackJavaFileImports(path string) map[string]string {
 	st, err := os.Stat(path)
 	if err != nil {
 		return nil
 	}
 	key := fmt.Sprintf("%s\x00%d\x00%d", path, st.Size(), st.ModTime().UnixNano())
-	if v, ok := slackJavaImportCache.Load(key); ok {
-		return v.(map[string]string)
-	}
-	out := map[string]string{}
-	if data, err := os.ReadFile(path); err == nil {
-		for _, m := range slackJavaImportRe.FindAllStringSubmatch(string(data), -1) {
-			out[m[1][strings.LastIndexByte(m[1], '.')+1:]] = m[1]
+	return filefacts.StringFact(fileFactsCache(), key, slotSlackJavaImports, func() map[string]string {
+		out := map[string]string{}
+		if data, err := os.ReadFile(path); err == nil {
+			for _, m := range slackJavaImportRe.FindAllStringSubmatch(string(data), -1) {
+				out[m[1][strings.LastIndexByte(m[1], '.')+1:]] = m[1]
+			}
 		}
-	}
-	slackJavaImportCache.Store(key, out)
-	return out
+		return out
+	})
 }
+
+const slotSlackJavaImports = "slackJavaImports"

@@ -210,9 +210,21 @@ func TestIndexFilesParallel_JavaSupertypeLookupOrder(t *testing.T) {
 		{"an on-demand import's class", map[string]string{
 			"j/B.java": "package j;\n\nimport k.*;\n\npublic class B extends A {}\n", "k/A.kt": kotlinA,
 		}, "j.B", "k.A"},
-		{"with an on-demand import and no match, the name stays as written", map[string]string{
+		{"with one on-demand import and no match, a source class's name is the import's", map[string]string{
 			"j/B.java": "package j;\n\nimport android.widget.*;\n\npublic class B extends A {}\n", "k/A.kt": kotlinA,
-		}, "j.B", "A"},
+		}, "j.B", "android.widget.A"},
+		{"with several on-demand imports and no match, a source class's name is the package's", map[string]string{
+			"j/B.java": "package j;\n\nimport java.util.*;\nimport android.widget.*;\n\npublic class B extends A {}\n", "k/A.kt": kotlinA,
+		}, "j.B", "j.A"},
+		{"a name no source class has stays as written", map[string]string{
+			"j/B.java": "package j;\n\nimport android.widget.*;\n\npublic class B extends ImageView {}\n", "k/A.kt": kotlinA,
+		}, "j.B", "ImageView"},
+		{"a parent package's class is not it", map[string]string{
+			"j/sub/B.java": "package j.sub;\n\nimport k.*;\n\npublic class B extends A {}\n", "j/A.kt": "package j\n\nopen class A\n", "k/A.kt": kotlinA,
+		}, "j.sub.B", "k.A"},
+		{"nor without an on-demand import", map[string]string{
+			"j/sub/B.java": "package j.sub;\n\npublic class B extends A {}\n", "j/A.kt": "package j\n\nopen class A\n",
+		}, "j.sub.B", "j.sub.A"},
 		{"a java.lang name stays as written", map[string]string{
 			"j/B.java": "package j;\n\npublic class B extends Thread {}\n", "k/Thread.kt": "package k\n\nopen class Thread\n",
 		}, "j.B", "Thread"},

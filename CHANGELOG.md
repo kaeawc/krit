@@ -805,8 +805,9 @@ All notable changes to Krit will be documented in this file.
   `NullableToStringCall` and the Wire proto exemption (#1949).
 - The source resolver indexes the run's Java classes as well as Kotlin's: each Java class's kind, its `final`,
   `abstract` and `sealed` modifiers, and its supertypes, resolved as javac resolves them (a single-type import, a
-  member type of an enclosing class, the file's package, then an on-demand import), so an unimported name never takes
-  a same-named class of another package. So Kotlin rules follow a class hierarchy through Java source classes:
+  member type of an enclosing class, the file's package but never a parent package, then an on-demand import), so an
+  unimported name never takes a same-named class of another package, even when the file's on-demand imports name
+  none. So Kotlin rules follow a class hierarchy through Java source classes:
   `DenyListedApi` on a receiver typed as a Java `View` subclass, `DoNotCallViewToString` on a Kotlin View whose
   superclass is a Java class, `ArgInFormattedQuantityStringRes` on a Java `Resources` subclass (from Kotlin and from
   Java), and `CanvasSize` in a Java custom view. A Java class is open unless declared `final`, so `UnsafeCast` does

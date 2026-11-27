@@ -434,11 +434,12 @@ func (r *defaultResolver) resolveSupertypes() {
 
 // resolveJavaSupertypes resolves each merged Java class's unqualified
 // supertypes as javac does: a member type of an enclosing class, then a
-// class of the same package, then one an on-demand import names. A name
-// none of them declares stays as written, unless a source class elsewhere
-// has that simple name and the file has no on-demand import: then it is
-// qualified with the file's package, so a simple-name lookup can't take an
-// unrelated class of another package (a Kotlin k.A for Java j.B extends A).
+// class of the same package (never a parent package), then one an on-demand
+// import names. A name none of them declares stays as written, unless a
+// source class elsewhere has that simple name: then it is qualified with the
+// file's only on-demand import, or else with its package, so a simple-name
+// lookup can't take an unrelated class of another package (a Kotlin k.A for
+// Java j.B extends A).
 func (r *defaultResolver) resolveJavaSupertypes() {
 	for path, classes := range r.javaClasses {
 		fi := r.fileInfos[path]
@@ -456,7 +457,8 @@ func (r *defaultResolver) resolveJavaSupertypes() {
 }
 
 func (r *defaultResolver) resolveJavaSupertype(ci *ClassInfo, fi *FileTypeInfo, name string) string {
-	for scope := ci.FQN; ; {
+	// The enclosing classes, then the file's package, where the walk stops.
+	for scope := ci.FQN; scope != fi.JavaPackage; {
 		dot := strings.LastIndexByte(scope, '.')
 		if dot < 0 {
 			break
@@ -474,10 +476,17 @@ func (r *defaultResolver) resolveJavaSupertype(ci *ClassInfo, fi *FileTypeInfo, 
 			return pkg + "." + name
 		}
 	}
-	if len(fi.JavaWildcardImports) == 0 && fi.JavaPackage != "" && r.classes[name] != nil {
-		if _, javaLang := KotlinAutoImports[name]; !javaLang {
-			return fi.JavaPackage + "." + name
-		}
+	if r.classes[name] == nil {
+		return name
+	}
+	if _, javaLang := KotlinAutoImports[name]; javaLang {
+		return name
+	}
+	switch {
+	case len(fi.JavaWildcardImports) == 1:
+		return fi.JavaWildcardImports[0] + "." + name
+	case fi.JavaPackage != "":
+		return fi.JavaPackage + "." + name
 	}
 	return name
 }

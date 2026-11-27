@@ -70,7 +70,10 @@ can opt into JVM-backed FIR helper facts (`tools/krit-fir/`,
   `NeedsCrossFile`, `NeedsModuleIndex`, `NeedsParsedFiles`, `NeedsManifest`,
   `NeedsResources`, `NeedsGradle`, `NeedsResolver`, `NeedsOracle`, `NeedsTypeInfo`,
   and related type-information hints. `make lint-rules` enforces the
-  `NeedsResolver` / `NeedsOracle` declaration gate.
+  `NeedsResolver` / `NeedsOracle` declaration gate, and fails when a resource
+  rule's check functions reach a build-file helper
+  (`ruleslinter.BuildInfoHelpers`) without implementing
+  `rules.ResourceBuildInfoReader`.
 - Before adding a rule, confirm it belongs in the built-in registry: see
   `docs/rule-scope.md` for the qualification checklist (opt-in / experimental /
   project-local rules go elsewhere).
@@ -154,8 +157,8 @@ harness from parsing the fixture.
 - `cmd/krit-mcp/` - MCP server
 - `internal/rules/` - rule implementations, v2 registry metadata
   (`registry_*.go`), dispatcher, config, and rule tests
-- `internal/ruleslinter/` - capability-drift / ad-hoc-cache gate enforced by
-  `make lint-rules`
+- `internal/ruleslinter/` - capability-drift / ad-hoc-cache / build-info-reader
+  gates enforced by `make lint-rules`
 - `internal/scanner/` - tree-sitter parsing, flat AST helpers, suppression,
   cross-file indexes, baselines, and bloom-filter caches
 - `internal/pipeline/`, `internal/deadcode/`, `internal/module/` - project

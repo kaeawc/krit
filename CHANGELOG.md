@@ -709,8 +709,19 @@ All notable changes to Krit will be documented in this file.
   runs while `--no-cache` did not. Those rules now declare what they read for a res directory
   (`rules.ResourceBuildInfoReader`), and whenever one is active the per-res-directory, resource-bundle and Android
   project-bundle keys and the findings-bundle fingerprint hash it through the fingerprint the manifest keys use,
-  computed once per run for both. Runs without such a rule, the default, no longer hash build scripts, catalogs or
+  computed once per run for both. Runs without such a rule no longer hash build scripts, catalogs or
   settings scripts into the res-directory fingerprint (#1883).
+- A build-script edit in one module re-runs the resource rules that read build files only for that module's res
+  directories on warm runs. Each res directory's resource cache entry used to key on what those rules read for every
+  res directory of the project, so any build-script edit re-ran them everywhere. `LabelForResource`,
+  `RelativeClassResolution`, `TranslucentOrientation` and `VectorDrawableCompat`, which are on by default, and
+  `LibraryCustomView` and `UnusedAttributeResource` now key each res directory on its own module's build script, the
+  catalogs that script resolves aliases through, and the settings script or manifests they read. An edit to a shared
+  catalog or the settings script still re-runs every module that reads it. `UnusedResources` and `UnusedIds` scan the
+  files beside every res root, so they still key every res directory on all of them. On a generated 300-module project
+  with 15 layouts per module, a one-module build-script edit went from 0 to 299 of 300 resource cache hits: the Android
+  phase took 2.0 s instead of 2.3 s and user CPU dropped from 6.8 s to 5.2 s. The run also stops rebuilding a string of
+  every manifest and res path for each res-directory key, which cost 8 to 9 s at 3,000 res directories (#1943).
 - The manifest-source cache key canonicalizes every source-file hash to one width. It mixed the analysis cache's
   16-hex hashes with the hash memo's 64-hex ones, so the same content gave different keys, and the first warm run after
   a cold one, or a res-only edit after a source edit, re-ran the manifest-source rules (#1853).

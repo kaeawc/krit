@@ -16,6 +16,7 @@ import (
 // Check body consumes those capabilities. A new rule that forgets the
 // declaration fails this test.
 func TestRulesPackageHasNoCapabilityDrift(t *testing.T) {
+	t.Parallel()
 	_, thisFile, _, _ := runtime.Caller(0)
 	rulesDir := filepath.Join(filepath.Dir(thisFile), "..", "rules")
 	violations, err := Analyze(rulesDir)
@@ -39,6 +40,7 @@ func TestRulesPackageHasNoCapabilityDrift(t *testing.T) {
 // sync.Map or mutex+map pair in a rule file fails here. Legitimate
 // dispatcher infrastructure is listed in adHocCacheInfraFiles.
 func TestRulesPackageHasNoNewAdHocCaches(t *testing.T) {
+	t.Parallel()
 	_, thisFile, _, _ := runtime.Caller(0)
 	rulesDir := filepath.Join(filepath.Dir(thisFile), "..", "rules")
 	violations, err := AnalyzeAdHocCaches(rulesDir)
@@ -63,6 +65,7 @@ func TestRulesPackageHasNoNewAdHocCaches(t *testing.T) {
 // obscures the rule's real preconditions. See
 // AnalyzeDefensiveContextGuards for the detection contract.
 func TestRulesPackageHasNoDefensiveContextGuards(t *testing.T) {
+	t.Parallel()
 	_, thisFile, _, _ := runtime.Caller(0)
 	rulesDir := filepath.Join(filepath.Dir(thisFile), "..", "rules")
 	violations, err := AnalyzeDefensiveContextGuards(rulesDir)
@@ -1065,6 +1068,7 @@ func init() {
 // registry can be audited by category. Default-active rules must NOT
 // carry a reason.
 func TestRulesPackageHasOptInReasons(t *testing.T) {
+	t.Parallel()
 	_, thisFile, _, _ := runtime.Caller(0)
 	rulesDir := filepath.Join(filepath.Dir(thisFile), "..", "rules")
 	violations, err := AnalyzeOptInReason(rulesDir)

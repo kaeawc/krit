@@ -45,7 +45,7 @@ func (in AndroidInput) resourceKey(resDir, resDirFP string, deps rules.AndroidDa
 		// rule-set masks flipping invalidates the cache and so two
 		// identical-content resDirs at different paths don't share an
 		// entry.
-		Extra: resDir + "\x00" + uintptrToHex(uint64(deps)) + "\x00" + uintptrToHex(uint64(valueKinds)) + sources + in.resourceBuildInfoKey(),
+		Extra: resDir + "\x00" + uintptrToHex(uint64(deps)) + "\x00" + uintptrToHex(uint64(valueKinds)) + sources + in.resourceDirBuildInfoKey(resDir),
 	})
 }
 

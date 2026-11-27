@@ -552,6 +552,11 @@ func (p AndroidPhase) runManifestPhase(in AndroidInput, manifests *parsedManifes
 		for _, path := range in.Project.ManifestPaths {
 			bundleFP += "\x00" + in.manifestModuleFP(path, &resDirFPs)
 		}
+		// Manifest rules read each manifest's build script and the version catalogs its aliases resolve through (an
+		// app or a library module), which the module fingerprints above don't cover (#1853).
+		if rules.ReadsManifestGradleInfo(in.ActiveRules) {
+			bundleFP += "\x00" + manifestGradleInfoFingerprint(in.Project)
+		}
 		if preferenceFacts.needed {
 			// Source-derived facts feed the manifest findings, so the source set must key the cache.
 			if sourceFP, _, ok := in.warmResourceSourceBundleFingerprint(); ok {

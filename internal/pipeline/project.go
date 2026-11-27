@@ -2870,7 +2870,7 @@ func preparseBundleFingerprintWithPaths(
 	})
 	var xmlFP string
 	track("xmlInputs", func() {
-		xmlFP = xmlInputsFingerprint(host, preparseAndroidProject(args, host), kotlinPaths, rules.ReadsModuleGraph(args.ActiveRules))
+		xmlFP = xmlInputsFingerprint(host, preparseAndroidProject(args, host), kotlinPaths, buildFileReadersOf(args.ActiveRules))
 	})
 	kotlinFiles := filesForPaths(kotlinPaths, scanner.LangKotlin)
 	javaFiles := filesForPaths(javaPaths, scanner.LangJava)
@@ -3211,7 +3211,8 @@ func fileSetPaths(files []*scanner.File) []string {
 // rules, so the findings bundle cannot outlive an XML-only edit (layouts,
 // manifests and navigation graphs contribute class references to the code
 // index; manifests and res/ directories feed the Android rules), plus the
-// build scripts the manifest rules read next to them. It returns "" when the
+// build scripts and version catalogs the manifest rules read next to them
+// (reads says which). It returns "" when the
 // project has no XML, which keeps the bundle key unchanged for projects
 // without XML.
 //
@@ -3220,7 +3221,7 @@ func fileSetPaths(files []*scanner.File) []string {
 // the XML version. The manifests, res/ directories and build scripts are
 // hashed through the stat-keyed hashutil memo, which re-reads only files
 // whose size or mtime moved. kotlinPaths only locates the module roots for the XML walk.
-func xmlInputsFingerprint(host ProjectHostState, project *android.Project, kotlinPaths []string, readsGraph bool) string {
+func xmlInputsFingerprint(host ProjectHostState, project *android.Project, kotlinPaths []string, reads buildFileReaders) string {
 	build := func() []*scanner.XMLCacheFile {
 		return scanner.LoadXMLFilesForCache(filesForPaths(kotlinPaths, scanner.LangKotlin))
 	}
@@ -3238,7 +3239,7 @@ func xmlInputsFingerprint(host ProjectHostState, project *android.Project, kotli
 	if len(xmlFiles) == 0 && len(manifests) == 0 && len(resDirs) == 0 {
 		return ""
 	}
-	if readsGraph && project != nil {
+	if reads.moduleGraph && project != nil {
 		// Reads each manifest once for both its hash and the module-graph check below.
 		projectBuildGraphs(project)
 	}
@@ -3273,11 +3274,12 @@ func xmlInputsFingerprint(host ProjectHostState, project *android.Project, kotli
 		_, _ = h.Write([]byte{0})
 	}
 	// Manifest and manifest-source rules also read the build scripts themselves (plugins, namespace, project
-	// dependencies) and the module graph of each manifest's build, settings file included, which can lie outside
-	// the scan paths. A Groovy build.gradle is not a source file the SourceSet hash covers (#1625, #1800).
+	// dependencies), the version catalogs their aliases resolve through, and the module graph of each manifest's
+	// build, settings file included, which can lie outside the scan paths. A Groovy build.gradle is not a source file
+	// the SourceSet hash covers (#1625, #1800, #1853).
 	if project != nil && (len(project.GradlePaths) > 0 || len(project.ManifestPaths) > 0) {
 		_, _ = h.Write([]byte{5})
-		if fp, ok := buildFilesFingerprint(project, readsGraph); ok {
+		if fp, ok := buildFilesFingerprint(project, reads); ok {
 			_, _ = h.Write([]byte(fp))
 		} else {
 			_, _ = h.Write([]byte("err"))
@@ -4090,7 +4092,7 @@ func previewPostParseBundleHit(args ProjectArgs, host ProjectHostState, parseRes
 		Android:          androidFP,
 		LibraryFacts:     libraryFactsFP,
 		CompilerSettings: args.OracleKotlin.Identity(),
-		XMLInputs:        xmlInputsFingerprint(host, preparseAndroidProject(args, host), fileSetPaths(parseResult.KotlinFiles), rules.ReadsModuleGraph(args.ActiveRules)),
+		XMLInputs:        xmlInputsFingerprint(host, preparseAndroidProject(args, host), fileSetPaths(parseResult.KotlinFiles), buildFileReadersOf(args.ActiveRules)),
 	}
 	// Look up the prior manifest once — daemon callers wire
 	// FindingsBundleManifestLoader to an in-memory cache so this is
@@ -4195,7 +4197,7 @@ func computeRunFingerprint(args ProjectArgs, host ProjectHostState, parseResult 
 	if indexResult.LibraryFacts != nil {
 		fp.LibraryFacts = indexResult.LibraryFacts.Fingerprint()
 	}
-	fp.XMLInputs = xmlInputsFingerprint(host, indexResult.AndroidProject, fileSetPaths(parseResult.KotlinFiles), rules.ReadsModuleGraph(args.ActiveRules))
+	fp.XMLInputs = xmlInputsFingerprint(host, indexResult.AndroidProject, fileSetPaths(parseResult.KotlinFiles), buildFileReadersOf(args.ActiveRules))
 	return fp, true
 }
 

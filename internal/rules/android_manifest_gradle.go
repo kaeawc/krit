@@ -11,6 +11,7 @@ import (
 	"github.com/kaeawc/krit/internal/filefacts"
 	"github.com/kaeawc/krit/internal/lazyre"
 	"github.com/kaeawc/krit/internal/librarymodel"
+	"github.com/kaeawc/krit/internal/rules/api"
 )
 
 // manifestGradleInfo holds the relevant build.gradle(.kts) facts for the
@@ -63,8 +64,9 @@ func manifestModuleSearchDirs(manifestPath string) []string {
 }
 
 // ManifestBuildScriptCandidates returns every path lookupManifestGradleInfo can read a manifest's build script from,
-// whether or not it exists. The first one that exists is read, so a cache key over the rules that read it hashes all
-// of them, a missing one included: creating it changes what is read.
+// whether or not it exists, nearest first. The first one that exists is read (ManifestBuildScript), so a cache key
+// over the rules that read it keys which one that is, searched again every run, and its content: creating a nearer
+// one changes what is read.
 func ManifestBuildScriptCandidates(manifestPath string) []string {
 	dirs := manifestModuleSearchDirs(manifestPath)
 	paths := make([]string, 0, len(dirs)*len(manifestBuildScriptNames))
@@ -74,6 +76,38 @@ func ManifestBuildScriptCandidates(manifestPath string) []string {
 		}
 	}
 	return paths
+}
+
+// ManifestBuildScript returns the build script lookupManifestGradleInfo reads for a manifest: the first of its
+// ManifestBuildScriptCandidates that exists, or "" when none does.
+func ManifestBuildScript(manifestPath string) string {
+	for _, path := range ManifestBuildScriptCandidates(manifestPath) {
+		if _, err := os.Stat(path); err == nil {
+			return path
+		}
+	}
+	return ""
+}
+
+// ReadsManifestGradleInfo reports whether any of the rules is a manifest or manifest-source rule. Those rules can
+// read each manifest's build script through lookupManifestGradleInfo, and through it the version catalogs the
+// script's aliases resolve against (BuildScriptCatalogReads), so result caches over them must key on those files.
+func ReadsManifestGradleInfo(active []*api.Rule) bool {
+	for _, r := range active {
+		if scope := RuleScope(r); scope == api.ScopeManifest || scope == api.ScopeManifestSource {
+			return true
+		}
+	}
+	return false
+}
+
+// BuildScriptCatalogReads reports which version catalogs readManifestGradleInfo reads for a build script with this
+// content. pluginAliases: an alias(<catalog>.plugins.x) entry, resolved through VersionCatalogSearch from the
+// script's directory (catalogPluginIDs). dependencyAliases: a libs. accessor, resolved through librarymodel's
+// catalog discovery for the script (catalogDeclaresDependency). A script with neither reads no catalog, so cache
+// keys can skip both searches: the script's own content is keyed, so editing an alias in moves the key anyway.
+func BuildScriptCatalogReads(content string) (pluginAliases, dependencyAliases bool) {
+	return len(catalogPluginAliasKeys(content)) > 0, strings.Contains(content, "libs.")
 }
 
 // lookupManifestGradleInfo walks up from the manifest path looking for a
@@ -167,7 +201,7 @@ var (
 // catalogDeclaresDependency reports a dependency on group:name declared through a version-catalog alias or bundle,
 // such as `implementation(libs.core.splash)`, which Lint sees in the resolved dependency graph.
 func catalogDeclaresDependency(gradlePath, content, group, name string) bool {
-	if !strings.Contains(content, "libs.") {
+	if _, dependencyAliases := BuildScriptCatalogReads(content); !dependencyAliases {
 		return false
 	}
 	// The result is cached in the slotManifestGradle fact of the same cache, so the catalog lives as long as it does.
@@ -186,18 +220,13 @@ func catalogDeclaresDependency(gradlePath, content, group, name string) bool {
 // catalogPluginIDs resolves `alias(libs.plugins.x.y)` entries in a build script to plugin ids through the
 // project's Gradle version catalogs, so `alias(libs.plugins.android.library)` counts as com.android.library.
 func catalogPluginIDs(moduleDir, buildScript string) []string {
-	aliases := pluginAliasCallPattern.FindAllStringSubmatch(buildScript, -1)
-	if len(aliases) == 0 {
+	keys := catalogPluginAliasKeys(buildScript)
+	if len(keys) == 0 {
 		return nil
 	}
 	catalogs := versionCatalogsFor(moduleDir)
 	var ids []string
-	for _, match := range aliases {
-		_, key, found := strings.Cut(match[1], ".plugins.")
-		if !found {
-			continue
-		}
-		key = normalizeCatalogKey(key)
+	for _, key := range keys {
 		for _, catalog := range catalogs {
 			if id, ok := catalog[key]; ok {
 				ids = append(ids, id)
@@ -206,6 +235,17 @@ func catalogPluginIDs(moduleDir, buildScript string) []string {
 		}
 	}
 	return ids
+}
+
+// catalogPluginAliasKeys returns the normalized catalog keys of the build script's alias(<catalog>.plugins.x) entries.
+func catalogPluginAliasKeys(buildScript string) []string {
+	var keys []string
+	for _, match := range pluginAliasCallPattern.FindAllStringSubmatch(buildScript, -1) {
+		if _, key, found := strings.Cut(match[1], ".plugins."); found {
+			keys = append(keys, normalizeCatalogKey(key))
+		}
+	}
+	return keys
 }
 
 func normalizeCatalogKey(key string) string {

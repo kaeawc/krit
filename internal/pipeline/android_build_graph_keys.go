@@ -12,18 +12,37 @@ import (
 
 	"github.com/kaeawc/krit/internal/android"
 	"github.com/kaeawc/krit/internal/hashutil"
+	"github.com/kaeawc/krit/internal/librarymodel"
 	"github.com/kaeawc/krit/internal/module"
 	"github.com/kaeawc/krit/internal/rules"
+	api "github.com/kaeawc/krit/internal/rules/api"
+	"github.com/kaeawc/krit/internal/sysres"
 )
 
+// buildFileReaders says which build files beyond the scan the active rules read, and so which sections the cache keys
+// over their findings need.
+type buildFileReaders struct {
+	// moduleGraph: a rule reads the Gradle module graph of a manifest's build (rules.ReadsModuleGraph).
+	moduleGraph bool
+	// gradleInfo: a manifest or manifest-source rule reads each manifest's build script and the version catalogs its
+	// aliases resolve through (rules.ReadsManifestGradleInfo). A module-graph rule reads them too.
+	gradleInfo bool
+}
+
+func buildFileReadersOf(active []*api.Rule) buildFileReaders {
+	graph := rules.ReadsModuleGraph(active)
+	return buildFileReaders{moduleGraph: graph, gradleInfo: graph || rules.ReadsManifestGradleInfo(active)}
+}
+
 // buildFilesFingerprint hashes every Gradle file manifest and manifest-source rules can read: the build scripts and
-// settings files under the scan paths (Project.GradlePaths), and, when readsGraph, the files the module graph of
-// each manifest's Gradle build is read from that the scan didn't hash (#1800). ProviderReadPermissionOnly walks that
-// graph, which reaches build files no scan path holds: a scan of only app/ and lib/, an explicit file list, a module
-// that is gitignored or mapped into a dot-directory or build/. It also reads each manifest's own build script (is the
-// module an app, its namespace), which a build with no settings file has no graph for and a scan of only source
-// directories doesn't hold, so those candidates are hashed too. It returns false when a scanned path can't be hashed.
-func buildFilesFingerprint(project *android.Project, readsGraph bool) (string, bool) {
+// settings files under the scan paths (Project.GradlePaths), and the files outside them that reads says the rules
+// read. ProviderReadPermissionOnly walks the module graph of each manifest's Gradle build, which reaches build files no
+// scan path holds: a scan of only app/ and lib/, an explicit file list, a module that is gitignored or mapped into a
+// dot-directory or build/ (#1800). Every manifest rule reads its manifest's build script (is the module an app or a
+// library, its SDK levels) and the version catalogs that script's aliases resolve through, which a scan of only
+// source directories doesn't hold and no scan holds the catalogs of (#1853): see manifestGradleInfoFingerprint. It
+// returns false when a scanned path can't be hashed.
+func buildFilesFingerprint(project *android.Project, reads buildFileReaders) (string, bool) {
 	h := hashutil.Hasher().New()
 	if project == nil {
 		return hex.EncodeToString(h.Sum(nil)), true
@@ -31,30 +50,23 @@ func buildFilesFingerprint(project *android.Project, readsGraph bool) (string, b
 	if !writePathHashes(h, "gradle", project.GradlePaths) {
 		return "", false
 	}
-	if !readsGraph {
-		return hex.EncodeToString(h.Sum(nil)), true
-	}
-	scanned := make(map[string]bool, len(project.GradlePaths))
-	for _, path := range project.GradlePaths {
-		scanned[path] = true
-	}
-	memo := hashutil.Default()
-	inputs := projectBuildGraphs(project)
-	for _, build := range inputs.layouts {
-		_, _ = h.Write([]byte("graph\x00" + build.root + "\x00"))
-		for _, m := range build.modules {
-			_, _ = h.Write([]byte(m + "\x00"))
+	if reads.moduleGraph {
+		scanned := make(map[string]bool, len(project.GradlePaths))
+		for _, path := range project.GradlePaths {
+			scanned[path] = true
 		}
-		writeUnscannedFileHashes(h, memo, build.files, scanned)
+		memo := hashutil.Default()
+		for _, build := range projectBuildGraphs(project) {
+			_, _ = h.Write([]byte("graph\x00" + build.root + "\x00"))
+			for _, m := range build.modules {
+				_, _ = h.Write([]byte(m + "\x00"))
+			}
+			writeUnscannedFileHashes(h, memo, build.files, scanned)
+		}
 	}
-	_, _ = h.Write([]byte("scripts\x00"))
-	writeUnscannedFileHashes(h, memo, inputs.scripts, scanned)
-	// Every directory a catalog search globbed, with what it found: a catalog created in one changes what is read.
-	_, _ = h.Write([]byte("catalogs\x00"))
-	for _, c := range inputs.catalogDirs {
-		_, _ = h.Write([]byte(c.dir + "\x00" + strings.Join(c.matches, "\x00") + "\x01"))
+	if reads.gradleInfo {
+		_, _ = h.Write([]byte("gradle-info\x00" + manifestGradleInfoFingerprint(project)))
 	}
-	writeUnscannedFileHashes(h, memo, inputs.catalogs, scanned)
 	return hex.EncodeToString(h.Sum(nil)), true
 }
 
@@ -83,70 +95,53 @@ type buildGraphLayout struct {
 	files   []string
 }
 
-// buildGraphInputs is what the module-graph rules read from disk beyond the scan: the layout of every build that
-// holds a manifest they read the graph for, sorted by root; the build-script candidates of every manifest
-// (rules.ManifestBuildScriptCandidates) that no layout lists, sorted; and the version-catalog search of every
-// manifest's module directory (rules.VersionCatalogSearch), which can make a module an app through a plugin alias:
-// each globbed directory with its matches, sorted by directory, and the matched catalogs, sorted.
-type buildGraphInputs struct {
-	layouts     []buildGraphLayout
-	scripts     []string
-	catalogDirs []catalogDir
-	catalogs    []string
-}
-
-// catalogDir is one directory a version-catalog search globbed and the catalogs it found there.
-type catalogDir struct {
-	dir     string
-	matches []string
-}
-
-// buildGraphMemo shares projectBuildGraphs between the findings-bundle and manifest-source keys of one run. An entry
-// is valid for one generation of the shared hashutil Memo, which the CLI and the daemon clear at the start of every
-// scan, and for one set of manifest and Gradle paths. It only feeds cache keys, so runs without caches never read a
-// stale one.
-var buildGraphMemo struct {
+// runScoped memoizes one value for one run. An entry is valid for one generation of the shared hashutil Memo, which
+// the CLI and the daemon clear at the start of every scan, and for one identity (the project's paths). The values
+// only feed cache keys, so runs without caches never read a stale one.
+type runScoped[T any] struct {
 	mu         sync.Mutex
 	generation uint64
 	identity   string
-	inputs     buildGraphInputs
+	value      T
 	valid      bool
 }
 
-// projectBuildGraphs returns the build files the module-graph rules read for the project's manifests. When no
-// manifest declares what a rule reads the graph for (rules.ManifestNeedsModuleGraph), the rules read nothing and it
-// is empty. Otherwise it holds the layout of every Gradle build with such a manifest, and the build-script
-// candidates of every manifest, since the rule reads each manifest's script to find the apps. The upward build-root
-// search is shared across manifests, and each build is discovered once per run, without source roots.
-func projectBuildGraphs(project *android.Project) buildGraphInputs {
-	identity := strings.Join(project.ManifestPaths, "\x00") + "\x01" + strings.Join(project.GradlePaths, "\x00")
+func (m *runScoped[T]) get(identity string, compute func() T) T {
 	generation := hashutil.Default().Generation()
-	buildGraphMemo.mu.Lock()
-	defer buildGraphMemo.mu.Unlock()
-	if buildGraphMemo.valid && buildGraphMemo.generation == generation && buildGraphMemo.identity == identity {
-		return buildGraphMemo.inputs
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if !m.valid || m.generation != generation || m.identity != identity {
+		m.value = compute()
+		m.generation, m.identity, m.valid = generation, identity, true
 	}
+	return m.value
+}
+
+// buildGraphMemo shares projectBuildGraphs between the findings-bundle and manifest-source keys of one run.
+var buildGraphMemo runScoped[[]buildGraphLayout]
+
+// projectBuildGraphs returns the layout of every Gradle build the module-graph rules read for the project's
+// manifests, sorted by root. When no manifest declares what a rule reads the graph for (rules.ManifestNeedsModuleGraph),
+// the rules read nothing and it is empty. The upward build-root search is shared across manifests, and each build is
+// discovered once per run, without source roots.
+func projectBuildGraphs(project *android.Project) []buildGraphLayout {
+	return buildGraphMemo.get(strings.Join(project.ManifestPaths, "\x00"), func() []buildGraphLayout {
+		return discoverBuildGraphs(project.ManifestPaths)
+	})
+}
+
+func discoverBuildGraphs(manifests []string) []buildGraphLayout {
 	var finder module.BuildRootFinder
 	roots := map[string]bool{}
-	needed := false
 	memo := hashutil.Default()
-	for _, manifest := range project.ManifestPaths {
+	for _, manifest := range manifests {
 		// The manifest content is in every key this feeds, so skipping a manifest no rule discovers a graph for is
 		// safe: editing it in moves the key anyway. An unreadable manifest is searched. Reading it through the memo
 		// leaves its hash there for the manifest fingerprints, so it is read once.
-		var content []byte
-		_, err := memo.HashFile(manifest, func() ([]byte, error) {
-			b, err := os.ReadFile(manifest)
-			content = b
-			return b, err
-		})
-		if err == nil && content == nil {
-			content, err = os.ReadFile(manifest)
-		}
+		content, err := readThroughMemo(memo, manifest)
 		if err == nil && !rules.ManifestNeedsModuleGraph(content) {
 			continue
 		}
-		needed = true
 		if root := finder.Find(filepath.Dir(manifest)); root != "" {
 			roots[root] = true
 		}
@@ -169,79 +164,147 @@ func projectBuildGraphs(project *android.Project) buildGraphInputs {
 		sort.Strings(layout.modules)
 		layouts = append(layouts, layout)
 	}
-	inputs := buildGraphInputs{layouts: layouts}
-	if needed {
-		inputs.scripts = manifestScriptsOutsideGraphs(project.ManifestPaths, layouts)
-		inputs.catalogDirs, inputs.catalogs = manifestCatalogSearches(project.ManifestPaths)
-	}
-	buildGraphMemo.generation, buildGraphMemo.identity, buildGraphMemo.inputs, buildGraphMemo.valid =
-		generation, identity, inputs, true
-	return inputs
+	return layouts
 }
 
-// manifestScriptsOutsideGraphs returns, sorted, the build-script candidates of the manifests that none of the
-// layouts already lists.
-func manifestScriptsOutsideGraphs(manifests []string, layouts []buildGraphLayout) []string {
+// readThroughMemo reads a file, leaving its content hash in the memo so the fingerprints that hash it next don't read
+// it again.
+func readThroughMemo(memo *hashutil.Memo, path string) ([]byte, error) {
+	var content []byte
+	_, err := memo.HashFile(path, func() ([]byte, error) {
+		b, err := os.ReadFile(path)
+		content = b
+		return b, err
+	})
+	if err == nil && content == nil {
+		content, err = os.ReadFile(path)
+	}
+	return content, err
+}
+
+// manifestGradleInfoMemo shares manifestGradleInfoFingerprint between the keys of one run.
+var manifestGradleInfoMemo runScoped[string]
+
+// manifestGradleInfoFingerprint hashes what readManifestGradleInfo reads from disk for the project's manifests
+// beyond the manifest itself (#1853):
+//   - the build script each manifest's module is read from (rules.ManifestBuildScript, the first of its candidates
+//     that exists, searched again every run, so creating a nearer one or deleting the one read moves the key) and that
+//     script's content;
+//   - for a script with plugin aliases, the version-catalog search of its directory (rules.VersionCatalogSearch):
+//     every directory it globbed with its gradle/*.versions.toml matches, an empty list included, so a catalog
+//     created in one moves the key;
+//   - for a script with libs. dependency aliases, the catalog sources librarymodel's discovery finds for it;
+//   - the content, or absence, of every catalog file those searches found.
+//
+// Scripts with no alias read no catalog, so their searches are skipped (rules.BuildScriptCatalogReads); the script's
+// own content is keyed, so adding an alias moves the key. Each directory is globbed, and each script searched, once
+// per run, across the CPUs, and the fingerprint is computed once per run for every key that folds it in.
+func manifestGradleInfoFingerprint(project *android.Project) string {
+	if project == nil || len(project.ManifestPaths) == 0 {
+		return ""
+	}
+	return manifestGradleInfoMemo.get(strings.Join(project.ManifestPaths, "\x00"), func() string {
+		return computeManifestGradleInfoFingerprint(project.ManifestPaths)
+	})
+}
+
+func computeManifestGradleInfoFingerprint(manifests []string) string {
+	memo := hashutil.Default()
+	workers := sysres.CPUs()
+	scripts := make([]string, len(manifests))
+	forEachParallel(len(manifests), workers, func(i int) { scripts[i] = rules.ManifestBuildScript(manifests[i]) })
+	owners := make([]string, len(manifests))
+	var unique []string
 	seen := map[string]bool{}
-	for _, layout := range layouts {
-		for _, file := range layout.files {
-			seen[file] = true
+	for i, script := range scripts {
+		owners[i] = manifests[i] + "\x00" + script
+		if script != "" && !seen[script] {
+			seen[script] = true
+			unique = append(unique, script)
 		}
 	}
-	var scripts []string
-	for _, manifest := range manifests {
-		for _, script := range rules.ManifestBuildScriptCandidates(manifest) {
-			if !seen[script] {
-				seen[script] = true
-				scripts = append(scripts, script)
-			}
-		}
-	}
-	sort.Strings(scripts)
-	return scripts
-}
-
-// manifestCatalogSearches runs the version-catalog search of every manifest's module directory, the directory of its
-// first build-script candidate that exists (lookupManifestGradleInfo's choice; which one that is, is keyed by the
-// candidates' hashes). Each directory is globbed and each module directory searched once.
-func manifestCatalogSearches(manifests []string) ([]catalogDir, []string) {
-	globbed := map[string][]string{}
+	var globbed sync.Map // directory -> its sorted gradle/*.versions.toml matches
 	glob := func(dir string) []string {
-		matches, ok := globbed[dir]
-		if !ok {
-			matches = rules.VersionCatalogGlob(dir)
-			globbed[dir] = matches
+		if matches, ok := globbed.Load(dir); ok {
+			return matches.([]string)
 		}
-		return matches
+		matches, _ := globbed.LoadOrStore(dir, rules.VersionCatalogGlob(dir))
+		return matches.([]string)
 	}
-	searched := map[string]bool{}
-	catalogSet := map[string]bool{}
-	for _, manifest := range manifests {
-		moduleDir := ""
-		for _, script := range rules.ManifestBuildScriptCandidates(manifest) {
-			if _, err := os.Stat(script); err == nil {
-				moduleDir = filepath.Dir(script)
-				break
+	discovery := librarymodel.NewCatalogDiscovery()
+	type scriptReads struct {
+		pluginCatalogs []string // the catalog search's matches
+		library        string   // the script with librarymodel's catalog sources for it
+		libraryPaths   []string
+	}
+	reads := make([]scriptReads, len(unique))
+	forEachParallel(len(unique), workers, func(i int) {
+		script := unique[i]
+		content, err := readThroughMemo(memo, script)
+		if err != nil {
+			return
+		}
+		pluginAliases, dependencyAliases := rules.BuildScriptCatalogReads(string(content))
+		if pluginAliases {
+			_, reads[i].pluginCatalogs = rules.VersionCatalogSearch(filepath.Dir(script), glob)
+		}
+		if dependencyAliases {
+			entry := script
+			sources, _ := discovery.FindVersionCatalogSourcesForGradlePath(script)
+			for _, source := range sources {
+				entry += "\x00" + string(source.Kind) + "\x00" + source.Path
+				reads[i].libraryPaths = append(reads[i].libraryPaths, source.Path)
 			}
+			reads[i].library = entry
 		}
-		if moduleDir == "" || searched[moduleDir] {
-			continue
-		}
-		searched[moduleDir] = true
-		_, matches := rules.VersionCatalogSearch(moduleDir, glob)
-		for _, catalog := range matches {
+	})
+	catalogSet := map[string]bool{}
+	var librarySources []string
+	for _, r := range reads {
+		for _, catalog := range r.pluginCatalogs {
 			catalogSet[catalog] = true
 		}
+		for _, catalog := range r.libraryPaths {
+			catalogSet[catalog] = true
+		}
+		if r.library != "" {
+			librarySources = append(librarySources, r.library)
+		}
 	}
-	dirs := make([]catalogDir, 0, len(globbed))
-	for dir, matches := range globbed {
-		dirs = append(dirs, catalogDir{dir: dir, matches: matches})
+	h := hashutil.Hasher().New()
+	_, _ = h.Write([]byte("scripts\x00"))
+	sort.Strings(owners)
+	for _, owner := range owners {
+		_, _ = h.Write([]byte(owner + "\x01"))
 	}
-	sort.Slice(dirs, func(i, j int) bool { return dirs[i].dir < dirs[j].dir })
-	catalogs := make([]string, 0, len(catalogSet))
-	for catalog := range catalogSet {
-		catalogs = append(catalogs, catalog)
+	sort.Strings(unique)
+	writeUnscannedFileHashes(h, memo, unique, nil)
+	// Every directory a catalog search globbed, with what it found: a catalog created in one changes what is read.
+	_, _ = h.Write([]byte("catalog-search\x00"))
+	var dirs []string
+	globbed.Range(func(dir, _ any) bool {
+		dirs = append(dirs, dir.(string))
+		return true
+	})
+	sort.Strings(dirs)
+	for _, dir := range dirs {
+		_, _ = h.Write([]byte(dir + "\x00" + strings.Join(glob(dir), "\x00") + "\x01"))
 	}
-	sort.Strings(catalogs)
-	return dirs, catalogs
+	_, _ = h.Write([]byte("catalog-sources\x00"))
+	sort.Strings(librarySources)
+	for _, entry := range librarySources {
+		_, _ = h.Write([]byte(entry + "\x01"))
+	}
+	_, _ = h.Write([]byte("catalogs\x00"))
+	writeUnscannedFileHashes(h, memo, sortedKeys(catalogSet), nil)
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+func sortedKeys[V any](m map[string]V) []string {
+	keys := make([]string, 0, len(m))
+	for key := range m {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }

@@ -66,7 +66,11 @@ func hasManifestSourceRules(activeRules []*api.Rule) bool {
 
 // manifestSourceSourceFingerprint hashes the (path, content hash) pair of
 // every project source file: the parsed files plus any path the parse phase
-// skipped as a findings-cache hit.
+// skipped as a findings-cache hit. A hash comes from the analysis cache
+// (in.SourceHashes, 16 hex characters) when it has one, and from the memo (64)
+// otherwise, so every hash is canonicalized to one width
+// (canonResourceSourceHash): the same content must give the same key whichever
+// run hashed it, or a warm run misses the entry a cold run wrote (#1853).
 func (in AndroidInput) manifestSourceSourceFingerprint() (string, bool) {
 	memo := hashutil.Default()
 	hashes := map[string]string{}
@@ -112,7 +116,7 @@ func (in AndroidInput) manifestSourceSourceFingerprint() (string, bool) {
 	for _, path := range paths {
 		h.Write([]byte(path))
 		h.Write([]byte{0})
-		h.Write([]byte(hashes[path]))
+		h.Write([]byte(canonResourceSourceHash(hashes[path])))
 		h.Write([]byte{0})
 	}
 	return hex.EncodeToString(h.Sum(nil)), true
@@ -123,7 +127,7 @@ func (in AndroidInput) manifestSourceSourceFingerprint() (string, bool) {
 // a library manifest and can reach build files outside the scan paths (#1625, #1800). Groovy build.gradle files are
 // not source files, so the source fingerprint misses them. See buildFilesFingerprint.
 func (in AndroidInput) manifestSourceGradleFingerprint() (string, bool) {
-	return buildFilesFingerprint(in.Project, rules.ReadsModuleGraph(in.ActiveRules))
+	return buildFilesFingerprint(in.Project, buildFileReadersOf(in.ActiveRules))
 }
 
 func (in AndroidInput) manifestSourceKey(manifestFP, sourceFP string) string {

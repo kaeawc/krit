@@ -268,3 +268,69 @@ func TestResourceBuildInfoReaders_KeyOnWhatTheyRead(t *testing.T) {
 		})
 	}
 }
+
+// rbRelativeBehavior is a layout RelativeClassResolution reports: an error in a library module, a warning in an app.
+const rbRelativeBehavior = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<FrameLayout xmlns:android=\"http://schemas.android.com/apk/res/android\"\n    xmlns:app=\"http://schemas.android.com/apk/res-auto\"\n    android:layout_width=\"match_parent\"\n    android:layout_height=\"match_parent\">\n    <View\n        android:layout_width=\"match_parent\"\n        android:layout_height=\"match_parent\"\n        app:layout_behavior=\".Behavior\" />\n</FrameLayout>\n"
+
+// runBuildInfoPhaseSeverities is runBuildInfoPhase returning the severity of each finding.
+func runBuildInfoPhaseSeverities(t *testing.T, project *android.Project, active []*api.Rule, cacheDir string) string {
+	t.Helper()
+	hashutil.ResetDefault()
+	writer := scanner.NewAndroidCacheWriter(2)
+	res, err := (AndroidPhase{}).Run(context.Background(), AndroidInput{
+		Project:        project,
+		ActiveRules:    active,
+		Dispatcher:     rules.NewDispatcher(active, nil),
+		RuleHash:       "test-rule-hash",
+		LibraryFactsFP: "test-lf",
+		CacheDir:       cacheDir,
+		CacheWriter:    writer,
+	})
+	if err != nil {
+		t.Fatalf("AndroidPhase.Run: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for i := 0; i < res.Findings.Len(); i++ {
+		got = append(got, res.Findings.SeverityAt(i))
+	}
+	return strings.Join(got, ",")
+}
+
+// RelativeClassResolution tells a library module (error) from an app (warning) by the plugin a catalog alias names,
+// so an edit of only a non-libs catalog that turns the library into an app must re-run it through the res-dir key and
+// every other key that replays resource findings (#1883). Edits run forward only.
+func TestRelativeClassResolution_KeysOnNonLibsCatalog(t *testing.T) {
+	const catalogRel = "gradle/deps.versions.toml"
+	rule := registeredRule(t, "RelativeClassResolution")
+	active := []*api.Rule{rule}
+	p := &manifestSourceProject{t: t, dir: t.TempDir()}
+	p.write(rbSettingsRel, "include(\":lib\")\n")
+	p.write(rbBuildRel, rbBuildWithAlias("deps"))
+	p.write(catalogRel, rbCatalogOf("com.android.library"))
+	p.write(rbLayoutRel, rbRelativeBehavior)
+	project := &android.Project{ResDirs: []string{p.path(rbResDirRel)}, GradlePaths: []string{p.path(rbBuildRel), p.path(rbSettingsRel)}}
+	cacheDir := filepath.Join(p.dir, ".krit", "android-findings-cache")
+	if cold, truth := runBuildInfoPhaseSeverities(t, project, active, cacheDir), runBuildInfoPhaseSeverities(t, project, active, ""); cold != "error" || truth != cold {
+		t.Fatalf("cold run severities %q, cache-free %q, want error", cold, truth)
+	}
+	for _, e := range []struct{ body, want string }{
+		{rbCatalogOf("com.android.application"), "warning"},
+		{rbCatalogOf("com.android.library") + "# a library again\n", "error"},
+	} {
+		before := resourceRunKeys(t, project, active)
+		p.write(catalogRel, e.body)
+		after := resourceRunKeys(t, project, active)
+		for i := range before {
+			if before[i] == after[i] {
+				t.Errorf("edit of %s: %s key did not move", catalogRel, strings.Fields(before[i])[0])
+			}
+		}
+		truth := runBuildInfoPhaseSeverities(t, project, active, "")
+		if warm := runBuildInfoPhaseSeverities(t, project, active, cacheDir); warm != truth || truth != e.want {
+			t.Fatalf("edit of %s: warm severities %q, cache-free %q, want %q", catalogRel, warm, truth, e.want)
+		}
+	}
+}

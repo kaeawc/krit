@@ -131,3 +131,70 @@ func TestResourceRulesWarmRunFollowsVersionCatalog(t *testing.T) {
 		})
 	}
 }
+
+// RelativeClassResolution reports a relative layout_behavior class as an error in a library module, where it resolves
+// against the applicationId at runtime, and as a warning in an app module. It reads the module's plugins through the
+// catalog an alias names, so an edit of only a non-libs catalog that turns the library into an app must change a warm
+// run's finding exactly as a cache-free run's (#1883). Edits run forward only.
+func TestRelativeClassResolutionWarmRunFollowsVersionCatalog(t *testing.T) {
+	const (
+		catalogRel = "gradle/deps.versions.toml"
+		layout     = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<androidx.coordinatorlayout.widget.CoordinatorLayout xmlns:android=\"http://schemas.android.com/apk/res/android\"\n    xmlns:app=\"http://schemas.android.com/apk/res-auto\"\n    android:layout_width=\"match_parent\"\n    android:layout_height=\"match_parent\">\n    <View\n        android:layout_width=\"match_parent\"\n        android:layout_height=\"match_parent\"\n        app:layout_behavior=\".Behavior\" />\n</androidx.coordinatorlayout.widget.CoordinatorLayout>\n"
+	)
+	catalogOf := func(id string) string {
+		return "[plugins]\nmod = { id = \"" + id + "\", version = \"8.5.0\" }\n"
+	}
+	app, library := catalogOf("com.android.application"), catalogOf("com.android.library")
+	project := filepath.Join(t.TempDir(), "project")
+	write := func(rel, body string) {
+		t.Helper()
+		path := filepath.Join(project, rel)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("settings.gradle.kts", "include(\":lib\")\n")
+	write("krit.yml", "android-lint:\n  RelativeClassResolution:\n    active: true\n")
+	write("lib/build.gradle.kts", "plugins {\n    alias(deps.plugins.mod)\n}\n\nandroid {\n    namespace = \"com.example.lib\"\n}\n")
+	write(catalogRel, library)
+	write("lib/src/main/res/layout/view.xml", layout)
+	// severities lists the severity of each RelativeClassResolution finding.
+	severities := func(args ...string) string {
+		t.Helper()
+		stdout, stderr, _ := runKrit(t, append(append([]string{"--no-daemon", "-f", "json", "--config", filepath.Join(project, "krit.yml")}, args...), project)...)
+		var report struct {
+			Findings []struct {
+				Rule     string `json:"rule"`
+				Severity string `json:"severity"`
+				Message  string `json:"message"`
+			} `json:"findings"`
+		}
+		if err := json.Unmarshal([]byte(stdout), &report); err != nil {
+			t.Fatalf("parse report: %v\nstderr: %s", err, stderr)
+		}
+		var got []string
+		for _, f := range report.Findings {
+			if strings.EqualFold(f.Rule, "RelativeClassResolution") {
+				got = append(got, f.Severity+": "+f.Message)
+			}
+		}
+		return strings.Join(got, "\n")
+	}
+	truth := func() string { return severities("--no-cache", "--no-cross-file-cache") }
+	const libraryMessage, appMessage = "error: Relative class name (`.Behavior`) will resolve using applicationId", "warning: Relative class name (`.Behavior`) is fragile"
+	if warm, cold := severities(), truth(); !strings.HasPrefix(warm, libraryMessage) || warm != cold {
+		t.Fatalf("cold run: %q, cache-free %q, want %q", warm, cold, libraryMessage)
+	}
+	for _, e := range []struct{ body, want string }{
+		{app, appMessage},
+		{library + "# a library again\n", libraryMessage},
+	} {
+		write(catalogRel, e.body)
+		if warm, cold := severities(), truth(); warm != cold || !strings.HasPrefix(cold, e.want) {
+			t.Fatalf("after writing %s: warm run %q, cache-free %q, want %q for both", catalogRel, warm, cold, e.want)
+		}
+	}
+}

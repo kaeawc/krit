@@ -707,12 +707,15 @@ All notable changes to Krit will be documented in this file.
   `--no-cache` scan therefore runs krit-fir in full. A daemon-delegated scan forwards the oracle part too, including
   the `KRIT_MODULE_SHARDS` module facts. The content-keyed parse cache and the content-hash memo stay on (#1818,
   #1831).
-  index, resource index, file-walk and incremental oracle caches. Only the parse cache stays on (#1818).
 - `ArgInFormattedQuantityStringRes` reports `getQuantityString` on a Kotlin subclass of `Resources`, direct or
   indirect and declared in any file, and on `resources` of a Kotlin `ContextWrapper`, Activity or View subclass. The
   resolver records supertypes as written, so each is now resolved through its declaring file's imports. A lookalike
   `Resources` stays silent. A Java subclass is still missed (#1885). The per-file cache keys a class's supertype imports,
   so swapping only the import a supertype resolves through re-analyzes the files that use the class (#1857).
+- `DoNotCallViewToString` no longer reports `toString()` in an extension on `List<KView>`, `Map<String, KView>` or
+  `Array<KView>`: an extension receiver's type is now its own name, not the last name in its type arguments. The same
+  receiver lookup feeds the Wire proto receiver exemption of `UnsafeCallOnNullableType` and `UnnecessaryNotNullOperator`
+  and the same-file `toString()` extension check of `NullableToStringCall` (#1926).
 - Gradle plugin: with FIR on, the check tasks run the R tasks of exported Android test components
   (`generate<Variant>UnitTestStubRFile`, `process<Variant>AndroidTestResources`). On a clean checkout FIR compiled unit
   and instrumented tests without their own R class, so test files that use `R` were gated (#1724).

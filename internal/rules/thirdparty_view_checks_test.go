@@ -208,14 +208,20 @@ class KView(c: Context) : LinearLayout(c) {
 fun KView.describe() = toString()
 fun String.other() = toString()
 fun KView?.orNull() = toString()
+fun List<KView>.list() = toString()
+fun Map<String, KView>.map() = toString()
+fun Array<KView>.array() = toString()
+fun List<KView>?.nullableList() = toString()
+fun com.example.KView.qualified() = toString()
 `})
 	var lines []int
 	for _, f := range got {
 		lines = append(lines, f.Line)
 	}
 	sort.Ints(lines)
-	if fmt.Sprint(lines) != "[10 13]" {
-		t.Errorf("DoNotCallViewToString: want lines 10 and 13, got %v", got)
+	// A View inside the receiver's type arguments doesn't make the receiver a View (#1926).
+	if fmt.Sprint(lines) != "[10 13 20]" {
+		t.Errorf("DoNotCallViewToString: want lines 10, 13 and 20, got %v", got)
 	}
 	got = runRuleOnSourcesWithResolverAll(t, "InflationInItemDecoration", map[string]string{"Deco.kt": `package com.example
 

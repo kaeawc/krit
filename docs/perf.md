@@ -158,7 +158,8 @@ processes.
 
 Caps the **on-disk** parse-cache size (default 1024 MB; `0` = use config or
 default; negative = unlimited). Independent of `--max-parse-bytes` — that
-one bounds RAM, this one bounds disk.
+one bounds RAM, this one bounds disk. A scan with a non-zero value runs
+in-process: the daemon's parse cache is resident and keeps the default cap.
 
 ### `--idle-timeout DURATION`
 
@@ -294,9 +295,10 @@ need the throughput more than the accuracy.
 
 ### `--no-type-inference`
 
-Skips source-level type inference. Rules that depend on resolved types
-either degrade to AST-only matching or skip entirely. Saves ~10–30% on a
-typical Kotlin scan but suppresses some findings.
+Turns the JVM type oracle off, as `--no-type-oracle` does, and a
+daemon-delegated scan sends it as `--no-type-oracle`. Despite the name,
+source-level type inference still runs: the index phase builds the resolver
+whether or not the flag is set (#1973).
 
 ### `--no-type-oracle`
 
@@ -331,15 +333,15 @@ near-zero on a warm run.
 | Flag | What it disables |
 |---|---|
 | `--no-cache` | Every cache that can change findings: the incremental analysis cache, the cross-file index and the cross-file findings cache, the findings bundle, the Android findings cache, the resource index, the file-walk cache, the tracked-files cache (the git file listing), the type-index and library-profile caches, the incremental oracle cache, the `--fir` check cache `.krit/fir-cache` and the incremental FIR bundle `.krit/fir-incremental`. None of these is read or written. The content-keyed parse cache (Kotlin, Java and XML trees) and the content-hash memo stay on, and a type-oracle run still writes its output, `.krit/types.json`. A daemon-delegated scan forwards the flag, and the daemon also skips its on-disk parse cache for that call, but not the parsed trees it holds in memory. An in-process `--no-cache` scan is therefore not a cold baseline for a change to parsing, the grammar or tree repair: see [Cold baseline for parser changes](#cold-baseline-for-parser-changes) |
-| `--no-parse-cache` | Tree-sitter parse-tree cache (Kotlin, Java and XML trees): every file is parsed afresh, and the cache is neither read nor written. A daemon-delegated scan forwards the flag, and the daemon also skips the parsed trees it holds in memory for that call. A daemon that does not confirm the bypass gets no delegation: the scan runs in process (#1919) |
+| `--no-parse-cache` | Tree-sitter parse-tree cache (Kotlin, Java and XML trees): the scan parses every file it does not replay from the findings or analysis cache, and the parse cache is neither read nor written. Without `--no-cache` the findings bundle still replays, in-process and delegated alike. A daemon-delegated scan forwards the flag, and the daemon also skips the parsed trees it holds in memory for that call. A daemon that does not confirm the bypass gets no delegation: the scan runs in process (#1919) |
 | `--no-resource-cache` | Android values-XML ResourceIndex cache |
-| `--no-cross-file-cache` | Cross-file index cache |
+| `--no-cross-file-cache` | Cross-file index cache. Runs in-process unless `--no-cache` is set |
 | `--no-cache-oracle` | Incremental oracle cache (forces full JVM run) |
 | `--no-matrix-cache` | Experiment-matrix baseline cache |
 | `--clear-cache` | Delete all caches (including `.krit/fir-cache` and `.krit/fir-incremental`) and exit |
 | `--clear-matrix-cache` | Delete the experiment-matrix baseline cache and exit |
-| `--cache-dir PATH` | Override incremental cache directory |
-| `--store-dir PATH` | Use the unified store-backed cache |
+| `--cache-dir PATH` | Override incremental cache directory. Runs in-process |
+| `--store-dir PATH` | Use the unified store-backed cache. Runs in-process |
 
 ### Cache inventory and invalidation
 

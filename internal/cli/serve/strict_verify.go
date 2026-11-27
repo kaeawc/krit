@@ -233,8 +233,8 @@ func (s *daemonState) runStrictVerify(ctx context.Context, args daemon.AnalyzePr
 		oracleDaemon = nil
 	}
 
-	// A --no-parse-cache request is compared against a baseline that parses
-	// every file afresh too.
+	// A --no-parse-cache request is compared against a baseline that skips
+	// the parse cache too.
 	var pc *scanner.ParseCache
 	if !args.NoParseCache {
 		pc, err = scanner.NewParseCacheWithCap(s.repoDir, cacheutil.DefaultParseCacheCapBytes)

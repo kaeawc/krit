@@ -516,11 +516,8 @@ func (r *runner) ensureProjectModel() {
 // and the resolved cost cap. Run rejects invalid scope flags before the scan
 // starts, so a parse error here cannot happen.
 func selectScanRules(f *scanFlags, cfg *config.Config) (selected []*api.Rule, beforeMaxCost int, maxCost api.Cost) {
-	disabledSet := clishared.ParseRuleNameSetCSV(*f.DisableRules)
+	disabledSet := scanDisabledRuleSet(f)
 	enabledSet := clishared.ParseRuleNameSetCSV(*f.EnableRules)
-	if *f.DisableRelated {
-		rules.ExpandWithRelated(disabledSet, api.Registry)
-	}
 	experimental := *f.Experimental || cfg.GetTopLevelBool("experimental", false)
 	strict := *f.Strict || cfg.GetTopLevelBool("strict", false)
 	selected = rules.ActiveRulesV2(disabledSet, enabledSet, *f.AllRules, experimental, strict)
@@ -532,6 +529,16 @@ func selectScanRules(f *scanFlags, cfg *config.Config) (selected []*api.Rule, be
 	only, exclude, _ := parseScopeFlags(f)
 	selected = rules.FilterByScope(selected, only, exclude)
 	return selected, beforeMaxCost, maxCost
+}
+
+// scanDisabledRuleSet is the --disable-rules set, with the related rules of
+// each entry added under --disable-related.
+func scanDisabledRuleSet(f *scanFlags) map[string]bool {
+	disabledSet := clishared.ParseRuleNameSetCSV(*f.DisableRules)
+	if *f.DisableRelated {
+		rules.ExpandWithRelated(disabledSet, api.Registry)
+	}
+	return disabledSet
 }
 
 // parseScopeFlags parses --only-scope and --exclude-scope.

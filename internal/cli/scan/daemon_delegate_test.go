@@ -582,12 +582,13 @@ func TestDaemonCompatibleFlags_PerfAllowed(t *testing.T) {
 		// the right place to serve it.
 		{"--no-cache", func(f *scanFlags) { *f.NoCache = true }, true},
 		// --clear-cache and --clear-matrix-cache are early-exit
-		// verbs handled outside the analyze path via
-		// tryDaemonClearCache / tryDaemonClearMatrixCache, so
-		// daemonCompatibleFlags must NOT short-circuit on them the
-		// way the analyze path used to.
-		{"--clear-cache", func(f *scanFlags) { *f.ClearCache = true }, true},
-		{"--clear-matrix-cache", func(f *scanFlags) { *f.ClearMatrixCache = true }, true},
+		// verbs a running daemon serves via tryDaemonClearCache /
+		// tryDaemonClearMatrixCache before the analyze path. When
+		// those find no daemon, the analyze path must not start one
+		// and run a scan that clears nothing: the clear runs
+		// in-process (#1956).
+		{"--clear-cache", func(f *scanFlags) { *f.ClearCache = true }, false},
+		{"--clear-matrix-cache", func(f *scanFlags) { *f.ClearMatrixCache = true }, false},
 		// --input-types and --sample-rule are daemon-served via the
 		// AnalyzeProjectArgs.InputTypesPath wire field / JSON-envelope
 		// post-processing on the CLI side.

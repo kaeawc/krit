@@ -291,7 +291,9 @@ type AnalyzeProjectArgs struct {
 	// project call without NoCache resumes normal cache behavior.
 	NoCache bool `json:"no_cache,omitempty"`
 	// NoParseCache mirrors --no-parse-cache: the request parses every
-	// Kotlin and Java file afresh. It neither reads nor writes the
+	// Kotlin and Java file it does not replay from the findings or
+	// analysis cache (without NoCache the findings bundle still replays,
+	// as in-process). It neither reads nor writes the
 	// daemon's parse cache, nor its resident parsed trees (which are
 	// filled from that cache), so a stale parse-cache entry cannot reach
 	// it. Both stay as they are for later requests. A daemon that

@@ -10,6 +10,98 @@ silently route them through the daemon and break user-visible behavior. Each
 section also notes what would have to change for daemon routing to become a
 sensible option.
 
+## Every scan flag
+
+Every flag of the scan verb has one of three routes:
+
+- **forwarded**: a delegated scan sends it to the daemon, as a field of the
+  analyze-project request or as a meta verb in its place.
+- **in-process**: setting it keeps the scan in-process.
+- **not needed**: the daemon needs nothing for it. The CLI applies it to the
+  daemon's result, it only picks the daemon, or it only matters next to a flag
+  that already runs in-process.
+
+A flag that is in none of these groups would be dropped silently by a delegated
+scan, which then reports different findings than the same command in-process
+(#1956). `internal/cli/scan/daemon_flag_routing_test.go` lists every flag in
+one of three lists (`forwardedScanFlags`, `inProcessScanFlags`,
+`irrelevantScanFlags`). It fails when a flag is in no list, sets each flag and
+checks the delegation decision matches its list, and checks this table matches
+the lists. A new flag needs an entry there, code that does what the entry says
+(`buildDaemonAnalyzeArgs` sends it, or `daemonCompatibleFlags` keeps the scan
+in-process) and a row here.
+
+| Flag | Route | How it reaches the daemon, or why not |
+|---|---|---|
+| `-f`, `--format` | forwarded | `format`; checkstyle and plain are rendered by the CLI from the shipped columns |
+| `--report` | forwarded | `format`; a `FORMAT=PATH` value runs in-process (see below) |
+| `-o` | not needed | the CLI writes the daemon's report to the file |
+| `-q` | not needed | the CLI prints the summary lines |
+| `-v` | forwarded | `verbose`; the daemon streams its verbose output back |
+| `-j` | not needed | worker count; findings do not depend on it |
+| `--perf`, `--perf-rules` | forwarded | `show_perf`, `perf_rules` |
+| `--profile-dispatch` | forwarded | `profile_dispatch` |
+| `--cpuprofile`, `--memprofile` | forwarded | absolute paths; the daemon process is profiled |
+| `--reproducible` | in-process | the daemon renders the envelope with its own timings and cache statistics |
+| `--include-generated` | forwarded | `include_generated` |
+| `--fix`, `--fix-binary`, `--remove-dead-code` | forwarded | `include_columns`; the CLI applies the fixes to the daemon's findings |
+| `--fix-level` | forwarded | `fix_level` |
+| `--dry-run` | forwarded | `dry_run` |
+| `--fix-suffix`, `--finding-id` | not needed | the CLI applies the fixes |
+| `--all-rules`, `--experimental`, `--enable-experimental` | forwarded | `all_rules`, `experimental` |
+| `--strict` | forwarded | `strict` (#1956: the field existed, the CLI did not set it) |
+| `--enable-rules`, `--disable-rules` | forwarded | `enable_rules`, `disable_rules` |
+| `--disable-related` | forwarded | the CLI adds the related rules to `disable_rules` |
+| `--max-cost`, `--only-scope`, `--exclude-scope` | in-process | the request carries no cost or scope filter |
+| `--min-confidence`, `--warnings-as-errors` | forwarded | `min_confidence`, `warnings_as_errors` |
+| `--baseline`, `--create-baseline` | forwarded | `baseline`, `create_baseline`; the CLI writes the new baseline file |
+| `--base-path`, `--absolute-paths` | forwarded | `base_path` (absolute), `absolute_paths` |
+| `--config` | in-process | unless it names the config at the daemon's root, which the daemon loads |
+| `--detekt-config`, `--no-detekt-config` | in-process | the request carries no detekt options |
+| `--enable-editorconfig` | in-process | rewrites the config; the daemon keeps one resident config |
+| `--experiment`, `--experiment-off` | in-process | process-wide experiment set, and no findings cache is keyed on it |
+| `--no-cache` | forwarded | `no_cache` |
+| `--no-parse-cache` | forwarded | `no_parse_cache`, confirmed by `parse_cache_bypassed` |
+| `--no-cross-file-cache` | in-process | the daemon also keeps a code index in memory; with `--no-cache` the scan is delegated |
+| `--parse-cache-cap-mb` | in-process | the daemon's parse cache is resident and keeps its default cap |
+| `--cache-dir`, `--store-dir` | in-process | the daemon keeps its caches in its own state directory |
+| `--no-resource-cache` | not needed | the daemon keeps no on-disk resource index cache |
+| `--clear-cache`, `--clear-matrix-cache` | in-process | a running daemon's clear verbs serve them first; with no daemon they clear in-process |
+| `--no-matrix-cache` | not needed | read by `--experiment-matrix`, which runs in-process |
+| `--no-type-inference` | forwarded | `no_type_oracle`: in-process the flag turns the type oracle off, and source inference still runs |
+| `--no-type-oracle`, `--no-cache-oracle` | forwarded | `no_type_oracle`, `no_cache_oracle` |
+| `--oracle-backend` | forwarded | `oracle_backend`, validated by the daemon |
+| `--no-oracle-filter` | in-process | changes which files the resident type oracle loads; it is the findings-equivalence baseline for the filter |
+| `--daemon` | not needed | picks the krit-fir oracle daemon of an in-process scan; the krit daemon keeps its oracle resident |
+| `--input-types` | forwarded | `input_types_path` (absolute) |
+| `--output-types` | forwarded | `dump-types` meta verb |
+| `--dump-oracle-diagnostics` | in-process | meta command with no daemon verb |
+| `--gradle-model`, `--no-gradle-model` | forwarded | `gradle_model`, `no_gradle_model` |
+| `--generated-srcjar` | forwarded | the CLI unpacks the jars into `oracle_source_dirs` and `oracle_generated_source_dirs` |
+| `--gradle-project-outputs` | in-process | the request carries no project outputs |
+| `--custom-rule-jars` | forwarded | `custom_rule_jars` |
+| `--fir`, `--no-fir` | forwarded | `fir`, `no_fir` |
+| `--no-fir-daemon` | forwarded | `no_fir_daemon` |
+| `--fail-on-degraded` | not needed | the CLI applies it to the daemon's FIR status |
+| `--min-fir-coverage` | in-process | the daemon's delta and fix paths carry no coverage gate |
+| `--min-sdk`, `--target-sdk` | in-process | set a process-wide default a daemon must not keep |
+| `--diff` | forwarded | `diff`; in PR mode the scan runs in-process (see below) |
+| `--delta` | forwarded | `include_columns`; the CLI filters against the base scan. In PR mode the scan runs in-process |
+| `--no-pr-mode` | not needed | without it a PR-mode scan runs in-process; with it the scan is delegated as usual |
+| `--pr-files` | not needed | PR mode of `--delta`'s base scan, which runs in-process when there is JVM work |
+| `--depth` | forwarded | the preset's flags (`fast` sets `no_type_oracle`) |
+| `--sample-rule`, `--sample-count`, `--sample-context` | not needed | the CLI samples the daemon's JSON findings |
+| `--rule-audit`, `--baseline-audit` | forwarded | `include_columns`; the CLI runs the audit |
+| `--rule-audit-min-findings`, `--rule-audit-details`, `--rule-audit-samples`, `--rule-audit-context`, `--rule-audit-cluster` | not needed | the CLI runs the audit |
+| `--list-rules`, `--validate-config`, `--oracle-filter-fingerprint`, `--list-experiments` | forwarded | meta verbs of the same names |
+| `--maturity`, `--cwe` | not needed | read by `--list-rules`, which sends them in the list-rules verb |
+| `--version`, `--init`, `--doctor`, `--completions`, `--generate-schema` | in-process | meta commands about the calling binary (see below) |
+| `--experiment-matrix`, `--promote-experiment`, `--deprecate-experiment`, `--new-experiment` | in-process | experiment workflow tools (see below) |
+| `--experiment-candidates`, `--experiment-intent`, `--experiment-runs`, `--experiment-targets` | not needed | read by `--experiment-matrix`, which runs in-process |
+| `--new-experiment-description`, `--new-experiment-intent`, `--new-experiment-target-rules`, `--new-experiment-wire-file` | not needed | read by `--new-experiment`, which runs in-process |
+| `--no-daemon` | in-process | asks for an in-process scan |
+| `--daemon-socket` | not needed | picks the daemon |
+
 ## Working directory
 
 A daemon is found by repo directory, not by working directory, so one daemon
@@ -86,8 +178,8 @@ The `daemon` package is Unix-only today (the repo lock uses `syscall.Flock`).
 ## Meta / non-analysis flags
 
 These flags do not run an analysis at all. The daemon's only client verb is
-`AnalyzeProject` (see `buildDaemonAnalyzeArgs` at
-`internal/cli/scan/daemon_delegate.go:100`); routing meta commands through it
+`AnalyzeProject` (see `buildDaemonAnalyzeArgs` in
+`internal/cli/scan/daemon_delegate.go`); routing meta commands through it
 would require new wire verbs and would still produce confusing semantics
 because the answer the user wants is about the *calling* CLI, not a
 long-lived background process.
@@ -406,33 +498,71 @@ resident `WorkspaceState` slots (parsed trees, type facts, resolver, code
 index), which are keyed on file content.
 
 `--no-parse-cache` rides on `AnalyzeProjectArgs.NoParseCache` (#1919): the
-request parses every Kotlin and Java file afresh, neither reading nor writing
-the daemon's parse cache or its resident parsed trees (which are filled from
-the parse cache, so a stale entry could otherwise reach the request through
-them). Both stay as they are for later requests. The daemon confirms the
-bypass in `AnalyzeProjectStats.ParseCacheBypassed`; when a daemon that
-predates the field leaves it unset, the CLI discards the result and scans
-in-process. Older daemons normally never see the request, because the binary
-hash handshake already rejects or replaces a daemon built from another binary.
+request parses every Kotlin and Java file it does not replay from the findings
+or analysis cache, neither reading nor writing the daemon's parse cache or its
+resident parsed trees (which are filled from the parse cache, so a stale entry
+could otherwise reach the request through them). Without `--no-cache` the
+findings bundle still replays, in-process and delegated alike. Both caches stay
+as they are for later requests. The daemon confirms the bypass in
+`AnalyzeProjectStats.ParseCacheBypassed`; when a daemon that predates the field
+leaves it unset, the CLI discards the result and scans in-process. Older
+daemons normally never see the request, because the binary hash handshake
+already rejects or replaces a daemon built from another binary. A
+`--no-parse-cache -v` scan does not stream the daemon's verbose output: it is
+printed once the result is accepted, so a fallback does not print it twice.
 
-These per-scan cache flags are still not carried on the wire, so a delegated
-scan ignores them: `--no-cross-file-cache` (pair it with `--no-cache` or
-`--no-daemon`), `--cache-dir` (the daemon keeps the analysis cache under its
-own `.krit/cache`) and `--parse-cache-cap-mb` (the daemon uses the default
-cap). `--no-resource-cache` has nothing to skip in the daemon, which keeps no
+These per-scan cache flags keep the scan in-process (#1956), since the daemon
+keeps its caches in its own state directory and memory: `--no-cross-file-cache`
+on its own (the daemon also keeps a code index in memory; with `--no-cache`,
+which implies it, the scan is delegated), `--cache-dir` and `--store-dir` (the
+daemon does not use the caches they point at) and `--parse-cache-cap-mb` (the
+daemon's parse cache is resident with the default cap). Forwarding them is
+#1947. `--no-resource-cache` has nothing to skip in the daemon, which keeps no
 on-disk resource index cache.
+
+`--clear-cache` and `--clear-matrix-cache` are served by a running daemon's
+clear verbs (see "Cache clears" above). With no daemon running they clear
+in-process; before #1956 such a run started a daemon, scanned and cleared
+nothing.
+
+## Process-wide state
+
+The daemon serves every request from one process, so a flag that changes
+process-wide state for one scan keeps that scan in-process (#1956):
+
+- `--experiment` and `--experiment-off` set the experiment set rules read
+  while they run (`experiment.SetCurrent`). No findings cache is keyed on it,
+  so a daemon would replay findings computed under another experiment set.
+- `--enable-editorconfig` merges `.editorconfig` properties into the config and
+  re-applies it to the rule registry; the daemon keeps one resident config.
+- `--no-oracle-filter` feeds every file to the type oracle. It is the
+  findings-equivalence baseline for the oracle filter, and would change what
+  the daemon's resident oracle has loaded.
+
+`--no-type-inference` is forwarded as `no_type_oracle`. In-process it only
+turns the type oracle off: the resolver it gates is not pre-built, and the
+index phase builds the source-level resolver anyway, so a delegated scan asks
+the daemon for no type oracle and gets the same findings. `--disable-related`
+is resolved by the CLI, which adds the related rules (from each rule's
+`RelatedRules` metadata) to the `disable_rules` list it sends. `--strict` rides
+on the `strict` field the daemon has honoured since #229.
 
 ## Adding a new flag
 
-When introducing a new CLI flag, decide which bucket it belongs in:
+When introducing a new CLI flag, add it to one of the three lists in
+`internal/cli/scan/daemon_flag_routing_test.go` and a row to the table at the
+top of this doc; the test fails until both exist and the code matches:
 
-- **Daemon-eligible:** flag affects only analysis inputs/outputs that already
-  cross the wire (`buildDaemonAnalyzeArgs`). Default; nothing to do.
-- **In-process forever:** flag falls into one of the categories above
-  (writes files at the client's CWD, mutates source under the repo, reports
-  on the calling binary's environment, or short-circuits to a bespoke
-  reporter). Add it to the appropriate group in `daemonCompatibleFlags` and
-  extend this doc with a one-paragraph rationale.
-- **Could be daemon-eligible later:** add to the in-process bucket today
-  and note here what wire change would unlock daemon routing, so a future
-  contributor can revisit without re-deriving the analysis.
+- **forwarded:** the daemon can honour the flag per request. Send it in
+  `buildDaemonAnalyzeArgs` (a new wire field also needs the daemon to apply it
+  for that request only, and a way for an older daemon to be caught: the
+  binary hash handshake, or a confirmation in the response as
+  `parse_cache_bypassed` does).
+- **in-process:** the flag falls into one of the categories above (writes files
+  at the client's CWD, mutates source under the repo, reports on the calling
+  binary's environment, short-circuits to a bespoke reporter, changes
+  process-wide or resident daemon state). Keep the scan in-process in
+  `daemonCompatibleFlags` and extend this doc with a one-paragraph rationale.
+  If it could be routed later, note what wire change would unlock it.
+- **not needed:** the CLI applies the flag to the daemon's result, or the flag
+  only matters next to one that already runs in-process. Say which.

@@ -69,3 +69,34 @@ func TestActiveRulesV2_RespectsExpandedDisabledSet(t *testing.T) {
 		t.Fatalf("unrelated rule C should remain active; got %v", ids)
 	}
 }
+
+// The built-in rules declare their RelatedRules in Meta() descriptors, not on
+// api.Rule, so expanding over the registry must read the descriptors, or
+// --disable-related disables nothing (#1956).
+func TestExpandWithRelated_ReadsRuleDescriptors(t *testing.T) {
+	disabled := map[string]bool{"KaptUsage": true}
+	ExpandWithRelated(disabled, api.Registry)
+	if !disabled["KotlinAndroidPluginWithBuiltInKotlin"] {
+		t.Fatalf("KaptUsage's related rule KotlinAndroidPluginWithBuiltInKotlin was not added: %v", disabled)
+	}
+	if len(disabled) != 2 {
+		t.Errorf("expansion should add only KaptUsage's one related rule; got %v", disabled)
+	}
+}
+
+// ValidateRelations checks api.Rule.RelatedRules at dispatcher construction;
+// relations declared in Meta() descriptors must name registered rules too.
+func TestRuleDescriptorRelatedRulesAreRegistered(t *testing.T) {
+	registered := make(map[string]bool, len(api.Registry))
+	for _, r := range api.Registry {
+		registered[r.ID] = true
+	}
+	for _, r := range api.Registry {
+		meta, _ := MetaForRule(r)
+		for _, related := range meta.RelatedRules {
+			if !registered[related] {
+				t.Errorf("rule %s lists unknown related rule %s", r.ID, related)
+			}
+		}
+	}
+}

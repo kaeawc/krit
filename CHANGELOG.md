@@ -662,6 +662,11 @@ All notable changes to Krit will be documented in this file.
   and Android framework classes (`Pair`, `Intent`, `WeakReference`) or a function whose comment says "Composable" for
   composables, and treats a local function's parameter as a shadow; `vararg` parameters follow Lint's array type in
   `ComposeMutableParameters` and `ComposeUnstableCollections` (#1948).
+- Warm CLI runs reuse cross-file findings on projects where one module sits inside another's directory (an
+  `app/benchmarks` module, a module at the repository root). The XML reference walk read such a module's layouts and
+  manifests once per enclosing module, and the duplicates kept the cross-file index from ever covering the warm run's
+  XML, so every warm run recomputed. On thunderbird-android with DeadCode, a warm run with no edit now skips parsing
+  and takes 2.6 s instead of 4.3 s (#1917).
 - MCP `analyze` (mode `android`) reports OnClick for a relative `projectPath`. The sources stayed relative while the
   res dirs were absolute, so no Activity matched its res dir's module (#1908). Rule pages now list a rule's known
   limitations, including OnClick's: a layout is checked only against Activities in its own module.

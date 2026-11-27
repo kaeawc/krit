@@ -49,3 +49,13 @@ fun CustomReturns(): Int {
     MyCard()
     return 1
 }
+
+@Composable
+fun Tab(title: String, content: @Composable () -> Unit) {}
+
+// A single-call loop body is checked shallowly, as compose-lints' forLoopHasUiEmitters does: key() is no emitter,
+// so the Text nested in its lambda does not make the loop count twice.
+@Composable
+fun KeyedTabs(tabs: List<String>) {
+    for (t in tabs) androidx.compose.runtime.key(t) { Tab(t) { Text(t) } }
+}

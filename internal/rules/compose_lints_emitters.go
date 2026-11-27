@@ -201,24 +201,14 @@ func (r *ComposeMultipleContentEmittersRule) forLoopEmits(file *scanner.File, st
 			}
 			continue
 		}
+		// compose-lints' KtCallExpression.emitsContent is shallow: the call itself must emit, so `key(t) { Text(t) }`
+		// does not count.
 		if single := file.FlatNamedChild(body, 0); single != 0 && file.FlatType(single) == "call_expression" &&
-			composeLintsEmitsDeep(file, single, emitters) {
+			emitters.emits(file, single) {
 			return true
 		}
 	}
 	return false
-}
-
-// composeLintsEmitsDeep is compose-lints' KtCallExpression.emitsContent for a call that is a loop body: the call or
-// any call nested in it emits.
-func composeLintsEmitsDeep(file *scanner.File, call uint32, emitters composeLintsEmitterSet) bool {
-	found := false
-	file.FlatWalkNodes(call, "call_expression", func(n uint32) {
-		if !found && emitters.emits(file, n) {
-			found = true
-		}
-	})
-	return found
 }
 
 func (r *ComposeContentEmitterReturningValuesRule) check(ctx *api.Context) {
@@ -276,6 +266,7 @@ func (r *ComposeNonRestartableComposableRule) check(ctx *api.Context) {
 	}
 	var previews *composeLintsPreviews
 	targets := newComposeLintsDelegateTargets(ctx.CodeIndex)
+	qualifiers := newComposeLintsQualifiers(ctx.CodeIndex)
 	for _, file := range ctx.CodeIndex.Files {
 		if file == nil || file.FlatTree == nil || file.Language != scanner.LangKotlin ||
 			!bytes.Contains(file.Content, []byte("Composable")) {
@@ -288,7 +279,7 @@ func (r *ComposeNonRestartableComposableRule) check(ctx *api.Context) {
 				return
 			}
 			call, receiver := composeLintsSingleDelegateCall(file, fn)
-			if call == 0 || !composeLintsForwardsOnly(file, fn, call, receiver) {
+			if call == 0 || !composeLintsForwardsOnly(file, fn, call, receiver, qualifiers) {
 				return
 			}
 			if !targets.delegatable(file, composeLintsCalleeName(file, call)) {
@@ -385,7 +376,7 @@ func composeLintsSingleDelegateCall(file *scanner.File, fn uint32) (uint32, uint
 // composeLintsForwardsOnly mirrors compose-lints' isForwardedValue/isForwardedReceiver: every argument is a
 // constant, a parameter, an uninterpolated string or `this`, and the receiver is `this`, a parameter, or a type or
 // package qualifier.
-func composeLintsForwardsOnly(file *scanner.File, fn, call, receiver uint32) bool {
+func composeLintsForwardsOnly(file *scanner.File, fn, call, receiver uint32, qualifiers *composeLintsQualifiers) bool {
 	params := map[string]bool{}
 	for _, p := range composeLintsParams(file, fn) {
 		params[strings.Trim(file.FlatChildTextOrEmpty(p.node, "simple_identifier"), "`")] = true
@@ -420,11 +411,107 @@ func composeLintsForwardsOnly(file *scanner.File, fn, call, receiver uint32) boo
 		return true
 	case "simple_identifier":
 		name := file.FlatNodeText(receiver)
-		return params[name] || acrFirstRuneIsUpper(name)
+		return params[name] || qualifiers.isType(name)
 	case "navigation_expression":
-		root, _ := composeLintsChain(file, receiver)
-		return root != 0 && file.FlatType(root) == "simple_identifier" && !params[file.FlatNodeText(root)] &&
-			!strings.Contains(file.FlatNodeText(receiver), "(")
+		root, selectors := composeLintsChain(file, receiver)
+		if root == 0 || file.FlatType(root) != "simple_identifier" || params[file.FlatNodeText(root)] ||
+			strings.Contains(file.FlatNodeText(receiver), "(") {
+			return false
+		}
+		return qualifiers.isQualifier(file, append([]string{file.FlatNodeText(root)}, selectors...))
+	}
+	return false
+}
+
+// composeLintsQualifiers mirrors compose-lints' isTypeOrPackageQualifier over the project: each segment of a
+// qualified receiver must name a type (class, object, interface or type alias) or extend a package prefix.
+type composeLintsQualifiers struct {
+	index *scanner.CodeIndex
+	// packages holds every project package and each of its dotted prefixes.
+	packages map[string]bool
+	types    map[string]bool
+}
+
+func newComposeLintsQualifiers(index *scanner.CodeIndex) *composeLintsQualifiers {
+	q := &composeLintsQualifiers{index: index, packages: map[string]bool{}, types: map[string]bool{}}
+	for _, f := range index.Files {
+		if f == nil {
+			continue
+		}
+		pkg := filePackageName(f)
+		for pkg != "" && !q.packages[pkg] {
+			q.packages[pkg] = true
+			i := strings.LastIndexByte(pkg, '.')
+			if i < 0 {
+				break
+			}
+			pkg = pkg[:i]
+		}
+	}
+	return q
+}
+
+// isType reports whether name resolves to a type: the project declares it as a class, object, interface or type
+// alias, or the project does not declare it at all and it is capitalized (a library type such as MaterialTheme).
+// A name the project declares only as a property or function (`val holder`, `val Holder`) is no type.
+func (q *composeLintsQualifiers) isType(name string) bool {
+	if v, ok := q.types[name]; ok {
+		return v
+	}
+	typeDecl, other := false, false
+	for _, sym := range q.index.SymbolsNamed(name) {
+		switch sym.Kind {
+		case "class", "object", "interface", "typealias":
+			typeDecl = true
+		default:
+			other = true
+		}
+	}
+	v := typeDecl || !other && acrFirstRuneIsUpper(name)
+	q.types[name] = v
+	return v
+}
+
+// isQualifier reports whether every segment of a dotted receiver is a package prefix or a type.
+func (q *composeLintsQualifiers) isQualifier(file *scanner.File, segments []string) bool {
+	prefix := ""
+	inPackage := true
+	for _, seg := range segments {
+		if prefix == "" {
+			prefix = seg
+		} else {
+			prefix += "." + seg
+		}
+		if inPackage && q.isPackage(file, prefix) {
+			continue
+		}
+		inPackage = false
+		if !q.isType(seg) {
+			return false
+		}
+	}
+	return true
+}
+
+// isPackage reports whether a dotted name is a project package (or a prefix of one) or a package prefix of one of
+// the file's imports.
+func (q *composeLintsQualifiers) isPackage(file *scanner.File, name string) bool {
+	if q.packages[name] {
+		return true
+	}
+	facts := fileFactsCache().Imports(file)
+	if facts == nil {
+		return false
+	}
+	for fqn := range facts.FQNs {
+		if strings.HasPrefix(fqn, name+".") {
+			return true
+		}
+	}
+	for base := range facts.Wildcards {
+		if strings.HasPrefix(base, name+".") {
+			return true
+		}
 	}
 	return false
 }

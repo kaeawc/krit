@@ -248,3 +248,58 @@ func TestComposeModifierWithoutDefaultFixSpelling(t *testing.T) {
 		})
 	}
 }
+
+// TestComposeNonRestartableComposableQualifiedReceiver checks compose-lints' isTypeOrPackageQualifier: every
+// segment of a qualified receiver must be a type or a package, so a chain rooted in a top-level property is not a
+// pass-through, while object, nested-object and package-qualified delegates are.
+func TestComposeNonRestartableComposableQualifiedReceiver(t *testing.T) {
+	r := findComposeLintsRule(t, "ComposeNonRestartableComposable")
+	file := parseInlineWithName(t, "Delegates.kt", `
+package com.example.ui
+
+import androidx.compose.runtime.Composable
+
+class Child {
+    @Composable
+    fun Render(text: String) {}
+}
+
+class Holder(val child: Child)
+
+val holder = Holder(Child())
+
+object Widgets {
+    object Labels {
+        @Composable
+        fun Render(text: String) {}
+    }
+}
+
+@Composable
+fun ViaProperty(text: String) {
+    holder.child.Render(text)
+}
+
+@Composable
+fun ViaObject(text: String) {
+    Widgets.Labels.Render(text)
+}
+
+@Composable
+fun ViaPackage(text: String) {
+    com.example.ui.Widgets.Labels.Render(text)
+}
+`)
+	got := runCrossFileRuleOnFiles(r, file)
+	lines := map[int]bool{}
+	for _, f := range got {
+		lines[f.Line] = true
+	}
+	// Findings sit on the @Composable annotation lines.
+	if lines[22] {
+		t.Errorf("holder.child.Render(text): a property-rooted receiver is not a type qualifier, got %v", got)
+	}
+	if !lines[27] || !lines[32] || len(got) != 2 {
+		t.Errorf("want findings for ViaObject (27) and ViaPackage (32) only, got %v", got)
+	}
+}

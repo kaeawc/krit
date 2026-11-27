@@ -583,7 +583,9 @@ Ports of Android Lint 32.4.1 checks with recorded Lint output under `tests/fixtu
 - `AnnotateVersionCheck` (warning, Android library modules) reports a public method whose body is a single
   `SDK_INT >= N` / `> N` check (or an `if` calling a lambda parameter), and a public field (Java, or Kotlin `@JvmField`
   / `const`) initialized with one, that lacks `@ChecksSdkIntAtLeast`, with the arguments Lint suggests; an existing
-  annotation with another level is reported as a discrepancy.
+  annotation with another level is reported as a discrepancy. A module is a library when its build script applies
+  `com.android.library` (by id, through a convention plugin whose id ends in `library`, or through a version-catalog
+  alias) and no application plugin; commented-out plugins don't count.
 
 ## AndroidX Library Lint Checks
 

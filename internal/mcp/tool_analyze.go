@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -244,6 +245,12 @@ func lazyProjectSources(sourceRoot string) func() []*scanner.File {
 		once.Do(func() {
 			if sourceRoot == "" {
 				return
+			}
+			// Absolute, as android.DetectProject makes the res dirs: OnClick
+			// compares a source file's module with its res directory's, and a
+			// relative project path never matched (#1908).
+			if abs, err := filepath.Abs(sourceRoot); err == nil {
+				sourceRoot = abs
 			}
 			if paths, err := scanner.CollectKotlinFiles([]string{sourceRoot}, nil); err == nil {
 				parsed, _ := scanner.ScanFiles(context.Background(), paths, 4)

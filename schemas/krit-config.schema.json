@@ -8902,7 +8902,7 @@
           }
         },
         "OnClick": {
-          "description": "android:onClick handler missing or has wrong signature [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files, resources]",
+          "description": "android:onClick handler missing or has wrong signature [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files, resources]\nCaveat: A layout is checked only against Activities in its own module, so an app Activity that inflates a library module's layout through R.layout is not checked.\nCaveat: Only Kotlin Activities are read; a layout inflated by a Java Activity is not checked.",
           "type": "object",
           "additionalProperties": false,
           "properties": {

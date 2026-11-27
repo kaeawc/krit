@@ -1536,7 +1536,14 @@ func canSkipRunProjectParse(args ProjectArgs, host ProjectHostState, warm warmAn
 	return true
 }
 
+// testHookLoadWarmCrossFindings, when set by a test, runs on every
+// loadWarmCrossFindings call.
+var testHookLoadWarmCrossFindings func()
+
 func loadWarmCrossFindings(args ProjectArgs, host ProjectHostState, warm warmAnalysisCachePlan) (bool, *scanner.FindingColumns) {
+	if testHookLoadWarmCrossFindings != nil {
+		testHookLoadWarmCrossFindings()
+	}
 	if !RulesNeedCrossOrParsedFiles(args.ActiveRules) {
 		return true, nil
 	}

@@ -24,6 +24,12 @@ type watcherState interface {
 	InvalidateDependents()
 	InvalidateLibraryFacts()
 	InvalidateResolver()
+	// InvalidateAndroidProjectFor drops the cached Android project detection
+	// when a file created, removed or renamed at path changes it.
+	InvalidateAndroidProjectFor(path string)
+	// InvalidateAndroidProjectUnder drops it when the project lists a path
+	// under dir, which left the tree.
+	InvalidateAndroidProjectUnder(dir string)
 	Touch(path string)
 	// BumpSourceMTimeVersion drives the daemon-resident
 	// bundle-stats-clean memo. Called once per coalesced source-path
@@ -104,6 +110,12 @@ type fileWatcher struct {
 	// the daemon fails with EMFILE. fdUsed is the running estimate.
 	fdBudget int64
 	fdUsed   atomic.Int64
+	// dirs holds every directory the watcher has walked, so a path that
+	// is removed or renamed away can be told apart from a file once it
+	// no longer exists to stat. A directory leaves it when it is
+	// reported gone; its subdirectories stay until their own events.
+	dirsMu sync.Mutex
+	dirs   map[string]struct{}
 	// degraded is set once a watch could not be added (budget reached
 	// or backend error). The watcher then no longer sees every change
 	// under root, so CoversTree reports false for the daemon's life.
@@ -133,6 +145,7 @@ func startFileWatcherWithState(ctx context.Context, root string, state watcherSt
 		debounceWindow: defaultDebounceWindow,
 		backendKind:    kindAuto,
 		fdBudget:       -1,
+		dirs:           make(map[string]struct{}),
 	}
 	for _, opt := range opts {
 		opt(fw)
@@ -219,7 +232,51 @@ func (fw *fileWatcher) addWatch(path string) error {
 		fw.markDegraded(fmt.Errorf("%s: %w", path, err))
 		return err
 	}
+	fw.dirsMu.Lock()
+	fw.dirs[path] = struct{}{}
+	fw.dirsMu.Unlock()
 	return nil
+}
+
+// createdDirectory handles the creation of path when it is a directory,
+// or a symlink to one, and reports whether it was.
+func (fw *fileWatcher) createdDirectory(path string) bool {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return false
+	}
+	if info.IsDir() {
+		if err := fw.addRecursive(path); err != nil {
+			fw.warn("watch new dir %s: %v\n", path, err)
+		}
+		// A directory that arrives populated (mv, cp -r, git stash pop)
+		// delivers no events for what is inside it, and a file created
+		// between the mkdir and the new watch is missed too. Report every
+		// file already there as created.
+		fw.touchExistingSources(path)
+		return true
+	}
+	// Source collection and Android detection walk with filepath.WalkDir,
+	// which does not follow a symlinked directory, so neither does the
+	// watcher. Walking one reported the link again, without end when it
+	// points at an ancestor (#1911). A symlink to a file is collected, so
+	// it is handled as one.
+	if info.Mode()&os.ModeSymlink != 0 {
+		if target, err := os.Stat(path); err == nil && target.IsDir() {
+			return true
+		}
+	}
+	return false
+}
+
+// forgetDir reports whether path is a directory the watcher walked, and
+// forgets it.
+func (fw *fileWatcher) forgetDir(path string) bool {
+	fw.dirsMu.Lock()
+	defer fw.dirsMu.Unlock()
+	_, ok := fw.dirs[path]
+	delete(fw.dirs, path)
+	return ok
 }
 
 // markDegraded records that the watcher no longer covers the tree,
@@ -301,18 +358,8 @@ func (fw *fileWatcher) run(ctx context.Context) {
 // also invalidate the cached LibraryFacts since they describe the
 // project's dependency closure.
 func (fw *fileWatcher) handle(ev backendEvent) {
-	if ev.Op&opCreate != 0 {
-		if info, err := os.Stat(ev.Path); err == nil && info.IsDir() {
-			if err := fw.addRecursive(ev.Path); err != nil {
-				fw.warn("watch new dir %s: %v\n", ev.Path, err)
-			}
-			// A directory that arrives populated (mv, cp -r, git stash pop)
-			// delivers no events for what is inside it, and a file created
-			// between the mkdir and the new watch is missed too. Report every
-			// source file already there as created.
-			fw.touchExistingSources(ev.Path)
-			return
-		}
+	if ev.Op&opCreate != 0 && fw.createdDirectory(ev.Path) {
+		return
 	}
 	// Chmod alone never changes file content. On macOS, kqueue emits
 	// spurious Chmod events when other processes stat or open watched
@@ -334,12 +381,21 @@ func (fw *fileWatcher) handle(ev backendEvent) {
 	// A directory moved or deleted out of the tree delivers one event for the
 	// directory, and none for the files in it (rm -rf deletes them one by one,
 	// mv does not). Report the directory so the next analyze notices that the
-	// source set shrank.
-	if relevant&(opRemove|opRename) != 0 && filepath.Ext(ev.Path) == "" && !isPrunedDir(filepath.Base(ev.Path)) {
-		if _, err := os.Lstat(ev.Path); err != nil {
+	// source set shrank. The path no longer exists to stat, so whether it was
+	// a directory comes from the walked set: a name says nothing (com.example
+	// is a directory, gradlew a file).
+	if relevant&(opRemove|opRename) != 0 && !isPrunedDir(filepath.Base(ev.Path)) {
+		if _, err := os.Lstat(ev.Path); err != nil && fw.forgetDir(ev.Path) {
 			fw.directoryGone(ev.Path)
 			return
 		}
+	}
+	// A manifest or res file (a drawable or font as much as an XML file)
+	// that arrives or leaves can change the detected project (its
+	// ManifestPaths and ResDirs), which only a build-script edit dropped
+	// before (#1903). A content edit cannot.
+	if relevant&(opCreate|opRemove|opRename) != 0 {
+		fw.state.InvalidateAndroidProjectFor(ev.Path)
 	}
 	// Library-config paths come first — build.gradle.kts also matches
 	// isKotlinPath because of its extension, but it drives library
@@ -412,6 +468,7 @@ func (fw *fileWatcher) handle(ev backendEvent) {
 // extension (so most likely a directory), left the tree.
 func (fw *fileWatcher) directoryGone(path string) {
 	fw.state.BumpSourceMTimeVersion()
+	fw.state.InvalidateAndroidProjectUnder(path)
 	fw.state.InvalidateCodeIndex()
 	fw.state.InvalidateDependents()
 	fw.state.InvalidateResolver()
@@ -433,8 +490,9 @@ func (fw *fileWatcher) invalidateKotlinNow(path string) {
 	fw.invalidateKotlinState(path)
 }
 
-// touchExistingSources reports every Kotlin and Java source already under dir
-// as created.
+// touchExistingSources reports every file already under dir as created:
+// sources, and the manifests, resources and build scripts that shape the
+// detected Android project.
 func (fw *fileWatcher) touchExistingSources(dir string) {
 	_ = filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -447,9 +505,10 @@ func (fw *fileWatcher) touchExistingSources(dir string) {
 			}
 			return nil
 		}
-		if isKotlinPath(path) || isJavaPath(path) {
-			fw.handle(backendEvent{Path: path, Op: opCreate})
-		}
+		// Every file counts: manifests, resources of any type and build
+		// scripts change the detected Android project and the library facts.
+		// A symlink is a file here too; handle skips one to a directory.
+		fw.handle(backendEvent{Path: path, Op: opCreate})
 		return nil
 	})
 }

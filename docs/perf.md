@@ -231,6 +231,23 @@ variant source sets (which PR mode no longer sees). Under `--delta`, a
 finding the change causes in an unchanged file (a new error in a dependent
 module, say) is not reported in PR mode; `--no-pr-mode` reports it.
 
+Which rules are PR-safe: PR mode narrows only the JVM work. Go rules,
+cross-file ones included (dead code, unused declarations), still run over
+the whole repository with every reference index. Every FIR rule is PR-safe
+because it reads only the file it reports on plus the signatures of what that
+file resolves, which the module compile has; none looks for usages in other
+files, so leaving dependent modules out of the compile cannot change its
+verdict on a changed file. The usage-style FIR rules (`UnusedPrivate*`,
+`UnusedVariable`, `VarCouldBeVal`) only judge private or local declarations,
+and `UnusedParameter` and `RedundantSuspendModifier` read only the function's
+own body. krit-fir's `FirRuleWholeCompilationGateTest` keeps it that way: it
+fails a rule that iterates the compilation's files or reads another
+declaration's body outside the checked file. A rule that ever needs the whole
+compilation declares a `wholeCompilationTier` and would then have to keep
+Go's verdict in PR mode. One gap remains: a dependency passed as a built jar
+drops its `SOURCE`-retention annotations (see `FirRule.kt`), which a source
+context compile keeps.
+
 ### `--max-cost TIER`
 
 ```bash

@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -175,4 +176,109 @@ func TestFileWatcher_ReportsDottedDirectoryGone(t *testing.T) {
 			t.Error("removing an extensionless file was reported as a directory leaving")
 		}
 	})
+}
+
+// walkedUnder returns the walked directories at or under dir.
+func (fw *fileWatcher) walkedUnder(dir string) []string {
+	fw.dirsMu.Lock()
+	defer fw.dirsMu.Unlock()
+	var under []string
+	for path := range fw.dirs {
+		if path == dir || strings.HasPrefix(path, dir+string(filepath.Separator)) {
+			under = append(under, path)
+		}
+	}
+	return under
+}
+
+// A directory moved out of the tree delivers one event, for itself, and none for its subdirectories, so forgetting it
+// must forget them too, or a long-lived daemon keeps every one it ever walked (#1965). A sibling whose name extends the
+// moved one's stays.
+func TestFileWatcher_ForgetsSubdirectoriesOfMovedDirectory(t *testing.T) {
+	eachBackend(t, func(t *testing.T, kind watcherBackendKind) {
+		root := t.TempDir()
+		moved, sibling := filepath.Join(root, "a"), filepath.Join(root, "ab", "c")
+		for _, dir := range []string{filepath.Join(moved, "b", "c"), filepath.Join(moved, "d"), sibling} {
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}
+		fw, state := startDirWatcher(t, root, kind)
+		if got := len(fw.walkedUnder(moved)); got != 4 {
+			t.Fatalf("walked %d directories under a, want 4", got)
+		}
+		if err := os.Rename(moved, filepath.Join(t.TempDir(), "elsewhere")); err != nil {
+			t.Fatal(err)
+		}
+		fw.handle(backendEvent{Path: moved, Op: opRename})
+		if !state.has(&state.gone, moved) {
+			t.Fatal("the moved directory was not reported gone")
+		}
+		if left := fw.walkedUnder(moved); len(left) != 0 {
+			t.Errorf("still remembers %q after a was moved out", left)
+		}
+		if len(fw.walkedUnder(sibling)) != 1 {
+			t.Errorf("forgot %s, which was not moved", sibling)
+		}
+	})
+}
+
+// walkedTree remembers a tree of fanout^depth leaf directories under root, as the initial walk does, and returns
+// every directory deepest first, the order rm -rf deletes and reports them in.
+func walkedTree(fw *fileWatcher, root string, fanout, depth int) []string {
+	level := []string{root}
+	all := []string{root}
+	fw.rememberDir(root)
+	for d := 0; d < depth; d++ {
+		var next []string
+		for _, parent := range level {
+			for i := 0; i < fanout; i++ {
+				child := filepath.Join(parent, "d"+strconv.Itoa(i))
+				fw.rememberDir(child)
+				next = append(next, child)
+			}
+		}
+		all = append(all, next...)
+		level = next
+	}
+	for i, j := 0, len(all)-1; i < j; i, j = i+1, j-1 {
+		all[i], all[j] = all[j], all[i]
+	}
+	return all
+}
+
+func newDirIndexWatcher() *fileWatcher {
+	return &fileWatcher{dirs: map[string]struct{}{}, children: map[string]map[string]struct{}{}}
+}
+
+// rm -rf reports each directory itself, deepest first: every report is a walked directory, and afterwards neither the
+// walked set nor its parent index holds anything.
+func TestForgetDirDeepestFirstLeavesNothing(t *testing.T) {
+	fw := newDirIndexWatcher()
+	root := filepath.Join(string(filepath.Separator), "project", "src")
+	for _, dir := range walkedTree(fw, root, 3, 3) {
+		if !fw.forgetDir(dir) {
+			t.Fatalf("%s was walked but forgetDir did not know it", dir)
+		}
+	}
+	if len(fw.dirs) != 0 || len(fw.children) != 0 {
+		t.Fatalf("after removing every directory: %d walked, %d parent entries left", len(fw.dirs), len(fw.children))
+	}
+	if fw.forgetDir(root) {
+		t.Fatal("forgetDir knew a directory already forgotten")
+	}
+}
+
+// BenchmarkForgetDirRmRf reports what rm -rf of a 4,681-directory tree costs the walked-directory index.
+func BenchmarkForgetDirRmRf(b *testing.B) {
+	root := filepath.Join(string(filepath.Separator), "project", "src")
+	for i := 0; i < b.N; i++ {
+		b.StopTimer()
+		fw := newDirIndexWatcher()
+		dirs := walkedTree(fw, root, 8, 4)
+		b.StartTimer()
+		for _, dir := range dirs {
+			fw.forgetDir(dir)
+		}
+	}
 }

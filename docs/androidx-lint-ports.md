@@ -64,6 +64,23 @@ import, as it does in Kotlin.
   Bazel `MODULE.bazel`/`WORKSPACE` counts for the whole build.
   Fully qualified references such as `androidx.compose.material.Button()` are not reported, as in Lint.
 
+## Compose foundation
+
+`androidx.compose.foundation:foundation-android` 1.13.0 (Kotlin):
+
+- `UseOfNonLambdaOffsetOverload` reports `Modifier.offset(x, y)` and `absoluteOffset(x, y)` (the `Dp` overloads from
+  `androidx.compose.foundation.layout`) when an argument reads State: a value declared or initialized as a `State`,
+  `MutableState` or `Animatable` (`mutableStateOf`, `remember { … }`, `animate*AsState`, `derivedStateOf`,
+  `collectAsState`, `Animatable(…)`), the `.value` of one, or a local delegated `by` one. A value copied out of a State
+  first (`val v = state.value`) is not State-backed, as in Lint.
+- `UnusedBoxWithConstraintsScope` reports a `BoxWithConstraints` content lambda that never uses its scope, at the
+  lambda: no `this`, no read of `maxWidth`, `maxHeight`, `minWidth`, `minHeight` or `constraints` (including string
+  templates), no call of a same-file `BoxWithConstraintsScope` extension, and no invocation of a value typed with a
+  `BoxWithConstraintsScope` receiver.
+- `TextFieldBufferInternalAppend` reports `append` on a `TextFieldBuffer` (declared as one, or the implicit receiver of
+  `with(buffer)`, a `TextFieldBuffer` extension or an `edit { }` block) in files whose package is
+  `androidx.compose.foundation` or below. It guards AndroidX's own code, as in Lint, so it never fires in apps.
+
 ## Opt-in markers
 
 `androidx.annotation:annotation-experimental` 1.6.0, on annotation declarations in production sources:

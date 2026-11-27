@@ -1022,8 +1022,10 @@ jobs:
   # phases with second-scale floors (internal/devtools/perfguard
   # defaultFIRGates); rule timings are the source-only job's. Locally:
   # scripts/perf-guard.sh --fir.
+  # On a push to main it only builds and caches main's krit-fir dev jar (a
+  # PR cannot read another PR's cache, only main's), so PRs skip that build.
   perf-guard-fir:
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 40
     permissions:
@@ -1050,15 +1052,22 @@ jobs:
           validate-wrappers: true
       - uses: ./.github/actions/maven-mirror
       # scripts/build-dev-jar.sh keeps one jar per krit-fir source hash under
-      # ~/.krit/jars/dev. A PR that leaves krit-fir alone restores main's jar
-      # for both sides; one that changes it builds only the head jar.
+      # ~/.krit/jars/dev. Pushes to main save it under main's hash; a PR
+      # restores the newest such cache (restore-keys falls back to main's
+      # scope), so one that leaves krit-fir alone builds no jar, and one that
+      # changes it builds only the head jar. A base older than main's last
+      # krit-fir change still builds its own.
       - name: Cache krit-fir dev jars
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ~/.krit/jars/dev
           key: perf-guard-fir-jars-${{ hashFiles('tools/krit-fir/**/*.kt', 'tools/krit-fir/**/*.kts', 'tools/krit-rule-api/**/*.kt', 'tools/krit-rule-api/**/*.kts') }}
           restore-keys: perf-guard-fir-jars-
+      - name: Build main's krit-fir dev jar
+        if: github.event_name != 'pull_request'
+        run: bash scripts/build-dev-jar.sh krit-fir
       - name: Base vs head (FIR)
+        if: github.event_name == 'pull_request'
         id: guard
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
@@ -1068,7 +1077,7 @@ jobs:
           bash scripts/perf-guard.sh --fir --base "$BASE_SHA"
           echo "status=$?" >> "$GITHUB_OUTPUT"
       - name: Report
-        if: always()
+        if: always() && github.event_name == 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
           PR: ${{ github.event.pull_request.number }}
@@ -1095,7 +1104,7 @@ jobs:
             gh api --method POST "repos/$GITHUB_REPOSITORY/issues/$PR/comments" -F "body=@$body" >/dev/null
           fi
       - name: Fail on a regression
-        if: steps.guard.outputs.status != '0'
+        if: github.event_name == 'pull_request' && steps.guard.outputs.status != '0'
         env:
           STATUS: ${{ steps.guard.outputs.status }}
         run: |

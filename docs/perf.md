@@ -600,7 +600,11 @@ krit-fir change is timed as well as a Go orchestration change. Every scan is
 `--fir --no-fir-daemon --no-daemon --no-cache-oracle` with every other cache
 off, in its own fresh `KRIT_STATE_DIR`: each run starts its own JVMs and
 shares no compile with the other binary. A run in which FIR analyzed no
-file (no jar, no JDK) fails the job instead of timing nothing.
+file (no jar, no JDK) fails the job instead of timing nothing, and so does a
+run that analyzed a different number of files than base's warmup: a head
+that makes FIR skip files would otherwise pass as faster. Pushes to main run
+the job only to build and cache main's jar, which PRs restore; a PR that
+changes krit-fir builds its head jar (about 2.5 minutes).
 
 The corpus is generated: `perfguard gen -kind jvm` writes a JVM-only
 project, a `core` module and 8 feature modules of 20 files that extend and
@@ -622,7 +626,34 @@ job gates, and under FIR a one-time cost of a few hundred milliseconds
 between rules in identical runs. Locally an A/A run agreed within 2% on the
 total and on `oracleProcess`, and a JVM held to one CPU
 (`KRIT_ORACLE_EXTRA_JVM_ARGS=-XX:ActiveProcessorCount=1`, about 16% slower)
-failed the total gate.
+failed the total gate. The report ends with the runner's CPU count and Java
+version, for comparing runs across runners.
+
+**The job is advisory.** It is not a required check, and stays that way until
+it is calibrated on GitHub runners. A/A runs there (a PR that leaves the
+binary alone, so base and head build the same krit) so far:
+
+| Run | Total, base → head | Single runs |
+|---|---|---|
+| #1969, 559e8276 | 18174 → 17847ms, -1.8% | 17.65–18.52s |
+| #1969, 559e8276, rerun | 17764 → 17367ms, -2.2% | 17.18–18.15s |
+| #1969, 559e8276, rerun | 17752 → 17981ms, +1.3% | 17.21–18.18s |
+
+Make it required once about ten A/A runs, across days, all stay within ±5%
+on the total: a third of the 15% gate, so a slow runner cannot fail a PR on
+its own. Until then, when it fails:
+
+1. Look at the report's single runs. If base's and head's overlap and only
+   the medians differ, rerun the job once.
+2. If it fails again, it is probably real. Reproduce with
+   `scripts/perf-guard.sh --fir` and say in the PR why the cost is intended,
+   or fix it.
+3. A status-2 failure ("failed to run") is a setup error, not a timing: a
+   jar or Go build failed, FIR analyzed no file, or the two sides analyzed
+   different numbers of files. Read the "Base vs head (FIR)" step's log.
+
+Like the other CI jobs it has no path filter, so a docs-only PR also pays
+for it, about 7 minutes of runner time.
 
 ## When to file a perf issue
 

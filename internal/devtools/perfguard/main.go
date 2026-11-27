@@ -75,14 +75,16 @@ func cmdGen(args []string) error {
 		if err := generate(*out, spec); err != nil {
 			return err
 		}
+		fmt.Printf("generated %s (android): %d modules, %d files, %d declarations\n", *out, spec.Modules, spec.Modules*spec.FilesPerModule, spec.classes())
 	case "jvm":
 		if err := generateJVM(*out, spec); err != nil {
 			return err
 		}
+		// The feature modules all depend on one more, :core, with as many files.
+		fmt.Printf("generated %s (jvm): %d modules + core, %d files, %d feature classes\n", *out, spec.Modules, (spec.Modules+1)*spec.FilesPerModule, spec.classes())
 	default:
 		return fmt.Errorf("gen: -kind must be android or jvm, got %q", *kind)
 	}
-	fmt.Printf("generated %s (%s): %d modules, %d files, %d declarations\n", *out, *kind, spec.Modules, spec.Modules*spec.FilesPerModule, spec.classes())
 	return nil
 }
 

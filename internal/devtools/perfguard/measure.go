@@ -55,6 +55,8 @@ type sample struct {
 	Leaves  map[string]bool
 	Rules   map[string]float64
 	Shares  map[string]float64
+	// FIRFiles is summary.fir.authoritative: the files FIR analyzed.
+	FIRFiles int
 }
 
 type perfNode struct {
@@ -174,6 +176,7 @@ func runSide(ctx context.Context, sd side, args []string, corpus string) (sample
 		return sample{}, fmt.Errorf("%s on %s: FIR analyzed no file (summary.fir.authoritative is 0); is the krit-fir jar (KRIT_FIR_JAR) and a JDK 21 available?\n%s",
 			sd.Bin, corpus, tail(stderr.String(), 2000))
 	}
+	s.FIRFiles = firFiles
 	return s, nil
 }
 
@@ -277,9 +280,24 @@ func summarize(ss series) summary {
 // measureInterleaved runs warmup scans, then alternates base and head for
 // the given rounds, flipping the order every round so neither binary always
 // runs first. Both sides see the same runner, page cache and CPU state.
+// Under FIR every run must analyze as many files as base's warmup did: a
+// head that makes FIR skip files would otherwise pass as faster.
 func measureInterleaved(ctx context.Context, base, head side, args []string, corpus string, rounds int, logf func(string, ...any)) (series, series, error) {
-	for _, sd := range []side{base, head} {
-		if _, err := runSide(ctx, sd, args, corpus); err != nil {
+	var firFiles int
+	checkFiles := func(name string, s sample) error {
+		if base.FIR && s.FIRFiles != firFiles {
+			return fmt.Errorf("%s's FIR analyzed %d files, base's %d: a timing over different files measures nothing, so check that side's FIR (its krit-fir jar, its scan log)", name, s.FIRFiles, firFiles)
+		}
+		return nil
+	}
+	for i, sd := range []side{base, head} {
+		s, err := runSide(ctx, sd, args, corpus)
+		if err != nil {
+			return nil, nil, fmt.Errorf("warmup: %w", err)
+		}
+		if i == 0 {
+			firFiles = s.FIRFiles
+		} else if err := checkFiles("head", s); err != nil {
 			return nil, nil, fmt.Errorf("warmup: %w", err)
 		}
 	}
@@ -298,6 +316,9 @@ func measureInterleaved(ctx context.Context, base, head side, args []string, cor
 			s, err := runSide(ctx, sd, args, corpus)
 			if err != nil {
 				return nil, nil, err
+			}
+			if err := checkFiles(name, s); err != nil {
+				return nil, nil, fmt.Errorf("round %d: %w", r+1, err)
 			}
 			if isBase {
 				bs = append(bs, s)

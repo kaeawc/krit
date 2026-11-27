@@ -480,6 +480,32 @@ func TestRunSideFIR(t *testing.T) {
 	}
 }
 
+// A head whose FIR analyzes fewer files than base's is not faster, it is
+// broken: the comparison fails instead of reporting the time it saved.
+func TestMeasureInterleavedFIRFileCount(t *testing.T) {
+	dir := t.TempDir()
+	report := strings.ReplaceAll(reportJSON, "\n", " ")
+	fake := func(name, fir string) side {
+		path := filepath.Join(dir, name)
+		script := "#!/bin/sh\necho '" + strings.Replace(report, `"perfRuleStats"`, `"summary": {"fir": {"authoritative": `+fir+`}}, "perfRuleStats"`, 1) + "'\nexit 1\n"
+		if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		return side{Bin: path, FIR: true}
+	}
+	corpus := t.TempDir()
+	noLog := func(string, ...any) {}
+	base, same, fewer := fake("base", "12"), fake("same", "12"), fake("fewer", "6")
+	bs, hs, err := measureInterleaved(t.Context(), base, same, firScanArgs, corpus, 2, noLog)
+	if err != nil || len(bs) != 2 || len(hs) != 2 {
+		t.Fatalf("equal file counts = %d, %d, %v", len(bs), len(hs), err)
+	}
+	_, _, err = measureInterleaved(t.Context(), base, fewer, firScanArgs, corpus, 2, noLog)
+	if err == nil || !strings.Contains(err.Error(), "head's FIR analyzed 6 files, base's 12") {
+		t.Fatalf("a head analyzing fewer files = %v", err)
+	}
+}
+
 // Under -fir only the total and phases are gated, with second-scale floors:
 // a rule's one-time cost moving between rules is not a regression.
 func TestFIRGates(t *testing.T) {

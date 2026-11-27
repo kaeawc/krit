@@ -30,7 +30,10 @@
 #   KRIT_PERF_ROUNDS   interleaved rounds per corpus (default 5)
 #
 # Exit status: 0 no regression, 1 regression, 2 setup error.
-set -euo pipefail
+set -Eeuo pipefail
+# A failed build or setup step is a setup error, not a regression: without
+# this, set -e would exit with the step's own status, often 1.
+trap 'exit 2' ERR
 
 base=""
 fir=0
@@ -66,11 +69,15 @@ if [ "$fir" = 1 ]; then
 	# Each side runs the krit-fir its own sources build; the same sources
 	# hash to the same cached jar.
 	base_jar=$(cd "$work/base-tree" && bash scripts/build-dev-jar.sh krit-fir | tail -n 1)
+	# A jar build leaves its Gradle (and Kotlin) daemons running; stop them
+	# so they do not share the CPU with the timed runs.
+	(cd "$work/base-tree/tools/krit-fir" && ./gradlew -q --stop)
 fi
 git worktree remove --force "$work/base-tree"
 
 if [ "$fir" = 1 ]; then
 	head_jar=$(bash scripts/build-dev-jar.sh krit-fir | tail -n 1)
+	(cd tools/krit-fir && ./gradlew -q --stop)
 	for jar in "$base_jar" "$head_jar"; do
 		[ -f "$jar" ] || { echo "perf-guard: no krit-fir jar at '$jar'" >&2; exit 2; }
 	done
@@ -83,6 +90,8 @@ if [ "$fir" = 1 ]; then
 		-corpus "jvm=$work/fir-jvm" -rounds "$rounds" -report "$work/fir.md" \
 		-title "FIR and type oracle: base ${base_sha:0:10} vs head" >/dev/null || status=$?
 	[ "$status" -le 1 ] || exit 2
+	# The runner's shape, for comparing timings across runs and runners.
+	printf '\nRunner: %s CPUs, %s.\n' "$(getconf _NPROCESSORS_ONLN)" "$(java -version 2>&1 | head -n 1)" >>"$work/fir.md"
 	cat "$work/fir.md"
 	if [ "$status" = 1 ]; then
 		echo "perf-guard: FIR regression (report: $work/fir.md)" >&2

@@ -754,12 +754,12 @@ var (
 // moduleIdentityForRes reads the identity of the module that owns a res directory (`<module>/src/<set>/res` or
 // `<module>/res`). An application module without an applicationId gets its namespace, as AGP does.
 func moduleIdentityForRes(resDir string) moduleIdentity {
-	return filefacts.StringFact(fileFactsCache(), resDir, slotModuleIdentity, func() moduleIdentity {
+	return filefacts.RequestFact(fileFactsCache(), resDir, slotModuleIdentity, func() moduleIdentity {
 		return readModuleIdentity(resDir)
 	})
 }
 
-// slotModuleIdentity memoizes moduleIdentityForRes per res directory for one run.
+// slotModuleIdentity memoizes moduleIdentityForRes per res directory for one request.
 const slotModuleIdentity = "lintModuleIdentity"
 
 func readModuleIdentity(resDir string) moduleIdentity {

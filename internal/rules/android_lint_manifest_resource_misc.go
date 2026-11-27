@@ -247,12 +247,12 @@ func moduleVectorSettingsForRes(resDir string) moduleVectorSettings {
 	if filepath.Base(filepath.Dir(module)) == "src" {
 		module = filepath.Dir(filepath.Dir(module))
 	}
-	return filefacts.StringFact(fileFactsCache(), module, slotModuleVectorSettings, func() moduleVectorSettings {
+	return filefacts.RequestFact(fileFactsCache(), module, slotModuleVectorSettings, func() moduleVectorSettings {
 		return readModuleVectorSettings(module)
 	})
 }
 
-// slotModuleVectorSettings memoizes moduleVectorSettingsForRes per module directory for one run.
+// slotModuleVectorSettings memoizes moduleVectorSettingsForRes per module directory for one request.
 const slotModuleVectorSettings = "lintModuleVectorSettings"
 
 func readModuleVectorSettings(module string) moduleVectorSettings {

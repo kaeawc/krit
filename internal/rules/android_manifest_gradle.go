@@ -125,7 +125,7 @@ func lookupManifestGradleInfo(manifestPath string) manifestGradleInfo {
 }
 
 func tryReadGradleInfo(dir string) (manifestGradleInfo, bool) {
-	info := filefacts.StringFact(fileFactsCache(), dir, slotManifestGradle, func() manifestGradleInfo {
+	info := filefacts.RequestFact(fileFactsCache(), dir, slotManifestGradle, func() manifestGradleInfo {
 		return readManifestGradleInfo(dir)
 	})
 	return info, info.found
@@ -293,7 +293,7 @@ func VersionCatalogGlob(dir string) []string {
 }
 
 func loadCatalogPlugins(path string) map[string]string {
-	return filefacts.StringFact(fileFactsCache(), path, slotVersionCatalogPlugins, func() map[string]string {
+	return filefacts.RequestFact(fileFactsCache(), path, slotVersionCatalogPlugins, func() map[string]string {
 		plugins := map[string]string{}
 		data, err := os.ReadFile(path)
 		if err != nil {

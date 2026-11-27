@@ -273,6 +273,31 @@ func TestMentions(t *testing.T) {
 	}
 }
 
+func TestRequestFactLastsUntilForgetRequestFacts(t *testing.T) {
+	c := NewCache()
+	calls := 0
+	compute := func() int { calls++; return calls }
+	if got := RequestFact(c, "dir", "slot", compute); got != 1 {
+		t.Fatalf("first RequestFact = %d, want 1", got)
+	}
+	if got := RequestFact(c, "dir", "slot", compute); got != 1 {
+		t.Fatalf("memoized RequestFact = %d, want 1", got)
+	}
+	stringCalls := 0
+	StringFact(c, "dir", "slot", func() int { stringCalls++; return stringCalls })
+	ForgetRequestFacts(c)
+	if got := RequestFact(c, "dir", "slot", compute); got != 2 {
+		t.Fatalf("RequestFact after ForgetRequestFacts = %d, want a recompute (2)", got)
+	}
+	if got := StringFact(c, "dir", "slot", func() int { stringCalls++; return stringCalls }); got != 1 {
+		t.Fatalf("StringFact after ForgetRequestFacts = %d, want the memoized 1", got)
+	}
+	ForgetRequestFacts(nil) // no-op
+	if got := RequestFact(nil, "dir", "slot", func() int { return 7 }); got != 7 {
+		t.Fatalf("nil cache RequestFact = %d, want 7", got)
+	}
+}
+
 // ProjectPath memoizes per root: after SetProjectRoot moves the root, a path
 // asked for under the old root is recomputed, not served from the memo.
 func TestProjectPathFollowsRootChange(t *testing.T) {
@@ -293,5 +318,22 @@ func TestProjectPathFollowsRootChange(t *testing.T) {
 	var nilCache *Cache
 	if got := nilCache.ProjectPath(path); got != path {
 		t.Fatalf("a nil cache returned %q", got)
+	}
+}
+
+// The LSP analyzes documents concurrently on one dispatcher. A RequestFact still
+// computing for an earlier request must not put its pre-edit value into the
+// generation a later request's ForgetRequestFacts started.
+func TestRequestFactComputedAcrossForgetStaysInItsGeneration(t *testing.T) {
+	c := NewCache()
+	stale := RequestFact(c, "dir", "slot", func() string {
+		ForgetRequestFacts(c) // a later request begins while this one reads the file
+		return "before the edit"
+	})
+	if stale != "before the edit" {
+		t.Fatalf("the earlier request got %q, want its own value", stale)
+	}
+	if got := RequestFact(c, "dir", "slot", func() string { return "after the edit" }); got != "after the edit" {
+		t.Fatalf("the later request got %q, want a recompute", got)
 	}
 }

@@ -635,6 +635,12 @@ All notable changes to Krit will be documented in this file.
   a class is reported at the declaration rather than its KDoc (#1369).
 
 ### Fixed
+- The LSP, the daemon's buffer analysis and the MCP server see module build-script edits (library or application,
+  minSdk, targetSdk), version-catalog `[plugins]` edits and rewritten Java imports on the next request instead of after
+  a restart. Those facts are read from disk and were memoized for the life of the long-lived analyzer, which also read
+  whatever the daemon's last project run had cached. Facts read from disk now last for one request, as the
+  version-catalog memo has since #1787, and a request still running in the LSP cannot hand a pre-edit value to a
+  later one (#1788).
 - Warm runs follow version-catalog edits for every manifest rule. Manifest rules read whether a module is an app or a
   library from its build script's `alias(libs.plugins...)` entries, resolved through `gradle/*.versions.toml`, and
   whether it uses the SplashScreen library from its `libs.` dependency aliases, resolved through the catalogs the

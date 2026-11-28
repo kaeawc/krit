@@ -164,9 +164,14 @@ func sdkWhenEntryLevel(file *scanner.File, entry uint32) int {
 	}
 	best := 0
 	if !isElse {
+		// Any one condition of the entry can enter it (`25, 26 ->`), so it proves only the lowest of their levels.
+		seen := false
 		for c := file.FlatFirstChild(entry); c != 0; c = file.FlatNextSib(c) {
 			if file.FlatType(c) == "when_condition" {
-				best = max(best, conditionLevel(c, true))
+				if lvl := conditionLevel(c, true); !seen || lvl < best {
+					best = lvl
+				}
+				seen = true
 			}
 		}
 		return best
@@ -328,7 +333,7 @@ func sdkIndirectCheck(file *scanner.File, cond uint32, positive bool, depth int)
 		if !ok || len(call.Args) != 0 || (call.ReceiverNode != 0 && strings.TrimSpace(call.ReceiverText) != "this") {
 			return 0, false
 		}
-		fn := sdkSameFileCheckFunction(file, call.Name)
+		fn := sdkSameFileCheckFunction(file, call.Name, cond)
 		if fn == 0 {
 			return 0, false
 		}
@@ -346,17 +351,41 @@ func sdkIndirectCheck(file *scanner.File, cond uint32, positive bool, depth int)
 	return 0, false
 }
 
-// sdkSameFileCheckFunction returns the parameterless function of the file with that name, or 0.
-func sdkSameFileCheckFunction(file *scanner.File, name string) uint32 {
-	var found uint32
+// sdkSameFileCheckFunction returns the parameterless function of the file with that name that a call at use runs: the
+// one declared in the innermost class, function or file whose scope holds use, or the file's only one when none holds
+// it (a superclass member). 0 when there is none, or when two are equally near and the call's binding is unknown.
+func sdkSameFileCheckFunction(file *scanner.File, name string, use uint32) uint32 {
+	var all []uint32
 	for _, kind := range []string{"function_declaration", "method_declaration"} {
 		file.FlatWalkNodes(0, kind, func(fn uint32) {
-			if found == 0 && recyclerName(file, fn) == name && len(recyclerParams(file, fn)) == 0 {
-				found = fn
+			if recyclerName(file, fn) == name && len(recyclerParams(file, fn)) == 0 {
+				all = append(all, fn)
 			}
 		})
 	}
-	return found
+	var found, foundScope uint32
+	ambiguous := false
+	for _, fn := range all {
+		scope, ok := file.FlatParent(fn)
+		if !ok || file.FlatStartByte(use) < file.FlatStartByte(scope) || file.FlatEndByte(use) > file.FlatEndByte(scope) {
+			continue
+		}
+		switch {
+		case found == 0 || file.FlatStartByte(scope) > file.FlatStartByte(foundScope):
+			found, foundScope, ambiguous = fn, scope, false
+		case scope == foundScope:
+			ambiguous = true
+		}
+	}
+	switch {
+	case ambiguous:
+		return 0
+	case found != 0:
+		return found
+	case len(all) == 1:
+		return all[0]
+	}
+	return 0
 }
 
 // sdkSingleExpressionBody returns the expression a function's body consists of: a Kotlin expression body, or a body
@@ -522,7 +551,7 @@ func webViewScopeReceiver(file *scanner.File, idx uint32) uint32 {
 				owner = inner
 			}
 			call, ok := lintCallAt(file, owner)
-			if !ok {
+			if !ok || !webViewStdlibScopeFunction(file, call.Name) {
 				return 0
 			}
 			switch {
@@ -537,6 +566,20 @@ func webViewScopeReceiver(file *scanner.File, idx uint32) uint32 {
 		}
 	}
 	return 0
+}
+
+// webViewStdlibScopeFunction reports that name is Kotlin's own with/run/apply, which run the lambda with a receiver:
+// the file neither declares a function of that name that takes the lambda nor imports one from elsewhere. A
+// parameterless one, such as Runnable.run(), cannot take it.
+func webViewStdlibScopeFunction(file *scanner.File, name string) bool {
+	if imported, ok := lintImportsOf(file).bySimple[name]; ok && imported != "kotlin."+name {
+		return false
+	}
+	declared := false
+	file.FlatWalkNodes(0, "function_declaration", func(fn uint32) {
+		declared = declared || (recyclerName(file, fn) == name && len(recyclerParams(file, fn)) > 0)
+	})
+	return !declared
 }
 
 // webViewNameShadowed reports a class of the file named WebView whose scope holds idx, such as one nested in the
@@ -738,12 +781,11 @@ func workDeclaredReturnType(file *scanner.File, fn uint32) string {
 				return strings.TrimSuffix(lintTrimGenerics(file.FlatNodeText(c)), "?")
 			}
 		case "function_body":
-			// An expression body without a declared type: Lint takes the inferred type.
-			if expr := file.FlatNamedChild(c, 0); expr != 0 && strings.HasPrefix(strings.TrimSpace(file.FlatNodeText(c)), "=") {
-				if inner, ok := lintCallAt(file, expr); ok && (inner.Name == "beginWith" || inner.Name == "beginUniqueWork" ||
-					inner.Name == "then" || inner.Name == "combine") {
-					return workContinuationFQN
-				}
+			// An expression body without a declared type: Lint takes the inferred type. Only a proven continuation
+			// counts; a same-named call of the file's own (a then() returning Unit) is left to the value flow.
+			if expr := file.FlatNamedChild(c, 0); expr != 0 && strings.HasPrefix(strings.TrimSpace(file.FlatNodeText(c)), "=") &&
+				workIsContinuation(file, expr, 0) {
+				return workContinuationFQN
 			}
 		}
 	}
@@ -838,21 +880,21 @@ func (f *workFlow) escapes(expr uint32) bool {
 		return f.branchValue(parent)
 	case "property_declaration":
 		if vd, ok := file.FlatFindChild(parent, "variable_declaration"); ok {
-			return f.local(parent, lintDeclaredName(file, vd))
+			return f.local(parent, lintDeclaredName(file, vd), parent)
 		}
 	case "variable_declarator":
 		if id, ok := file.FlatFindChild(parent, "identifier"); ok {
-			return f.local(parent, file.FlatNodeText(id))
+			return f.local(parent, file.FlatNodeText(id), parent)
 		}
 	case "assignment", "assignment_expression":
-		// `c = wm.beginWith(a)` for a local declared earlier: follow the local. A field is not followed.
+		// `c = wm.beginWith(a)` for a local declared earlier: follow the local from here. A field is not followed.
 		target := file.FlatNamedChild(parent, 0)
 		if target == expr || target == 0 {
 			return false
 		}
 		name := strings.TrimSpace(file.FlatNodeText(target))
 		if decl := f.declarationOf(target, name); decl != 0 {
-			return f.local(decl, name)
+			return f.local(decl, name, parent)
 		}
 	case "jump_expression", "return_statement", "function_body":
 		// Returned: the caller gets the continuation.
@@ -920,13 +962,16 @@ func (f *workFlow) argumentOf(arg uint32) bool {
 	return false
 }
 
-// local follows the uses of a local variable declared by decl, those that resolve to it.
-func (f *workFlow) local(decl uint32, name string) bool {
-	if name == "" || f.tracked[decl] {
+// local follows the uses of a local variable declared by decl, those that resolve to it, from the declaration or
+// assignment store that gave it the value until the next assignment of the variable: as Lint's DataFlowAnalyzer walks
+// the code in order, a reassigned variable no longer holds the value.
+func (f *workFlow) local(decl uint32, name string, store uint32) bool {
+	if name == "" || f.tracked[store] {
 		return false
 	}
-	f.tracked[decl] = true
+	f.tracked[store] = true
 	file := f.file
+	from, until := file.FlatEndByte(store), f.nextAssignment(decl, name, file.FlatEndByte(store))
 	found := false
 	file.FlatWalkAllNodes(f.body, func(n uint32) {
 		if found {
@@ -935,12 +980,35 @@ func (f *workFlow) local(decl uint32, name string) bool {
 		if t := file.FlatType(n); (t != "simple_identifier" && t != "identifier") || file.FlatNodeText(n) != name {
 			return
 		}
-		if file.FlatStartByte(n) < file.FlatEndByte(decl) || f.declarationOf(n, name) != decl {
+		if file.FlatStartByte(n) < from || file.FlatStartByte(n) >= until || f.declarationOf(n, name) != decl {
 			return
 		}
 		found = f.escapes(n)
 	})
 	return found
+}
+
+// nextAssignment returns the end of the first assignment after from whose target is the local declared by decl, or
+// the largest offset when there is none. Its right side still reads the old value: `c = c.then(b)`.
+func (f *workFlow) nextAssignment(decl uint32, name string, from uint32) uint32 {
+	file := f.file
+	var next uint32
+	for _, kind := range []string{"assignment", "assignment_expression"} {
+		file.FlatWalkNodes(f.body, kind, func(a uint32) {
+			start := file.FlatStartByte(a)
+			if start < from || (next != 0 && start >= file.FlatStartByte(next)) {
+				return
+			}
+			if target := file.FlatNamedChild(a, 0); target != 0 && strings.TrimSpace(file.FlatNodeText(target)) == name &&
+				f.declarationOf(target, name) == decl {
+				next = a
+			}
+		})
+	}
+	if next == 0 {
+		return ^uint32(0)
+	}
+	return file.FlatEndByte(next)
 }
 
 // declarationOf returns the local declaration a use of name resolves to: the nearest one declared before it in a block
@@ -1040,9 +1108,23 @@ func workScopeEnqueues(file *scanner.File, call uint32, scope string) bool {
 
 // workRebound reports a lambda between the call and the scope lambda that declares param again, or, for `it`, any
 // lambda without parameters of its own, whose implicit `it` is another value: `.also { others.forEach { it.enqueue() } }`.
+// A for loop whose body holds the call, or a local declared before it in an enclosing block, rebinds param too.
 func workRebound(file *scanner.File, call, scopeLambda uint32, param string) bool {
-	for n, ok := file.FlatParent(call); ok && n != scopeLambda; n, ok = file.FlatParent(n) {
+	for child, n := call, parentOrZero(file, call); n != 0 && n != scopeLambda; child, n = n, parentOrZero(file, n) {
 		switch file.FlatType(n) {
+		case "for_statement":
+			if file.FlatType(child) == "control_structure_body" && lintForDeclares(file, n, param) {
+				return true
+			}
+		case "statements":
+			for s := file.FlatFirstChild(n); s != 0 && s != child; s = file.FlatNextSib(s) {
+				if file.FlatType(s) != "property_declaration" {
+					continue
+				}
+				if vd, ok := file.FlatFindChild(s, "variable_declaration"); ok && lintDeclaredName(file, vd) == param {
+					return true
+				}
+			}
 		case "lambda_literal":
 			params, has := file.FlatFindChild(n, "lambda_parameters")
 			if !has {
@@ -1233,8 +1315,9 @@ func shortcutManagerExpr(file *scanner.File, expr uint32, depth int) bool {
 }
 
 // shortcutLazyManager reports a property named name, visible at use, delegated to `lazy { ... }` whose last expression is
-// a ShortcutManager.
+// a ShortcutManager. A parameter, lambda parameter or loop variable of that name hides a property declared outside it.
 func shortcutLazyManager(file *scanner.File, use uint32, name string, depth int) bool {
+	binder := lintNameBinderAt(file, use, name)
 	found := false
 	file.FlatWalkNodes(0, "property_declaration", func(decl uint32) {
 		if found {
@@ -1242,6 +1325,9 @@ func shortcutLazyManager(file *scanner.File, use uint32, name string, depth int)
 		}
 		vd, ok := file.FlatFindChild(decl, "variable_declaration")
 		if !ok || lintDeclaredName(file, vd) != name || !lintDeclVisibleAt(file, decl, use) {
+			return
+		}
+		if binder != 0 && (file.FlatStartByte(decl) < file.FlatStartByte(binder) || file.FlatEndByte(decl) > file.FlatEndByte(binder)) {
 			return
 		}
 		delegate, ok := file.FlatFindChild(decl, "property_delegate")

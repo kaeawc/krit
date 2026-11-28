@@ -1,0 +1,4 @@
+src/main/java/com/example/JReview2.java:14:17: WebViewApiAvailability: Consider using `WebViewCompat.getWebViewClient` instead which will support more devices.
+src/main/java/com/example/Review2.kt:14:19: WebViewApiAvailability: Consider using `WebViewCompat.getWebViewClient` instead which will support more devices.
+src/main/java/com/example/Review2.kt:23:13: WebViewApiAvailability: Consider using `WebViewCompat.getWebChromeClient` instead which will support more devices.
+src/main/java/com/example/Review2.kt:43:13: WebViewApiAvailability: Consider using `WebViewCompat.getWebViewClient` instead which will support more devices.

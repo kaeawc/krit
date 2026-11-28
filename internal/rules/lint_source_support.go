@@ -1166,8 +1166,12 @@ func lintIdentOnly(s string) bool {
 // lintDeclaredTypeText returns the declared (or constructor-inferred) type of the parameter, local, or field called
 // name that is visible from scope, preferring the enclosing callable's own declarations.
 func lintDeclaredTypeText(file *scanner.File, scope uint32, name string) string {
-	// A lambda parameter or loop variable of that name is the declaration: its own type, or none known.
+	// A lambda parameter or loop variable of that name is the declaration, its own type or none known, unless a local
+	// declared in its body before scope hides it.
 	if binder := lintNameBinderAt(file, scope, name); binder != 0 && lintBinderIsLocalScope(file, binder) {
+		if typ, ok := lintNearerLocalType(file, binder, scope, name); ok {
+			return typ
+		}
 		return lintBinderDeclaredType(file, binder, name)
 	}
 	fn, hasFn := flatEnclosingCallable(file, scope)
@@ -1237,14 +1241,60 @@ func lintDeclaredTypeText(file *scanner.File, scope uint32, name string) string 
 	return outer
 }
 
+// lintNearerLocalType returns the type of the nearest local called name declared inside binder before scope, in a block
+// that holds scope: its declared type, or the type its initializer constructs. ok is false when there is none.
+func lintNearerLocalType(file *scanner.File, binder, scope uint32, name string) (string, bool) {
+	var best uint32
+	var typ string
+	consider := func(decl, block uint32, t string) {
+		// A use in the local's own initializer (`val x = x.y`) still reads the outer x.
+		if file.FlatEndByte(decl) > file.FlatStartByte(scope) || file.FlatStartByte(scope) < file.FlatStartByte(block) ||
+			file.FlatEndByte(scope) > file.FlatEndByte(block) || (best != 0 && file.FlatStartByte(decl) < file.FlatStartByte(best)) {
+			return
+		}
+		best, typ = decl, t
+	}
+	file.FlatWalkNodes(binder, "property_declaration", func(decl uint32) {
+		vd, ok := file.FlatFindChild(decl, "variable_declaration")
+		block, hasBlock := file.FlatParent(decl)
+		if !ok || !hasBlock || lintDeclaredName(file, vd) != name {
+			return
+		}
+		t := lintChildTypeText(file, vd)
+		if t == "" {
+			t = lintConstructorCallType(file, lintInitializerAfterEquals(file, decl))
+		}
+		consider(decl, block, t)
+	})
+	file.FlatWalkNodes(binder, "local_variable_declaration", func(decl uint32) {
+		block, hasBlock := file.FlatParent(decl)
+		if !hasBlock {
+			return
+		}
+		for child := file.FlatFirstChild(decl); child != 0; child = file.FlatNextSib(child) {
+			if id, ok := file.FlatFindChild(child, "identifier"); ok && file.FlatType(child) == "variable_declarator" && file.FlatNodeText(id) == name {
+				t := lintChildTypeText(file, decl)
+				if t == "var" {
+					t = lintConstructorCallType(file, lintInitializerAfterEquals(file, child))
+				}
+				consider(decl, block, t)
+			}
+		}
+	})
+	return typ, best != 0
+}
+
 // lintDeclVisibleAt reports whether a declaration can be in scope at use. A parameter, local, loop variable or resource
-// is visible only inside its function, constructor, accessor, lambda, loop or try; a class member or top-level
+// is visible only inside its function, constructor, accessor, lambda, loop body or try; a class member or top-level
 // declaration everywhere. Another function's parameter of the same name says nothing about a property.
 func lintDeclVisibleAt(file *scanner.File, decl, use uint32) bool {
 	var owner uint32
 	switch file.FlatType(decl) {
 	case "enhanced_for_statement":
-		owner = decl
+		// Java `for (T x : xs) body`: x is not in scope in xs.
+		if owner = lintLastNamedChild(file, decl); owner == 0 {
+			return false
+		}
 	case "resource":
 		owner, _ = flatEnclosingAncestor(file, decl, "try_with_resources_statement")
 	default:

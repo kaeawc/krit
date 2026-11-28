@@ -665,6 +665,9 @@ All notable changes to Krit will be documented in this file.
   a class is reported at the declaration rather than its KDoc (#1369).
 
 ### Fixed
+- Gradle plugin: an application's (or dynamic feature's) unit tests are modeled with the tested variant's R jar. AGP
+  registers `generate<Variant>UnitTestStubRFile` only for a library, so the model predicted a jar no task writes, FIR
+  compiled those tests without the app's R class, and every scan warned about a missing classpath entry (#1724).
 - Gradle plugin, Kotlin Multiplatform: each compilation's model entry includes the source sets it compiles through
   `dependsOn` (`commonMain` and intermediate sets, with their generated roots such as SQLDelight's), which KGP links only
   after the export was configured, so FIR no longer compiles `jvmMain` without `commonMain` and gates every `actual`. AGP 9's

@@ -1031,4 +1031,25 @@ class KritExportModelTest {
         testRTasks.forEach { assertFalse(mainOnly.output.contains("$it SKIPPED"), mainOnly.output) }
         assertTrue(mainOnly.output.contains(":generateDebugRFile SKIPPED"), mainOnly.output)
     }
+
+    // #1989 review: AGP registers generate<Variant>UnitTestStubRFile only for a library. An
+    // application's unit tests compile against the tested variant's R jar, so the model records
+    // that jar for them, and the check schedules no stub task the build does not have.
+    @Test
+    fun `an application's unit tests take the tested variant's R jar`() {
+        val root = File(directory, "app-unit-test-r").also { it.mkdirs() }
+        File(root, "settings.gradle.kts").writeText("rootProject.name = \"app-unit-test-r\"\n")
+        File(root, "build.gradle.kts").writeText("plugins { id(\"com.android.application\"); id(\"dev.jasonpearson.krit\") }\n")
+        runWithFakeAndroidPlugin(root, "com.android.application", "kritExportModel")
+        val sets = sourceSets(File(root, ".krit/gradle-model/_root.json"))
+        val mainJar = sets.single { it["kind"] == "main" }["generatedClasspath"]
+        assertEquals(listOf(File(root,
+            "build/intermediates/compile_and_runtime_not_namespaced_r_class_jar/debug/processDebugResources/R.jar").canonicalPath),
+            mainJar)
+        assertEquals(mainJar, sets.single { it["kind"] == "test" }["generatedClasspath"])
+        val check = runWithFakeAndroidPlugin(root, "com.android.application", "kritCheck", "--dry-run")
+        assertFalse(check.output.contains("StubRFile"), check.output)
+        assertTrue(check.output.contains(":processDebugResources SKIPPED"), check.output)
+        assertTrue(check.output.contains(":processDebugAndroidTestResources SKIPPED"), check.output)
+    }
 }

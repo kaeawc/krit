@@ -15,7 +15,7 @@ Each module covers a case that has broken FIR coverage before:
 | `:proto` | `//proto` | Wire-generated Kotlin (Bazel: Wire CLI into a `.srcjar`) | #1574, #1586, #1588 |
 | `:data` | `//data` | KSP (Moshi codegen) | #1574, #1586 |
 | `:app` | `//app` | `com.android.application` with view binding (Bazel: generated into a `.srcjar` by `tools/viewbinding`), and Kotlin calling same-module Java | #1574, #1626 |
-| `:app` tests | none (Gradle only) | `src/test` (unit test using the app's `R`) and `src/androidTest` (instrumented test using its own `dev.krit.firsample.app.test.R` from `src/androidTest/res`), which FIR compiles against the test components' R jars | #1724 |
+| `:app` tests | none (Gradle only) | `src/test`, a unit test using the app's `R`, which FIR compiles against the debug variant's R jar (an application's unit tests have no R class of their own). `src/androidTest`, an instrumented test using its own `dev.krit.firsample.app.test.R` from `src/androidTest/res`, which FIR compiles against the androidTest component's R jar. Per-project `kritCheck` reads `src/main` and `src/test` only (its default `advanced.source`), so it counts one file fewer than `kritCheckAll` | #1724 |
 | `:benchmark` | `//benchmark` | `com.android.test` module targeting `:app` | #1572 |
 | `:shared` | none (Gradle only) | Kotlin Multiplatform library: `jvm()` and an Android target from `com.android.kotlin.multiplatform.library` (AGP 9's KMP Android plugin; `com.android.library` cannot share a module with KMP there), an `expect`/`actual` pair and a `commonTest` test, SQLDelight in `commonMain` (its generated code used from `commonMain`), KSP (Moshi codegen) on both targets | #1752 |
 

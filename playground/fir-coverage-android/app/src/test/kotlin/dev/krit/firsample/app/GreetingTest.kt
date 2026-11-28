@@ -4,9 +4,10 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Test
 
-// A unit test that uses the app's R class. Its model entry carries the
-// debugUnitTest R jar (generateDebugUnitTestStubRFile); the app's own R jar
-// resolves these references too (#1724).
+// A unit test that uses the app's R class. An application's unit tests have no
+// R class of their own (AGP registers generate<Variant>UnitTestStubRFile only for
+// a library): they compile against the tested variant's R jar, which the model
+// records for them (#1724).
 class GreetingTest {
     @Test
     fun greetsFirstVisit() {

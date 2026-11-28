@@ -41,6 +41,12 @@ import org.gradle.workers.WorkParameters
 
 abstract class Compile @Inject constructor() : WorkAction<WorkParameters.None>
 `,
+		"aliased Gradle import": `
+import javax.inject.Inject
+import org.gradle.api.model.ObjectFactory as GradleObjects
+
+abstract class MyExtension @Inject constructor(objects: GradleObjects)
+`,
 		"nullable Gradle service": `
 import javax.inject.Inject
 import org.gradle.api.provider.ProviderFactory
@@ -91,6 +97,13 @@ abstract class Base @Inject constructor(objects: ObjectFactory)
 		"ObjectFactory imported from elsewhere": `
 import javax.inject.Inject
 import com.example.ObjectFactory
+
+abstract class Base @Inject constructor(objects: ObjectFactory)
+`,
+		"Gradle FQN imported only under an alias": `
+import javax.inject.Inject
+import org.gradle.api.model.ObjectFactory as GradleObjects
+import com.example.*
 
 abstract class Base @Inject constructor(objects: ObjectFactory)
 `,

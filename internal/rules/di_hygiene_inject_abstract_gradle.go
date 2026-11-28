@@ -120,7 +120,14 @@ func gradleTypeName(file *scanner.File, name string) bool {
 		return false
 	}
 	fqn, known := gradleManagedWildcardTypes[name]
-	return known && facts.HasFQN(fqn) && !fileDeclaresType(file, name)
+	if !known {
+		return false
+	}
+	// Only a wildcard import brings the simple name in: an explicit import
+	// of the same FQN under an alias does not.
+	pkg := fqn[:strings.LastIndex(fqn, ".")]
+	_, wildcard := facts.Wildcards[pkg+".*"]
+	return wildcard && !fileDeclaresType(file, name)
 }
 
 // fileDeclaresType reports whether the file declares a class, object or

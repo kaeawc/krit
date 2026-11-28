@@ -164,6 +164,23 @@ class KritExportModelTest {
         return projects.single()["sourceSets"] as List<Map<String, Any>>
     }
 
+    // #1752 review: only a KMP test compilation drops file dependencies under the build
+    // directory (its main outputs). A plain JVM module's jar there is a real dependency.
+    @Test
+    fun `a non-KMP file dependency under the build directory stays in the model`() {
+        val root = File(directory, "jvm-build-jar").also { it.mkdirs() }
+        File(root, "settings.gradle.kts").writeText("rootProject.name = \"jvm-build-jar\"\n")
+        File(root, "build.gradle.kts").writeText("""
+            plugins { `java-library`; id("dev.jasonpearson.krit") }
+            dependencies { implementation(files("build/dependencies/vendor.jar")) }
+        """.trimIndent())
+        val vendor = File(root, "build/dependencies/vendor.jar").also { it.parentFile.mkdirs() }
+        vendor.writeBytes(byteArrayOf())
+        run(root, "kritExportModel")
+        val main = sourceSets(File(root, ".krit/gradle-model/_root.json")).single { it["name"] == "main" }
+        assertEquals(listOf(vendor.canonicalPath), main["classpath"], main.toString())
+    }
+
     @Test
     fun `per project exports external artifacts without compiling project dependencies`() {
         val root = fixture()

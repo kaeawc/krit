@@ -687,7 +687,8 @@ class KritPlugin : Plugin<Project> {
                     androidKmpTarget -> androidKmpCompilations(project, targetName, compilations)
                     platform == "android" -> {
                         if (variant == null) {
-                            project.logger.warn("krit: KMP Android variant absent for ${project.path} target $targetName")
+                            project.logger.warn(
+                                "krit: KMP Android variant absent for ${project.path} target $targetName")
                             return@forEach
                         }
                         listOf(variant to "main", "${variant}UnitTest" to "test",
@@ -735,7 +736,9 @@ class KritPlugin : Plugin<Project> {
                         lateDirs = closureDirs.zip(KotlinGeneratedSources.paths(project, allKotlinSets)) { a, b ->
                             (a + b).distinct().sorted()
                         },
-                        producers = if (kind == "main") KotlinGeneratedSources.producers(project, allKotlinSets) else null,
+                        producers = if (kind == "main") {
+                            KotlinGeneratedSources.producers(project, allKotlinSets)
+                        } else null,
                         kotlinRootsKnown = kotlinSets.isNotEmpty(),
                         // androidTarget()'s compilations are named after their AGP component; the
                         // Android-KMP target's single component is named like the spec (androidMain).
@@ -785,7 +788,10 @@ class KritPlugin : Plugin<Project> {
     private fun androidKmpResources(target: Any): Boolean =
         runCatching { reflect(reflect(target, "getAndroidResources"), "getEnable") as Boolean }.getOrDefault(true)
 
-    /** The `kotlin` roots of every Kotlin source set of a KMP project, generated ones (under the build directory) left out. */
+    /**
+     * The `kotlin` roots of every Kotlin source set of a KMP project, generated ones (under the
+     * build directory) left out.
+     */
     private fun kmpSourceDirs(project: Project): List<File> {
         val kotlin = project.extensions.findByName("kotlin") ?: return emptyList()
         val build = project.layout.buildDirectory.get().asFile.toPath().toAbsolutePath().normalize()
@@ -1059,15 +1065,20 @@ class KritPlugin : Plugin<Project> {
                 kotlinPluginVersion.set(kotlinOptions.map { it.pluginVersion })
                 kotlinCompilerPluginClasspath.from(compilerPluginClasspath(project, spec.compileTask))
                 kotlinCompilerPluginOptions.set(compilerPluginOptions(project, spec.compileTask))
-                val ownBuild = project.layout.buildDirectory.get().asFile.toPath().toAbsolutePath().normalize()
+                // Only a KMP test compilation drops file dependencies under this project's build
+                // directory: KGP adds its main compilation's outputs there (#1752), which the
+                // model's source context covers. Elsewhere such a file is a real dependency (a jar
+                // a task copied to build/), and stays.
+                val ownBuild = if (spec.ownOutputsOnClasspath) {
+                    project.layout.buildDirectory.get().asFile.toPath().toAbsolutePath().normalize()
+                } else null
                 val externalArtifacts = spec.configuration.incoming.artifactView {
                     if (spec.platform == "android") {
                         attributes.attribute(ArtifactTypeDefinition.ARTIFACT_TYPE_ATTRIBUTE, "android-classes-jar")
                     }
-                    // Neither project dependencies nor this project's own outputs, which KGP adds
-                    // to a KMP test compilation's classpath as file dependencies (#1752). The
-                    // model's source context covers them.
-                    componentFilter { id -> id !is ProjectComponentIdentifier && !isOwnBuildOutput(id, ownBuild) }
+                    componentFilter { id ->
+                        id !is ProjectComponentIdentifier && (ownBuild == null || !isOwnBuildOutput(id, ownBuild))
+                    }
                 }.files
                 // The view still carries a filtered-out file dependency's producer (compileKotlinJvm), so
                 // a KMP test compilation's classpath is read through a provider, which carries none:

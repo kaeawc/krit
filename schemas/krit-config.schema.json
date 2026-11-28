@@ -3194,7 +3194,7 @@
           }
         },
         "EnqueueWork": {
-          "description": "WorkManager Enqueue [precision: ast-backed] [noisiness: normal]\nCaveat: The continuation is followed as Lint's DataFlowAnalyzer does, within the function: through chained calls, also/apply/let/run/takeIf/takeUnless/with, the locals it initializes or is assigned to (resolved by declaration, so a shadowing local is another variable), and the value of if/when/elvis/ternary branches. A value passed to any call other than combine, listOf included, is not followed, as in Lint. The WorkManager or WorkContinuation receiver must be visible in source.",
+          "description": "WorkManager Enqueue [precision: ast-backed] [noisiness: normal]\nCaveat: The continuation is followed as Lint's DataFlowAnalyzer does, within the function: through chained calls, also/apply/let/run/takeIf/takeUnless/with, the locals it initializes or is assigned to until they are assigned again (resolved by declaration, so a shadowing local, loop variable or lambda parameter is another variable), and the value of if/when/elvis/ternary branches. A value passed to any call other than combine, listOf included, is not followed, as in Lint. The WorkManager or WorkContinuation receiver must be visible in source.",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -15832,7 +15832,7 @@
           }
         },
         "WebViewApiAvailability": {
-          "description": "WebView API Availability [precision: ast-backed] [noisiness: normal]\nCaveat: Guards that count: an enclosing if, when entry (and the else after it), when (SDK_INT) { in N..M -\u003e } or Java ternary on Build.VERSION.SDK_INT, in either operand order; the right side of \u0026\u0026 (or of || after a failing check); a Boolean local initialized with a check; and a call of a same-file @ChecksSdkIntAtLeast(api = N) or one-line check function. The walk goes through lambdas and anonymous objects.\nCaveat: Not counted: check helpers declared in another file or a library (BuildCompat and the like), @ChecksSdkIntAtLeast's parameter and lambda forms, and, like Lint for this check, early returns and @RequiresApi.",
+          "description": "WebView API Availability [precision: ast-backed] [noisiness: normal]\nCaveat: Guards that count: an enclosing if, when entry (the lowest level of its conditions, and the else after it), when (SDK_INT) { in N..M -\u003e } or Java ternary on Build.VERSION.SDK_INT, in either operand order; the right side of \u0026\u0026 (or of || after a failing check); a Boolean local initialized with a check; and a call of a same-file @ChecksSdkIntAtLeast(api = N) or one-line check function, the one declared nearest the call (none when two are equally near). The walk goes through lambdas and anonymous objects.\nCaveat: Not counted: check helpers declared in another file or a library (BuildCompat and the like), @ChecksSdkIntAtLeast's parameter and lambda forms, and, like Lint for this check, early returns and @RequiresApi.",
           "type": "object",
           "additionalProperties": false,
           "properties": {

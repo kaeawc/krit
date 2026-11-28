@@ -599,18 +599,19 @@ Ports of Android Lint 32.4.1 checks with recorded Lint output under `tests/fixtu
 
 - `WebViewApiAvailability` (warning, Kotlin and Java) reports a call to a `WebView` method added in API 23-27 that
   `androidx.webkit.WebViewCompat` also offers (`getWebChromeClient`, `postWebMessage`, `startSafeBrowsing`, ...),
-  when a guard on `Build.VERSION.SDK_INT` already covers it for that level: an enclosing `if`, `when` entry (and the
-  `else` after it), `when (SDK_INT) { in N..M -> }` or Java ternary, in either operand order; the right side of `&&`;
-  a Boolean local initialized with a check; or a call of a same-file `@ChecksSdkIntAtLeast` or one-line check function.
-  The guard counts through lambdas, `with(webView) { }` and anonymous objects. Early returns do not count, nor do check
+  when a guard on `Build.VERSION.SDK_INT` already covers it for that level: an enclosing `if`, `when` entry (the lowest
+  level of its conditions, and the `else` after it), `when (SDK_INT) { in N..M -> }` or Java ternary, in either operand
+  order; the right side of `&&`; a Boolean local initialized with a check; or a call of a same-file
+  `@ChecksSdkIntAtLeast` or one-line check function, the one declared nearest the call. The guard counts through
+  lambdas, Kotlin's own `with(webView) { }` and anonymous objects. Early returns do not count, nor do check
   helpers in other files or libraries, and a call that resolves to a `WebView` subclass's own override or overload,
   or to a project class named `WebView`, is not reported.
 - `EnqueueWork` (warning, Kotlin and Java) reports a `beginWith`, `beginUniqueWork`, `then` or `combine` result that
   never reaches `enqueue()`, `enqueueSync()`, `then`, `combine` or a return, following the value as Lint's data flow
   does through chained calls, scope functions (`also`, `apply`, `let`, `run`, `takeIf`, `with`), the locals it
-  initializes or is assigned to, and `if` / `when` / Elvis / ternary branches, in functions, constructors and Kotlin
-  `init` blocks. `WorkManager` and `WorkContinuation` must resolve to `androidx.work`, and a shadowing local or
-  parameter of the same name is another value. Like Lint, a value passed to `listOf` (even inside `combine(...)`)
+  initializes or is assigned to (until they are assigned again), and `if` / `when` / Elvis / ternary branches, in
+  functions, constructors and Kotlin `init` blocks. `WorkManager` and `WorkContinuation` must resolve to
+  `androidx.work`, and a shadowing local, loop variable or parameter of the same name is another value. Like Lint, a value passed to `listOf` (even inside `combine(...)`)
   is not followed, and only a local's initializer is named in the message.
 - `ReportShortcutUsage` (info, Kotlin and Java) reports `setDynamicShortcuts` / `addDynamicShortcuts` on a proven
   `ShortcutManager` (from `getSystemService`, a cast or `lazy`) or on `ShortcutManagerCompat`, in an application

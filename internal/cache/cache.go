@@ -809,22 +809,6 @@ func (c *Cache) MarkFlushed() {
 	c.mutated.Store(false)
 }
 
-// ShouldSkipFullSaveForSmallDelta reports whether a JSON-backed cache run
-// should avoid rewriting the full cache file after a tiny dirty worktree
-// delta. Dirty files are still reanalyzed on the next run unless their entry
-// was persisted elsewhere, so this trades repeated dirty-file hits for lower
-// save latency without reusing stale findings.
-func (c *Cache) ShouldSkipFullSaveForSmallDelta(result *Result, maxMisses int) bool {
-	if c == nil || c.backingStore != nil || result == nil || maxMisses <= 0 {
-		return false
-	}
-	if !result.GitDirtyPathsKnown || result.GitDirtyPathCount == 0 {
-		return false
-	}
-	misses := result.TotalFiles - result.TotalCached
-	return misses > 0 && misses <= maxMisses && result.TotalCached > 0
-}
-
 // absPath returns filepath.Abs(path) but short-circuits when path is
 // already absolute. CheckFilesIncremental iterates tens of thousands
 // of paths per call on warm daemons; skipping the Getwd+Clean for the

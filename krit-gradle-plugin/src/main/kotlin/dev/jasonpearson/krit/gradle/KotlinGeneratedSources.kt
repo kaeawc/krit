@@ -5,6 +5,7 @@ import org.gradle.api.file.FileCollection
 import org.gradle.api.file.SourceDirectorySet
 import org.gradle.api.provider.Provider
 import org.gradle.api.tasks.SourceSetContainer
+import java.util.concurrent.Callable
 
 /**
  * Source roots and their producer tasks for JVM and Kotlin Multiplatform compilations, from the
@@ -36,8 +37,11 @@ internal object KotlinGeneratedSources {
      * The roots of [sets] as model paths, read when the export runs, after every plugin had the
      * chance to register a generated directory. Reading them runs no task.
      */
-    fun paths(project: Project, sets: List<SourceDirectorySet>): Provider<List<String>> =
-        project.provider { sets.flatMap { set -> set.srcDirs.map(::modelPath) }.distinct().sorted() }
+    fun paths(project: Project, sets: List<SourceDirectorySet>): Provider<List<String>> = paths(project) { sets }
+
+    /** [paths] for directory sets that are themselves known only once configuration ends. */
+    fun paths(project: Project, sets: () -> List<SourceDirectorySet>): Provider<List<String>> =
+        project.provider { sets().flatMap { set -> set.srcDirs.map(::modelPath) }.distinct().sorted() }
 
     /** The roots of [sets] (and the Java source set [javaSourceSet], if any) with their producer tasks. */
     fun producers(project: Project, sets: List<SourceDirectorySet>, javaSourceSet: String? = null): FileCollection {
@@ -46,4 +50,11 @@ internal object KotlinGeneratedSources {
         }
         return project.files(sets.map { it.sourceDirectories } + listOfNotNull(java))
     }
+
+    /**
+     * [producers] for directory sets that are themselves known only once configuration ends; the
+     * file collection reads them when Gradle asks for its files or task dependencies.
+     */
+    fun producers(project: Project, sets: () -> List<SourceDirectorySet>): FileCollection =
+        project.files(Callable { sets().map { it.sourceDirectories } })
 }

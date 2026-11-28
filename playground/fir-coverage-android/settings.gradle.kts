@@ -25,7 +25,7 @@ dependencyResolutionManagement {
 
 rootProject.name = "fir-coverage-android"
 
-include(":model", ":proto", ":data", ":app", ":benchmark")
+include(":model", ":proto", ":data", ":app", ":benchmark", ":shared")
 
 krit {
     // The sample measures coverage; findings must not fail the build.

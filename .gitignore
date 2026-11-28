@@ -26,6 +26,8 @@ __pycache__/
 site/
 /build/
 **/build/
+# Test stand-ins for AGP's com.android.build.api.dsl types, a source package, not build output.
+!krit-gradle-plugin/src/test/java/com/android/build/
 /dist/
 coverage/
 *.coverprofile

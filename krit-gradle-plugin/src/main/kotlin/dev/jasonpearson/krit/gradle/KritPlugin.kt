@@ -5,6 +5,7 @@ import org.gradle.api.Plugin
 import org.gradle.api.Project
 import org.gradle.api.attributes.Category
 import org.gradle.api.attributes.LibraryElements
+import org.gradle.api.artifacts.component.ComponentIdentifier
 import org.gradle.api.artifacts.component.ProjectComponentIdentifier
 import org.gradle.api.artifacts.result.ResolvedDependencyResult
 import org.gradle.api.artifacts.type.ArtifactTypeDefinition
@@ -89,6 +90,14 @@ class KritPlugin : Plugin<Project> {
         extension.advanced.noCache.convention(false)
         extension.advanced.typeInference.convention(true)
         extension.advanced.source.setFrom("src/main/kotlin", "src/test/kotlin")
+        // A Kotlin Multiplatform project has no src/main/kotlin: its sources are its Kotlin source
+        // sets' roots (src/commonMain/kotlin, src/jvmMain/kotlin, ...), read once they are configured
+        // (#1752). A source the build already set is kept.
+        project.pluginManager.withPlugin(KOTLIN_MULTIPLATFORM_PLUGIN_ID) {
+            if (extension.advanced.source.from.toList() == DEFAULT_SOURCE) {
+                extension.advanced.source.setFrom(project.provider { kmpSourceDirs(project) })
+            }
+        }
         extension.advanced.reportsDir.convention(
             project.layout.buildDirectory.dir("reports/krit")
         )
@@ -408,6 +417,9 @@ class KritPlugin : Plugin<Project> {
                 exportAfterEvaluateOrNow()
             }
         }
+        // The Android-KMP plugin has the Variant API too, but no top-level `android`
+        // extension: its target exports through the KMP path, after evaluation.
+        project.pluginManager.withPlugin(ANDROID_KMP_LIBRARY_PLUGIN_ID) { variantSources.register() }
         // Android applied from an afterEvaluate is not supported: Android-only projects get the skipped Android model warning;
         // JVM and KMP projects keep their model and get the 'configured before Android' warning.
         project.afterEvaluate {
@@ -460,6 +472,10 @@ class KritPlugin : Plugin<Project> {
          * it differs from [name]: a KMP Android target's `androidDebug` is AGP's `debug`.
          */
         val component: String = "",
+        /** False when the compilation has no R class to predict a jar for (Android-KMP with resources off). */
+        val rJarExpected: Boolean = true,
+        /** True for a KMP test compilation, whose configuration holds its main compilation's outputs. */
+        val ownOutputsOnClasspath: Boolean = false,
     )
 
     private data class AndroidModelsResult(val specs: List<ModelSpec>, val skipped: Boolean = false)
@@ -645,6 +661,10 @@ class KritPlugin : Plugin<Project> {
             return emptyList()
         }
         val specs = mutableListOf<ModelSpec>()
+        // com.android.kotlin.multiplatform.library: one variant, so its Android target's
+        // compilations are main / hostTest / deviceTest (the test ones opt-in) rather than
+        // androidTarget()'s debug / debugUnitTest / debugAndroidTest.
+        val androidKmp = project.plugins.hasPlugin(ANDROID_KMP_LIBRARY_PLUGIN_ID)
         targets.forEach { target ->
             if (target == null) return@forEach
             val targetName = runCatching { reflect(target, "getName").toString() }.getOrDefault("<unknown>")
@@ -659,17 +679,26 @@ class KritPlugin : Plugin<Project> {
                     else -> return@forEach
                 }
                 val compilations = reflect(target, "getCompilations")
-                val variant = if (platform == "android") selectedAndroidVariant(project, extension) else null
-                val requested = if (platform == "android") {
-                    if (variant == null) {
-                        project.logger.warn("krit: KMP Android variant absent for ${project.path} target $targetName")
-                        return@forEach
+                val androidKmpTarget = platform == "android" && androidKmp
+                val variant = if (platform == "android" && !androidKmpTarget) {
+                    selectedAndroidVariant(project, extension)
+                } else null
+                val requested = when {
+                    androidKmpTarget -> androidKmpCompilations(project, targetName, compilations)
+                    platform == "android" -> {
+                        if (variant == null) {
+                            project.logger.warn(
+                                "krit: KMP Android variant absent for ${project.path} target $targetName")
+                            return@forEach
+                        }
+                        listOf(variant to "main", "${variant}UnitTest" to "test",
+                            "${variant}AndroidTest" to "androidTest")
                     }
-                    listOf(variant to "main", "${variant}UnitTest" to "test",
-                        "${variant}AndroidTest" to "androidTest")
-                } else listOf("main" to "main", "test" to "test")
-                val boot = if (platform == "android" && android) androidBootClasspath(project)
-                    else project.provider { emptyList<String>() }
+                    else -> listOf("main" to "main", "test" to "test")
+                }
+                val boot = if (platform == "android" && (android || androidKmpTarget)) {
+                    androidBootClasspath(project)
+                } else project.provider { emptyList<String>() }
                 for ((requestedName, kind) in requested) {
                     val compilation = findNamed(compilations, requestedName)
                     if (compilation == null) {
@@ -681,24 +710,41 @@ class KritPlugin : Plugin<Project> {
                         ?: throw ReflectiveOperationException("missing configuration $configName")
                     val compilationName = runCatching { reflect(compilation, "getName").toString() }
                         .getOrDefault(requestedName)
-                    val sourceSets = reflect(compilation, "getKotlinSourceSets") as Iterable<*>
-                    val dirs = sourceSets.filterNotNull().flatMap { sourceSet ->
+                    val sourceSets = (reflect(compilation, "getKotlinSourceSets") as Iterable<*>).filterNotNull()
+                    // The compilation also compiles its source sets' dependsOn closure (commonMain and
+                    // intermediate sets, #1752): allKotlinSourceSets. KGP adds the default hierarchy's
+                    // edges after this afterEvaluate, so the closure is read when the export runs.
+                    val allSourceSets = {
+                        ((runCatching { reflect(compilation, "getAllKotlinSourceSets") as Iterable<*> }.getOrNull()
+                            ?: sourceSets).filterNotNull() + sourceSets).distinct()
+                    }
+                    val allKotlinSets = { allSourceSets().flatMap(KotlinGeneratedSources::directorySets) }
+                    fun kotlinDirs(sourceSet: Any): List<String> {
                         val kotlinDirs = reflect(sourceSet, "getKotlin")
                         @Suppress("UNCHECKED_CAST")
-                        (reflect(kotlinDirs, "getSrcDirs") as Collection<File>).map(::modelPath)
-                    }.distinct().sorted()
+                        return (reflect(kotlinDirs, "getSrcDirs") as Collection<File>).map(::modelPath)
+                    }
+                    val dirs = sourceSets.flatMap(::kotlinDirs).distinct().sorted()
                     val name = "${targetName}${compilationName.replaceFirstChar(Char::uppercase)}"
                     val compileTask = runCatching {
                         reflect(compilation, "getCompileKotlinTaskName").toString()
                     }.getOrDefault("compileKotlin${name.replaceFirstChar(Char::uppercase)}")
-                    val kotlinSets = sourceSets.filterNotNull().flatMap(KotlinGeneratedSources::directorySets)
+                    val kotlinSets = sourceSets.flatMap(KotlinGeneratedSources::directorySets)
+                    val closureDirs = project.provider { allSourceSets().flatMap(::kotlinDirs) }
                     targetSpecs += ModelSpec(name, kind, platform, variant ?: name, dirs,
                         boot, configuration, compileTask,
-                        lateDirs = KotlinGeneratedSources.paths(project, kotlinSets),
-                        producers = if (kind == "main") KotlinGeneratedSources.producers(project, kotlinSets) else null,
+                        lateDirs = closureDirs.zip(KotlinGeneratedSources.paths(project, allKotlinSets)) { a, b ->
+                            (a + b).distinct().sorted()
+                        },
+                        producers = if (kind == "main") {
+                            KotlinGeneratedSources.producers(project, allKotlinSets)
+                        } else null,
                         kotlinRootsKnown = kotlinSets.isNotEmpty(),
-                        // androidTarget()'s compilations are named after their AGP component.
-                        component = if (platform == "android") requestedName else "")
+                        // androidTarget()'s compilations are named after their AGP component; the
+                        // Android-KMP target's single component is named like the spec (androidMain).
+                        component = if (platform == "android" && !androidKmpTarget) requestedName else "",
+                        rJarExpected = !androidKmpTarget || androidKmpResources(target),
+                        ownOutputsOnClasspath = kind != "main")
                 }
                 specs += targetSpecs
             } catch (error: Exception) {
@@ -706,6 +752,67 @@ class KritPlugin : Plugin<Project> {
             }
         }
         return specs
+    }
+
+    /**
+     * The Android-KMP target's compilations with their kinds. Its test compilations exist only
+     * when enabled (`withHostTest`, `withDeviceTest`) and are told apart by AGP's types, not
+     * names; a compilation of another type is left out.
+     */
+    private fun androidKmpCompilations(
+        project: Project, targetName: String, compilations: Any,
+    ): List<Pair<String, String>> {
+        val found = (compilations as Iterable<*>).filterNotNull().mapNotNull { compilation ->
+            val name = reflect(compilation, "getName").toString()
+            val types = generateSequence<Class<*>>(compilation.javaClass) { it.superclass }
+                .flatMap { sequenceOf(it) + it.interfaces.asSequence() }.map { it.name }.toSet()
+            val kind = when {
+                KMP_HOST_TEST_TYPE in types -> "test"
+                KMP_DEVICE_TEST_TYPE in types -> "androidTest"
+                name == "main" -> "main"
+                else -> null
+            }
+            if (kind == null) {
+                project.logger.info("krit: KMP model skipped compilation $name of ${project.path} " +
+                    "target $targetName: not the Android-KMP main, host-test or device-test compilation")
+            }
+            kind?.let { name to it }
+        }
+        if (found.none { it.second == "main" }) {
+            project.logger.warn("krit: KMP compilation missing in ${project.path} target $targetName: main")
+        }
+        return found
+    }
+
+    /** Whether the Android-KMP target processes resources (`androidResources { enable = true }`), so has an R class. */
+    private fun androidKmpResources(target: Any): Boolean =
+        runCatching { reflect(reflect(target, "getAndroidResources"), "getEnable") as Boolean }.getOrDefault(true)
+
+    /**
+     * The `kotlin` roots of every Kotlin source set of a KMP project, generated ones (under the
+     * build directory) left out.
+     */
+    private fun kmpSourceDirs(project: Project): List<File> {
+        val kotlin = project.extensions.findByName("kotlin") ?: return emptyList()
+        val build = project.layout.buildDirectory.get().asFile.toPath().toAbsolutePath().normalize()
+        return runCatching {
+            (reflect(kotlin, "getSourceSets") as Iterable<*>).filterNotNull().flatMap { sourceSet ->
+                @Suppress("UNCHECKED_CAST")
+                reflect(reflect(sourceSet, "getKotlin"), "getSrcDirs") as Collection<File>
+            }
+        }.getOrElse { error ->
+            project.logger.warn("krit: KMP source sets unavailable for ${project.path}: ${error.message}")
+            emptyList()
+        }.filterNot { it.toPath().toAbsolutePath().normalize().startsWith(build) }.distinct().sorted()
+    }
+
+    /**
+     * True for a file dependency's artifact (Gradle's opaque identifier, which carries its file)
+     * under [ownBuild]. Other identifiers carry no file and are kept.
+     */
+    private fun isOwnBuildOutput(id: ComponentIdentifier, ownBuild: java.nio.file.Path): Boolean {
+        val file = runCatching { id.javaClass.getMethod("getFile").invoke(id) as? File }.getOrNull() ?: return false
+        return file.toPath().toAbsolutePath().normalize().startsWith(ownBuild)
     }
 
     private fun reflect(value: Any, method: String): Any =
@@ -920,7 +1027,9 @@ class KritPlugin : Plugin<Project> {
         }.getOrNull() else null
         val resolvedMajor = if (project.extensions.findByName("android") != null)
             major?.takeIf { it in 8..9 } else null
-        if (androidSpecs.isNotEmpty() && resolvedMajor == null)
+        // The Android-KMP plugin has no `android` extension, so no R jar is predicted for it. Its
+        // resources are opt-in: with them off there is no R class and nothing to warn about.
+        if (androidSpecs.any { it.rJarExpected } && resolvedMajor == null)
             project.logger.warn("krit: own Android R jar location unavailable for ${project.path}")
         val rJars = androidSpecs
             .map { it.variant to it.kind }.distinct()
@@ -956,13 +1065,27 @@ class KritPlugin : Plugin<Project> {
                 kotlinPluginVersion.set(kotlinOptions.map { it.pluginVersion })
                 kotlinCompilerPluginClasspath.from(compilerPluginClasspath(project, spec.compileTask))
                 kotlinCompilerPluginOptions.set(compilerPluginOptions(project, spec.compileTask))
+                // Only a KMP test compilation drops file dependencies under this project's build
+                // directory: KGP adds its main compilation's outputs there (#1752), which the
+                // model's source context covers. Elsewhere such a file is a real dependency (a jar
+                // a task copied to build/), and stays.
+                val ownBuild = if (spec.ownOutputsOnClasspath) {
+                    project.layout.buildDirectory.get().asFile.toPath().toAbsolutePath().normalize()
+                } else null
                 val externalArtifacts = spec.configuration.incoming.artifactView {
                     if (spec.platform == "android") {
                         attributes.attribute(ArtifactTypeDefinition.ARTIFACT_TYPE_ATTRIBUTE, "android-classes-jar")
                     }
-                    componentFilter { id -> id !is ProjectComponentIdentifier }
+                    componentFilter { id ->
+                        id !is ProjectComponentIdentifier && (ownBuild == null || !isOwnBuildOutput(id, ownBuild))
+                    }
                 }.files
-                classpath.from(externalArtifacts)
+                // The view still carries a filtered-out file dependency's producer (compileKotlinJvm), so
+                // a KMP test compilation's classpath is read through a provider, which carries none:
+                // exporting must not compile main code.
+                classpath.from(
+                    if (spec.ownOutputsOnClasspath) project.provider { externalArtifacts.files } else externalArtifacts,
+                )
                 val extraProjectDeps = spec.extraProjectDeps
                 projectDeps.set(spec.configuration.incoming.resolutionResult.rootComponent.map { root ->
                     (root.dependencies.filterIsInstance<ResolvedDependencyResult>()
@@ -1097,7 +1220,15 @@ class KritPlugin : Plugin<Project> {
 
     /** The AGP component whose Variant API roots an Android spec has, or null. */
     private fun agpComponent(spec: ModelSpec, variantSources: AndroidVariantSources): String? =
-        spec.component.ifEmpty { spec.name }.takeIf { spec.platform == "android" && variantSources.has(it) }
+        agpComponentName(spec)?.takeIf(variantSources::has)
+
+    /**
+     * The AGP component of an Android spec, whether or not AGP has created it yet: the
+     * Android-KMP plugin creates its variant after the export is configured, so its roots are
+     * read lazily through this name.
+     */
+    private fun agpComponentName(spec: ModelSpec): String? =
+        spec.component.ifEmpty { spec.name }.takeIf { spec.platform == "android" }
 
     /**
      * The spec's late source roots: KGP's source sets, AGP's Variant API roots of its component, or
@@ -1105,7 +1236,7 @@ class KritPlugin : Plugin<Project> {
      * `addGeneratedSourceDirectory`) only AGP knows (#1643).
      */
     private fun lateDirs(spec: ModelSpec, variantSources: AndroidVariantSources): Provider<List<String>>? {
-        val agp = agpComponent(spec, variantSources)?.let(variantSources::paths)
+        val agp = agpComponentName(spec)?.let(variantSources::paths)
         val kgp = spec.lateDirs
         return when {
             kgp == null -> agp
@@ -1115,7 +1246,7 @@ class KritPlugin : Plugin<Project> {
     }
 
     private fun producers(project: Project, spec: ModelSpec, variantSources: AndroidVariantSources): FileCollection? {
-        val agp = if (spec.kind == "main") agpComponent(spec, variantSources)?.let(variantSources::producers) else null
+        val agp = if (spec.kind == "main") agpComponentName(spec)?.let(variantSources::producers) else null
         val kgp = spec.producers
         return when {
             kgp == null -> agp
@@ -1271,6 +1402,15 @@ class KritPlugin : Plugin<Project> {
         const val ANDROID_LIBRARY_PLUGIN_ID = "com.android.library"
         const val ANDROID_TEST_PLUGIN_ID = "com.android.test"
         const val ANDROID_DYNAMIC_FEATURE_PLUGIN_ID = "com.android.dynamic-feature"
+
+        /** kritCheck's source when the project is not Kotlin Multiplatform. */
+        private val DEFAULT_SOURCE = listOf("src/main/kotlin", "src/test/kotlin")
+
+        /** AGP's Kotlin Multiplatform library plugin: `kotlin { android { } }`, required for KMP from AGP 9. */
+        const val ANDROID_KMP_LIBRARY_PLUGIN_ID = "com.android.kotlin.multiplatform.library"
+        private const val ANDROID_KMP_DSL = "com.android.build.api.dsl"
+        private const val KMP_HOST_TEST_TYPE = "$ANDROID_KMP_DSL.KotlinMultiplatformAndroidHostTestCompilation"
+        private const val KMP_DEVICE_TEST_TYPE = "$ANDROID_KMP_DSL.KotlinMultiplatformAndroidDeviceTestCompilation"
 
         /** Android plugins whose modules export through the Android model path. */
         val ANDROID_PLUGIN_IDS = listOf(

@@ -6,6 +6,7 @@ import org.gradle.api.file.Directory
 import org.gradle.api.file.FileCollection
 import org.gradle.api.logging.Logging
 import org.gradle.api.provider.Provider
+import java.util.concurrent.Callable
 
 /**
  * The Java and Kotlin source roots AGP's Variant API reports for each Android component
@@ -20,7 +21,9 @@ import org.gradle.api.provider.Provider
  * names.
  *
  * AGP runs `onVariants` callbacks while it creates variants, so they must be registered when
- * AGP is applied, before the plugin's own `afterEvaluate` export. The plugin has no compile
+ * AGP is applied, before the plugin's own `afterEvaluate` export. The Android-KMP plugin creates
+ * its variant only after that export is wired, so [paths] and [producers] read the roots when
+ * they are resolved, not when they are created. The plugin has no compile
  * dependency on AGP, so the API is reached by reflection; on an AGP without it (before 8.0)
  * the map stays empty and the export falls back to the declared source directories.
  */
@@ -74,10 +77,9 @@ internal class AndroidVariantSources(private val project: Project) {
      * generator.
      */
     fun paths(component: String): Provider<List<String>> {
-        val providers = roots[component].orEmpty().toList()
         val projectPath = project.path
         return project.provider {
-            providers.flatMap { provider ->
+            roots[component].orEmpty().toList().flatMap { provider ->
                 // A plugin that registered a root derived from its task's output content (not
                 // its location) cannot be read before that task runs; skip it rather than fail.
                 runCatching { provider.get().map { modelPath(it.asFile) } }.getOrElse { error ->
@@ -91,7 +93,7 @@ internal class AndroidVariantSources(private val project: Project) {
     }
 
     /** The same roots as a file collection that carries their producer tasks as build dependencies. */
-    fun producers(component: String): FileCollection = project.files(*roots[component].orEmpty().toTypedArray())
+    fun producers(component: String): FileCollection = project.files(Callable { roots[component].orEmpty().toList() })
 
     private fun reflectCall(value: Any, method: String): Any =
         value.javaClass.getMethod(method).invoke(value)

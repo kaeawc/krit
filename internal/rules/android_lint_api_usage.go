@@ -245,47 +245,52 @@ func sdkConditionLevelDepth(file *scanner.File, cond uint32, positive bool, dept
 	if lvl, ok := sdkIndirectCheck(file, cond, positive, depth); ok {
 		return lvl
 	}
+	if lvl, ok := sdkLogicalLevel(file, cond, positive, depth); ok {
+		return lvl
+	}
+	return sdkComparisonLevel(file, cond, positive)
+}
+
+// sdkLogicalLevel evaluates `!a`, `a && b` and `a || b`: the then branch of && and the else branch of || prove what
+// either side proves. ok is false for any other expression.
+func sdkLogicalLevel(file *scanner.File, cond uint32, positive bool, depth int) (int, bool) {
+	operands := func(proves bool) int {
+		if positive != proves {
+			return 0
+		}
+		best := 0
+		for c := file.FlatFirstChild(cond); c != 0; c = file.FlatNextSib(c) {
+			if file.FlatIsNamed(c) {
+				best = max(best, sdkConditionLevelDepth(file, c, positive, depth+1))
+			}
+		}
+		return best
+	}
 	switch file.FlatType(cond) {
 	case "prefix_expression", "unary_expression":
 		if op := file.FlatFirstChild(cond); op != 0 && file.FlatNodeText(op) == "!" {
-			return sdkConditionLevel(file, file.FlatNamedChild(cond, 0), !positive)
+			return sdkConditionLevelDepth(file, file.FlatNamedChild(cond, 0), !positive, depth+1), true
 		}
-		return 0
+		return 0, true
 	case "disjunction_expression":
-		// The else branch of `a || b` runs when neither holds, so a failing comparison in either proves a level.
-		if positive {
-			return 0
-		}
-		best := 0
-		for c := file.FlatFirstChild(cond); c != 0; c = file.FlatNextSib(c) {
-			if file.FlatIsNamed(c) {
-				best = max(best, sdkConditionLevel(file, c, false))
-			}
-		}
-		return best
+		return operands(false), true
 	case "conjunction_expression":
-		if !positive {
-			return 0
-		}
-		best := 0
-		for c := file.FlatFirstChild(cond); c != 0; c = file.FlatNextSib(c) {
-			if file.FlatIsNamed(c) {
-				if lvl := sdkConditionLevel(file, c, true); lvl > best {
-					best = lvl
-				}
-			}
-		}
-		return best
+		return operands(true), true
 	}
+	if op, left, right, ok := versionCheckComparison(file, cond); ok && (op == "&&" || op == "||") {
+		if (op == "&&") != positive {
+			return 0, true
+		}
+		return max(sdkConditionLevelDepth(file, left, positive, depth+1), sdkConditionLevelDepth(file, right, positive, depth+1)), true
+	}
+	return 0, false
+}
+
+// sdkComparisonLevel evaluates `SDK_INT op N` (or `N op SDK_INT`) for the branch it guards.
+func sdkComparisonLevel(file *scanner.File, cond uint32, positive bool) int {
 	op, left, right, ok := versionCheckComparison(file, cond)
 	if !ok {
 		return 0
-	}
-	if op == "&&" && positive {
-		return max(sdkConditionLevel(file, left, true), sdkConditionLevel(file, right, true))
-	}
-	if op == "||" && !positive {
-		return max(sdkConditionLevel(file, left, false), sdkConditionLevel(file, right, false))
 	}
 	if !versionCheckIsSdkInt(file, left) {
 		// `N <= SDK_INT` is `SDK_INT >= N`.
@@ -709,12 +714,6 @@ func workIsContinuation(file *scanner.File, recv uint32, depth int) bool {
 	}
 	init := lintInitializerOf(file, recv, text, true)
 	return init != 0 && init != recv && workIsContinuation(file, init, depth+1)
-}
-
-// workLocalInitializedBy reports a local of the enclosing function named name whose initializer text satisfies ok.
-func workLocalInitializedBy(file *scanner.File, at uint32, name string, ok func(string) bool) bool {
-	init := lintInitializerOf(file, at, name, true)
-	return init != 0 && ok(strings.Join(strings.Fields(file.FlatNodeText(init)), ""))
 }
 
 func workDeclaredReturnType(file *scanner.File, fn uint32) string {

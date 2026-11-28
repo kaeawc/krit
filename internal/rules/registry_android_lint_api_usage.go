@@ -16,7 +16,7 @@ func registerAndroidLintAPIUsageChecks() {
 	registerLintRule(enqueue.AndroidRule, enqueue, enqueue.Confidence(), enqueue.check, lintCallNodeTypes[:2], 0, nil)
 
 	shortcut := &ReportShortcutUsageRule{AndroidRule: lintAndroidRule("ReportShortcutUsage", "Report shortcut usage",
-		ALCUsability, ALSInformational, 5)}
+		ALCUsability, ALSInformational, 2)}
 	api.Register(&api.Rule{
 		ID: shortcut.RuleName, Category: shortcut.RuleSetName, Description: shortcut.Description(), Sev: api.Severity(shortcut.Sev),
 		Needs: api.NeedsParsedFiles, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava},

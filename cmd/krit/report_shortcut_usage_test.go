@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -64,6 +65,56 @@ func TestReportShortcutUsageCountsOnlyModulesWithShortcutCalls(t *testing.T) {
 	writeProjectFile(t, project, "app/src/main/java/com/example/Main.kt", string(source))
 	if n := reportShortcutUsageCount(t, project, "--no-cache"); n == 0 {
 		t.Fatal("shortcut calls in the app module are not reported")
+	}
+}
+
+// Lint checks each module on its own (checkDependencies is off by default) and skips library modules: with an app and
+// a library that both publish shortcuts, only the app's calls are reported, and a usage report in the library does not
+// count for the app.
+func TestReportShortcutUsageReportsApplicationModulesOnly(t *testing.T) {
+	fixture := filepath.Join("..", "..", "tests", "fixtures", "android-lint", "ReportShortcutUsage", "positive")
+	source, err := os.ReadFile(filepath.Join(fixture, "src", "main", "java", "com", "example", "Shortcuts.kt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	project := filepath.Join(t.TempDir(), "project")
+	manifest := "<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\" />\n"
+	writeProjectFile(t, project, "settings.gradle.kts", "include(\":app\", \":lib\")\n")
+	writeProjectFile(t, project, "app/build.gradle.kts", "plugins {\n    id(\"com.android.application\")\n}\n")
+	writeProjectFile(t, project, "app/src/main/AndroidManifest.xml", manifest)
+	writeProjectFile(t, project, "app/src/main/java/com/example/Shortcuts.kt", string(source))
+	writeProjectFile(t, project, "lib/build.gradle.kts", "plugins {\n    id(\"com.android.library\")\n}\n")
+	writeProjectFile(t, project, "lib/src/main/AndroidManifest.xml", manifest)
+	writeProjectFile(t, project, "lib/src/main/java/com/example/lib/Shortcuts.kt", strings.Replace(string(source), "package com.example", "package com.example.lib", 1))
+	stdout, stderr, _ := runKrit(t, "--no-daemon", "--no-cache", "--enable-rules", "ReportShortcutUsage", "-f", "json", project)
+	var report struct {
+		Findings []struct {
+			Rule string `json:"rule"`
+			File string `json:"file"`
+		} `json:"findings"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &report); err != nil {
+		t.Fatalf("parse report: %v\nstderr: %s", err, stderr)
+	}
+	app := 0
+	for _, f := range report.Findings {
+		if f.Rule != "ReportShortcutUsage" {
+			continue
+		}
+		if strings.Contains(filepath.ToSlash(f.File), "lib/src/") {
+			t.Errorf("reported a library call site: %s", f.File)
+		}
+		app++
+	}
+	if app == 0 {
+		t.Fatal("the app module's shortcut calls are not reported")
+	}
+	// A usage report in the library leaves the app's calls reported.
+	writeProjectFile(t, project, "lib/src/main/java/com/example/lib/Report.kt",
+		"package com.example.lib\n\nimport android.content.Context\nimport androidx.core.content.pm.ShortcutManagerCompat\n\n"+
+			"fun used(context: Context) {\n    ShortcutManagerCompat.reportShortcutUsed(context, \"id\")\n}\n")
+	if n := reportShortcutUsageCount(t, project, "--no-cache"); n != app {
+		t.Fatalf("a usage report in the library changed the app's findings: %d, want %d", n, app)
 	}
 }
 

@@ -3194,7 +3194,7 @@
           }
         },
         "EnqueueWork": {
-          "description": "WorkManager Enqueue [precision: ast-backed] [noisiness: normal]\nCaveat: The continuation is followed through chained calls, locals and lists within the function, as Lint's data-flow analysis does; the WorkManager or WorkContinuation receiver must be visible in source.",
+          "description": "WorkManager Enqueue [precision: ast-backed] [noisiness: normal]\nCaveat: The continuation is followed as Lint's DataFlowAnalyzer does, within the function: through chained calls, also/apply/let/run/takeIf/takeUnless/with, the locals it initializes or is assigned to (resolved by declaration, so a shadowing local is another variable), and the value of if/when/elvis/ternary branches. A value passed to any call other than combine, listOf included, is not followed, as in Lint. The WorkManager or WorkContinuation receiver must be visible in source.",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -10255,7 +10255,7 @@
           }
         },
         "ReportShortcutUsage": {
-          "description": "Report shortcut usage [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]\nCaveat: A ShortcutManager receiver for setDynamicShortcuts/addDynamicShortcuts must be a variable declared as one or initialized from getSystemService (any pushDynamicShortcut or reportShortcutUsed call counts as tracking usage); the scan counts as an app unless every module with shortcut calls is a library.",
+          "description": "Report shortcut usage [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]\nCaveat: A ShortcutManager receiver must be proven in source: getSystemService(ShortcutManager::class.java / .class), getSystemService\u003cShortcutManager\u003e(), a cast, `!!` of one, or a variable declared as one, initialized with one or delegated to lazy { one }. Any pushDynamicShortcut or reportShortcutUsed call counts as tracking usage.\nCaveat: Each module is checked on its own, as Lint does with checkDependencies off (its default): an application module's calls are reported when that module reports no usage, and a library module is skipped.",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -15832,7 +15832,7 @@
           }
         },
         "WebViewApiAvailability": {
-          "description": "WebView API Availability [precision: ast-backed] [noisiness: normal]\nCaveat: The guard must be an enclosing if on Build.VERSION.SDK_INT (then branch of \u003e= / \u003e, else branch of \u003c / \u003c=); like Lint here, early returns and @RequiresApi do not count.",
+          "description": "WebView API Availability [precision: ast-backed] [noisiness: normal]\nCaveat: Guards that count: an enclosing if, when entry (and the else after it), when (SDK_INT) { in N..M -\u003e } or Java ternary on Build.VERSION.SDK_INT, in either operand order; the right side of \u0026\u0026 (or of || after a failing check); a Boolean local initialized with a check; and a call of a same-file @ChecksSdkIntAtLeast(api = N) or one-line check function. The walk goes through lambdas and anonymous objects.\nCaveat: Not counted: check helpers declared in another file or a library (BuildCompat and the like), @ChecksSdkIntAtLeast's parameter and lambda forms, and, like Lint for this check, early returns and @RequiresApi.",
           "type": "object",
           "additionalProperties": false,
           "properties": {

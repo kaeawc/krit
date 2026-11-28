@@ -3327,9 +3327,11 @@ func xmlInputsFingerprint(host ProjectHostState, project *android.Project, kotli
 	if len(resDirs) > 0 {
 		_, _ = h.Write([]byte(mergedResourceIndexFingerprint(resDirs)))
 	}
-	// Module SDK levels come from build scripts the hashes above do not cover.
+	// Module SDK levels come from build scripts the hashes above do not cover, and so do the plugin ids their
+	// version-catalog aliases resolve to, which a scan below the module root holds no catalog for (#1982).
 	_, _ = h.Write([]byte{3})
 	_, _ = h.Write([]byte(sdkLevels))
+	_, _ = h.Write([]byte("|plugins=" + modulePluginsFingerprint(project)))
 	// Manifest rules read the res of every source set of a manifest's module (and a flat module's res), which
 	// project detection may not list in ResDirs.
 	_, _ = h.Write([]byte{4})

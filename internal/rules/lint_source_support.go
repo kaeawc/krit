@@ -800,6 +800,11 @@ func lintNameBinderAt(file *scanner.File, idx uint32, name string) uint32 {
 			if file.FlatType(child) == "control_structure_body" && lintForDeclares(file, cur, name) {
 				return cur
 			}
+		case "enhanced_for_statement":
+			// Java `for (T x : xs) body`: x binds in the body, the last named child.
+			if id, ok := file.FlatFindChild(cur, "identifier"); ok && file.FlatNodeText(id) == name && child == lintLastNamedChild(file, cur) {
+				return cur
+			}
 		}
 		if params != 0 && lintParamsDeclare(file, params, name) {
 			return cur
@@ -831,10 +836,21 @@ func lintForDeclares(file *scanner.File, loop uint32, name string) bool {
 // enclosing function declared before it.
 func lintBinderIsLocalScope(file *scanner.File, binder uint32) bool {
 	switch file.FlatType(binder) {
-	case "lambda_literal", "lambda_expression", "for_statement":
+	case "lambda_literal", "lambda_expression", "for_statement", "enhanced_for_statement":
 		return true
 	}
 	return false
+}
+
+// lintLastNamedChild returns the last named child of n, or 0.
+func lintLastNamedChild(file *scanner.File, n uint32) uint32 {
+	var last uint32
+	for c := file.FlatFirstChild(n); c != 0; c = file.FlatNextSib(c) {
+		if file.FlatIsNamed(c) {
+			last = c
+		}
+	}
+	return last
 }
 
 // lintBinderDeclaredType returns the type a lambda or for loop binder declares for name, or "" when it declares none:
@@ -842,6 +858,8 @@ func lintBinderIsLocalScope(file *scanner.File, binder uint32) bool {
 func lintBinderDeclaredType(file *scanner.File, binder uint32, name string) string {
 	decls := binder
 	switch file.FlatType(binder) {
+	case "enhanced_for_statement":
+		return lintChildTypeText(file, binder)
 	case "lambda_literal":
 		decls, _ = file.FlatFindChild(binder, "lambda_parameters")
 	case "lambda_expression":
@@ -886,6 +904,13 @@ func lintParamsDeclare(file *scanner.File, params uint32, name string) bool {
 		case "parameter", "variable_declaration":
 			if lintDeclaredName(file, p) == name {
 				return true
+			}
+		case "multi_variable_declaration":
+			// A destructured lambda parameter: `{ (a, b) -> }`.
+			for v := file.FlatFirstChild(p); v != 0; v = file.FlatNextSib(v) {
+				if file.FlatType(v) == "variable_declaration" && lintDeclaredName(file, v) == name {
+					return true
+				}
 			}
 		case "formal_parameter":
 			if id, ok := file.FlatFindChild(p, "identifier"); ok && file.FlatNodeText(id) == name {
@@ -1148,7 +1173,7 @@ func lintDeclaredTypeText(file *scanner.File, scope uint32, name string) string 
 	fn, hasFn := flatEnclosingCallable(file, scope)
 	var local, outer string
 	record := func(decl uint32, typ string) {
-		if typ == "" {
+		if typ == "" || !lintDeclVisibleAt(file, decl, scope) {
 			return
 		}
 		if hasFn && file.FlatStartByte(decl) >= file.FlatStartByte(fn) && file.FlatEndByte(decl) <= file.FlatEndByte(fn) {
@@ -1210,6 +1235,36 @@ func lintDeclaredTypeText(file *scanner.File, scope uint32, name string) string 
 		return local
 	}
 	return outer
+}
+
+// lintDeclVisibleAt reports whether a declaration can be in scope at use. A parameter, local, loop variable or resource
+// is visible only inside its function, constructor, accessor, lambda, loop or try; a class member or top-level
+// declaration everywhere. Another function's parameter of the same name says nothing about a property.
+func lintDeclVisibleAt(file *scanner.File, decl, use uint32) bool {
+	var owner uint32
+	switch file.FlatType(decl) {
+	case "enhanced_for_statement":
+		owner = decl
+	case "resource":
+		owner, _ = flatEnclosingAncestor(file, decl, "try_with_resources_statement")
+	default:
+	walk:
+		for p, ok := file.FlatParent(decl); ok; p, ok = file.FlatParent(p) {
+			switch file.FlatType(p) {
+			case "function_declaration", "method_declaration", "constructor_declaration", "secondary_constructor",
+				"anonymous_function", "lambda_literal", "lambda_expression", "getter", "setter", "anonymous_initializer",
+				"static_initializer", "for_statement":
+				owner = p
+				break walk
+			case "class_body", "interface_body", "enum_body", "source_file", "program":
+				break walk
+			}
+		}
+	}
+	if owner == 0 {
+		return true
+	}
+	return file.FlatStartByte(use) >= file.FlatStartByte(owner) && file.FlatEndByte(use) <= file.FlatEndByte(owner)
 }
 
 // lintChildTypeText returns the first type child of node without type arguments or a trailing `?`.

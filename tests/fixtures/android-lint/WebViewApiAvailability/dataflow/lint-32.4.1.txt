@@ -1,0 +1,12 @@
+src/main/java/com/example/Guards.kt:20:13: WebViewApiAvailability: Consider using `WebViewCompat.getWebChromeClient` instead which will support more devices.
+src/main/java/com/example/Guards.kt:26:13: WebViewApiAvailability: Consider using `WebViewCompat.getWebChromeClient` instead which will support more devices.
+src/main/java/com/example/Guards.kt:32:13: WebViewApiAvailability: Consider using `WebViewCompat.getWebChromeClient` instead which will support more devices.
+src/main/java/com/example/Guards.kt:38:26: WebViewApiAvailability: Consider using `WebViewCompat.getWebChromeClient` instead which will support more devices.
+src/main/java/com/example/Guards.kt:45:21: WebViewApiAvailability: Consider using `WebViewCompat.getWebChromeClient` instead which will support more devices.
+src/main/java/com/example/Guards.kt:49:62: WebViewApiAvailability: Consider using `WebViewCompat.getWebChromeClient` instead which will support more devices.
+src/main/java/com/example/Guards.kt:53:29: WebViewApiAvailability: Consider using `WebViewCompat.getWebChromeClient` instead which will support more devices.
+src/main/java/com/example/Guards.kt:61:21: WebViewApiAvailability: Consider using `WebViewCompat.getWebChromeClient` instead which will support more devices.
+src/main/java/com/example/JGuards.java:13:13: WebViewApiAvailability: Consider using `WebViewCompat.getWebChromeClient` instead which will support more devices.
+src/main/java/com/example/JGuards.java:22:21: WebViewApiAvailability: Consider using `WebViewCompat.getWebChromeClient` instead which will support more devices.
+src/main/java/com/example/JGuards.java:31:32: WebViewApiAvailability: Consider using `WebViewCompat.getWebChromeClient` instead which will support more devices.
+src/main/java/com/example/JGuards.java:45:13: WebViewApiAvailability: Consider using `WebViewCompat.getWebChromeClient` instead which will support more devices.

@@ -1,6 +1,9 @@
 package rules
 
 import (
+	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -63,4 +66,66 @@ class C(private val m: Manager) {
 	if !lintNameIsParameterAt(file, inLoop, "m") || lintNameIsParameterAt(file, after, "m") {
 		t.Error("the loop variable binds in the loop body only")
 	}
+}
+
+// A parameter or loop variable of another function says nothing about a same-named property or field: in go(),
+// `manager` is the Fake property, though other() has a WorkManager parameter of that name, and a Java field keeps its
+// type though another method loops over a variable of that name.
+func TestLintDeclaredTypeTextIgnoresOtherFunctionsDeclarations(t *testing.T) {
+	kt := parseInlineForInternalTest(t, `package a
+
+class Fake
+class WorkManager
+
+class R(private val manager: Fake) {
+    fun other(manager: WorkManager) {}
+
+    fun go() {
+        println(manager)
+    }
+}
+`)
+	uses := usesOf(kt, "manager")
+	if got := lintDeclaredTypeText(kt, uses[len(uses)-1], "manager"); got != "Fake" {
+		t.Errorf("Kotlin: lintDeclaredTypeText = %q, want the property's Fake", got)
+	}
+	java := parseJavaInlineForInternalTest(t, `package a;
+
+class J {
+    WebView webView;
+
+    void loop(java.util.List<Fake> fakes) {
+        for (Fake webView : fakes) {
+            webView.toString();
+        }
+    }
+
+    void use() {
+        webView.toString();
+    }
+}
+`)
+	var last uint32
+	java.FlatWalkNodes(0, "identifier", func(n uint32) {
+		if java.FlatNodeText(n) == "webView" {
+			last = n
+		}
+	})
+	if got := lintDeclaredTypeText(java, last, "webView"); got != "WebView" {
+		t.Errorf("Java: lintDeclaredTypeText = %q, want the field's WebView", got)
+	}
+}
+
+// parseJavaInlineForInternalTest parses Java source from a temporary .java file.
+func parseJavaInlineForInternalTest(t *testing.T, code string) *scanner.File {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "J.java")
+	if err := os.WriteFile(path, []byte(code), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	file, err := scanner.ParseJavaFile(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return file
 }

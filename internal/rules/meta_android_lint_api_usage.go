@@ -5,20 +5,22 @@ import "github.com/kaeawc/krit/internal/rules/api"
 func (r *WebViewAPIAvailabilityRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{ID: "WebViewApiAvailability", RuleSet: "android-lint", DefaultActive: true,
 		KnownLimitations: []string{
-			"The guard must be an enclosing if on Build.VERSION.SDK_INT (then branch of >= / >, else branch of < / <=); like Lint here, early returns and @RequiresApi do not count.",
+			"Guards that count: an enclosing if, when entry (and the else after it), when (SDK_INT) { in N..M -> } or Java ternary on Build.VERSION.SDK_INT, in either operand order; the right side of && (or of || after a failing check); a Boolean local initialized with a check; and a call of a same-file @ChecksSdkIntAtLeast(api = N) or one-line check function. The walk goes through lambdas and anonymous objects.",
+			"Not counted: check helpers declared in another file or a library (BuildCompat and the like), @ChecksSdkIntAtLeast's parameter and lambda forms, and, like Lint for this check, early returns and @RequiresApi.",
 		}}
 }
 
 func (r *EnqueueWorkRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{ID: "EnqueueWork", RuleSet: "android-lint", DefaultActive: true,
 		KnownLimitations: []string{
-			"The continuation is followed through chained calls, locals and lists within the function, as Lint's data-flow analysis does; the WorkManager or WorkContinuation receiver must be visible in source.",
+			"The continuation is followed as Lint's DataFlowAnalyzer does, within the function: through chained calls, also/apply/let/run/takeIf/takeUnless/with, the locals it initializes or is assigned to (resolved by declaration, so a shadowing local is another variable), and the value of if/when/elvis/ternary branches. A value passed to any call other than combine, listOf included, is not followed, as in Lint. The WorkManager or WorkContinuation receiver must be visible in source.",
 		}}
 }
 
 func (r *ReportShortcutUsageRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{ID: "ReportShortcutUsage", RuleSet: "android-lint", DefaultActive: true,
 		KnownLimitations: []string{
-			"A ShortcutManager receiver for setDynamicShortcuts/addDynamicShortcuts must be a variable declared as one or initialized from getSystemService (any pushDynamicShortcut or reportShortcutUsed call counts as tracking usage); the scan counts as an app unless every module with shortcut calls is a library.",
+			"A ShortcutManager receiver must be proven in source: getSystemService(ShortcutManager::class.java / .class), getSystemService<ShortcutManager>(), a cast, `!!` of one, or a variable declared as one, initialized with one or delegated to lazy { one }. Any pushDynamicShortcut or reportShortcutUsed call counts as tracking usage.",
+			"Each module is checked on its own, as Lint does with checkDependencies off (its default): an application module's calls are reported when that module reports no usage, and a library module is skipped.",
 		}}
 }

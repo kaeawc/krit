@@ -20,6 +20,20 @@ bazel_dep(name = "rules_android", version = "0.7.3")
 bazel_dep(name = "rules_java", version = "9.9.0")
 bazel_dep(name = "rules_kotlin", version = "2.4.21")
 bazel_dep(name = "rules_shell", version = "0.6.1")
+bazel_dep(name = "rules_jvm_external", version = "6.9", dev_dependency = True)
+
+# bazel_worker_java (a dependency of rules_kotlin) resolves its Maven
+# artifacts with Coursier at fetch time. Coursier downloads outside Bazel's
+# downloader, so --downloader_config cannot redirect it, and Maven Central
+# answers shared CI runner IPs with 429 Too Many Requests. The root module's
+# repositories replace that install's: resolve it from Google's mirror of
+# Maven Central instead.
+maven = use_extension("@rules_jvm_external//:extensions.bzl", "maven", dev_dependency = True)
+maven.install(
+    name = "bazel_worker_maven",
+    known_contributing_modules = ["bazel_worker_java", "krit_e2e_android"],
+    repositories = ["https://maven-central.storage-download.googleapis.com/maven2"],
+)
 
 remote_android_extensions = use_extension(
     "@rules_android//bzlmod_extensions:android_extensions.bzl",

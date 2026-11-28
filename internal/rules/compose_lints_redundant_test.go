@@ -653,3 +653,86 @@ val LocalPanel = staticCompositionLocalOf()
 fun panel() = LocalPanel.current
 `}, "ComposeReadOnlyComposable", "ComposeRedundantComposable")
 }
+
+// TestComposeRedundantComposableContainerLambdas checks composable lambdas invoked out of containers: indexed,
+// destructured, from a map or from a call result, krit cannot type them and abstains. Plain function types and
+// plain function-type aliases are still reported.
+func TestComposeRedundantComposableContainerLambdas(t *testing.T) {
+	checkComposeLintsWants(t, map[string]string{"Containers.kt": `package demo.containers
+
+import androidx.compose.runtime.Composable
+
+typealias Action = () -> Unit
+
+data class Page(val content: @Composable () -> Unit)
+
+data class Item(val route: String, val onClick: Action)
+
+@Composable
+fun Indexed(tabs: List<Pair<String, @Composable () -> Unit>>, selected: Int) {
+    tabs[selected].second()
+}
+
+@Composable
+fun DestructLocal(pair: Pair<String, @Composable () -> Unit>) {
+    val (_, content) = pair
+    content()
+}
+
+@Composable
+fun MapGet(screens: Map<String, @Composable () -> Unit>, route: String) {
+    screens[route]?.invoke()
+}
+
+@Composable
+fun MapGetValue(screens: Map<String, @Composable () -> Unit>, route: String) {
+    screens.getValue(route)()
+}
+
+@Composable
+fun Firsts(tabs: List<@Composable () -> Unit>) {
+    tabs.first()()
+}
+
+@Composable
+fun EachIt(tabs: List<@Composable () -> Unit>) {
+    tabs.forEach { it() }
+}
+
+@Composable
+fun EachIndexed(tabs: List<Pair<String, @Composable () -> Unit>>) {
+    tabs.forEachIndexed { _, (_, c) -> c() }
+}
+
+@Composable
+fun LocalCopy(page: Page) {
+    val c = page.content
+    c()
+}
+
+@Composable
+fun SafeInvoke(page: Page?) {
+    page?.content?.invoke()
+}
+
+@Composable
+fun WithPage(page: Page) {
+    with(page) { content() }
+}
+
+@Composable // want ComposeRedundantComposable
+fun ClickAlias(item: Item) {
+    item.onClick()
+}
+
+@Composable // want ComposeRedundantComposable
+fun ClickAliasInvoke(item: Item) {
+    item.onClick.invoke()
+}
+
+@Composable // want ComposeRedundantComposable
+fun Clicks(actions: List<() -> Unit>) {
+    actions.forEach { println(it) }
+}
+`}, "ComposeRedundantComposable")
+}

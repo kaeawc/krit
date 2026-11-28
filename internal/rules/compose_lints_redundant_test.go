@@ -502,3 +502,154 @@ fun RowScope.Item() { Text("a") }
 `,
 	}, "ComposeUnstableReceiver")
 }
+
+// TestComposeRedundantComposableInvokedProperties checks that calling a property or constructor property of a
+// @Composable function type, directly, through a type alias, through `it.` or with `.invoke()`, uses the
+// composition, as compose-lints' invokesComposableLambda finds; plain function types do not.
+func TestComposeRedundantComposableInvokedProperties(t *testing.T) {
+	checkComposeLintsWants(t, map[string]string{"Tabs.kt": `package demo
+
+import androidx.compose.runtime.Composable
+
+typealias Slot = @Composable () -> Unit
+
+data class TabItem(val title: String, val content: @Composable () -> Unit, val onClick: () -> Unit)
+
+data class NavItem(val route: String, val icon: Slot)
+
+class Screen(val content: @Composable () -> Unit, val onBack: () -> Unit) {
+    @Composable
+    fun Render() {
+        content()
+    }
+
+    @Composable // want ComposeRedundantComposable
+    fun Back() {
+        onBack()
+    }
+}
+
+val GlobalSlot: @Composable () -> Unit = {}
+
+val GlobalAction: () -> Unit = {}
+
+@Composable
+fun TabContent(tab: TabItem) {
+    tab.content()
+}
+
+@Composable
+fun TabsContent(tabs: List<TabItem>) {
+    tabs.forEach { it.content() }
+}
+
+@Composable
+fun NavIcon(item: NavItem) {
+    item.icon()
+}
+
+@Composable
+fun NavIconInvoke(item: NavItem) {
+    item.icon.invoke()
+}
+
+@Composable
+fun UseGlobal() {
+    GlobalSlot()
+}
+
+@Composable
+fun UseGlobalInvoke() {
+    GlobalSlot.invoke()
+}
+
+@Composable // want ComposeRedundantComposable
+fun TabClick(tab: TabItem) {
+    tab.onClick()
+}
+
+@Composable // want ComposeRedundantComposable
+fun UseAction() {
+    GlobalAction()
+}
+`}, "ComposeRedundantComposable")
+}
+
+// TestComposeReadOnlyComposableReadsSkipFunctions checks that a property read (`context.resources`) is not matched
+// against project functions of the same name, which only a call can reach.
+func TestComposeReadOnlyComposableReadsSkipFunctions(t *testing.T) {
+	checkComposeLintsWants(t, map[string]string{
+		"Resources.kt": `package demo.res
+
+import android.content.res.Resources
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.ReadOnlyComposable
+
+class ScaffoldState(val resources: Resources)
+
+@Composable
+@ReadOnlyComposable
+fun resources(): Resources = throw IllegalStateException()
+`,
+		"Plurals.kt": `package demo.plurals
+
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.platform.LocalContext
+
+@Composable // want ComposeReadOnlyComposable
+fun quantityStringResource(id: Int, quantity: Int): String {
+    val context = LocalContext.current
+    return context.resources.getQuantityString(id, quantity)
+}
+`,
+	}, "ComposeReadOnlyComposable")
+}
+
+// TestComposeRedundantComposableUnscannedReceiverAliases checks that a receiver from an unscanned library abstains
+// without a star import, directly and through an inferred local alias.
+func TestComposeRedundantComposableUnscannedReceiverAliases(t *testing.T) {
+	checkComposeLintsWants(t, map[string]string{"Badge.kt": `package demo.badge
+
+import androidx.compose.runtime.Composable
+import vendor.widgets.VendorWidget
+
+@Composable
+fun Direct(widget: VendorWidget) {
+    widget.renderVendorBadge()
+}
+
+@Composable
+fun Aliased(widget: VendorWidget) {
+    val local = widget
+    local.renderVendorBadge()
+}
+
+@Composable // want ComposeRedundantComposable
+fun Known(items: List<String>) {
+    val local = items
+    local.forEach { println(it) }
+}
+`}, "ComposeRedundantComposable")
+}
+
+// TestComposeReadOnlyComposableLookalikeLocalFactory checks that a project function named like a Compose
+// CompositionLocal factory does not make `Local*.current` a CompositionLocal read.
+func TestComposeReadOnlyComposableLookalikeLocalFactory(t *testing.T) {
+	checkComposeLintsWants(t, map[string]string{"Panel.kt": `package demo.panel
+
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+
+class Panel {
+    val current: Int
+        @Composable get() = remember { 1 }
+}
+
+fun staticCompositionLocalOf() = Panel()
+
+val LocalPanel = staticCompositionLocalOf()
+
+@Composable
+fun panel() = LocalPanel.current
+`}, "ComposeReadOnlyComposable", "ComposeRedundantComposable")
+}

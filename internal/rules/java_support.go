@@ -247,6 +247,9 @@ var javaSupportReadiness = JavaSupportMatrix{
 		"ReturnThis":                              {Status: api.LanguageSupportSupported, Fixtures: []string{"tests/fixtures/android-lint/ReturnThis/positive"}},
 		"UseSdkSuppress":                          {Status: api.LanguageSupportSupported, Fixtures: []string{"tests/fixtures/android-lint/UseSdkSuppress/positive"}},
 		"AnnotateVersionCheck":                    {Status: api.LanguageSupportSupported, Fixtures: []string{"tests/fixtures/android-lint/AnnotateVersionCheck/positive"}},
+		"WebViewApiAvailability":                  {Status: api.LanguageSupportSupported, Fixtures: []string{"tests/fixtures/android-lint/WebViewApiAvailability/positive"}},
+		"EnqueueWork":                             {Status: api.LanguageSupportSupported, Fixtures: []string{"tests/fixtures/android-lint/EnqueueWork/positive"}},
+		"ReportShortcutUsage":                     {Status: api.LanguageSupportSupported, Fixtures: []string{"tests/fixtures/android-lint/ReportShortcutUsage/positive"}},
 	},
 }
 

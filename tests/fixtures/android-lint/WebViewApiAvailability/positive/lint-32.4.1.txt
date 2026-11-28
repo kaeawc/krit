@@ -1,0 +1,5 @@
+src/main/java/com/example/JWeb.java:16:13: WebViewApiAvailability: Consider using `WebViewCompat.createWebMessageChannel` instead which will support more devices.
+src/main/java/com/example/JWeb.java:9:13: WebViewApiAvailability: Consider using `WebViewCompat.getWebViewClient` instead which will support more devices.
+src/main/java/com/example/Web.kt:10:9: WebViewApiAvailability: Consider using `WebViewCompat.getCurrentWebViewPackage` instead which will support more devices.
+src/main/java/com/example/Web.kt:13:9: WebViewApiAvailability: Consider using `WebViewCompat.startSafeBrowsing` instead which will support more devices.
+src/main/java/com/example/Web.kt:9:9: WebViewApiAvailability: Consider using `WebViewCompat.getWebChromeClient` instead which will support more devices.

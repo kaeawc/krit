@@ -3193,6 +3193,39 @@
             }
           }
         },
+        "EnqueueWork": {
+          "description": "WorkManager Enqueue [precision: ast-backed] [noisiness: normal]\nCaveat: The continuation is followed as Lint's DataFlowAnalyzer does, within the function: through chained calls, also/apply/let/run/takeIf/takeUnless/with, the locals it initializes or is assigned to (resolved by declaration, so a shadowing local is another variable), and the value of if/when/elvis/ternary branches. A value passed to any call other than combine, listOf included, is not followed, as in Lint. The WorkManager or WorkContinuation receiver must be visible in source.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable EnqueueWork (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "EnsureInitializerMetadata": {
           "description": "Detects androidx.startup Initializers that no manifest \u003cmeta-data\u003e entry or dependencies() list reaches. [precision: project-structure-aware] [noisiness: normal] [capabilities: manifest, parsed-files]\nCaveat: As in Lint, a \u003cmeta-data\u003e name must be the fully qualified class name (a relative `.Name` does not count), and the value must be androidx.startup or @string/androidx_startup.",
           "type": "object",
@@ -10221,6 +10254,39 @@
             }
           }
         },
+        "ReportShortcutUsage": {
+          "description": "Report shortcut usage [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]\nCaveat: A ShortcutManager receiver must be proven in source: getSystemService(ShortcutManager::class.java / .class), getSystemService\u003cShortcutManager\u003e(), a cast, `!!` of one, or a variable declared as one, initialized with one or delegated to lazy { one }. Any pushDynamicShortcut or reportShortcutUsed call counts as tracking usage.\nCaveat: Each module is checked on its own, as Lint does with checkDependencies off (its default): an application module's calls are reported when that module reports no usage, and a library module is skipped.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable ReportShortcutUsage (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "RequiredSizeResource": {
           "description": "View missing layout_width or layout_height [precision: project-structure-aware] [noisiness: normal] [capabilities: resources]",
           "type": "object",
@@ -15739,6 +15805,39 @@
           "properties": {
             "active": {
               "description": "Enable WebViewAllowFileAccess (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "WebViewApiAvailability": {
+          "description": "WebView API Availability [precision: ast-backed] [noisiness: normal]\nCaveat: Guards that count: an enclosing if, when entry (and the else after it), when (SDK_INT) { in N..M -\u003e } or Java ternary on Build.VERSION.SDK_INT, in either operand order; the right side of \u0026\u0026 (or of || after a failing check); a Boolean local initialized with a check; and a call of a same-file @ChecksSdkIntAtLeast(api = N) or one-line check function. The walk goes through lambdas and anonymous objects.\nCaveat: Not counted: check helpers declared in another file or a library (BuildCompat and the like), @ChecksSdkIntAtLeast's parameter and lambda forms, and, like Lint for this check, early returns and @RequiresApi.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable WebViewApiAvailability (default: true).",
               "type": "boolean",
               "default": true
             },

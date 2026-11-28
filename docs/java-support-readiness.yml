@@ -761,6 +761,18 @@ rules:
     status: supported
     fixtures:
       - tests/fixtures/android-lint/AnnotateVersionCheck/positive
+  WebViewApiAvailability:
+    status: supported
+    fixtures:
+      - tests/fixtures/android-lint/WebViewApiAvailability/positive
+  EnqueueWork:
+    status: supported
+    fixtures:
+      - tests/fixtures/android-lint/EnqueueWork/positive
+  ReportShortcutUsage:
+    status: supported
+    fixtures:
+      - tests/fixtures/android-lint/ReportShortcutUsage/positive
   UsableSpace:
     status: supported
     fixtures:

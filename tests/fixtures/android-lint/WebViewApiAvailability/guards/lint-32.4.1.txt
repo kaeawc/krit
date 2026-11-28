@@ -1,0 +1,4 @@
+src/main/java/com/example/Guards.kt:13:9: WebViewApiAvailability: Consider using `WebViewCompat.getWebViewClient` instead which will support more devices.
+src/main/java/com/example/Guards.kt:16:40: WebViewApiAvailability: Consider using `WebViewCompat.getWebChromeClient` instead which will support more devices.
+src/main/java/com/example/Guards.kt:20:9: WebViewApiAvailability: Consider using `WebViewCompat.startSafeBrowsing` instead which will support more devices.
+src/main/java/com/example/Guards.kt:9:9: WebViewApiAvailability: Consider using `WebViewCompat.getWebChromeClient` instead which will support more devices.

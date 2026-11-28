@@ -19276,6 +19276,72 @@
             }
           }
         },
+        "ComposeReadOnlyComposable": {
+          "description": "Detects @Composable declarations whose composable uses are all @ReadOnlyComposable. [precision: project-structure-aware] [noisiness: normal] [capabilities: cross-file]\nCaveat: Classifies uses as ComposeRedundantComposable does; `Local*.current` is a CompositionLocal read when the name resolves to a scanned library or to a project `*compositionLocalOf` property, and abstains for names from other libraries.\nCaveat: compose-lints' autofix (add @ReadOnlyComposable) is not ported.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable ComposeReadOnlyComposable (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "ComposeRedundantComposable": {
+          "description": "Detects @Composable declarations that use nothing from the composition. [precision: project-structure-aware] [noisiness: normal] [capabilities: cross-file]\nCaveat: Reports only what it can prove: every call and property read must resolve to a non-composable project declaration, a declaration of a scanned library (Compose, material3, Glance, lifecycle-viewmodel, kotlin-stdlib, coroutines), an Android SDK or JDK member, or a default import. Anything from another library (a star import, an imported receiver type, a class extending one), an unknown `.value` read or an ambiguous overload makes it abstain.\nCaveat: compose-lints' autofix (remove the annotation) is not ported.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable ComposeRedundantComposable (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Fully qualified annotations whose @Composable declarations are not reported (compose-lints `ignore-annotated`).",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "ComposeRememberSaveableNonParcelable": {
           "description": "Detects rememberSaveable blocks constructing non-primitive types without an explicit saver argument. [precision: ast-backed] [noisiness: normal]",
           "type": "object",
@@ -19495,6 +19561,39 @@
               "description": "Enable ComposeUnstableParameter (default: true).",
               "type": "boolean",
               "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "ComposeUnstableReceiver": {
+          "description": "Detects Unit composables whose extension receiver or containing class is not stable. [precision: project-structure-aware] [noisiness: normal] [capabilities: cross-file]\nCaveat: Project classes are stable when they, or a supertype, are enums or functional interfaces (`fun interface`, @FunctionalInterface), or are annotated @Stable, @Immutable or with a @StableMarker annotation; a value class is as stable as its underlying type. The Lint CLI does not see these annotations on source classes and reports such receivers; krit follows compose-lints' tests and does not.\nCaveat: Library receivers are judged only for compose-lints' known stable constructs, kotlin collections and Any, and the Compose scope types in the generated tables; other library types are not reported.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable ComposeUnstableReceiver (default: false).",
+              "type": "boolean",
+              "default": false
             },
             "excludes": {
               "description": "Glob patterns for paths to exclude from this rule.",

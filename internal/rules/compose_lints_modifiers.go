@@ -527,9 +527,9 @@ func (a composeLintsTypeAliases) resolve(file *scanner.File, name string) string
 	if candidate := composeLintsJoin(filePackageName(file), name); a[candidate].file != nil {
 		return candidate
 	}
-	if facts != nil && !qualified {
-		for wildcard := range facts.Wildcards {
-			if candidate := strings.TrimSuffix(wildcard, "*") + name; a[candidate].file != nil {
+	if !qualified {
+		for _, pkg := range composeLintsWildcardPackages(file) {
+			if candidate := pkg + "." + name; a[candidate].file != nil {
 				return candidate
 			}
 		}

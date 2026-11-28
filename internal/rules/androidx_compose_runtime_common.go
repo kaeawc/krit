@@ -202,13 +202,18 @@ func acrSimpleNameRefersTo(file *scanner.File, used, pkg, name string) bool {
 
 // acrAnnotationIsComposable reports whether an annotation node is androidx.compose.runtime.Composable.
 func acrAnnotationIsComposable(file *scanner.File, annotation uint32) bool {
+	return acrAnnotationIsRuntime(file, annotation, acrComposableShort)
+}
+
+// acrAnnotationIsRuntime reports whether an annotation node is androidx.compose.runtime.<name>.
+func acrAnnotationIsRuntime(file *scanner.File, annotation uint32, name string) bool {
 	for child := file.FlatFirstChild(annotation); child != 0; child = file.FlatNextSib(child) {
 		switch file.FlatType(child) {
 		case "user_type":
-			return acrTypeIsRuntime(file, child, acrComposableShort)
+			return acrTypeIsRuntime(file, child, name)
 		case "constructor_invocation":
 			if ut, ok := file.FlatFindChild(child, "user_type"); ok {
-				return acrTypeIsRuntime(file, ut, acrComposableShort)
+				return acrTypeIsRuntime(file, ut, name)
 			}
 			return false
 		case "use_site_target":

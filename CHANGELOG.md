@@ -673,6 +673,13 @@ All notable changes to Krit will be documented in this file.
 - Gradle plugin: an application's (or dynamic feature's) unit tests are modeled with the tested variant's R jar. AGP
   registers `generate<Variant>UnitTestStubRFile` only for a library, so the model predicted a jar no task writes, FIR
   compiled those tests without the app's R class, and every scan warned about a missing classpath entry (#1724).
+- Gradle plugin, Kotlin Multiplatform (#1987):
+  - A KMP test compilation's model drops only the project's own compiled-class directories, so a task-built jar under
+    `build/` stays, and its producer still runs before the export.
+  - An Android-KMP device test takes its Variant API roots (such as KSP's), read through the variant's `getDeviceTests()`.
+  - A build that sets `advanced.source` to exactly `src/main/kotlin, src/test/kotlin` keeps it.
+  - krit-fir counts a generated root as common only for a `commonMain`/`commonTest` segment below `build/generated`, so a
+    checkout under a directory named `commonMain` no longer makes JVM generated roots common.
 - Gradle plugin, Kotlin Multiplatform: each compilation's model entry includes the source sets it compiles through
   `dependsOn` (`commonMain` and intermediate sets, with their generated roots such as SQLDelight's), which KGP links only
   after the export was configured, so FIR no longer compiles `jvmMain` without `commonMain` and gates every `actual`. AGP 9's

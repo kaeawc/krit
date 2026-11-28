@@ -56,7 +56,7 @@ under kotlinc for each shape:
 | --- | --- |
 | `commonMain`, `commonTest` | common |
 | Other `src/<sourceSet>/kotlin` declaring an `expect` and no `actual` (for example `expect` in `concurrentMain` with its `actual` in `jvmMain`) | common |
-| A generated directory of a common source set: under a `generated` directory, with a `commonMain` or `commonTest` segment (SQLDelight's `build/generated/sqldelight/code/<Db>/commonMain`, KSP's `build/generated/ksp/metadata/commonMain/kotlin`) | common |
+| A generated directory of a common source set: a `commonMain` or `commonTest` segment below the last `build/generated` directory (SQLDelight's `build/generated/sqldelight/code/<Db>/commonMain`, KSP's `build/generated/ksp/metadata/commonMain/kotlin`) | common |
 | Any directory declaring an `actual`, including one that also declares a new `expect` | platform |
 | `main`, `test`, and other directories outside the `src/<sourceSet>/` layout | platform |
 

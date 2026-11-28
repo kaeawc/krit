@@ -30,7 +30,7 @@ import java.io.File
  *    be modeled with two levels; leaving it platform keeps the damage inside
  *    that root instead of spreading to commonMain.
  *  - A generated root of a common source set is common too: a root under a
- *    `generated` directory with a `commonMain` / `commonTest` segment, such as
+ *    `build/generated` directory with a `commonMain` / `commonTest` segment below it, such as
  *    SQLDelight's `build/generated/sqldelight/code/<Db>/commonMain` or KSP's
  *    `build/generated/ksp/metadata/commonMain/kotlin`. Compiled as platform,
  *    common code cannot see it (#1752).
@@ -87,10 +87,17 @@ internal object MultiplatformSources {
         }
     }
 
-    /** True for a generator's output root of a common source set (see the class comment). */
+    /**
+     * True for a generator's output root of a common source set (see the class comment): a
+     * `commonMain` / `commonTest` segment below the last `build/generated` directory. Only what is
+     * below it counts, so a checkout under a directory named `commonMain` or `generated` does not
+     * make every generated root common (#1987).
+     */
     internal fun isGeneratedCommonRoot(dir: String): Boolean {
         val segments = File(dir).absoluteFile.normalize().path.split(File.separatorChar)
-        return "generated" in segments && segments.any { it in commonSourceSets }
+        val generated = segments.lastIndexOf("generated")
+        return generated > 0 && segments[generated - 1] == "build" &&
+            segments.drop(generated + 1).any { it in commonSourceSets }
     }
 
     /** `<name>` for a root shaped `.../src/<name>/kotlin` (or `java`), else null. */

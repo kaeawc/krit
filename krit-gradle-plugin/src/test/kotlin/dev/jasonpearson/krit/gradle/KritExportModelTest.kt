@@ -647,10 +647,14 @@ class KritExportModelTest {
         val graph = runWithFakePlugin(root, FakeKmpPlugin::class.java, "org.jetbrains.kotlin.multiplatform",
             "kritExportModel", "--dry-run", "-PfakeOwnOutputs")
         assertFalse(Regex(":compile\\w* SKIPPED").containsMatchIn(graph.output), graph.output)
+        // A task-built jar under build/ stays, and its producer still runs (#1987).
+        assertTrue(graph.output.contains(":vendorJar SKIPPED"), graph.output)
         runWithFakePlugin(root, FakeKmpPlugin::class.java, "org.jetbrains.kotlin.multiplatform",
-            "kritExportModel", "-PfakeOwnOutputs")
+            "kritExportModel", "-PfakeOwnOutputs", "--configuration-cache")
         val test = sourceSets(File(root, ".krit/gradle-model/_root.json")).single { it["name"] == "jvmTest" }
-        assertEquals(listOf(File(root, "libs/local.jar").canonicalPath), test["classpath"], test.toString())
+        assertEquals(listOf(File(root, "build/vendor/vendor.jar").canonicalPath, File(root, "libs/local.jar").canonicalPath),
+            test["classpath"], test.toString())
+        assertTrue(File(root, "build/vendor/vendor.jar").isFile)
         assertFalse(File(root, "build/classes/kotlin/jvm/main").exists())
     }
 
@@ -759,6 +763,9 @@ class KritExportModelTest {
             android.associate { it["name"] to it["kind"] })
         assertTrue((android.single { it["kind"] == "test" }["sourceDirs"] as List<*>)
             .any { it.toString().endsWith("src/commonTest/kotlin") })
+        // The device test's Variant API roots come from getDeviceTests() (#1987).
+        assertEquals(listOf(modelPath(File(root, "build/generated/ksp/android/androidDeviceTest/kotlin"))),
+            android.single { it["kind"] == "androidTest" }["generatedSourceDirs"], android.toString())
         val on = runWithFakePlugin(root, FakeKmpPlugin::class.java, "org.jetbrains.kotlin.multiplatform",
             "kritExportModel", "-PfakeAndroidKmpLibrary", "-PfakeAndroidKmpResources")
         assertTrue(on.output.contains("krit: own Android R jar location unavailable"), on.output)
@@ -808,6 +815,18 @@ class KritExportModelTest {
             "kritCheck", "-PfakeGeneratedCommonRoot")
         val configured = args.readLines().filter { it.endsWith(".kt") }
         assertEquals(listOf(File(root, "custom/Custom.kt").canonicalPath), configured.map { File(it).canonicalPath })
+
+        // A source the build sets to exactly the non-KMP default is still the build's (#1987).
+        File(root, "src/main/kotlin/Main.kt").also { it.parentFile.mkdirs() }.writeText("class Main\n")
+        build.writeText("""
+            plugins { id("dev.jasonpearson.krit") }
+            krit { fir = false; exportModel = false; advanced { binary.set(file("fake-krit")); source.setFrom("src/main/kotlin", "src/test/kotlin") } }
+            apply(plugin = "org.jetbrains.kotlin.multiplatform")
+        """.trimIndent())
+        runWithFakePlugin(root, FakeKmpPlugin::class.java, "org.jetbrains.kotlin.multiplatform",
+            "kritCheck", "-PfakeGeneratedCommonRoot")
+        val explicitDefault = args.readLines().filter { it.endsWith(".kt") }
+        assertEquals(listOf(File(root, "src/main/kotlin/Main.kt").canonicalPath), explicitDefault.map { File(it).canonicalPath })
     }
 
     @Test

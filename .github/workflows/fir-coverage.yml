@@ -185,6 +185,14 @@ jobs:
           grep -E 'FIR verdict:|FIR gated' "$RUNNER_TEMP/fir/gradle-kritCheck.log" || true
           python3 ci/fir_coverage.py measure gradle-kritCheck "$RUNNER_TEMP/fir/gradle-kritCheck.result.json" \
             "$RUNNER_TEMP/fir/gradle-kritCheck.log"
+      # ci/krit-verbose.sh keeps krit's stderr in .krit-bin/kritcheck-<pid>.log until krit exits: a
+      # krit that hangs until the step times out leaves its log only there (#1987).
+      - name: Keep the krit logs
+        if: always()
+        working-directory: ${{ env.SAMPLE }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/fir/krit-logs"
+          cp .krit-bin/kritcheck-*.log "$RUNNER_TEMP/fir/krit-logs/" 2>/dev/null || true
       - uses: actions/upload-artifact@de65e23aa2b7e23d713bb51fbfcb6d502f8667d8 # v4.6.2
         if: always()
         with:

@@ -1,6 +1,7 @@
 package module
 
 import (
+	"fmt"
 	"path/filepath"
 	"testing"
 )
@@ -67,4 +68,30 @@ func TestFileToModuleLongestMatch(t *testing.T) {
 	if got != ":samples:star" {
 		t.Errorf("expected :samples:star, got %q", got)
 	}
+}
+
+// FileToModule runs for every source file of a module-aware scan, once per
+// module per file, so the containment check must not allocate.
+func BenchmarkFileToModule(b *testing.B) {
+	root := b.TempDir()
+	g := NewModuleGraph(root)
+	for i := 0; i < 160; i++ {
+		p := fmt.Sprintf(":m%d", i)
+		g.Modules[p] = &Module{Path: p, Dir: filepath.Join(root, fmt.Sprintf("m%d", i))}
+	}
+	b.Chdir(root)
+	rel := filepath.Join("m77", "src", "main", "kotlin", "A.kt")
+	abs := filepath.Join(root, rel)
+	b.Run("absolute", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			g.FileToModule(abs)
+		}
+	})
+	b.Run("relative", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			g.FileToModule(rel)
+		}
+	})
 }

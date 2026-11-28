@@ -704,6 +704,12 @@ All notable changes to Krit will be documented in this file.
   descriptors, which the expansion did not read, so the flag disabled nothing (#1956).
 - A delegated `--no-parse-cache -v` scan whose daemon does not confirm the bypass prints its `-v` output once: the
   daemon's verbose output is no longer streamed before the result is accepted (#1956).
+- Two daemon results that differed from a cold run (#1968). A warm call after a `settings.gradle.kts` or
+  `build.gradle.kts` edit reported the script's old findings, because the watcher dropped only library facts for a
+  Gradle script and kept its resident parse. A scan of `.` through the daemon put every file in the root bucket, so
+  ModuleDeadCode named the module "root" instead of `:lib`: module directories are absolute and the request's source
+  paths were relative. `FileToModule` also no longer allocates per module (21 µs instead of 80 µs per file with 160
+  modules).
 - `--no-parse-cache` now works on a scan delegated to a daemon. The flag was not sent, so the daemon still parsed
   through its parse cache and could serve stale trees with no warning. The daemon now parses every file it does not
   replay from the findings or analysis cache for that request, skipping both its parse cache and the parsed trees it

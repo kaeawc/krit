@@ -403,3 +403,32 @@ func TestDiscoverModulesFromMarkerlessFileWalksNothing(t *testing.T) {
 		t.Fatalf("DiscoverModules(%s) = %v, %v; want nil, nil", file, graph, err)
 	}
 }
+
+// Discovery spells module directories absolute. A scan of "." through the
+// daemon hands over source paths relative to the caller's directory, which the
+// daemon has entered, so those must resolve to the same modules: matched as
+// strings, every file fell into the root bucket and ModuleDeadCode named its
+// module "root" instead of :lib (#1968).
+func TestFileToModuleResolvesRelativePathsAgainstWorkingDir(t *testing.T) {
+	dir := t.TempDir()
+	writeSettings(t, dir, `include(":app", ":lib")`)
+	makeModule(t, dir, "app")
+	makeModule(t, dir, "lib")
+	t.Chdir(dir)
+
+	graph, err := DiscoverModules(t.Context(), ".")
+	if err != nil || graph == nil {
+		t.Fatalf("DiscoverModules(.) = %v, %v", graph, err)
+	}
+	for _, tc := range []struct{ file, want string }{
+		{filepath.Join("lib", "src", "main", "kotlin", "L.kt"), ":lib"},
+		{filepath.Join(".", "app", "src", "main", "kotlin", "A.kt"), ":app"},
+		{filepath.Join(dir, "lib", "src", "main", "kotlin", "L.kt"), ":lib"},
+		{filepath.Join("other", "O.kt"), ""},
+		{filepath.Join("..", filepath.Base(dir)+"-sibling", "lib", "L.kt"), ""},
+	} {
+		if got := graph.FileToModule(tc.file); got != tc.want {
+			t.Errorf("FileToModule(%q) = %q, want %q", tc.file, got, tc.want)
+		}
+	}
+}

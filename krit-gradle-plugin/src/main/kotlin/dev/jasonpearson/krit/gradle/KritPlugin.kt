@@ -972,8 +972,9 @@ class KritPlugin : Plugin<Project> {
      * the R task would discard the entry (#1645). krit looks the jar up when it runs, also under
      * the other folder names AGP uses for it (`gradlemodel.resolveRClassJars`).
      */
-    private fun androidRJar(project: Project, variant: String, kind: String, major: Int): Provider<List<String>> {
-        val libraryMain = kind == "main" && project.plugins.hasPlugin(ANDROID_LIBRARY_PLUGIN_ID)
+    private fun androidRJar(project: Project, variant: String, specKind: String, major: Int): Provider<List<String>> {
+        val kind = androidRKind(project, specKind)
+        val libraryMain = kind == "main" && isAndroidLibrary(project)
         val predictedFolder = if (libraryMain) "compile_r_class_jar"
             else if (major == 8) "compile_and_runtime_not_namespaced_r_class_jar"
             else "compile_and_runtime_r_class_jar"
@@ -984,6 +985,17 @@ class KritPlugin : Plugin<Project> {
                 .resolve(directory).resolve(task).resolve("R.jar")))
         }
     }
+
+    /**
+     * The kind whose R jar a spec of [kind] compiles against. Only a library's unit tests have an R
+     * class of their own (`generate<Variant>UnitTestStubRFile`); AGP registers no such task for an
+     * application or dynamic feature, whose unit tests compile against the tested variant's R jar.
+     */
+    private fun androidRKind(project: Project, kind: String): String =
+        if (kind == "test" && !isAndroidLibrary(project)) "main" else kind
+
+    /** By plugin ID, not class: one implementation class may serve several Android plugin IDs. */
+    private fun isAndroidLibrary(project: Project): Boolean = project.pluginManager.hasPlugin(ANDROID_LIBRARY_PLUGIN_ID)
 
     /** The AGP component whose R jar a spec of [kind] compiles against (`debug`, `debugUnitTest`, ...). */
     private fun androidRComponent(variant: String, kind: String): String = when (kind) {
@@ -1007,9 +1019,9 @@ class KritPlugin : Plugin<Project> {
      * names, since which one AGP registers depends on the module type; a test component lists its
      * own, whose R jar the model records for it (#1724).
      */
-    private fun androidRTasks(specs: List<ModelSpec>): List<String> =
+    private fun androidRTasks(project: Project, specs: List<ModelSpec>): List<String> =
         specs.filter { it.platform == "android" && it.variant.isNotEmpty() }
-            .map { it.variant to it.kind }.distinct().flatMap { (variant, kind) ->
+            .map { it.variant to androidRKind(project, it.kind) }.distinct().flatMap { (variant, kind) ->
                 val libraryMain = if (kind == "test" || kind == "androidTest") listOf(false) else listOf(true, false)
                 libraryMain.map { androidRTask(variant, kind, it) }
             }
@@ -1274,7 +1286,7 @@ class KritPlugin : Plugin<Project> {
         project: Project, specs: List<ModelSpec>, variantSources: AndroidVariantSources,
     ): List<Any> {
         val main = specs.filter { it.kind == "main" }
-        val androidNames = androidRTasks(specs)
+        val androidNames = androidRTasks(project, specs)
         val providers = main.mapNotNull { producers(project, it, variantSources) }
         fun relevant(of: List<ModelSpec>) = of.map { it.name.lowercase() } +
             of.filter { it.platform == "android" }.map { it.variant.lowercase() }.filter { it.isNotEmpty() } +

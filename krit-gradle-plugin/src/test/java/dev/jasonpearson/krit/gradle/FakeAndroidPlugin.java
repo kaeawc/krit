@@ -263,9 +263,12 @@ public class FakeAndroidPlugin implements Plugin<Project> {
         // Mirrors GenerateLibraryRFileTask.CreationAction.getName() and LinkApplicationAndroidResourcesTask.BaseCreationAction.getName() in AGP 8.8.0-alpha09.
         // The unit-test and androidTest R tasks mirror GenerateLibraryRFileTask.TestRuntimeStubRClassCreationAction
         // and ProcessTestManifest's resource linking in AGP 8.x.
-        for (String name : List.of("generateDebugRFile", "processDebugResources",
-                "generateDebugUnitTestStubRFile", "processDebugAndroidTestResources"))
+        for (String name : List.of("generateDebugRFile", "processDebugResources", "processDebugAndroidTestResources"))
             project.getTasks().register(name);
+        // Mirrors AGP 9.5.3: only a library's unit tests get a stub R class task; an application's
+        // compile against the tested variant's R jar.
+        project.getPluginManager().withPlugin("com.android.library",
+                plugin -> project.getTasks().register("generateDebugUnitTestStubRFile"));
         project.getTasks().register("compileDebugKotlin", CompileKotlin.class);
         Object components = project.getExtensions().findByName("androidComponents");
         if (project.hasProperty("fakeGeneratedSources") && components instanceof Components) {

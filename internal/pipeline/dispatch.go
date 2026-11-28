@@ -127,15 +127,9 @@ func (DispatchPhase) writeCacheBack(in IndexResult, findingsByFile map[string]sc
 	}
 	in.Cache.SetHeader(in.Version, in.RuleHash, in.CacheScanPaths)
 	in.Cache.Prune()
-	if in.Cache.ShouldSkipFullSaveForSmallDelta(in.CacheResult, 4) {
-		if in.Tracker != nil {
-			in.Tracker.TrackVoid("cacheSave", func() {})
-		}
-		if in.CacheStats != nil {
-			in.CacheStats.SaveDurMs = 0
-		}
-		return
-	}
+	// Save even a small git-dirty delta. A later run need not reach this save:
+	// a findings-bundle hit skips dispatch, so an unsaved entry would stay a
+	// miss on every run until something else rewrote the cache (#1967).
 
 	// Encode an immutable snapshot synchronously (under the cache's read
 	// lock) so the next analyze's UpdateEntryColumns can't tear it. In

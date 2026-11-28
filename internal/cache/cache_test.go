@@ -242,9 +242,6 @@ func TestCheckFiles_GitDirtyPathsSkipCleanMetadataChecks(t *testing.T) {
 	if result.CachedColumns.Len() != 1 {
 		t.Fatalf("cached columns = %d, want 1", result.CachedColumns.Len())
 	}
-	if !c.ShouldSkipFullSaveForSmallDelta(result, 4) {
-		t.Fatalf("expected tiny dirty delta to skip full JSON cache save")
-	}
 }
 
 func runGit(t *testing.T, dir string, args ...string) {

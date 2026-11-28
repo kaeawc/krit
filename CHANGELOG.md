@@ -707,6 +707,10 @@ All notable changes to Krit will be documented in this file.
   descriptors, which the expansion did not read, so the flag disabled nothing (#1956).
 - A delegated `--no-parse-cache -v` scan whose daemon does not confirm the bypass prints its `-v` output once: the
   daemon's verbose output is no longer streamed before the result is accepted (#1956).
+- An uncommitted edit in a git checkout is now stored in the per-file cache (#1967). A run with one to four
+  misses and git-dirty files skipped the cache save, expecting the next run to reanalyze the file, but later runs
+  were served from the findings bundle and never saved either. The edited file stayed a miss on every run, and warm
+  cross-file findings were not reused: DeadCode on a 3678-file project took 3.0–3.5 s per warm run instead of 1.3–1.5 s.
 - Two daemon results that differed from a cold run (#1968). A warm call after a `settings.gradle.kts` or
   `build.gradle.kts` edit reported the script's old findings, because the watcher dropped only library facts for a
   Gradle script and kept its resident parse. A scan of `.` through the daemon put every file in the root bucket, so

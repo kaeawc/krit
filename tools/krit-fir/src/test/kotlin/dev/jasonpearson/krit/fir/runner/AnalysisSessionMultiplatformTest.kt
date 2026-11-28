@@ -236,6 +236,10 @@ class AnalysisSessionMultiplatformTest {
         assertTrue(MultiplatformSources.isGeneratedCommonRoot("/p/build/generated/sqldelight/code/Db/commonMain"))
         assertFalse(MultiplatformSources.isGeneratedCommonRoot("/p/build/generated/ksp/jvm/jvmMain/kotlin"))
         assertFalse(MultiplatformSources.isGeneratedCommonRoot("/p/commonMain/kotlin"))
+        // The checkout's own path does not count: only what is below the last `generated` directory.
+        assertFalse(MultiplatformSources.isGeneratedCommonRoot("/work/commonMain/p/build/generated/ksp/jvm/jvmMain/kotlin"))
+        assertFalse(MultiplatformSources.isGeneratedCommonRoot("/generated/commonMain/p/src/other/kotlin"))
+        assertTrue(MultiplatformSources.isGeneratedCommonRoot("/work/generated/p/build/generated/ksp/metadata/commonMain/kotlin"))
         assertTrue(MultiplatformSources.stripCommentsAndStrings("a // expect fun b\nc").startsWith("a \nc"))
     }
 

@@ -150,6 +150,13 @@ public class FakeKmpPlugin implements Plugin<Project> {
             return all;
         }
     }
+    /** Writes an empty jar: a task-built file dependency. */
+    public abstract static class FakeJar extends org.gradle.api.DefaultTask {
+        @org.gradle.api.tasks.OutputFile public abstract org.gradle.api.file.RegularFileProperty getOutputFile();
+        @org.gradle.api.tasks.TaskAction public void write() throws java.io.IOException {
+            java.nio.file.Files.write(getOutputFile().get().getAsFile().toPath(), new byte[0]);
+        }
+    }
     @Override public void apply(Project project) {
         boolean android = project.hasProperty("fakeAndroidKmp");
         boolean androidKmpLibrary = project.hasProperty("fakeAndroidKmpLibrary");
@@ -175,6 +182,11 @@ public class FakeKmpPlugin implements Plugin<Project> {
             project.getDependencies().add("jvmTestCompileClasspath",
                     project.files(compile.flatMap(FakeAndroidPlugin.FakeSourceGenerator::getOutputDir)));
             project.getDependencies().add("jvmTestCompileClasspath", project.files("libs/local.jar"));
+            // A jar a task writes under build/ is a real dependency, and its producer must run (#1987).
+            org.gradle.api.tasks.TaskProvider<FakeJar> vendor = project.getTasks().register("vendorJar", FakeJar.class,
+                    task -> task.getOutputFile().set(project.getLayout().getBuildDirectory().file("vendor/vendor.jar")));
+            project.getDependencies().add("jvmTestCompileClasspath",
+                    project.files(vendor.flatMap(FakeJar::getOutputFile)));
         }
         project.getGradle().projectsEvaluated(gradle -> {
             for (Target target : kotlin.getTargets())

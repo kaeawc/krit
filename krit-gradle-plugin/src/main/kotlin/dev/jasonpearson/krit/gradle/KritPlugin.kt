@@ -14,6 +14,7 @@ import org.gradle.api.tasks.SourceSetContainer
 import org.gradle.api.provider.Provider
 import org.gradle.api.file.RegularFile
 import org.gradle.api.artifacts.Configuration
+import org.gradle.api.artifacts.FileCollectionDependency
 import org.gradle.api.file.FileCollection
 import org.gradle.api.tasks.TaskProvider
 import org.gradle.api.tasks.compile.JavaCompile
@@ -21,6 +22,7 @@ import org.gradle.jvm.toolchain.JavaLanguageVersion
 import org.gradle.jvm.toolchain.JavaLauncher
 import org.gradle.jvm.toolchain.JavaToolchainService
 import java.io.File
+import java.util.concurrent.Callable
 
 /**
  * Gradle plugin that integrates krit Kotlin static analysis into the build.
@@ -89,12 +91,15 @@ class KritPlugin : Plugin<Project> {
         extension.advanced.parallel.convention(Runtime.getRuntime().availableProcessors())
         extension.advanced.noCache.convention(false)
         extension.advanced.typeInference.convention(true)
-        extension.advanced.source.setFrom("src/main/kotlin", "src/test/kotlin")
+        // The default is one collection object, so "still the default" is an identity check: a build
+        // that sets the same two paths itself has set a source and keeps it (#1987).
+        val defaultSource = project.files("src/main/kotlin", "src/test/kotlin")
+        extension.advanced.source.setFrom(defaultSource)
         // A Kotlin Multiplatform project has no src/main/kotlin: its sources are its Kotlin source
         // sets' roots (src/commonMain/kotlin, src/jvmMain/kotlin, ...), read once they are configured
         // (#1752). A source the build already set is kept.
         project.pluginManager.withPlugin(KOTLIN_MULTIPLATFORM_PLUGIN_ID) {
-            if (extension.advanced.source.from.toList() == DEFAULT_SOURCE) {
+            if (extension.advanced.source.from.singleOrNull() === defaultSource) {
                 extension.advanced.source.setFrom(project.provider { kmpSourceDirs(project) })
             }
         }
@@ -808,12 +813,22 @@ class KritPlugin : Plugin<Project> {
 
     /**
      * True for a file dependency's artifact (Gradle's opaque identifier, which carries its file)
-     * under [ownBuild]. Other identifiers carry no file and are kept.
+     * that is one of the project's own compiled-class directories under [ownBuild]. Other
+     * identifiers carry no file and are kept.
      */
     private fun isOwnBuildOutput(id: ComponentIdentifier, ownBuild: java.nio.file.Path): Boolean {
         val file = runCatching { id.javaClass.getMethod("getFile").invoke(id) as? File }.getOrNull() ?: return false
-        return file.toPath().toAbsolutePath().normalize().startsWith(ownBuild)
+        return isOwnClassesDir(file, ownBuild)
     }
+
+    /**
+     * A compilation's output directory under [ownBuild] (`build/classes/kotlin/jvm/main`, KSP's
+     * `build/generated/ksp/jvm/jvmMain/classes`), not an archive: a jar a task wrote under build/ is
+     * a real dependency. Read by name, so it holds before the directory exists.
+     */
+    private fun isOwnClassesDir(file: File, ownBuild: java.nio.file.Path): Boolean =
+        file.toPath().toAbsolutePath().normalize().startsWith(ownBuild) &&
+            file.extension.lowercase() !in setOf("jar", "aar", "zip")
 
     private fun reflect(value: Any, method: String): Any =
         value.javaClass.getMethod(method).invoke(value)
@@ -1077,10 +1092,10 @@ class KritPlugin : Plugin<Project> {
                 kotlinPluginVersion.set(kotlinOptions.map { it.pluginVersion })
                 kotlinCompilerPluginClasspath.from(compilerPluginClasspath(project, spec.compileTask))
                 kotlinCompilerPluginOptions.set(compilerPluginOptions(project, spec.compileTask))
-                // Only a KMP test compilation drops file dependencies under this project's build
-                // directory: KGP adds its main compilation's outputs there (#1752), which the
-                // model's source context covers. Elsewhere such a file is a real dependency (a jar
-                // a task copied to build/), and stays.
+                // Only a KMP test compilation drops this project's own compiled-class directories,
+                // which KGP adds to its classpath as file dependencies (#1752) and the model's source
+                // context covers. Elsewhere, and for a jar under build/, such a file is a real
+                // dependency and stays.
                 val ownBuild = if (spec.ownOutputsOnClasspath) {
                     project.layout.buildDirectory.get().asFile.toPath().toAbsolutePath().normalize()
                 } else null
@@ -1092,12 +1107,25 @@ class KritPlugin : Plugin<Project> {
                         id !is ProjectComponentIdentifier && (ownBuild == null || !isOwnBuildOutput(id, ownBuild))
                     }
                 }.files
-                // The view still carries a filtered-out file dependency's producer (compileKotlinJvm), so
-                // a KMP test compilation's classpath is read through a provider, which carries none:
-                // exporting must not compile main code.
-                classpath.from(
-                    if (spec.ownOutputsOnClasspath) project.provider { externalArtifacts.files } else externalArtifacts,
-                )
+                // The view still carries a filtered-out file dependency's producer (compileKotlinJvm). A
+                // KMP test compilation's classpath therefore takes the view's files without its build
+                // dependencies, and is built by them minus the own outputs' producers: exporting must
+                // not compile main code, but a kept task-built dependency is still built (#1987).
+                if (ownBuild != null) {
+                    val ownOutputs = project.files(Callable {
+                        spec.configuration.allDependencies.withType(FileCollectionDependency::class.java)
+                            .map { it.files }
+                            .filter { files ->
+                                files.files.let { it.isNotEmpty() && it.all { f -> isOwnClassesDir(f, ownBuild) } }
+                            }
+                    })
+                    classpath.from(project.files(Callable { externalArtifacts.files }).builtBy(Callable {
+                        externalArtifacts.buildDependencies.getDependencies(null) -
+                            ownOutputs.buildDependencies.getDependencies(null)
+                    }))
+                } else {
+                    classpath.from(externalArtifacts)
+                }
                 val extraProjectDeps = spec.extraProjectDeps
                 projectDeps.set(spec.configuration.incoming.resolutionResult.rootComponent.map { root ->
                     (root.dependencies.filterIsInstance<ResolvedDependencyResult>()
@@ -1415,8 +1443,6 @@ class KritPlugin : Plugin<Project> {
         const val ANDROID_TEST_PLUGIN_ID = "com.android.test"
         const val ANDROID_DYNAMIC_FEATURE_PLUGIN_ID = "com.android.dynamic-feature"
 
-        /** kritCheck's source when the project is not Kotlin Multiplatform. */
-        private val DEFAULT_SOURCE = listOf("src/main/kotlin", "src/test/kotlin")
 
         /** AGP's Kotlin Multiplatform library plugin: `kotlin { android { } }`, required for KMP from AGP 9. */
         const val ANDROID_KMP_LIBRARY_PLUGIN_ID = "com.android.kotlin.multiplatform.library"

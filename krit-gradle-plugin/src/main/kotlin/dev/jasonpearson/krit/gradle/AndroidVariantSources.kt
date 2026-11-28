@@ -51,11 +51,19 @@ internal class AndroidVariantSources(private val project: Project) {
     }
 
     private fun record(variant: Any) {
-        val components = listOf(variant) + listOf("getUnitTest", "getAndroidTest", "getTestFixtures").mapNotNull { getter ->
+        val single = listOf("getUnitTest", "getAndroidTest", "getTestFixtures").mapNotNull { getter ->
             runCatching { variant.javaClass.getMethod(getter).invoke(variant) }.getOrNull()
         }
-        components.forEach { component ->
+        // AGP 8.x+ also lists test components in maps (HasHostTests, HasDeviceTests): the only way
+        // to reach an Android-KMP variant's device test (androidDeviceTest, #1987).
+        val mapped = listOf("getHostTests", "getDeviceTests").flatMap { getter ->
+            (runCatching { variant.javaClass.getMethod(getter).invoke(variant) }.getOrNull() as? Map<*, *>)
+                ?.values?.filterNotNull().orEmpty()
+        }
+        val seen = mutableSetOf<String>()
+        (listOf(variant) + single + mapped).forEach { component ->
             val name = runCatching { reflectCall(component, "getName").toString() }.getOrNull() ?: return@forEach
+            if (!seen.add(name)) return@forEach
             val sources = runCatching { reflectCall(component, "getSources") }.getOrNull() ?: return@forEach
             listOf("getJava", "getKotlin").forEach { language ->
                 // Sources.java / Sources.kotlin are null when the component has no such sources.

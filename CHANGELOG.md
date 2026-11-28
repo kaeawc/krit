@@ -673,6 +673,10 @@ All notable changes to Krit will be documented in this file.
   a class is reported at the declaration rather than its KDoc (#1369).
 
 ### Fixed
+- `InjectOnAbstractClass` no longer flags abstract classes that Gradle instantiates itself: tasks, extensions, build
+  services and work actions whose `@Inject` constructor takes a Gradle service (`ObjectFactory`, `ExecOperations`, ...),
+  that extend a Gradle type (`DefaultTask`, `WorkAction`, ...) or that declare abstract managed properties
+  (`Property<T>`, `RegularFileProperty`, ...). It reported 6 of these in krit's own Gradle plugin.
 - Gradle plugin: an application's (or dynamic feature's) unit tests are modeled with the tested variant's R jar. AGP
   registers `generate<Variant>UnitTestStubRFile` only for a library, so the model predicted a jar no task writes, FIR
   compiled those tests without the app's R class, and every scan warned about a missing classpath entry (#1724).

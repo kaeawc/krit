@@ -165,6 +165,9 @@ func registerDiHygieneRules() {
 				if !hasAnnotationFlat(file, ctor, "Inject") {
 					return
 				}
+				if injectAbstractClassIsGradleManaged(file, idx, ctor) {
+					return
+				}
 				name := extractIdentifierFlat(file, idx)
 				if name == "" {
 					name = "class"
